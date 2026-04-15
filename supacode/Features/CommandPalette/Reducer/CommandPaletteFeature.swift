@@ -344,7 +344,7 @@ private func pullRequestItems(
       subtitle: pullRequest.title,
       kind: .openPullRequest(worktreeID),
       priorityTier: 2
-    )
+    ),
   ]
 
   if let readyItem = makeReadyItem() {
