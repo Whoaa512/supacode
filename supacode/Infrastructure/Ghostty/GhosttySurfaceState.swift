@@ -44,6 +44,7 @@ final class GhosttySurfaceState {
   var floatWindow: ghostty_action_float_window_e?
   var reloadConfigSoft: Bool?
   var configChangeCount: Int = 0
+  var focused = false
   var bellCount: Int = 0
   var openConfigCount: Int = 0
   var presentTerminalCount: Int = 0

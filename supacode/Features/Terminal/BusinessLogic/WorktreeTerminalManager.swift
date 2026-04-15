@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import Sharing
@@ -23,8 +24,34 @@ final class WorktreeTerminalManager {
   /// Query received from the CLI via socket. Parameters: resource name, params, client FD.
   var onQuery: ((String, [String: String], Int32) -> Void)?
 
+  struct UnfocusedSplitConfig {
+    var opacity: Double
+    var fillColor: NSColor
+  }
+
+  private(set) var unfocusedSplitConfig = UnfocusedSplitConfig(opacity: 0, fillColor: .black)
+
+  func refreshUnfocusedSplitConfig() {
+    unfocusedSplitConfig = UnfocusedSplitConfig(
+      opacity: runtime.unfocusedSplitOpacity(),
+      fillColor: runtime.unfocusedSplitFillColor()
+    )
+  }
+
+  private var configObserver: NSObjectProtocol?
+
   init(runtime: GhosttyRuntime, socketServer: AgentHookSocketServer? = nil) {
     self.runtime = runtime
+    refreshUnfocusedSplitConfig()
+    configObserver = NotificationCenter.default.addObserver(
+      forName: .ghosttyRuntimeConfigDidChange,
+      object: runtime,
+      queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated {
+        self?.refreshUnfocusedSplitConfig()
+      }
+    }
     let resolvedServer = socketServer ?? AgentHookSocketServer()
     guard resolvedServer.socketPath != nil else {
       self.socketServer = nil
