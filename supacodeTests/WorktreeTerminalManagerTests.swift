@@ -168,7 +168,7 @@ struct WorktreeTerminalManagerTests {
         body: "body",
         createdAt: .distantPast,
         isRead: false
-      )
+      ),
     ]
     state.onNotificationIndicatorChanged?()
     state.notifications = [
@@ -178,7 +178,7 @@ struct WorktreeTerminalManagerTests {
         body: "body",
         createdAt: .distantPast,
         isRead: true
-      )
+      ),
     ]
 
     let stream = manager.eventStream()
@@ -996,7 +996,7 @@ struct WorktreeTerminalManagerTests {
             )
           ),
           focusedLeafIndex: 0
-        )
+        ),
       ],
       selectedTabIndex: 0
     )
