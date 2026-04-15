@@ -23,6 +23,7 @@ TUIST_CACHE_CONFIGURATION ?= Debug
 VERSION ?=
 BUILD ?=
 XCODEBUILD_FLAGS ?=
+LOCAL_XCODEBUILD_FLAGS ?= $(shell xcodebuild -version 2>/dev/null | awk '/^Xcode 26\.4$$/{print "SWIFT_VERSION=5"}')
 
 .DEFAULT_GOAL := help
 .PHONY: build-ghostty-xcframework generate-project generate-project-sources inspect-dependencies warm-cache build-app run-app install-dev-build archive export-archive format lint check test bump-version bump-and-release log-stream
@@ -79,7 +80,7 @@ warm-cache: $(TUIST_INSTALL_STAMP) # Warm the full Tuist cacheable graph
 	mise exec -- tuist cache warm --configuration $(TUIST_CACHE_CONFIGURATION)
 
 build-app: $(TUIST_DEVELOPMENT_GENERATION_STAMP) # Build the macOS app (Debug)
-	bash -o pipefail -c 'xcodebuild -workspace "$(PROJECT_WORKSPACE)" -scheme "$(APP_SCHEME)" -configuration Debug build -skipMacroValidation 2>&1 | mise exec -- xcbeautify --disable-logging'
+	bash -o pipefail -c 'xcodebuild -workspace "$(PROJECT_WORKSPACE)" -scheme "$(APP_SCHEME)" -configuration Debug build -skipMacroValidation $(LOCAL_XCODEBUILD_FLAGS) 2>&1 | mise exec -- xcbeautify --disable-logging'
 
 run-app: build-app # Build then launch (Debug) with log streaming
 	@settings="$$(xcodebuild -workspace "$(PROJECT_WORKSPACE)" -scheme "$(APP_SCHEME)" -configuration Debug -showBuildSettings -json 2>/dev/null)"; \
@@ -112,9 +113,9 @@ export-archive: # Export xarchive
 
 test: $(TUIST_DEVELOPMENT_GENERATION_STAMP) # Run all tests
 	@if [ -t 1 ]; then \
-		bash -o pipefail -c 'xcodebuild test -workspace "$(PROJECT_WORKSPACE)" -scheme "$(APP_SCHEME)" -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -skipMacroValidation -parallel-testing-enabled NO 2>&1 | mise exec -- xcbeautify --disable-logging'; \
+		bash -o pipefail -c 'xcodebuild test -workspace "$(PROJECT_WORKSPACE)" -scheme "$(APP_SCHEME)" -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -skipMacroValidation -parallel-testing-enabled NO $(LOCAL_XCODEBUILD_FLAGS) 2>&1 | mise exec -- xcbeautify --disable-logging'; \
 	else \
-		xcodebuild test -workspace "$(PROJECT_WORKSPACE)" -scheme "$(APP_SCHEME)" -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -skipMacroValidation -parallel-testing-enabled NO; \
+		xcodebuild test -workspace "$(PROJECT_WORKSPACE)" -scheme "$(APP_SCHEME)" -destination "platform=macOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -skipMacroValidation -parallel-testing-enabled NO $(LOCAL_XCODEBUILD_FLAGS); \
 	fi
 
 format: # Format code with swift format (local only).

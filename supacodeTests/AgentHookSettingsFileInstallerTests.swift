@@ -38,10 +38,10 @@ struct AgentHookSettingsFileInstallerTests {
                 AgentHookSettingsCommand.compositeCommand(
                   events: [.idle], forwardStdinAsNotification: false, agent: .claude)),
               "timeout": 10,
-            ])
-          ])
-        ])
-      ]
+            ]),
+          ]),
+        ]),
+      ],
     ]
   }
 
@@ -115,11 +115,11 @@ struct AgentHookSettingsFileInstallerTests {
               .object([
                 "type": "command",
                 "command": "SUPACODE_CLI_PATH agent-hook --stop",
-              ])
-            ])
-          ])
-        ])
-      ])
+              ]),
+            ]),
+          ]),
+        ]),
+      ]),
     ])
     try fileManager.createDirectory(
       at: url.deletingLastPathComponent(),
@@ -165,8 +165,8 @@ struct AgentHookSettingsFileInstallerTests {
           .object([
             "type": "command",
             "command": "echo third-party",
-          ])
-        ])
+          ]),
+        ]),
       ]))
     hooks["Stop"] = .array(stopGroups)
     root["hooks"] = .object(hooks)
