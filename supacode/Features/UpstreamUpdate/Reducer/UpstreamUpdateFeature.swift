@@ -59,8 +59,8 @@ struct UpstreamUpdateFeature {
   }
 
   private func resolveSupacodeRepoPath() -> String? {
-    let bundlePath = Bundle.main.bundlePath
-    let url = URL(fileURLWithPath: bundlePath)
+    let compileTimePath = #filePath
+    let url = URL(fileURLWithPath: compileTimePath)
     var current = url.deletingLastPathComponent()
     for _ in 0..<10 {
       let gitPath = current.appendingPathComponent(".git").path
