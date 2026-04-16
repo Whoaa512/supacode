@@ -1598,7 +1598,9 @@ final class WorktreeTerminalState {
       emitTaskStatusIfChanged()
       return
     }
-    updateTree(newTree, for: tabId)
+    @Shared(.settingsFile) var settingsFile
+    let finalTree = settingsFile.global.equalizeSplitsOnSplit ? newTree.equalized() : newTree
+    updateTree(finalTree, for: tabId)
     updateRunningState(for: tabId)
     if focusedSurfaceIdByTab[tabId] == view.id {
       if let nextSurface {
