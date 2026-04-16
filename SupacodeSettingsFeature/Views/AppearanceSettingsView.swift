@@ -19,7 +19,7 @@ public struct AppearanceSettingsView: View {
             ForEach(AppearanceMode.allCases) { mode in
               AppearanceOptionCardView(
                 mode: mode,
-                isSelected: mode == appearanceMode.wrappedValue
+                isSelected: mode == appearanceMode.wrappedValue,
               ) {
                 appearanceMode.wrappedValue = mode
               }
@@ -105,6 +105,10 @@ public struct AppearanceSettingsView: View {
         Toggle(isOn: $store.hideSingleTabBar) {
           Text("Hide Tab Bar for Single Tab")
           Text("Automatically hides the tab bar when only one tab is open.")
+        }
+        Toggle(isOn: $store.equalizeSplitsOnSplit) {
+          Text("Equalize Splits on Split")
+          Text("Automatically equalize all pane sizes when creating a new split.")
         }
         Picker(selection: $store.automatedActionPolicy.sending(\.setAutomatedActionPolicy)) {
           ForEach(AutomatedActionPolicy.allCases, id: \.self) { policy in
