@@ -456,6 +456,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
     guard surface != nil else { return }
     guard self.focused != focused else { return }
     self.focused = focused
+    bridge.state.focused = focused
     if focused {
       bridge.state.bellCount = 0
     }

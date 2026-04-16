@@ -1,6 +1,5 @@
 import ProjectDescription
 
-let ghosttyBuildRootPath: Path = ".build/ghostty"
 let ghosttyXCFrameworkPath: Path = ".build/ghostty/GhosttyKit.xcframework"
 let ghosttyResourcesPath: Path = ".build/ghostty/share/ghostty"
 let ghosttyTerminfoPath: Path = ".build/ghostty/share/terminfo"
@@ -37,27 +36,15 @@ let appDependencies: [TargetDependency] = [
   .target(name: "SupacodeSettingsFeature"),
   .target(name: "GhosttyKit"),
   .target(name: "supacode-cli"),
-  .external(name: "CasePaths"),
-  .external(name: "CasePathsCore"),
-  .external(name: "Clocks"),
-  .external(name: "CombineSchedulers"),
   .external(name: "ComposableArchitecture"),
-  .external(name: "ConcurrencyExtras"),
   .external(name: "CustomDump"),
   .external(name: "Dependencies"),
   .external(name: "IdentifiedCollections"),
-  .external(name: "IssueReporting"),
   .external(name: "Kingfisher"),
-  .external(name: "OrderedCollections"),
-  .external(name: "Perception"),
   .external(name: "PostHog"),
   .external(name: "Sentry"),
   .external(name: "Sharing"),
   .external(name: "Sparkle"),
-  .external(name: "SwiftNavigation"),
-  .external(name: "SwiftUINavigation"),
-  .external(name: "UIKitNavigation"),
-  .external(name: "XCTestDynamicOverlay"),
 ]
 
 let testDependencies: [TargetDependency] = [
@@ -107,8 +94,6 @@ let project = Project(
       "CLANG_ENABLE_MODULES": "YES",
       "CODE_SIGN_STYLE": "Automatic",
       "ENABLE_USER_SCRIPT_SANDBOXING": "NO",
-      "FRAMEWORK_SEARCH_PATHS": "$(inherited) $(BUILT_PRODUCTS_DIR)/PackageFrameworks",
-      "LIBRARY_SEARCH_PATHS": "$(inherited) $(BUILT_PRODUCTS_DIR)/PackageFrameworks",
       "SWIFT_APPROACHABLE_CONCURRENCY": "YES",
       "SWIFT_DEFAULT_ACTOR_ISOLATION": "MainActor",
       "SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY": "YES",

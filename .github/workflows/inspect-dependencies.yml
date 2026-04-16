@@ -1,4 +1,4 @@
-name: test
+name: inspect-dependencies
 
 on:
   push:
@@ -7,8 +7,9 @@ on:
   pull_request:
     branches:
       - main
+
 jobs:
-  build:
+  inspect-dependencies:
     runs-on: macos-26
     permissions:
       contents: read
@@ -21,6 +22,4 @@ jobs:
         with:
           submodules: recursive
       - uses: ./.github/actions/setup-macos
-      - run: make lint
-      - run: make build-app
-      - run: make test
+      - run: make inspect-dependencies

@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct TerminalSplitTreeView: View {
   let tree: SplitTree<GhosttySurfaceView>
+  let unfocusedSplitConfig: WorktreeTerminalManager.UnfocusedSplitConfig
   let action: (Operation) -> Void
 
   private static let dragType = UTType(exportedAs: "sh.supacode.ghosttySurfaceId")
@@ -22,7 +23,7 @@ struct TerminalSplitTreeView: View {
 
   var body: some View {
     if let node = tree.visibleNode {
-      SubtreeView(node: node, isRoot: node == tree.root, action: action)
+      SubtreeView(node: node, isRoot: node == tree.root, unfocusedSplitConfig: unfocusedSplitConfig, action: action)
         .id(node.structuralIdentity)
     }
   }
@@ -36,12 +37,13 @@ struct TerminalSplitTreeView: View {
   struct SubtreeView: View {
     let node: SplitTree<GhosttySurfaceView>.Node
     var isRoot: Bool = false
+    let unfocusedSplitConfig: WorktreeTerminalManager.UnfocusedSplitConfig
     let action: (Operation) -> Void
 
     var body: some View {
       switch node {
       case .leaf(let leafView):
-        LeafView(surfaceView: leafView, isSplit: !isRoot, action: action)
+        LeafView(surfaceView: leafView, isSplit: !isRoot, unfocusedSplitConfig: unfocusedSplitConfig, action: action)
       case .split(let split):
         let splitViewDirection: SplitView<SubtreeView, SubtreeView>.Direction =
           switch split.direction {
@@ -60,10 +62,10 @@ struct TerminalSplitTreeView: View {
           dividerColor: .secondary,
           resizeIncrements: .init(width: 1, height: 1),
           left: {
-            SubtreeView(node: split.left, action: action)
+            SubtreeView(node: split.left, unfocusedSplitConfig: unfocusedSplitConfig, action: action)
           },
           right: {
-            SubtreeView(node: split.right, action: action)
+            SubtreeView(node: split.right, unfocusedSplitConfig: unfocusedSplitConfig, action: action)
           },
           onEqualize: {
             action(.equalize)
@@ -76,6 +78,7 @@ struct TerminalSplitTreeView: View {
   struct LeafView: View {
     let surfaceView: GhosttySurfaceView
     let isSplit: Bool
+    let unfocusedSplitConfig: WorktreeTerminalManager.UnfocusedSplitConfig
     let action: (Operation) -> Void
 
     @State private var dropState: DropState = .idle
@@ -90,6 +93,14 @@ struct TerminalSplitTreeView: View {
           .overlay(alignment: .topTrailing) {
             if surfaceView.bridge.state.searchNeedle != nil {
               GhosttySurfaceSearchOverlay(surfaceView: surfaceView)
+            }
+          }
+          .overlay {
+            if isSplit, !surfaceView.bridge.state.focused, unfocusedSplitConfig.opacity > 0 {
+              Rectangle()
+                .fill(Color(nsColor: unfocusedSplitConfig.fillColor))
+                .allowsHitTesting(false)
+                .opacity(unfocusedSplitConfig.opacity)
             }
           }
           .overlay(alignment: .top) {
@@ -281,6 +292,7 @@ struct TerminalSplitTreeView: View {
 /// list of terminal panes to assistive technologies.
 struct TerminalSplitTreeAXContainer: NSViewRepresentable {
   let tree: SplitTree<GhosttySurfaceView>
+  let unfocusedSplitConfig: WorktreeTerminalManager.UnfocusedSplitConfig
   let action: (TerminalSplitTreeView.Operation) -> Void
 
   func makeNSView(context: Context) -> TerminalSplitAXContainerView {
@@ -289,7 +301,7 @@ struct TerminalSplitTreeAXContainer: NSViewRepresentable {
 
   func updateNSView(_ nsView: TerminalSplitAXContainerView, context: Context) {
     nsView.update(
-      rootView: AnyView(TerminalSplitTreeView(tree: tree, action: action)),
+      rootView: AnyView(TerminalSplitTreeView(tree: tree, unfocusedSplitConfig: unfocusedSplitConfig, action: action)),
       panes: tree.visibleLeaves()
     )
   }

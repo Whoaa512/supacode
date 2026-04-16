@@ -41,6 +41,7 @@ public struct SettingsFeature {
     public var claudeNotificationsState = AgentHooksInstallState.checking
     public var codexProgressState = AgentHooksInstallState.checking
     public var codexNotificationsState = AgentHooksInstallState.checking
+    /// `nil` when the settings window is closed; non-nil selects the visible section.
     public var selection: SettingsSection?
     public var repositorySummaries: [SettingsRepositorySummary] = []
     public var repositorySettings: RepositorySettingsFeature.State?
@@ -545,7 +546,7 @@ public struct SettingsFeature {
       state.repositorySettings = nil
       return
     }
-    guard case .repository(let repositoryID) = selection else {
+    guard let repositoryID = selection.repositoryID else {
       state.repositorySettings = nil
       return
     }

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import Sharing
@@ -23,8 +24,34 @@ final class WorktreeTerminalManager {
   /// Query received from the CLI via socket. Parameters: resource name, params, client FD.
   var onQuery: ((String, [String: String], Int32) -> Void)?
 
+  struct UnfocusedSplitConfig {
+    var opacity: Double
+    var fillColor: NSColor
+  }
+
+  private(set) var unfocusedSplitConfig = UnfocusedSplitConfig(opacity: 0, fillColor: .black)
+
+  func refreshUnfocusedSplitConfig() {
+    unfocusedSplitConfig = UnfocusedSplitConfig(
+      opacity: runtime.unfocusedSplitOpacity(),
+      fillColor: runtime.unfocusedSplitFillColor()
+    )
+  }
+
+  private var configObserver: NSObjectProtocol?
+
   init(runtime: GhosttyRuntime, socketServer: AgentHookSocketServer? = nil) {
     self.runtime = runtime
+    refreshUnfocusedSplitConfig()
+    configObserver = NotificationCenter.default.addObserver(
+      forName: .ghosttyRuntimeConfigDidChange,
+      object: runtime,
+      queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated {
+        self?.refreshUnfocusedSplitConfig()
+      }
+    }
     let resolvedServer = socketServer ?? AgentHookSocketServer()
     guard resolvedServer.socketPath != nil else {
       self.socketServer = nil
@@ -122,7 +149,9 @@ final class WorktreeTerminalManager {
       let state = state(for: worktree) { runSetupScriptIfNew }
       state.ensureInitialTab(focusing: focusing)
     case .stopRunScript(let worktree):
-      _ = state(for: worktree).stopRunScript()
+      _ = state(for: worktree).stopRunScripts()
+    case .stopScript(let worktree, let definitionID):
+      _ = state(for: worktree).stopScript(definitionID: definitionID)
     case .runBlockingScript(let worktree, let kind, let script):
       _ = state(for: worktree).runBlockingScript(kind: kind, script)
     case .closeFocusedTab(let worktree):
@@ -187,10 +216,10 @@ final class WorktreeTerminalManager {
       state(for: worktree).navigateSearchOnFocusedSurface(.previous)
     case .endSearch(let worktree):
       state(for: worktree).performBindingActionOnFocusedSurface("end_search")
-    case .createTab, .createTabWithInput, .ensureInitialTab, .stopRunScript, .runBlockingScript,
-      .closeFocusedTab, .closeFocusedSurface, .performBindingAction, .selectTab, .focusSurface,
-      .splitSurface, .destroyTab, .destroySurface, .prune, .setNotificationsEnabled,
-      .setSelectedWorktreeID, .refreshTabBarVisibility:
+    case .createTab, .createTabWithInput, .ensureInitialTab, .stopRunScript, .stopScript,
+      .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .performBindingAction,
+      .selectTab, .focusSurface, .splitSurface, .destroyTab, .destroySurface, .prune,
+      .setNotificationsEnabled, .setSelectedWorktreeID, .refreshTabBarVisibility:
       return false
     }
     return true
@@ -200,11 +229,11 @@ final class WorktreeTerminalManager {
     switch command {
     case .performBindingAction(let worktree, let action):
       state(for: worktree).performBindingActionOnFocusedSurface(action)
-    case .createTab, .createTabWithInput, .ensureInitialTab, .stopRunScript, .runBlockingScript,
-      .closeFocusedTab, .closeFocusedSurface, .startSearch, .searchSelection, .navigateSearchNext,
-      .navigateSearchPrevious, .endSearch, .selectTab, .focusSurface, .splitSurface, .destroyTab,
-      .destroySurface, .prune, .setNotificationsEnabled, .setSelectedWorktreeID,
-      .refreshTabBarVisibility:
+    case .createTab, .createTabWithInput, .ensureInitialTab, .stopRunScript, .stopScript,
+      .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .startSearch, .searchSelection,
+      .navigateSearchNext, .navigateSearchPrevious, .endSearch, .selectTab, .focusSurface,
+      .splitSurface, .destroyTab, .destroySurface, .prune, .setNotificationsEnabled,
+      .setSelectedWorktreeID, .refreshTabBarVisibility:
       return false
     }
     return true
@@ -228,10 +257,10 @@ final class WorktreeTerminalManager {
       }
       selectedWorktreeID = id
       terminalLogger.info("Selected worktree \(id ?? "nil")")
-    case .createTab, .createTabWithInput, .ensureInitialTab, .stopRunScript, .runBlockingScript,
-      .closeFocusedTab, .closeFocusedSurface, .performBindingAction, .startSearch, .searchSelection,
-      .navigateSearchNext, .navigateSearchPrevious, .endSearch, .selectTab, .focusSurface,
-      .splitSurface, .destroyTab, .destroySurface:
+    case .createTab, .createTabWithInput, .ensureInitialTab, .stopRunScript, .stopScript,
+      .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .performBindingAction,
+      .startSearch, .searchSelection, .navigateSearchNext, .navigateSearchPrevious, .endSearch,
+      .selectTab, .focusSurface, .splitSurface, .destroyTab, .destroySurface:
       assertionFailure("Unhandled terminal command reached management handler: \(command)")
     }
   }
