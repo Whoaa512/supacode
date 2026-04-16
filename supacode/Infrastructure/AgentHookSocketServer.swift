@@ -18,8 +18,8 @@ final class AgentHookSocketServer {
   private(set) var socketPath: String?
 
   private var listenTask: Task<Void, Never>?
-  /// (worktreeID, tabID, surfaceID, active).
-  var onBusy: ((String, UUID, UUID, Bool) -> Void)?
+  /// (worktreeID, tabID, surfaceID, state).
+  var onBusy: ((String, UUID, UUID, AgentBusyState) -> Void)?
   /// (worktreeID, tabID, surfaceID, notification).
   var onNotification: ((String, UUID, UUID, AgentHookNotification) -> Void)?
   /// Deeplink URL received from the CLI. Second parameter is the client FD for response.
@@ -112,8 +112,8 @@ final class AgentHookSocketServer {
 
         await MainActor.run { [weak self] in
           switch message {
-          case .busy(let worktreeID, let tabID, let surfaceID, let active):
-            self?.onBusy?(worktreeID, tabID, surfaceID, active)
+          case .busy(let worktreeID, let tabID, let surfaceID, let state):
+            self?.onBusy?(worktreeID, tabID, surfaceID, state)
           case .notification(let worktreeID, let tabID, let surfaceID, let notification):
             self?.onNotification?(worktreeID, tabID, surfaceID, notification)
           case .command(let deeplinkURL, let clientFD):
@@ -207,7 +207,7 @@ final class AgentHookSocketServer {
   private nonisolated static let maxPayloadSize = 65_536
 
   nonisolated enum Message: Sendable {
-    case busy(worktreeID: String, tabID: UUID, surfaceID: UUID, active: Bool)
+    case busy(worktreeID: String, tabID: UUID, surfaceID: UUID, state: AgentBusyState)
     case notification(
       worktreeID: String, tabID: UUID, surfaceID: UUID, notification: AgentHookNotification)
     /// CLI command with the client FD kept open for writing a response.
@@ -359,8 +359,14 @@ final class AgentHookSocketServer {
     let worktreeID = String(headerParts[0])
 
     if lines.count == 1, headerParts.count == 4 {
-      let active = String(headerParts[3]) != "0"
-      return .busy(worktreeID: worktreeID, tabID: tabID, surfaceID: surfaceID, active: active)
+      let state: AgentBusyState =
+        switch String(headerParts[3]) {
+        case "0": .idle
+        case "1": .busy
+        case "2": .waitingForInput
+        default: .busy
+        }
+      return .busy(worktreeID: worktreeID, tabID: tabID, surfaceID: surfaceID, state: state)
     }
 
     // Multiple lines → notification. Fourth header field is the agent name.
