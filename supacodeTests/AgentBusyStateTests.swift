@@ -15,7 +15,7 @@ struct AgentBusyStateTests {
     let fixture = makeStateWithSurface(worktree: worktree)
     #expect(fixture.manager.taskStatus(for: worktree.id) == .idle)
 
-    fixture.state.setAgentBusy(surfaceID: fixture.surface.id, tabID: fixture.tabId, active: true)
+    fixture.state.setAgentState(surfaceID: fixture.surface.id, tabID: fixture.tabId, state: .busy)
 
     #expect(fixture.manager.taskStatus(for: worktree.id) == .running)
   }
@@ -24,10 +24,10 @@ struct AgentBusyStateTests {
     let worktree = makeWorktree()
     let fixture = makeStateWithSurface(worktree: worktree)
 
-    fixture.state.setAgentBusy(surfaceID: fixture.surface.id, tabID: fixture.tabId, active: true)
+    fixture.state.setAgentState(surfaceID: fixture.surface.id, tabID: fixture.tabId, state: .busy)
     #expect(fixture.manager.taskStatus(for: worktree.id) == .running)
 
-    fixture.state.setAgentBusy(surfaceID: fixture.surface.id, tabID: fixture.tabId, active: false)
+    fixture.state.setAgentState(surfaceID: fixture.surface.id, tabID: fixture.tabId, state: .idle)
     #expect(fixture.manager.taskStatus(for: worktree.id) == .idle)
   }
 
@@ -39,7 +39,7 @@ struct AgentBusyStateTests {
     let tabBefore = fixture.state.tabManager.tabs.first { $0.id == fixture.tabId }
     #expect(tabBefore?.isDirty == false)
 
-    fixture.state.setAgentBusy(surfaceID: fixture.surface.id, tabID: fixture.tabId, active: true)
+    fixture.state.setAgentState(surfaceID: fixture.surface.id, tabID: fixture.tabId, state: .busy)
 
     let tabAfter = fixture.state.tabManager.tabs.first { $0.id == fixture.tabId }
     #expect(tabAfter?.isDirty == true)
@@ -50,8 +50,8 @@ struct AgentBusyStateTests {
 
     // Complete the blocking script first.
     fixture.surface.bridge.onCommandFinished?(0)
-    fixture.state.setAgentBusy(surfaceID: fixture.surface.id, tabID: fixture.tabId, active: true)
-    fixture.state.setAgentBusy(surfaceID: fixture.surface.id, tabID: fixture.tabId, active: false)
+    fixture.state.setAgentState(surfaceID: fixture.surface.id, tabID: fixture.tabId, state: .busy)
+    fixture.state.setAgentState(surfaceID: fixture.surface.id, tabID: fixture.tabId, state: .idle)
 
     let tab = fixture.state.tabManager.tabs.first { $0.id == fixture.tabId }
     #expect(tab?.isDirty == false)
@@ -61,7 +61,7 @@ struct AgentBusyStateTests {
     let worktree = makeWorktree()
     let fixture = makeStateWithSurface(worktree: worktree)
 
-    fixture.state.setAgentBusy(surfaceID: UUID(), tabID: fixture.tabId, active: true)
+    fixture.state.setAgentState(surfaceID: UUID(), tabID: fixture.tabId, state: .busy)
 
     #expect(fixture.manager.taskStatus(for: worktree.id) == .idle)
   }
@@ -70,11 +70,59 @@ struct AgentBusyStateTests {
     let worktree = makeWorktree()
     let fixture = makeStateWithSurface(worktree: worktree)
 
-    fixture.state.setAgentBusy(surfaceID: fixture.surface.id, tabID: fixture.tabId, active: true)
+    fixture.state.setAgentState(surfaceID: fixture.surface.id, tabID: fixture.tabId, state: .busy)
     #expect(fixture.manager.taskStatus(for: worktree.id) == .running)
 
     fixture.state.closeTab(fixture.tabId)
     #expect(fixture.manager.taskStatus(for: worktree.id) == .idle)
+  }
+
+  @Test func waitingForInputReportsWaitingStatus() {
+    let worktree = makeWorktree()
+    let fixture = makeStateWithSurface(worktree: worktree)
+    #expect(fixture.manager.taskStatus(for: worktree.id) == .idle)
+
+    fixture.state.setAgentState(surfaceID: fixture.surface.id, tabID: fixture.tabId, state: .waitingForInput)
+    #expect(fixture.manager.taskStatus(for: worktree.id) == .waitingForInput)
+
+    fixture.state.setAgentState(surfaceID: fixture.surface.id, tabID: fixture.tabId, state: .busy)
+    #expect(fixture.manager.taskStatus(for: worktree.id) == .running)
+
+    fixture.state.setAgentState(surfaceID: fixture.surface.id, tabID: fixture.tabId, state: .idle)
+    #expect(fixture.manager.taskStatus(for: worktree.id) == .idle)
+  }
+
+  @Test func waitingForInputTakesPriorityOverRunning() {
+    let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
+    let worktree = makeWorktree()
+
+    manager.handleCommand(.runBlockingScript(worktree, kind: .archive, script: "echo a"))
+    manager.handleCommand(.runBlockingScript(worktree, kind: .delete, script: "echo b"))
+
+    guard let state = manager.stateIfExists(for: worktree.id) else {
+      Issue.record("Expected worktree state")
+      return
+    }
+    let tabs = state.tabManager.tabs.map(\.id)
+    guard tabs.count >= 2 else {
+      Issue.record("Expected at least two tabs")
+      return
+    }
+
+    guard
+      let surfaceA = state.splitTree(for: tabs[0]).root?.leftmostLeaf(),
+      let surfaceB = state.splitTree(for: tabs[1]).root?.leftmostLeaf()
+    else {
+      Issue.record("Expected surfaces in both tabs")
+      return
+    }
+
+    state.setAgentState(surfaceID: surfaceA.id, tabID: tabs[0], state: .busy)
+    state.setAgentState(surfaceID: surfaceB.id, tabID: tabs[1], state: .waitingForInput)
+    #expect(manager.taskStatus(for: worktree.id) == .waitingForInput)
+
+    state.setAgentState(surfaceID: surfaceB.id, tabID: tabs[1], state: .idle)
+    #expect(manager.taskStatus(for: worktree.id) == .running)
   }
 
   @Test func multipleSurfacesBusyInDifferentTabs() {
@@ -102,16 +150,16 @@ struct AgentBusyStateTests {
       return
     }
 
-    state.setAgentBusy(surfaceID: surfaceA.id, tabID: tabs[0], active: true)
-    state.setAgentBusy(surfaceID: surfaceB.id, tabID: tabs[1], active: true)
+    state.setAgentState(surfaceID: surfaceA.id, tabID: tabs[0], state: .busy)
+    state.setAgentState(surfaceID: surfaceB.id, tabID: tabs[1], state: .busy)
     #expect(manager.taskStatus(for: worktree.id) == .running)
 
     // Clear one — still running because the other is busy.
-    state.setAgentBusy(surfaceID: surfaceA.id, tabID: tabs[0], active: false)
+    state.setAgentState(surfaceID: surfaceA.id, tabID: tabs[0], state: .idle)
     #expect(manager.taskStatus(for: worktree.id) == .running)
 
     // Clear the other — now idle.
-    state.setAgentBusy(surfaceID: surfaceB.id, tabID: tabs[1], active: false)
+    state.setAgentState(surfaceID: surfaceB.id, tabID: tabs[1], state: .idle)
     #expect(manager.taskStatus(for: worktree.id) == .idle)
   }
 
@@ -130,7 +178,7 @@ struct AgentBusyStateTests {
       return
     }
 
-    state.setAgentBusy(surfaceID: surface.id, tabID: tabId, active: true)
+    state.setAgentState(surfaceID: surface.id, tabID: tabId, state: .busy)
 
     let event = await nextEvent(stream) { event in
       if case .taskStatusChanged(_, let status) = event, status == .running {

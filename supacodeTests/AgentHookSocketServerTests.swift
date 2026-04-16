@@ -15,14 +15,14 @@ struct AgentHookSocketServerTests {
     let raw = "\(worktreeID) \(tabID.uuidString) \(surfaceID.uuidString) 1"
     let message = AgentHookSocketServer.parse(data: Data(raw.utf8))
 
-    guard case .busy(let wID, let tID, let sID, let active) = message else {
+    guard case .busy(let wID, let tID, let sID, let state) = message else {
       Issue.record("Expected busy message, got \(String(describing: message))")
       return
     }
     #expect(wID == worktreeID)
     #expect(tID == tabID)
     #expect(sID == surfaceID)
-    #expect(active == true)
+    #expect(state == .busy)
   }
 
   @Test func parsesValidBusyInactiveMessage() {
@@ -31,24 +31,37 @@ struct AgentHookSocketServerTests {
     let raw = "wt \(tabID.uuidString) \(surfaceID.uuidString) 0"
     let message = AgentHookSocketServer.parse(data: Data(raw.utf8))
 
-    guard case .busy(_, _, _, let active) = message else {
+    guard case .busy(_, _, _, let state) = message else {
       Issue.record("Expected busy message")
       return
     }
-    #expect(active == false)
+    #expect(state == .idle)
   }
 
-  @Test func nonZeroBusyFlagTreatedAsActive() {
+  @Test func nonZeroBusyFlagTreatedAsBusy() {
     let tabID = UUID()
     let surfaceID = UUID()
     let raw = "wt \(tabID.uuidString) \(surfaceID.uuidString) anything"
     let message = AgentHookSocketServer.parse(data: Data(raw.utf8))
 
-    guard case .busy(_, _, _, let active) = message else {
+    guard case .busy(_, _, _, let state) = message else {
       Issue.record("Expected busy message")
       return
     }
-    #expect(active == true)
+    #expect(state == .busy)
+  }
+
+  @Test func parsesWaitingForInputFlag() {
+    let tabID = UUID()
+    let surfaceID = UUID()
+    let raw = "wt \(tabID.uuidString) \(surfaceID.uuidString) 2"
+    let message = AgentHookSocketServer.parse(data: Data(raw.utf8))
+
+    guard case .busy(_, _, _, let state) = message else {
+      Issue.record("Expected busy message")
+      return
+    }
+    #expect(state == .waitingForInput)
   }
 
   // MARK: - Notification message parsing.

@@ -168,7 +168,7 @@ struct WorktreeTerminalManagerTests {
         body: "body",
         createdAt: .distantPast,
         isRead: false
-      ),
+      )
     ]
     state.onNotificationIndicatorChanged?()
     state.notifications = [
@@ -178,7 +178,7 @@ struct WorktreeTerminalManagerTests {
         body: "body",
         createdAt: .distantPast,
         isRead: true
-      ),
+      )
     ]
 
     let stream = manager.eventStream()
@@ -211,16 +211,16 @@ struct WorktreeTerminalManagerTests {
 
     #expect(manager.taskStatus(for: worktree.id) == .idle)
 
-    surface2.bridge.state.agentBusy = true
+    surface2.bridge.state.agentBusyState = .busy
     #expect(manager.taskStatus(for: worktree.id) == .running)
 
-    surface1.bridge.state.agentBusy = true
+    surface1.bridge.state.agentBusyState = .busy
     #expect(manager.taskStatus(for: worktree.id) == .running)
 
-    surface2.bridge.state.agentBusy = false
+    surface2.bridge.state.agentBusyState = .idle
     #expect(manager.taskStatus(for: worktree.id) == .running)
 
-    surface1.bridge.state.agentBusy = false
+    surface1.bridge.state.agentBusyState = .idle
     #expect(manager.taskStatus(for: worktree.id) == .idle)
   }
 
@@ -996,7 +996,7 @@ struct WorktreeTerminalManagerTests {
             )
           ),
           focusedLeafIndex: 0
-        ),
+        )
       ],
       selectedTabIndex: 0
     )
