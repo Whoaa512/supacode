@@ -33,6 +33,7 @@ public struct SettingsFeature {
     public var automatedActionPolicy: AutomatedActionPolicy
     public var defaultWorktreeBaseDirectoryPath: String
     public var autoDeleteArchivedWorktreesAfterDays: AutoDeletePeriod?
+    public var equalizeSplitsOnSplit: Bool
     public var shortcutOverrides: [AppShortcutID: AppShortcutOverride]
     public var cliInstallState = AgentHooksInstallState.checking
     public var claudeSkillState = AgentHooksInstallState.checking
@@ -74,6 +75,7 @@ public struct SettingsFeature {
       hideSingleTabBar = settings.hideSingleTabBar
       automatedActionPolicy = settings.automatedActionPolicy
       autoDeleteArchivedWorktreesAfterDays = settings.autoDeleteArchivedWorktreesAfterDays
+      equalizeSplitsOnSplit = settings.equalizeSplitsOnSplit
       shortcutOverrides = settings.shortcutOverrides
       defaultWorktreeBaseDirectoryPath =
         SupacodePaths.normalizedWorktreeBaseDirectoryPath(settings.defaultWorktreeBaseDirectoryPath) ?? ""
@@ -109,7 +111,8 @@ public struct SettingsFeature {
           defaultWorktreeBaseDirectoryPath
         ),
         autoDeleteArchivedWorktreesAfterDays: autoDeleteArchivedWorktreesAfterDays,
-        shortcutOverrides: shortcutOverrides
+        equalizeSplitsOnSplit: equalizeSplitsOnSplit,
+        shortcutOverrides: shortcutOverrides,
       )
     }
   }
@@ -198,8 +201,8 @@ public struct SettingsFeature {
               await send(.agentHookChecked(.codexProgress, installed: await codexProgressInstalled))
               await send(
                 .agentHookChecked(.codexNotifications, installed: await codexNotificationsInstalled))
-            }
-          )
+            },
+          ),
         )
 
       case .settingsLoaded(let settings):
@@ -244,6 +247,7 @@ public struct SettingsFeature {
         state.hideSingleTabBar = normalizedSettings.hideSingleTabBar
         state.automatedActionPolicy = normalizedSettings.automatedActionPolicy
         state.autoDeleteArchivedWorktreesAfterDays = normalizedSettings.autoDeleteArchivedWorktreesAfterDays
+        state.equalizeSplitsOnSplit = normalizedSettings.equalizeSplitsOnSplit
         state.shortcutOverrides = normalizedSettings.shortcutOverrides
         state.defaultWorktreeBaseDirectoryPath = normalizedSettings.defaultWorktreeBaseDirectoryPath ?? ""
         state.syncGlobalDefaults(from: normalizedSettings)
@@ -559,7 +563,7 @@ public struct SettingsFeature {
       @Shared(.repositorySettings(summary.rootURL)) var repositorySettings
       state.repositorySettings = RepositorySettingsFeature.State(
         rootURL: summary.rootURL,
-        settings: repositorySettings
+        settings: repositorySettings,
       )
     }
     state.syncGlobalDefaults(from: state.globalSettings)
