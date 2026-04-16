@@ -25,7 +25,7 @@ extension UpstreamUpdateClient: DependencyKey {
       let env = URL(fileURLWithPath: "/usr/bin/env")
       let gitDir = repoPath
 
-      let fetchResult = try? await ShellProcess.run(
+      let fetchResult = try? ShellProcess.run(
         env,
         ["git", "-C", gitDir, "fetch", remoteName, "--quiet"],
       )
@@ -34,7 +34,7 @@ extension UpstreamUpdateClient: DependencyKey {
       let remoteBranch = "\(remoteName)/main"
       let rangeArg = "\(localBranch)..\(remoteBranch)"
       guard
-        let countOutput = try? await ShellProcess.run(
+        let countOutput = try? ShellProcess.run(
           env,
           ["git", "-C", gitDir, "rev-list", "--count", rangeArg],
         )
@@ -44,7 +44,7 @@ extension UpstreamUpdateClient: DependencyKey {
       guard let count = Int(countString), count > 0 else { return nil }
 
       let logFormat = "%H|||%s|||%ad"
-      let logResult = try? await ShellProcess.run(
+      let logResult = try? ShellProcess.run(
         env,
         [
           "git", "-C", gitDir, "log", "--format=\(logFormat)", "--date=relative",
