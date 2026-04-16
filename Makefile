@@ -119,7 +119,7 @@ install-dev-build: build-app # install dev build to /Applications
 	build_dir="$$(echo "$$settings" | jq -r '.[0].buildSettings.BUILT_PRODUCTS_DIR')"; \
 	product="$$(echo "$$settings" | jq -r '.[0].buildSettings.FULL_PRODUCT_NAME')"; \
 	src="$$build_dir/$$product"; \
-	dst="/Applications/$$product"; \
+	dst="/Applications/supacode-dev.app"; \
 	if [ ! -d "$$src" ]; then \
 		echo "app not found: $$src"; \
 		exit 1; \
