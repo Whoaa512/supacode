@@ -53,6 +53,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   public var hideSingleTabBar: Bool
   public var automatedActionPolicy: AutomatedActionPolicy
   public var autoDeleteArchivedWorktreesAfterDays: AutoDeletePeriod?
+  public var equalizeSplitsOnSplit: Bool
   public var shortcutOverrides: [AppShortcutID: AppShortcutOverride]
 
   public static let `default` = GlobalSettings(
@@ -82,7 +83,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     automatedActionPolicy: .cliOnly,
     defaultWorktreeBaseDirectoryPath: nil,
     autoDeleteArchivedWorktreesAfterDays: nil,
-    shortcutOverrides: [:]
+    equalizeSplitsOnSplit: false,
+    shortcutOverrides: [:],
   )
 
   public init(
@@ -112,7 +114,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     automatedActionPolicy: AutomatedActionPolicy = .cliOnly,
     defaultWorktreeBaseDirectoryPath: String? = nil,
     autoDeleteArchivedWorktreesAfterDays: AutoDeletePeriod? = nil,
-    shortcutOverrides: [AppShortcutID: AppShortcutOverride] = [:]
+    equalizeSplitsOnSplit: Bool = false,
+    shortcutOverrides: [AppShortcutID: AppShortcutOverride] = [:],
   ) {
     self.appearanceMode = appearanceMode
     self.defaultEditorID = defaultEditorID
@@ -140,6 +143,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.automatedActionPolicy = automatedActionPolicy
     self.defaultWorktreeBaseDirectoryPath = defaultWorktreeBaseDirectoryPath
     self.autoDeleteArchivedWorktreesAfterDays = autoDeleteArchivedWorktreesAfterDays
+    self.equalizeSplitsOnSplit = equalizeSplitsOnSplit
     self.shortcutOverrides = shortcutOverrides
   }
 
@@ -200,7 +204,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     } else {
       if let legacyBool = try legacy.decodeIfPresent(
         Bool.self,
-        forKey: LegacyCodingKey(stringValue: "automaticallyArchiveMergedWorktrees")!
+        forKey: LegacyCodingKey(stringValue: "automaticallyArchiveMergedWorktrees")!,
       ) {
         mergedWorktreeAction = legacyBool ? .archive : Self.default.mergedWorktreeAction
       } else {
@@ -249,6 +253,9 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
       (try container.decodeIfPresent(Int.self, forKey: .autoDeleteArchivedWorktreesAfterDays))
       .flatMap(AutoDeletePeriod.init(rawValue:))
       ?? Self.default.autoDeleteArchivedWorktreesAfterDays
+    equalizeSplitsOnSplit =
+      try container.decodeIfPresent(Bool.self, forKey: .equalizeSplitsOnSplit)
+      ?? Self.default.equalizeSplitsOnSplit
     shortcutOverrides =
       try container.decodeIfPresent([AppShortcutID: AppShortcutOverride].self, forKey: .shortcutOverrides)
       ?? Self.default.shortcutOverrides
