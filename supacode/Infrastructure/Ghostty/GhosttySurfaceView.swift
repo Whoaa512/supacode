@@ -76,6 +76,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
   private let workingDirectoryCString: UnsafeMutablePointer<CChar>?
   private let commandCString: UnsafeMutablePointer<CChar>?
   private let initialInputCString: UnsafeMutablePointer<CChar>?
+  private let initialScrollbackPathCString: UnsafeMutablePointer<CChar>?
   private let environmentVariables: [String: String]
   private let fontSize: Float32
   private let context: ghostty_surface_context_e
@@ -115,7 +116,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
         scrollWrapper?.updateScrollbar(
           total: lastScrollbar.total,
           offset: lastScrollbar.offset,
-          length: lastScrollbar.length
+          length: lastScrollbar.length,
         )
       }
     }
@@ -184,7 +185,8 @@ final class GhosttySurfaceView: NSView, Identifiable {
     initialInput: String? = nil,
     environmentVariables: [String: String] = [:],
     fontSize: Float32? = nil,
-    context: ghostty_surface_context_e
+    context: ghostty_surface_context_e,
+    initialScrollbackPath: String? = nil,
   ) {
     self.id = id
     self.runtime = runtime
@@ -209,6 +211,11 @@ final class GhosttySurfaceView: NSView, Identifiable {
       initialInputCString = initialInput.withCString { strdup($0) }
     } else {
       initialInputCString = nil
+    }
+    if let initialScrollbackPath {
+      initialScrollbackPathCString = initialScrollbackPath.withCString { strdup($0) }
+    } else {
+      initialScrollbackPathCString = nil
     }
     super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
     wantsLayer = true
@@ -248,6 +255,9 @@ final class GhosttySurfaceView: NSView, Identifiable {
     if let initialInputCString {
       free(initialInputCString)
     }
+    if let initialScrollbackPathCString {
+      free(initialScrollbackPathCString)
+    }
   }
 
   func closeSurface() {
@@ -265,6 +275,13 @@ final class GhosttySurfaceView: NSView, Identifiable {
     }
   }
 
+  func writeScrollback(to path: String) -> Bool {
+    guard let surface else { return false }
+    return path.withCString { cPath in
+      ghostty_surface_write_scrollback(surface, cPath)
+    }
+  }
+
   private func updateScreenObservers() {
     clearNotificationObservers()
     guard let window else { return }
@@ -273,7 +290,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       center.addObserver(
         forName: NSWindow.didChangeScreenNotification,
         object: window,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         Task { @MainActor [weak self] in
           self?.windowDidChangeScreen()
@@ -283,7 +300,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       center.addObserver(
         forName: NSWindow.didEnterFullScreenNotification,
         object: window,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         Task { @MainActor [weak self] in
           self?.applyWindowBackgroundAppearance()
@@ -293,7 +310,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       center.addObserver(
         forName: NSWindow.didExitFullScreenNotification,
         object: window,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         Task { @MainActor [weak self] in
           self?.applyWindowBackgroundAppearance()
@@ -303,7 +320,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       center.addObserver(
         forName: NSWindow.didBecomeKeyNotification,
         object: window,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         Task { @MainActor [weak self] in
           self?.applyWindowBackgroundAppearance()
@@ -313,7 +330,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       center.addObserver(
         forName: NSWindow.didChangeOcclusionStateNotification,
         object: window,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         Task { @MainActor [weak self] in
           self?.applyWindowBackgroundAppearance()
@@ -323,7 +340,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       center.addObserver(
         forName: .ghosttyRuntimeConfigDidChange,
         object: runtime,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         Task { @MainActor [weak self] in
           self?.applyWindowBackgroundAppearance()
@@ -395,7 +412,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       rect: bounds,
       options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
       owner: self,
-      userInfo: nil
+      userInfo: nil,
     )
     addTrackingArea(area)
     trackingArea = area
@@ -422,7 +439,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       if let app = runtime.app {
         ghostty_set_window_background_blur(
           app,
-          Unmanaged.passUnretained(window).toOpaque()
+          Unmanaged.passUnretained(window).toOpaque(),
         )
       }
       return
@@ -583,15 +600,15 @@ final class GhosttySurfaceView: NSView, Identifiable {
         tag: GHOSTTY_POINT_SCREEN,
         coord: GHOSTTY_POINT_COORD_TOP_LEFT,
         x: 0,
-        y: 0
+        y: 0,
       ),
       bottom_right: ghostty_point_s(
         tag: GHOSTTY_POINT_SCREEN,
         coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
         x: 0,
-        y: 0
+        y: 0,
       ),
-      rectangle: false
+      rectangle: false,
     )
     guard ghostty_surface_read_text(surface, selection, &text) else { return "" }
     defer { ghostty_surface_free_text(surface, &text) }
@@ -615,7 +632,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
     if !markedTextBefore, keyboardIdBefore != keyboardLayoutId() {
       keyboardLayoutChangeKeyUpSuppression = KeyboardLayoutChangeKeyUpSuppression(
         keyCode: event.keyCode,
-        timestamp: event.timestamp
+        timestamp: event.timestamp,
       )
       return
     }
@@ -628,7 +645,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
           translationEvent: translationEvent,
           translationMods: translationMods,
           text: text,
-          composing: false
+          composing: false,
         )
       }
     } else {
@@ -638,7 +655,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
         translationEvent: translationEvent,
         translationMods: translationMods,
         text: ghosttyCharacters(translationEvent),
-        composing: markedText.length > 0 || markedTextBefore
+        composing: markedText.length > 0 || markedTextBefore,
       )
     }
   }
@@ -925,13 +942,14 @@ final class GhosttySurfaceView: NSView, Identifiable {
     config.working_directory = workingDirectoryCString.map { UnsafePointer($0) }
     config.command = commandCString.map { UnsafePointer($0) }
     config.initial_input = initialInputCString.map { UnsafePointer($0) }
+    config.initial_scrollback_path = initialScrollbackPathCString.map { UnsafePointer($0) }
     config.context = context
     // Ghostty copies env vars into its arena allocator, so
     // the C strings only need to live through this call.
     var envVars = environmentVariables.map { key, value in
       ghostty_env_var_s(
         key: key.withCString { strdup($0)! },
-        value: value.withCString { strdup($0)! }
+        value: value.withCString { strdup($0)! },
       )
     }
     defer {
@@ -994,7 +1012,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
   static func moveFocus(
     to view: GhosttySurfaceView,
     from previous: GhosttySurfaceView? = nil,
-    delay: TimeInterval? = nil
+    delay: TimeInterval? = nil,
   ) {
     let maxDelay: TimeInterval = 0.5
     let currentDelay = delay ?? 0
@@ -1054,7 +1072,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
         characters: equivalent,
         charactersIgnoringModifiers: equivalent,
         isARepeat: event.isARepeat,
-        keyCode: event.keyCode
+        keyCode: event.keyCode,
       )
     else {
       return false
@@ -1065,13 +1083,13 @@ final class GhosttySurfaceView: NSView, Identifiable {
 
   private func bindingFlags(
     for event: NSEvent,
-    surface: ghostty_surface_t
+    surface: ghostty_surface_t,
   ) -> ghostty_binding_flags_e? {
     var key = ghosttyKeyEvent(
       event,
       action: GHOSTTY_ACTION_PRESS,
       originalMods: event.modifierFlags,
-      translationMods: event.modifierFlags
+      translationMods: event.modifierFlags,
     )
     var flags = ghostty_binding_flags_e(0)
     let isBinding = (event.characters ?? "").withCString { ptr in
@@ -1158,39 +1176,39 @@ final class GhosttySurfaceView: NSView, Identifiable {
       menuItem(
         title: "Split Right",
         action: #selector(splitRight(_:)),
-        symbol: "rectangle.righthalf.inset.filled"
+        symbol: "rectangle.righthalf.inset.filled",
       ))
     menu.addItem(
       menuItem(
         title: "Split Left",
         action: #selector(splitLeft(_:)),
-        symbol: "rectangle.leadinghalf.inset.filled"
+        symbol: "rectangle.leadinghalf.inset.filled",
       ))
     menu.addItem(
       menuItem(
         title: "Split Down",
         action: #selector(splitDown(_:)),
-        symbol: "rectangle.bottomhalf.inset.filled"
+        symbol: "rectangle.bottomhalf.inset.filled",
       ))
     menu.addItem(
       menuItem(
         title: "Split Up",
         action: #selector(splitUp(_:)),
-        symbol: "rectangle.tophalf.inset.filled"
+        symbol: "rectangle.tophalf.inset.filled",
       ))
     menu.addItem(.separator())
     menu.addItem(
       menuItem(
         title: "Reset Terminal",
         action: #selector(resetTerminal(_:)),
-        symbol: "arrow.trianglehead.2.clockwise"
+        symbol: "arrow.trianglehead.2.clockwise",
       ))
     menu.addItem(.separator())
     menu.addItem(
       menuItem(
         title: "Change Title...",
         action: #selector(changeTitle(_:)),
-        symbol: "pencil.line"
+        symbol: "pencil.line",
       ))
     return menu
   }
@@ -1281,7 +1299,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
     translationEvent: NSEvent? = nil,
     translationMods: NSEvent.ModifierFlags? = nil,
     text: String? = nil,
-    composing: Bool = false
+    composing: Bool = false,
   ) -> Bool {
     guard let surface else { return false }
     let resolvedEvent: NSEvent
@@ -1297,7 +1315,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       action: action,
       originalMods: event.modifierFlags,
       translationMods: resolvedMods,
-      composing: composing
+      composing: composing,
     )
     let finalText = text ?? ghosttyCharacters(resolvedEvent)
     if let finalText, !finalText.isEmpty,
@@ -1323,7 +1341,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
     NSEvent, NSEvent.ModifierFlags
   ) {
     let translatedModsGhostty = ghostty_surface_key_translation_mods(
-      surface, ghosttyMods(event.modifierFlags))
+      surface, ghosttyMods(event.modifierFlags), )
     let translatedMods = appKitMods(translatedModsGhostty)
     var resolved = event.modifierFlags
     for flag in [NSEvent.ModifierFlags.shift, .control, .option, .command] {
@@ -1347,7 +1365,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
         characters: event.characters(byApplyingModifiers: resolved) ?? "",
         charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
         isARepeat: event.isARepeat,
-        keyCode: event.keyCode
+        keyCode: event.keyCode,
       ) ?? event
     return (translatedEvent, resolved)
   }
@@ -1357,7 +1375,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
     action: ghostty_input_action_e,
     originalMods: NSEvent.ModifierFlags,
     translationMods: NSEvent.ModifierFlags,
-    composing: Bool = false
+    composing: Bool = false,
   ) -> ghostty_input_key_s {
     var keyEvent: ghostty_input_key_s = .init()
     keyEvent.action = action
@@ -1475,7 +1493,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
   private func sendMouseButton(
     _ event: NSEvent,
     state: ghostty_input_mouse_state_e,
-    button: ghostty_input_mouse_button_e
+    button: ghostty_input_mouse_button_e,
   ) {
     guard let surface else { return }
     let mods = ghosttyMods(event.modifierFlags)
@@ -1586,7 +1604,7 @@ extension GhosttySurfaceView: NSTextInputClient {
 
   func attributedSubstring(
     forProposedRange range: NSRange,
-    actualRange: NSRangePointer?
+    actualRange: NSRangePointer?,
   ) -> NSAttributedString? {
     guard let surface else { return nil }
     guard range.length > 0 else { return nil }
@@ -1634,7 +1652,7 @@ extension GhosttySurfaceView: NSTextInputClient {
       x: caretX,
       y: frame.size.height - caretY,
       width: width,
-      height: max(height, cellSize.height)
+      height: max(height, cellSize.height),
     )
     let winRect = convert(viewRect, to: nil)
     guard let window else { return winRect }
@@ -1670,7 +1688,7 @@ extension GhosttySurfaceView: NSTextInputClient {
 extension GhosttySurfaceView: NSServicesMenuRequestor {
   override func validRequestor(
     forSendType sendType: NSPasteboard.PasteboardType?,
-    returnType: NSPasteboard.PasteboardType?
+    returnType: NSPasteboard.PasteboardType?,
   ) -> Any? {
     let receivable: [NSPasteboard.PasteboardType] = [.string, .init("public.utf8-plain-text")]
     let sendable = receivable
@@ -1760,7 +1778,7 @@ final class GhosttySurfaceScrollView: NSView {
       NotificationCenter.default.addObserver(
         forName: NSView.boundsDidChangeNotification,
         object: scrollView.contentView,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         MainActor.assumeIsolated {
           self?.handleScrollChange()
@@ -1771,7 +1789,7 @@ final class GhosttySurfaceScrollView: NSView {
       NotificationCenter.default.addObserver(
         forName: NSScrollView.willStartLiveScrollNotification,
         object: scrollView,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         MainActor.assumeIsolated {
           self?.isLiveScrolling = true
@@ -1782,7 +1800,7 @@ final class GhosttySurfaceScrollView: NSView {
       NotificationCenter.default.addObserver(
         forName: NSScrollView.didEndLiveScrollNotification,
         object: scrollView,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         MainActor.assumeIsolated {
           self?.isLiveScrolling = false
@@ -1793,7 +1811,7 @@ final class GhosttySurfaceScrollView: NSView {
       NotificationCenter.default.addObserver(
         forName: NSScrollView.didLiveScrollNotification,
         object: scrollView,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         MainActor.assumeIsolated {
           self?.handleLiveScroll()
@@ -1804,7 +1822,7 @@ final class GhosttySurfaceScrollView: NSView {
       NotificationCenter.default.addObserver(
         forName: NSScroller.preferredScrollerStyleDidChangeNotification,
         object: nil,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         MainActor.assumeIsolated {
           self?.handleScrollerStyleChange()
@@ -1815,7 +1833,7 @@ final class GhosttySurfaceScrollView: NSView {
       NotificationCenter.default.addObserver(
         forName: .ghosttyRuntimeConfigDidChange,
         object: nil,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         MainActor.assumeIsolated {
           self?.refreshAppearance()
@@ -1878,7 +1896,7 @@ final class GhosttySurfaceScrollView: NSView {
     guard
       let contentSize = Self.reportedSurfaceSize(
         scrollContentSize: scrollView.contentSize,
-        surfaceFrameSize: surfaceView.frame.size
+        surfaceFrameSize: surfaceView.frame.size,
       )
     else { return }
     surfaceView.updateSurfaceSize(contentSize: contentSize)
@@ -1938,13 +1956,13 @@ final class GhosttySurfaceScrollView: NSView {
           .activeInKeyWindow,
         ],
         owner: self,
-        userInfo: nil
+        userInfo: nil,
       ))
   }
 
   static func reportedSurfaceSize(
     scrollContentSize: CGSize,
-    surfaceFrameSize: CGSize
+    surfaceFrameSize: CGSize,
   ) -> CGSize? {
     let width = scrollContentSize.width
     let height = surfaceFrameSize.height

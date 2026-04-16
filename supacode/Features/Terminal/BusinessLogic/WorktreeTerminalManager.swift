@@ -46,7 +46,7 @@ final class WorktreeTerminalManager {
       terminalState.setAgentState(
         surfaceID: surfaceID,
         tabID: TerminalTabID(rawValue: tabID),
-        state: busyState
+        state: busyState,
       )
     }
     server.onNotification = { [weak self] worktreeID, _, surfaceID, notification in
@@ -153,7 +153,7 @@ final class WorktreeTerminalManager {
         .newSplit(direction: ghosttyDirection),
         for: surfaceID,
         newSurfaceID: id,
-        initialInput: resolvedInput
+        initialInput: resolvedInput,
       )
       guard splitSucceeded else {
         terminalLogger.warning("splitSurface: failed for surface \(surfaceID) in worktree \(worktree.id).")
@@ -260,7 +260,7 @@ final class WorktreeTerminalManager {
 
   func state(
     for worktree: Worktree,
-    runSetupScriptIfNew: () -> Bool = { false }
+    runSetupScriptIfNew: () -> Bool = { false },
   ) -> WorktreeTerminalState {
     if let existing = states[worktree.id] {
       if runSetupScriptIfNew() {
@@ -279,7 +279,7 @@ final class WorktreeTerminalManager {
     let state = WorktreeTerminalState(
       runtime: runtime,
       worktree: worktree,
-      runSetupScript: runSetupScript
+      runSetupScript: runSetupScript,
     )
     state.socketPath = socketServer?.socketPath
     // Load saved layout snapshot for restoration (skip when a setup script is pending).
@@ -333,7 +333,7 @@ final class WorktreeTerminalManager {
     in worktree: Worktree,
     runSetupScriptIfNew: Bool,
     initialInput: String? = nil,
-    tabID: UUID? = nil
+    tabID: UUID? = nil,
   ) {
     let state = state(for: worktree) { runSetupScriptIfNew }
     let setupScript: String?
@@ -461,6 +461,7 @@ final class WorktreeTerminalManager {
       return
     }
     for (id, state) in states {
+      state.saveScrollbackFiles()
       saveLayoutSnapshot(id, state.captureLayoutSnapshot())
     }
   }
