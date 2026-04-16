@@ -80,7 +80,16 @@ final class WorktreeTerminalState {
   }
 
   var taskStatus: WorktreeTaskStatus {
-    trees.keys.contains(where: { isTabBusy($0) }) ? .running : .idle
+    if trees.keys.contains(where: { isTabWaitingForInput($0) }) { return .waitingForInput }
+    if trees.keys.contains(where: { isTabBusy($0) }) { return .running }
+    return .idle
+  }
+
+  private func isTabWaitingForInput(_ tabId: TerminalTabID) -> Bool {
+    guard let tree = trees[tabId] else { return false }
+    return tree.leaves().contains { surface in
+      surface.bridge.state.agentBusyState == .waitingForInput
+    }
   }
 
   private func isTabBusy(_ tabId: TerminalTabID) -> Bool {

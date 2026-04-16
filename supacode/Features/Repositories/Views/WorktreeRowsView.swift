@@ -162,7 +162,7 @@ private struct WorktreeRowContainer: View {
       hideSubtitleOnMatch: hideSubtitleOnMatch,
       showsPullRequestInfo: !draggingWorktreeIDs.contains(row.id),
       isRunScriptRunning: store.state.runScriptWorktreeIDs.contains(row.id),
-      isTaskRunning: terminalManager.stateIfExists(for: row.id)?.taskStatus == .running,
+      taskStatus: terminalManager.stateIfExists(for: row.id)?.taskStatus ?? .idle,
       showsNotificationIndicator: terminalManager.hasUnseenNotifications(for: row.id),
       notifications: terminalManager.stateIfExists(for: row.id)?.notifications ?? [],
       shortcutHint: shortcutHint
