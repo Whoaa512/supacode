@@ -12,7 +12,7 @@ nonisolated struct GithubPullRequestStatusCheck: Decodable, Equatable, Hashable 
     detailsUrl: String? = nil,
     status: String? = nil,
     conclusion: String? = nil,
-    state: String? = nil
+    state: String? = nil,
   ) {
     self.name = name
     self.detailsUrl = detailsUrl

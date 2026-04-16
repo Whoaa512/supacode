@@ -13,7 +13,7 @@ struct PullRequestChecksPopoverView: View {
 
   init(
     pullRequest: GithubPullRequest,
-    checks: [GithubPullRequestStatusCheck]
+    checks: [GithubPullRequestStatusCheck],
   ) {
     self.pullRequest = pullRequest
     self.checks = checks

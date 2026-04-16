@@ -22,7 +22,7 @@ nonisolated struct WorktreeCreationProgress: Hashable, Sendable {
     fetchRemoteName: String? = nil,
     commandText: String? = nil,
     latestOutputLine: String? = nil,
-    outputLines: [String] = []
+    outputLines: [String] = [],
   ) {
     self.stage = stage
     self.worktreeName = worktreeName

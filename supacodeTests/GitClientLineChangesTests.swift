@@ -21,7 +21,7 @@ struct GitClientLineChangesTests {
         await store.record(arguments)
         return ShellOutput(stdout: output, stderr: "", exitCode: 0)
       },
-      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) }
+      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) },
     )
     let client = GitClient(shell: shell)
 
@@ -43,7 +43,7 @@ struct GitClientLineChangesTests {
     let output = " 1 file changed, 5 insertions(+)\n"
     let shell = ShellClient(
       run: { _, _, _ in ShellOutput(stdout: output, stderr: "", exitCode: 0) },
-      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) }
+      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) },
     )
     let client = GitClient(shell: shell)
 
@@ -57,7 +57,7 @@ struct GitClientLineChangesTests {
     let output = "1 file changed, 10 insertions(+), 4 deletions(-)\n"
     let shell = ShellClient(
       run: { _, _, _ in ShellOutput(stdout: output, stderr: "", exitCode: 0) },
-      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) }
+      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) },
     )
     let client = GitClient(shell: shell)
 
@@ -70,7 +70,7 @@ struct GitClientLineChangesTests {
   @Test func lineChangesHandlesEmptyOutput() async {
     let shell = ShellClient(
       run: { _, _, _ in ShellOutput(stdout: "\n", stderr: "", exitCode: 0) },
-      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) }
+      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) },
     )
     let client = GitClient(shell: shell)
 
@@ -96,7 +96,7 @@ struct GitClientLineChangesTests {
         await store.record(arguments)
         return ShellOutput(stdout: "", stderr: "", exitCode: 0)
       },
-      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) }
+      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) },
     )
     let client = GitClient(shell: shell)
 

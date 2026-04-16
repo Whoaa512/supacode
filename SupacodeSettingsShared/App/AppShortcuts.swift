@@ -284,23 +284,23 @@ public enum AppShortcuts {
   public static let archivedWorktrees = AppShortcut(id: .archivedWorktrees, key: "a", modifiers: [.command, .control])
   public static let archiveWorktree = AppShortcut(
     id: .archiveWorktree,
-    keyEquivalent: .delete, ghosttyKeyName: "backspace", modifiers: .command
+    keyEquivalent: .delete, ghosttyKeyName: "backspace", modifiers: .command,
   )
   public static let deleteWorktree = AppShortcut(
     id: .deleteWorktree,
-    keyEquivalent: .delete, ghosttyKeyName: "backspace", modifiers: [.command, .shift]
+    keyEquivalent: .delete, ghosttyKeyName: "backspace", modifiers: [.command, .shift],
   )
   public static let confirmWorktreeAction = AppShortcut(
     id: .confirmWorktreeAction,
-    keyEquivalent: .return, ghosttyKeyName: "return", modifiers: .command
+    keyEquivalent: .return, ghosttyKeyName: "return", modifiers: .command,
   )
   public static let selectNextWorktree = AppShortcut(
     id: .selectNextWorktree,
-    keyEquivalent: .downArrow, ghosttyKeyName: "arrow_down", modifiers: [.command, .control]
+    keyEquivalent: .downArrow, ghosttyKeyName: "arrow_down", modifiers: [.command, .control],
   )
   public static let selectPreviousWorktree = AppShortcut(
     id: .selectPreviousWorktree,
-    keyEquivalent: .upArrow, ghosttyKeyName: "arrow_up", modifiers: [.command, .control]
+    keyEquivalent: .upArrow, ghosttyKeyName: "arrow_up", modifiers: [.command, .control],
   )
 
   public static let selectWorktree1 = AppShortcut(id: .selectWorktree(1), key: "1", modifiers: [.control])
@@ -337,14 +337,14 @@ public enum AppShortcuts {
       shortcuts: [
         newWorktree, refreshWorktrees, archivedWorktrees, archiveWorktree,
         deleteWorktree, confirmWorktreeAction, selectNextWorktree, selectPreviousWorktree,
-      ]
+      ],
     ),
     AppShortcutGroup(category: .worktreeSelection, shortcuts: worktreeSelection),
     AppShortcutGroup(
       category: .actions,
       shortcuts: [
         openWorktree, revealInFinder, openRepository, openPullRequest, copyPath, runScript, stopRunScript,
-      ]
+      ],
     ),
   ]
 

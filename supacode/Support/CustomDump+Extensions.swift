@@ -7,7 +7,7 @@ extension Repository: CustomDumpRepresentable {
   var customDumpValue: Any {
     (
       name: name,
-      worktrees: worktrees.count
+      worktrees: worktrees.count,
     )
   }
 }
@@ -17,7 +17,7 @@ extension Worktree: CustomDumpRepresentable {
     (
       id: id,
       name: name,
-      detail: detail
+      detail: detail,
     )
   }
 }
@@ -29,7 +29,7 @@ extension RepositoriesFeature.State: CustomDumpRepresentable {
       selection: selection,
       pending: pendingWorktrees.count,
       deleting: deletingWorktreeIDs.count,
-      hasAlert: alert != nil
+      hasAlert: alert != nil,
     )
   }
 }
@@ -38,7 +38,7 @@ extension SettingsFeature.State: @retroactive CustomDumpRepresentable {
   public var customDumpValue: Any {
     (
       selection: selection,
-      hasRepoSettings: repositorySettings != nil
+      hasRepoSettings: repositorySettings != nil,
     )
   }
 }
@@ -48,7 +48,7 @@ extension AppFeature.State: CustomDumpRepresentable {
     (
       openAction: openActionSelection,
       notificationCount: notificationIndicatorCount,
-      hasAlert: alert != nil
+      hasAlert: alert != nil,
     )
   }
 }
@@ -58,7 +58,7 @@ extension RepositorySettingsFeature.State: @retroactive CustomDumpRepresentable 
     (
       rootURL: rootURL.lastPathComponent,
       isBare: isBareRepository,
-      branchOptions: branchOptions.count
+      branchOptions: branchOptions.count,
     )
   }
 }
@@ -69,7 +69,7 @@ extension GithubPullRequest: CustomDumpRepresentable {
       number: number,
       state: state,
       isDraft: isDraft,
-      reviewDecision: reviewDecision
+      reviewDecision: reviewDecision,
     )
   }
 }
@@ -85,7 +85,7 @@ extension WorktreeInfoEntry: CustomDumpRepresentable {
     (
       added: addedLines,
       removed: removedLines,
-      hasPR: pullRequest != nil
+      hasPR: pullRequest != nil,
     )
   }
 }

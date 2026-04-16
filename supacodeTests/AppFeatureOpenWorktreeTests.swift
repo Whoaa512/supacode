@@ -124,7 +124,7 @@ struct AppFeatureOpenWorktreeTests {
 
   private func makeStore(
     repositoriesState mutate: (inout RepositoriesFeature.State, Worktree) -> Void = { _, _ in },
-    appState mutateApp: (inout AppFeature.State) -> Void = { _ in }
+    appState mutateApp: (inout AppFeature.State) -> Void = { _ in },
   ) -> (TestStoreOf<AppFeature>, TestContext) {
     let worktree = makeWorktree()
     var repositoriesState = makeRepositoriesState(worktree: worktree)
@@ -138,7 +138,7 @@ struct AppFeatureOpenWorktreeTests {
     )
     var initialState = AppFeature.State(
       repositories: repositoriesState,
-      settings: SettingsFeature.State()
+      settings: SettingsFeature.State(),
     )
     mutateApp(&initialState)
     let store = TestStore(initialState: initialState) {
@@ -161,7 +161,7 @@ struct AppFeatureOpenWorktreeTests {
       worktree: worktree,
       openedActions: openedActions,
       terminalCommands: terminalCommands,
-      capturedEvents: capturedEvents
+      capturedEvents: capturedEvents,
     )
     return (store, context)
   }
@@ -174,7 +174,7 @@ struct AppFeatureOpenWorktreeTests {
       name: "wt-1",
       detail: "detail",
       workingDirectory: worktreeURL,
-      repositoryRootURL: repositoryRootURL
+      repositoryRootURL: repositoryRootURL,
     )
   }
 
@@ -183,7 +183,7 @@ struct AppFeatureOpenWorktreeTests {
       id: worktree.repositoryRootURL.path(percentEncoded: false),
       rootURL: worktree.repositoryRootURL,
       name: "repo",
-      worktrees: [worktree]
+      worktrees: [worktree],
     )
     var repositoriesState = RepositoriesFeature.State()
     repositoriesState.repositories = [repository]

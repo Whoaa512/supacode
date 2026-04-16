@@ -91,7 +91,7 @@ struct AppFeatureCommandPaletteTests {
     let worktree = makeWorktree(
       id: "/tmp/repo-ghostty/wt-1",
       name: "wt-1",
-      repoRoot: "/tmp/repo-ghostty"
+      repoRoot: "/tmp/repo-ghostty",
     )
     let repository = makeRepository(id: "/tmp/repo-ghostty", worktrees: [worktree])
     var repositoriesState = RepositoriesFeature.State()
@@ -101,7 +101,7 @@ struct AppFeatureCommandPaletteTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -135,7 +135,7 @@ struct AppFeatureCommandPaletteTests {
     let worktree = makeWorktree(
       id: "/tmp/repo-run/wt-1",
       name: "wt-1",
-      repoRoot: "/tmp/repo-run"
+      repoRoot: "/tmp/repo-run",
     )
     let repository = makeRepository(id: "/tmp/repo-run", worktrees: [worktree])
     var repositoriesState = RepositoriesFeature.State()
@@ -143,7 +143,7 @@ struct AppFeatureCommandPaletteTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -172,7 +172,7 @@ struct AppFeatureCommandPaletteTests {
     let worktree = makeWorktree(
       id: "/tmp/repo-archive/wt-1",
       name: "wt-1",
-      repoRoot: "/tmp/repo-archive"
+      repoRoot: "/tmp/repo-archive",
     )
     let repository = makeRepository(id: "/tmp/repo-archive", worktrees: [worktree])
     var repositoriesState = RepositoriesFeature.State()
@@ -180,7 +180,7 @@ struct AppFeatureCommandPaletteTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -216,7 +216,7 @@ private func makeWorktree(id: String, name: String, repoRoot: String = "/tmp/rep
     name: name,
     detail: "detail",
     workingDirectory: URL(fileURLWithPath: id),
-    repositoryRootURL: URL(fileURLWithPath: repoRoot)
+    repositoryRootURL: URL(fileURLWithPath: repoRoot),
   )
 }
 
@@ -225,6 +225,6 @@ private func makeRepository(id: String, worktrees: [Worktree]) -> Repository {
     id: id,
     rootURL: URL(fileURLWithPath: id),
     name: "repo",
-    worktrees: IdentifiedArray(uniqueElements: worktrees)
+    worktrees: IdentifiedArray(uniqueElements: worktrees),
   )
 }

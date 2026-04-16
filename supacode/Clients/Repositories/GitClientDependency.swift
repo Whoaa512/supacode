@@ -61,7 +61,7 @@ extension GitClientDependency: DependencyKey {
         in: repoRoot,
         baseDirectory: baseDirectory,
         copyFiles: (ignored: copyIgnored, untracked: copyUntracked),
-        baseRef: baseRef
+        baseRef: baseRef,
       )
     },
     createWorktreeStream: { name, repoRoot, baseDirectory, copyIgnored, copyUntracked, baseRef in
@@ -70,7 +70,7 @@ extension GitClientDependency: DependencyKey {
         in: repoRoot,
         baseDirectory: baseDirectory,
         copyFiles: (ignored: copyIgnored, untracked: copyUntracked),
-        baseRef: baseRef
+        baseRef: baseRef,
       )
     },
     removeWorktree: { worktree, deleteBranch in
@@ -88,7 +88,7 @@ extension GitClientDependency: DependencyKey {
     fetchRemote: { remote, repoRoot in try await GitClient().fetchRemote(remote, for: repoRoot) },
     remoteInfo: { repositoryRoot in
       await GitClient().remoteInfo(for: repositoryRoot)
-    }
+    },
   )
   static let testValue = liveValue
 }

@@ -37,7 +37,7 @@ final class AgentHookSocketServer {
       try FileManager.default.createDirectory(
         atPath: directory,
         withIntermediateDirectories: true,
-        attributes: [.posixPermissions: 0o700]
+        attributes: [.posixPermissions: 0o700],
       )
     } catch {
       socketLogger.warning("Failed to create socket directory: \(error)")
@@ -294,7 +294,7 @@ final class AgentHookSocketServer {
     readChunk: (Int32, UnsafeMutableBufferPointer<UInt8>) -> Int = { fileDescriptor, buffer in
       guard let baseAddress = buffer.baseAddress else { return 0 }
       return Darwin.read(fileDescriptor, baseAddress, buffer.count)
-    }
+    },
   ) -> Data? {
     var data = Data()
     var buffer = [UInt8](repeating: 0, count: 4096)
@@ -378,13 +378,13 @@ final class AgentHookSocketServer {
       worktreeID: worktreeID,
       tabID: tabID,
       surfaceID: surfaceID,
-      notification: notification
+      notification: notification,
     )
   }
 
   private nonisolated static func parseNotification(
     agent: String,
-    data: Data
+    data: Data,
   ) -> AgentHookNotification? {
     guard let payload = try? JSONDecoder().decode(AgentHookPayload.self, from: data) else {
       let preview = String(data: data.prefix(200), encoding: .utf8) ?? "<non-UTF8>"
@@ -397,7 +397,7 @@ final class AgentHookSocketServer {
       agent: agent,
       event: payload.hookEventName ?? "unknown",
       title: payload.title,
-      body: body
+      body: body,
     )
   }
 

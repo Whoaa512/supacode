@@ -52,9 +52,9 @@ struct AppTelemetryTests {
           crashReportsEnabled: true,
           githubIntegrationEnabled: true,
           deleteBranchOnDeleteWorktree: true,
-          promptForWorktreeCreation: true
+          promptForWorktreeCreation: true,
         ),
-        isDebugBuild: false
+        isDebugBuild: false,
       )
     )
     #expect(!AppTelemetry.isEnabled(settings: .default, isDebugBuild: true))

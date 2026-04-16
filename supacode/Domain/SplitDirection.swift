@@ -28,7 +28,7 @@ extension SplitDirection: Codable {
     let value = try container.decode(String.self)
     guard let direction = SplitDirection(rawValue: value) else {
       throw DecodingError.dataCorruptedError(
-        in: container, debugDescription: "Invalid SplitDirection: \(value)")
+        in: container, debugDescription: "Invalid SplitDirection: \(value)", )
     }
     self = direction
   }

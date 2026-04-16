@@ -19,7 +19,7 @@ struct SidebarView: View {
 
     return SidebarListView(
       store: store,
-      terminalManager: terminalManager
+      terminalManager: terminalManager,
     )
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
@@ -57,7 +57,7 @@ struct SidebarView: View {
       .map {
         RepositoriesFeature.ArchiveWorktreeTarget(
           worktreeID: $0.id,
-          repositoryID: $0.repositoryID
+          repositoryID: $0.repositoryID,
         )
       }
     guard !targets.isEmpty else { return nil }
@@ -79,7 +79,7 @@ struct SidebarView: View {
       .map {
         RepositoriesFeature.DeleteWorktreeTarget(
           worktreeID: $0.id,
-          repositoryID: $0.repositoryID
+          repositoryID: $0.repositoryID,
         )
       }
     guard !targets.isEmpty else { return nil }

@@ -28,7 +28,7 @@ public struct WorktreeSettingsView: View {
         }
         TextField(
           text: $store.defaultWorktreeBaseDirectoryPath,
-          prompt: Text(defaultPath)
+          prompt: Text(defaultPath),
         ) {
           Text("Default directory").monospaced(false)
           Text("Parent path for new worktrees.").monospaced(false)
@@ -51,8 +51,8 @@ public struct WorktreeSettingsView: View {
           "Auto-delete archived worktrees",
           selection: Binding(
             get: { store.autoDeleteArchivedWorktreesAfterDays },
-            set: { store.send(.requestAutoDeleteDaysChange($0)) }
-          )
+            set: { store.send(.requestAutoDeleteDaysChange($0)) },
+          ),
         ) {
           Text("Never").tag(AutoDeletePeriod?.none)
           ForEach(AutoDeletePeriod.allCases, id: \.rawValue) { period in

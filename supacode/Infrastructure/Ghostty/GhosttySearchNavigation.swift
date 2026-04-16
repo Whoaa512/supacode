@@ -25,7 +25,7 @@ enum GhosttySearchNavigator {
   static func bindingActions(
     direction: GhosttySearchDirection,
     selected: Int?,
-    total: Int?
+    total: Int?,
   ) -> [String] {
     let directAction = direction.bindingAction
     guard let total, let selected, total > 1, selected >= 0, selected < total else {
@@ -48,7 +48,7 @@ extension GhosttySurfaceView {
     let actions = GhosttySearchNavigator.bindingActions(
       direction: direction,
       selected: bridge.state.searchSelected,
-      total: bridge.state.searchTotal
+      total: bridge.state.searchTotal,
     )
     for action in actions {
       performBindingAction(action)

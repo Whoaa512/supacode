@@ -79,7 +79,7 @@ struct TerminalTabManagerTests {
       title: "Run Script",
       icon: "play.fill",
       isTitleLocked: true,
-      tintColor: .green
+      tintColor: .green,
     )
     let before = manager.tabs.first { $0.id == tabId }
     #expect(before?.isTitleLocked == true)

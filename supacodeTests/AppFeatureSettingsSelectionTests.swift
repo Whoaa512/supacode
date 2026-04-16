@@ -13,12 +13,12 @@ struct AppFeatureSettingsSelectionTests {
       id: "/tmp/repo",
       rootURL: URL(fileURLWithPath: "/tmp/repo"),
       name: "Repo",
-      worktrees: []
+      worktrees: [],
     )
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: RepositoriesFeature.State(repositories: [repository]),
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()

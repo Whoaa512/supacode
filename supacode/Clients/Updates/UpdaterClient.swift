@@ -30,7 +30,7 @@ extension UpdaterClient: DependencyKey {
     let controller = SPUStandardUpdaterController(
       startingUpdater: true,
       updaterDelegate: delegate,
-      userDriverDelegate: nil
+      userDriverDelegate: nil,
     )
     let updater = controller.updater
     return UpdaterClient(
@@ -53,14 +53,14 @@ extension UpdaterClient: DependencyKey {
       checkForUpdates: {
         _ = controller
         updater.checkForUpdates()
-      }
+      },
     )
   }()
 
   static let testValue = UpdaterClient(
     configure: { _, _, _ in },
     setUpdateChannel: { _ in },
-    checkForUpdates: {}
+    checkForUpdates: {},
   )
 }
 

@@ -22,7 +22,7 @@ nonisolated final class LoginStreamCallRecorder: @unchecked Sendable {
     executableURL: URL,
     arguments: [String],
     currentDirectoryURL: URL?,
-    log: Bool
+    log: Bool,
   ) {
     lock.lock()
     executableURLValue = executableURL
@@ -38,7 +38,7 @@ nonisolated final class LoginStreamCallRecorder: @unchecked Sendable {
       executableURL: executableURLValue,
       arguments: argumentsValue,
       currentDirectoryURL: currentDirectoryURLValue,
-      log: logValue
+      log: logValue,
     )
     lock.unlock()
     return value
@@ -52,7 +52,7 @@ struct ShellClientStreamingTests {
     let stream = shell.runStream(
       commandURL,
       ["-c", "printf 'out-1\\n'; printf 'err-1\\n' 1>&2; printf 'out-2\\n'"],
-      nil
+      nil,
     )
     var stdoutLines: [String] = []
     var stderrLines: [String] = []
@@ -82,7 +82,7 @@ struct ShellClientStreamingTests {
     let stream = shell.runStream(
       commandURL,
       ["-c", "printf 'first\\n'; sleep 0.4; printf 'last\\n'"],
-      nil
+      nil,
     )
     var sawFirstLine = false
     var finishedAfterFirstLine = false
@@ -107,7 +107,7 @@ struct ShellClientStreamingTests {
     let stream = shell.runStream(
       commandURL,
       ["-c", "printf 'out\\n'; printf 'err\\n' 1>&2; exit 7"],
-      nil
+      nil,
     )
     var streamedLines: [ShellStreamLine] = []
     do {
@@ -144,13 +144,13 @@ struct ShellClientStreamingTests {
           executableURL: executableURL,
           arguments: arguments,
           currentDirectoryURL: currentDirectoryURL,
-          log: log
+          log: log,
         )
         return AsyncThrowingStream { continuation in
           continuation.yield(.finished(ShellOutput(stdout: "", stderr: "", exitCode: 0)))
           continuation.finish()
         }
-      }
+      },
     )
     let executableURL = URL(fileURLWithPath: "/usr/bin/env")
     let currentDirectoryURL = URL(fileURLWithPath: "/tmp")
@@ -158,7 +158,7 @@ struct ShellClientStreamingTests {
       executableURL,
       ["echo", "hello"],
       currentDirectoryURL,
-      log: false
+      log: false,
     )
     for try await _ in stream {}
 

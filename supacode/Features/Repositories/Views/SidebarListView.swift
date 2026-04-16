@@ -18,7 +18,7 @@ struct SidebarListView: View {
       set: { newValue in
         guard newValue != currentSelections else { return }
         store.send(.selectionChanged(newValue))
-      }
+      },
     )
     let repositoriesByID = Dictionary(uniqueKeysWithValues: store.repositories.map { ($0.id, $0) })
     let pendingSidebarReveal = state.pendingSidebarReveal
@@ -34,7 +34,7 @@ struct SidebarListView: View {
               hotkeyRows: hotkeyRows,
               selectedWorktreeIDs: selectedWorktreeIDs,
               store: store,
-              terminalManager: terminalManager
+              terminalManager: terminalManager,
             )
           }
         } else {
@@ -43,7 +43,7 @@ struct SidebarListView: View {
               SidebarFailedRepositoryRow(
                 rootURL: row.rootURL,
                 failureMessage: failureMessage,
-                store: store
+                store: store,
               )
             } else if let repository = repositoriesByID[row.repositoryID] {
               SidebarRepositorySectionView(
@@ -51,7 +51,7 @@ struct SidebarListView: View {
                 hotkeyRows: hotkeyRows,
                 selectedWorktreeIDs: selectedWorktreeIDs,
                 store: store,
-                terminalManager: terminalManager
+                terminalManager: terminalManager,
               )
             }
           }
@@ -98,7 +98,7 @@ struct SidebarListView: View {
     orderedRoots.map { rootURL in
       (
         rootURL: rootURL,
-        repositoryID: rootURL.standardizedFileURL.path(percentEncoded: false)
+        repositoryID: rootURL.standardizedFileURL.path(percentEncoded: false),
       )
     }
   }
@@ -106,7 +106,7 @@ struct SidebarListView: View {
   @MainActor
   private func revealPendingSidebarWorktree(
     _ pendingSidebarReveal: RepositoriesFeature.PendingSidebarReveal?,
-    with scrollProxy: ScrollViewProxy
+    with scrollProxy: ScrollViewProxy,
   ) async {
     guard let pendingSidebarReveal else { return }
     // Give SwiftUI time to materialize newly expanded section rows before scrolling.
@@ -134,19 +134,19 @@ private struct SidebarRepositorySectionView: View {
         hotkeyRows: hotkeyRows,
         selectedWorktreeIDs: selectedWorktreeIDs,
         store: store,
-        terminalManager: terminalManager
+        terminalManager: terminalManager,
       )
     } header: {
       RepoSectionHeaderView(
         name: repository.name,
-        isRemoving: isRemovingRepository
+        isRemoving: isRemovingRepository,
       )
     }
     .sectionActions {
       SidebarRepositorySectionActionsView(
         repositoryID: repository.id,
         isRemovingRepository: isRemovingRepository,
-        store: store
+        store: store,
       )
     }
   }
@@ -156,7 +156,7 @@ private struct SidebarRepositorySectionView: View {
       get: { store.state.isRepositoryExpanded(repository.id) },
       set: { isExpanded in
         store.send(.repositoryExpansionChanged(repository.id, isExpanded: isExpanded))
-      }
+      },
     )
   }
 }
@@ -224,7 +224,7 @@ private struct SidebarFailedRepositoryRow: View {
       },
       removeRepository: {
         store.send(.removeFailedRepository(path))
-      }
+      },
     )
     .padding(.horizontal, 12)
   }

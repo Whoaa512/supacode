@@ -135,7 +135,7 @@ struct WorktreeCommands: Commands {
             index: index,
             shortcut: worktreeShortcutsList[index],
             orderedRows: orderedRows,
-            store: store
+            store: store,
           )
         }
       }

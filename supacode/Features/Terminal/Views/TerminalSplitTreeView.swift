@@ -13,7 +13,7 @@ struct TerminalSplitTreeView: View {
     let data = surfaceView.id.uuidString.data(using: .utf8) ?? Data()
     provider.registerDataRepresentation(
       forTypeIdentifier: dragType.identifier,
-      visibility: .all
+      visibility: .all,
     ) { completion in
       completion(data, nil)
       return nil
@@ -58,7 +58,7 @@ struct TerminalSplitTreeView: View {
             },
             set: {
               action(.resize(node: node, ratio: Double($0)))
-            }),
+            }, ),
           dividerColor: .secondary,
           resizeIncrements: .init(width: 1, height: 1),
           left: {
@@ -69,7 +69,7 @@ struct TerminalSplitTreeView: View {
           },
           onEqualize: {
             action(.equalize)
-          }
+          },
         )
       }
     }
@@ -117,8 +117,8 @@ struct TerminalSplitTreeView: View {
                   dropState: $dropState,
                   viewSize: geometry.size,
                   destinationId: surfaceView.id,
-                  action: action
-                ))
+                  action: action,
+                ), )
           }
           .overlay {
             if case .dropping(let zone) = dropState {
@@ -302,7 +302,7 @@ struct TerminalSplitTreeAXContainer: NSViewRepresentable {
   func updateNSView(_ nsView: TerminalSplitAXContainerView, context: Context) {
     nsView.update(
       rootView: AnyView(TerminalSplitTreeView(tree: tree, unfocusedSplitConfig: unfocusedSplitConfig, action: action)),
-      panes: tree.visibleLeaves()
+      panes: tree.visibleLeaves(),
     )
   }
 }

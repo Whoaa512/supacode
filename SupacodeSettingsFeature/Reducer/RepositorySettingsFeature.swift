@@ -23,7 +23,7 @@ public struct RepositorySettingsFeature {
         for: rootURL,
         globalDefaultPath: globalDefaultWorktreeBaseDirectoryPath,
         repositoryOverridePath: settings.worktreeBaseDirectoryPath,
-        branchName: "**/*"
+        branchName: "**/*",
       )
     }
 
@@ -39,7 +39,7 @@ public struct RepositorySettingsFeature {
       isBareRepository: Bool = false,
       branchOptions: [String] = [],
       defaultWorktreeBaseRef: String = "origin/main",
-      isBranchDataLoaded: Bool = false
+      isBranchDataLoaded: Bool = false,
     ) {
       self.rootURL = rootURL
       self.settings = settings
@@ -67,7 +67,7 @@ public struct RepositorySettingsFeature {
       globalDefaultWorktreeBaseDirectoryPath: String?,
       globalCopyIgnoredOnWorktreeCreate: Bool,
       globalCopyUntrackedOnWorktreeCreate: Bool,
-      globalPullRequestMergeStrategy: PullRequestMergeStrategy
+      globalPullRequestMergeStrategy: PullRequestMergeStrategy,
     )
     case branchDataLoaded([String], defaultBaseRef: String)
     case addScript(ScriptKind)
@@ -110,7 +110,7 @@ public struct RepositorySettingsFeature {
               globalDefaultWorktreeBaseDirectoryPath: globalDefaultWorktreeBaseDirectoryPath,
               globalCopyIgnoredOnWorktreeCreate: globalCopyIgnored,
               globalCopyUntrackedOnWorktreeCreate: globalCopyUntracked,
-              globalPullRequestMergeStrategy: globalMergeStrategy
+              globalPullRequestMergeStrategy: globalMergeStrategy,
             )
           )
           let branches: [String]
@@ -133,12 +133,12 @@ public struct RepositorySettingsFeature {
         let globalDefaultWorktreeBaseDirectoryPath,
         let globalCopyIgnoredOnWorktreeCreate,
         let globalCopyUntrackedOnWorktreeCreate,
-        let globalPullRequestMergeStrategy
+        let globalPullRequestMergeStrategy,
       ):
         var updatedSettings = settings
         updatedSettings.worktreeBaseDirectoryPath = SupacodePaths.normalizedWorktreeBaseDirectoryPath(
           updatedSettings.worktreeBaseDirectoryPath,
-          repositoryRootURL: state.rootURL
+          repositoryRootURL: state.rootURL,
         )
         if isBareRepository {
           updatedSettings.copyIgnoredOnWorktreeCreate = nil
@@ -221,7 +221,7 @@ public struct RepositorySettingsFeature {
     var normalizedSettings = state.settings
     normalizedSettings.worktreeBaseDirectoryPath = SupacodePaths.normalizedWorktreeBaseDirectoryPath(
       normalizedSettings.worktreeBaseDirectoryPath,
-      repositoryRootURL: rootURL
+      repositoryRootURL: rootURL,
     )
     @Shared(.repositorySettings(rootURL)) var repositorySettings
     $repositorySettings.withLock { $0 = normalizedSettings }

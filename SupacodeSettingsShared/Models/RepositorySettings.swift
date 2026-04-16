@@ -55,7 +55,7 @@ public nonisolated struct RepositorySettings: Codable, Equatable, Sendable {
     worktreeBaseDirectoryPath: String? = nil,
     copyIgnoredOnWorktreeCreate: Bool? = nil,
     copyUntrackedOnWorktreeCreate: Bool? = nil,
-    pullRequestMergeStrategy: PullRequestMergeStrategy? = nil
+    pullRequestMergeStrategy: PullRequestMergeStrategy? = nil,
   ) {
     self.setupScript = setupScript
     self.archiveScript = archiveScript

@@ -12,7 +12,7 @@ nonisolated struct LayoutsKey: SharedKey {
 
   func load(
     context _: LoadContext<[String: TerminalLayoutSnapshot]>,
-    continuation: LoadContinuation<[String: TerminalLayoutSnapshot]>
+    continuation: LoadContinuation<[String: TerminalLayoutSnapshot]>,
   ) {
     @Dependency(\.settingsFileStorage) var storage
     let data: Data
@@ -36,7 +36,7 @@ nonisolated struct LayoutsKey: SharedKey {
 
   func subscribe(
     context _: LoadContext<[String: TerminalLayoutSnapshot]>,
-    subscriber _: SharedSubscriber<[String: TerminalLayoutSnapshot]>
+    subscriber _: SharedSubscriber<[String: TerminalLayoutSnapshot]>,
   ) -> SharedSubscription {
     SharedSubscription {}
   }
@@ -44,7 +44,7 @@ nonisolated struct LayoutsKey: SharedKey {
   func save(
     _ value: [String: TerminalLayoutSnapshot],
     context _: SaveContext,
-    continuation: SaveContinuation
+    continuation: SaveContinuation,
   ) {
     @Dependency(\.settingsFileStorage) var storage
     do {

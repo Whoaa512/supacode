@@ -120,27 +120,27 @@ struct ToolbarNotificationGroupingTests {
   private func makeWorktree(
     id: String,
     name: String,
-    repoRoot: String
+    repoRoot: String,
   ) -> Worktree {
     Worktree(
       id: id,
       name: name,
       detail: "detail",
       workingDirectory: URL(fileURLWithPath: id),
-      repositoryRootURL: URL(fileURLWithPath: repoRoot)
+      repositoryRootURL: URL(fileURLWithPath: repoRoot),
     )
   }
 
   private func makeRepository(
     id: String,
     name: String,
-    worktrees: [Worktree]
+    worktrees: [Worktree],
   ) -> Repository {
     Repository(
       id: id,
       rootURL: URL(fileURLWithPath: id),
       name: name,
-      worktrees: IdentifiedArray(uniqueElements: worktrees)
+      worktrees: IdentifiedArray(uniqueElements: worktrees),
     )
   }
 }

@@ -24,7 +24,7 @@ struct CodexSettingsInstallerTests {
       runEnableHooksCommand: {
         runCount.setValue(runCount.value + 1)
         return .init(status: 0, standardError: "")
-      }
+      },
     )
 
     try await installer.installProgressHooks()
@@ -40,7 +40,7 @@ struct CodexSettingsInstallerTests {
       fileManager: fileManager,
       runEnableHooksCommand: {
         throw CodexSettingsInstallerError.codexUnavailable
-      }
+      },
     )
 
     do {
@@ -60,7 +60,7 @@ struct CodexSettingsInstallerTests {
       fileManager: fileManager,
       runEnableHooksCommand: {
         .init(status: 1, standardError: "boom")
-      }
+      },
     )
 
     do {

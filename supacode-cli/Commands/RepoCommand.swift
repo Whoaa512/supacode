@@ -9,7 +9,7 @@ struct RepoCommand: ParsableCommand {
       List.self,
       Open.self,
       WorktreeNew.self,
-    ]
+    ],
   )
 }
 
@@ -41,7 +41,7 @@ extension RepoCommand {
   struct WorktreeNew: ParsableCommand {
     static let configuration = CommandConfiguration(
       commandName: "worktree-new",
-      abstract: "Create a new worktree in a repository."
+      abstract: "Create a new worktree in a repository.",
     )
 
     @Option(name: [.short, .long], help: "Repository ID. Defaults to $SUPACODE_REPO_ID.")

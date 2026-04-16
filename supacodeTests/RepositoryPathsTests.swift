@@ -48,7 +48,7 @@ struct SupacodePathsTests {
     let directory = SupacodePaths.worktreeBaseDirectory(
       for: root,
       globalDefaultPath: nil,
-      repositoryOverridePath: nil
+      repositoryOverridePath: nil,
     )
 
     #expect(directory == SupacodePaths.repositoryDirectory(for: root))
@@ -59,7 +59,7 @@ struct SupacodePathsTests {
     let directory = SupacodePaths.worktreeBaseDirectory(
       for: root,
       globalDefaultPath: "/tmp/worktrees",
-      repositoryOverridePath: nil
+      repositoryOverridePath: nil,
     )
     let expectedDirectory = URL(filePath: "/tmp/worktrees/repo-alpha", directoryHint: .isDirectory)
       .standardizedFileURL
@@ -72,7 +72,7 @@ struct SupacodePathsTests {
     let directory = SupacodePaths.worktreeBaseDirectory(
       for: root,
       globalDefaultPath: "/tmp/worktrees",
-      repositoryOverridePath: "/tmp/repo-alpha-worktrees"
+      repositoryOverridePath: "/tmp/repo-alpha-worktrees",
     )
     let expectedDirectory = URL(filePath: "/tmp/repo-alpha-worktrees", directoryHint: .isDirectory)
       .standardizedFileURL
@@ -86,7 +86,7 @@ struct SupacodePathsTests {
     let normalizedPath = SupacodePaths.normalizedWorktreeBaseDirectoryPath(input)
     let expectedPath = URL(
       filePath: NSString(string: input).expandingTildeInPath,
-      directoryHint: .isDirectory
+      directoryHint: .isDirectory,
     )
     .standardizedFileURL
     .path(percentEncoded: false)
@@ -99,7 +99,7 @@ struct SupacodePathsTests {
     let path = SupacodePaths.exampleWorktreePath(
       for: root,
       globalDefaultPath: "/tmp/worktrees",
-      repositoryOverridePath: nil
+      repositoryOverridePath: nil,
     )
     let expectedPath = URL(filePath: "/tmp/worktrees/repo-alpha/swift-otter", directoryHint: .isDirectory)
       .standardizedFileURL

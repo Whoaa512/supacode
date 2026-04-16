@@ -102,7 +102,7 @@ struct SplitTree<ViewType: NSView & Identifiable> {
     guard let root else { throw SplitError.viewNotFound }
     return .init(
       root: try root.inserting(view: view, at: anchor, direction: direction, ratio: ratio),
-      zoomed: nil
+      zoomed: nil,
     )
   }
 
@@ -194,7 +194,7 @@ struct SplitTree<ViewType: NSView & Identifiable> {
     node: Node,
     by pixels: UInt16,
     in direction: SpatialDirection,
-    with bounds: CGRect
+    with bounds: CGRect,
   ) throws -> Self {
     guard let root else { throw SplitError.viewNotFound }
     guard let path = root.path(to: node) else { throw SplitError.viewNotFound }
@@ -256,7 +256,7 @@ struct SplitTree<ViewType: NSView & Identifiable> {
       direction: split.direction,
       ratio: clamped,
       left: split.left,
-      right: split.right
+      right: split.right,
     )
 
     let newRoot = try root.replacingNode(at: splitPath, with: .split(newSplit))
@@ -426,7 +426,7 @@ extension SplitTree.Node {
         direction: splitDirection,
         ratio: ratio,
         left: newViewOnLeft ? newNode : existingNode,
-        right: newViewOnLeft ? existingNode : newNode
+        right: newViewOnLeft ? existingNode : newNode,
       ))
 
     return try replacingNode(at: path, with: newSplit)
@@ -448,7 +448,7 @@ extension SplitTree.Node {
             direction: split.direction,
             ratio: split.ratio,
             left: try replaceInner(current: split.left, pathOffset: pathOffset + 1),
-            right: split.right
+            right: split.right,
           ))
       case .right:
         return .split(
@@ -456,7 +456,7 @@ extension SplitTree.Node {
             direction: split.direction,
             ratio: split.ratio,
             left: split.left,
-            right: try replaceInner(current: split.right, pathOffset: pathOffset + 1)
+            right: try replaceInner(current: split.right, pathOffset: pathOffset + 1),
           ))
       }
     }
@@ -484,7 +484,7 @@ extension SplitTree.Node {
           direction: split.direction,
           ratio: split.ratio,
           left: newLeft!,
-          right: newRight!
+          right: newRight!,
         ))
     }
   }
@@ -499,7 +499,7 @@ extension SplitTree.Node {
           direction: split.direction,
           ratio: ratio,
           left: split.left,
-          right: split.right
+          right: split.right,
         ))
     }
   }
@@ -551,7 +551,7 @@ extension SplitTree.Node {
         direction: split.direction,
         ratio: newRatio,
         left: leftNode,
-        right: rightNode
+        right: rightNode,
       )
       return (.split(newSplit), totalWeight)
     }
@@ -580,12 +580,12 @@ extension SplitTree.Node {
       case .horizontal:
         return CGSize(
           width: leftBounds.width + rightBounds.width,
-          height: max(leftBounds.height, rightBounds.height)
+          height: max(leftBounds.height, rightBounds.height),
         )
       case .vertical:
         return CGSize(
           width: max(leftBounds.width, rightBounds.width),
-          height: leftBounds.height + rightBounds.height
+          height: leftBounds.height + rightBounds.height,
         )
       }
     }
@@ -618,12 +618,12 @@ extension SplitTree.Node {
       case .horizontal:
         return (
           width: leftDimensions.width + rightDimensions.width,
-          height: max(leftDimensions.height, rightDimensions.height)
+          height: max(leftDimensions.height, rightDimensions.height),
         )
       case .vertical:
         return (
           width: max(leftDimensions.width, rightDimensions.width),
-          height: leftDimensions.height + rightDimensions.height
+          height: leftDimensions.height + rightDimensions.height,
         )
       }
     }
@@ -643,13 +643,13 @@ extension SplitTree.Node {
           x: bounds.minX,
           y: bounds.minY,
           width: bounds.width * split.ratio,
-          height: bounds.height
+          height: bounds.height,
         )
         rightBounds = CGRect(
           x: splitX,
           y: bounds.minY,
           width: bounds.width * (1 - split.ratio),
-          height: bounds.height
+          height: bounds.height,
         )
       case .vertical:
         let splitY = bounds.minY + bounds.height * split.ratio
@@ -657,13 +657,13 @@ extension SplitTree.Node {
           x: bounds.minX,
           y: bounds.minY,
           width: bounds.width,
-          height: bounds.height * split.ratio
+          height: bounds.height * split.ratio,
         )
         rightBounds = CGRect(
           x: bounds.minX,
           y: splitY,
           width: bounds.width,
-          height: bounds.height * (1 - split.ratio)
+          height: bounds.height * (1 - split.ratio),
         )
       }
       var slots: [SplitTree.SpatialSlot] = [.init(node: self, bounds: bounds)]
@@ -723,7 +723,7 @@ extension SplitTree.Node {
 extension SplitTree.Spatial {
   func slots(
     in direction: SplitTree.SpatialDirection,
-    from referenceNode: SplitTree.Node
+    from referenceNode: SplitTree.Node,
   ) -> [SplitTree.SpatialSlot] {
     guard let refSlot = slots.first(where: { $0.node == referenceNode }) else { return [] }
 

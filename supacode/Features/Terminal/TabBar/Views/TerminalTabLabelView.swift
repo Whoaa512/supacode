@@ -19,7 +19,7 @@ struct TerminalTabLabelView: View {
           )
           .frame(
             width: TerminalTabBarMetrics.closeButtonSize,
-            height: TerminalTabBarMetrics.closeButtonSize
+            height: TerminalTabBarMetrics.closeButtonSize,
           )
           .accessibilityHidden(true)
       }

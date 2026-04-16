@@ -55,7 +55,7 @@ nonisolated enum DeeplinkURLBuilder {
     worktreeID: String,
     tabID: String,
     surfaceID: String,
-    options: SplitOptions
+    options: SplitOptions,
   ) -> String {
     var url = "supacode://worktree/\(worktreeID)/tab/\(tabID)/surface/\(surfaceID)/split"
     var params: [String] = []

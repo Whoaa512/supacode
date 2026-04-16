@@ -39,7 +39,7 @@ struct PullRequestChecksPopoverButton<Label: View>: View {
     .popover(isPresented: $isPresented) {
       PullRequestChecksPopoverView(
         pullRequest: pullRequest,
-        checks: checks
+        checks: checks,
       )
       .onHover { hovering in
         isHoveringPopover = hovering

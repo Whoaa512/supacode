@@ -27,7 +27,7 @@ struct AppFeatureDefaultEditorTests {
       return TestStore(
         initialState: AppFeature.State(
           repositories: repositoriesState,
-          settings: SettingsFeature.State(settings: settings)
+          settings: SettingsFeature.State(settings: settings),
         )
       ) {
         AppFeature()
@@ -59,7 +59,7 @@ struct AppFeatureDefaultEditorTests {
       runScript: "pnpm dev",
       scripts: [ScriptDefinition(kind: .run, command: "pnpm dev")],
       openActionID: OpenWorktreeAction.terminal.settingsID,
-      worktreeBaseRef: nil
+      worktreeBaseRef: nil,
     )
 
     withDependencies {
@@ -77,13 +77,13 @@ struct AppFeatureDefaultEditorTests {
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     try localStorage.save(
       encoder.encode(localRepositorySettings),
-      at: SupacodePaths.repositorySettingsURL(for: worktree.repositoryRootURL)
+      at: SupacodePaths.repositorySettingsURL(for: worktree.repositoryRootURL),
     )
 
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -113,7 +113,7 @@ struct AppFeatureDefaultEditorTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -144,7 +144,7 @@ struct AppFeatureDefaultEditorTests {
       name: "wt-1",
       detail: "detail",
       workingDirectory: worktreeURL,
-      repositoryRootURL: repositoryRootURL
+      repositoryRootURL: repositoryRootURL,
     )
   }
 
@@ -153,7 +153,7 @@ struct AppFeatureDefaultEditorTests {
       id: worktree.repositoryRootURL.path(percentEncoded: false),
       rootURL: worktree.repositoryRootURL,
       name: "repo",
-      worktrees: [worktree]
+      worktrees: [worktree],
     )
     var repositoriesState = RepositoriesFeature.State()
     repositoriesState.repositories = [repository]

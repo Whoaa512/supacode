@@ -32,7 +32,7 @@ struct TerminalTabsView: View {
             closeOthers: closeOthers,
             closeToRight: closeToRight,
             closeAll: closeAll,
-            scrollReader: scrollReader
+            scrollReader: scrollReader,
           )
           .padding(.horizontal, TerminalTabBarMetrics.barPadding)
           .background(
@@ -73,7 +73,7 @@ struct TerminalTabsView: View {
         TerminalTabsOverflowShadow(
           width: TerminalTabBarMetrics.overflowShadowWidth,
           startPoint: .leading,
-          endPoint: .trailing
+          endPoint: .trailing,
         )
         .opacity(canScrollLeft ? 1 : 0)
         .animation(.easeInOut(duration: TerminalTabBarMetrics.fadeAnimationDuration), value: canScrollLeft)
@@ -82,7 +82,7 @@ struct TerminalTabsView: View {
         TerminalTabsOverflowShadow(
           width: TerminalTabBarMetrics.overflowShadowWidth,
           startPoint: .trailing,
-          endPoint: .leading
+          endPoint: .leading,
         )
         .opacity(canScrollRight ? 1 : 0)
         .animation(.easeInOut(duration: TerminalTabBarMetrics.fadeAnimationDuration), value: canScrollRight)
@@ -104,7 +104,7 @@ struct TerminalTabsView: View {
     let perTab = containerWidth / CGFloat(count)
     return min(
       TerminalTabBarMetrics.tabMaxWidth,
-      max(TerminalTabBarMetrics.tabMinWidth, perTab)
+      max(TerminalTabBarMetrics.tabMinWidth, perTab),
     )
   }
 }

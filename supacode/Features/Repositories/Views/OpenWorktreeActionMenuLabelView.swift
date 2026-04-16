@@ -13,7 +13,7 @@ struct OpenWorktreeActionMenuLabelView: View {
       in: NSRect(origin: .zero, size: size),
       from: NSRect(origin: .zero, size: image.size),
       operation: .sourceOver,
-      fraction: 1.0
+      fraction: 1.0,
     )
     newImage.unlockFocus()
     return newImage

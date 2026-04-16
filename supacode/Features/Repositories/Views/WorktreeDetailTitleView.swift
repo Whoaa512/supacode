@@ -40,7 +40,7 @@ struct WorktreeDetailTitleView: View {
           if newName != branchName {
             onSubmit(newName)
           }
-        }
+        },
       )
     }
   }

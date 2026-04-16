@@ -94,7 +94,7 @@ private struct SettingsSidebarView: View {
               } else {
                 expandedRepositories.remove(repository.id)
               }
-            }
+            },
           )
           DisclosureGroup(isExpanded: isExpanded) {
             Label("General", systemImage: "gearshape")
@@ -105,7 +105,7 @@ private struct SettingsSidebarView: View {
             RepositoryDisclosureLabel(
               repository: repository,
               settingsStore: settingsStore,
-              isExpanded: isExpanded
+              isExpanded: isExpanded,
             )
           }
         }
@@ -196,7 +196,7 @@ struct SettingsView: View {
     NavigationSplitView(columnVisibility: .constant(.all)) {
       SettingsSidebarView(
         settingsStore: settingsStore,
-        expandedRepositories: $expandedRepositories
+        expandedRepositories: $expandedRepositories,
       )
       .onChange(of: selection) { _, newSelection in
         // Auto-expand the repository disclosure group when navigating to it.
@@ -208,7 +208,7 @@ struct SettingsView: View {
         selection: selection,
         selectedRepositorySummary: selectedRepositorySummary,
         settingsStore: settingsStore,
-        updatesStore: updatesStore
+        updatesStore: updatesStore,
       )
     }
     .toolbar {

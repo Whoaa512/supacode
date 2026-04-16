@@ -9,11 +9,11 @@ struct GitAutomaticBaseRefIntegrationTests {
     let id = UUID().uuidString
     let bareURL = tempRoot.appending(
       path: "supacode-bare-\(id).git",
-      directoryHint: URL.DirectoryHint.isDirectory
+      directoryHint: URL.DirectoryHint.isDirectory,
     )
     let workURL = tempRoot.appending(
       path: "supacode-work-\(id)",
-      directoryHint: URL.DirectoryHint.isDirectory
+      directoryHint: URL.DirectoryHint.isDirectory,
     )
     defer {
       try? FileManager.default.removeItem(at: bareURL)

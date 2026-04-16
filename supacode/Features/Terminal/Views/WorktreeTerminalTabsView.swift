@@ -34,14 +34,14 @@ struct WorktreeTerminalTabsView: View {
           },
           closeAll: {
             state.closeAllTabs()
-          }
+          },
         )
         .transition(.move(edge: .top).combined(with: .opacity))
       }
       if let selectedId = state.tabManager.selectedTabId {
         TerminalTabContentStack(tabs: state.tabManager.tabs, selectedTabId: selectedId) { tabId in
           TerminalSplitTreeAXContainer(
-            tree: state.splitTree(for: tabId), unfocusedSplitConfig: manager.unfocusedSplitConfig
+            tree: state.splitTree(for: tabId), unfocusedSplitConfig: manager.unfocusedSplitConfig,
           ) { operation in
             state.performSplitOperation(operation, in: tabId)
           }
@@ -86,7 +86,7 @@ struct WorktreeTerminalTabsView: View {
     if let keyWindow = NSApp.keyWindow {
       return WindowActivityState(
         isKeyWindow: keyWindow.isKeyWindow,
-        isVisible: keyWindow.occlusionState.contains(.visible)
+        isVisible: keyWindow.occlusionState.contains(.visible),
       )
     }
     return windowActivity

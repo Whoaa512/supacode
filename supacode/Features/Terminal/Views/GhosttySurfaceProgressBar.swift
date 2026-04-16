@@ -42,7 +42,7 @@ struct GhosttySurfaceProgressBar: View {
             .fill(color)
             .frame(
               width: geometry.size.width * CGFloat(progress) / 100,
-              height: geometry.size.height
+              height: geometry.size.height,
             )
             .animation(.easeInOut(duration: 0.2), value: progress)
         } else {

@@ -14,7 +14,7 @@ public nonisolated struct RepositoryRootsKey: SharedKey {
 
   public func load(
     context _: LoadContext<[String]>,
-    continuation: LoadContinuation<[String]>
+    continuation: LoadContinuation<[String]>,
   ) {
     @Shared(.settingsFile) var settingsFile: SettingsFile
     let roots = $settingsFile.withLock { settings in
@@ -29,7 +29,7 @@ public nonisolated struct RepositoryRootsKey: SharedKey {
 
   public func subscribe(
     context _: LoadContext<[String]>,
-    subscriber _: SharedSubscriber<[String]>
+    subscriber _: SharedSubscriber<[String]>,
   ) -> SharedSubscription {
     SharedSubscription {}
   }
@@ -37,7 +37,7 @@ public nonisolated struct RepositoryRootsKey: SharedKey {
   public func save(
     _ value: [String],
     context _: SaveContext,
-    continuation: SaveContinuation
+    continuation: SaveContinuation,
   ) {
     @Shared(.settingsFile) var settingsFile: SettingsFile
     let normalized = RepositoryPathNormalizer.normalize(value)
@@ -61,7 +61,7 @@ public nonisolated struct PinnedWorktreeIDsKey: SharedKey {
 
   public func load(
     context _: LoadContext<[String]>,
-    continuation: LoadContinuation<[String]>
+    continuation: LoadContinuation<[String]>,
   ) {
     @Shared(.settingsFile) var settingsFile: SettingsFile
     let ids = $settingsFile.withLock { settings in
@@ -76,7 +76,7 @@ public nonisolated struct PinnedWorktreeIDsKey: SharedKey {
 
   public func subscribe(
     context _: LoadContext<[String]>,
-    subscriber _: SharedSubscriber<[String]>
+    subscriber _: SharedSubscriber<[String]>,
   ) -> SharedSubscription {
     SharedSubscription {}
   }
@@ -84,7 +84,7 @@ public nonisolated struct PinnedWorktreeIDsKey: SharedKey {
   public func save(
     _ value: [String],
     context _: SaveContext,
-    continuation: SaveContinuation
+    continuation: SaveContinuation,
   ) {
     @Shared(.settingsFile) var settingsFile: SettingsFile
     let normalized = RepositoryPathNormalizer.normalize(value)

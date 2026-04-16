@@ -34,14 +34,14 @@ struct TerminalTabsRowView: View {
               onClose: {
                 closeTab(id)
               },
-              closeButtonGestureActive: $closeButtonGestureActive
+              closeButtonGestureActive: $closeButtonGestureActive,
             )
             .background(
               TerminalTabMeasurementView(
                 tabId: id,
                 onFrameChange: { tabId, rect in
                   tabLocations[tabId] = rect
-                }
+                },
               )
             )
             .simultaneousGesture(makeTabDragGesture(id: id))
@@ -52,8 +52,8 @@ struct TerminalTabsRowView: View {
                 closeTab: closeTab,
                 closeOthers: closeOthers,
                 closeToRight: closeToRight,
-                closeAll: closeAll
-              )
+                closeAll: closeAll,
+              ),
             )
             .id(id)
 
@@ -68,11 +68,11 @@ struct TerminalTabsRowView: View {
           .fill(TerminalTabBarColors.dropIndicator)
           .frame(
             width: TerminalTabBarMetrics.dropIndicatorWidth,
-            height: TerminalTabBarMetrics.dropIndicatorHeight
+            height: TerminalTabBarMetrics.dropIndicatorHeight,
           )
           .offset(
             x: offsetX - (TerminalTabBarMetrics.dropIndicatorWidth / 2),
-            y: (TerminalTabBarMetrics.tabHeight - TerminalTabBarMetrics.dropIndicatorHeight) / 2
+            y: (TerminalTabBarMetrics.tabHeight - TerminalTabBarMetrics.dropIndicatorHeight) / 2,
           )
           .animation(.easeInOut(duration: TerminalTabBarMetrics.hoverAnimationDuration), value: offsetX)
       }
@@ -159,7 +159,7 @@ struct TerminalTabsRowView: View {
         withAnimation(
           .spring(
             duration: TerminalTabBarMetrics.reorderAnimationDuration,
-            bounce: TerminalTabBarMetrics.reorderAnimationBounce
+            bounce: TerminalTabBarMetrics.reorderAnimationBounce,
           )
         ) {
           openedTabs = newOrder

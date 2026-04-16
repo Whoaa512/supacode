@@ -10,7 +10,7 @@ nonisolated final class SettingsTestStorage: @unchecked Sendable {
   var storage: SettingsFileStorage {
     SettingsFileStorage(
       load: { try self.load($0) },
-      save: { try self.save($0, $1) }
+      save: { try self.save($0, $1) },
     )
   }
 

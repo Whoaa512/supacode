@@ -146,7 +146,7 @@ struct SupacodeApp: App {
     let appStore = Self.makeStore(
       initialSettings: initialSettings,
       terminalManager: terminalManager,
-      worktreeInfoWatcher: worktreeInfoWatcher
+      worktreeInfoWatcher: worktreeInfoWatcher,
     )
     _store = State(initialValue: appStore)
     appDelegate.appStore = appStore
@@ -180,7 +180,7 @@ struct SupacodeApp: App {
   private static func makeStore(
     initialSettings: GlobalSettings,
     terminalManager: WorktreeTerminalManager,
-    worktreeInfoWatcher: WorktreeInfoWatcherManager
+    worktreeInfoWatcher: WorktreeInfoWatcherManager,
   ) -> StoreOf<AppFeature> {
     Store(initialState: AppFeature.State(settings: SettingsFeature.State(settings: initialSettings))) {
       AppFeature()
@@ -201,7 +201,7 @@ struct SupacodeApp: App {
         },
         surfaceExistsInWorktree: { worktreeID, surfaceID in
           terminalManager.surfaceExistsInWorktree(worktreeID: worktreeID, surfaceID: surfaceID)
-        }
+        },
       )
       values.worktreeInfoWatcher = WorktreeInfoWatcherClient(
         send: { command in
@@ -209,7 +209,7 @@ struct SupacodeApp: App {
         },
         events: {
           worktreeInfoWatcher.eventStream()
-        }
+        },
       )
     }
   }
@@ -217,7 +217,7 @@ struct SupacodeApp: App {
   @MainActor
   private static func configureSocketHandlers(
     terminalManager: WorktreeTerminalManager,
-    store: StoreOf<AppFeature>
+    store: StoreOf<AppFeature>,
   ) {
     terminalManager.onDeeplinkCommand = { url, clientFD in
       store.send(.deeplinkReceived(url, source: .socket, responseFD: clientFD))
@@ -228,7 +228,7 @@ struct SupacodeApp: App {
         params: params,
         clientFD: clientFD,
         terminalManager: terminalManager,
-        store: store
+        store: store,
       )
     }
   }
@@ -239,7 +239,7 @@ struct SupacodeApp: App {
     params: [String: String],
     clientFD: Int32,
     terminalManager: WorktreeTerminalManager,
-    store: StoreOf<AppFeature>
+    store: StoreOf<AppFeature>,
   ) {
     let repos = store.repositories.repositories
     let selectedWorktreeID = store.repositories.selectedWorktreeID
@@ -264,7 +264,7 @@ struct SupacodeApp: App {
     case "tabs":
       guard let worktreeID = params["worktreeID"] else {
         AgentHookSocketServer.sendCommandResponse(
-          clientFD: clientFD, ok: false, error: "Missing worktreeID for tab list.")
+          clientFD: clientFD, ok: false, error: "Missing worktreeID for tab list.", )
         return
       }
       let tabs = terminalManager.listTabs(worktreeID: worktreeID)
@@ -273,7 +273,7 @@ struct SupacodeApp: App {
         let worktreeExists = repos.contains { $0.worktrees.contains { $0.id == decoded } }
         guard worktreeExists else {
           AgentHookSocketServer.sendCommandResponse(
-            clientFD: clientFD, ok: false, error: "Worktree not found: \(worktreeID)")
+            clientFD: clientFD, ok: false, error: "Worktree not found: \(worktreeID)", )
           return
         }
       }
@@ -281,18 +281,18 @@ struct SupacodeApp: App {
     case "surfaces":
       guard let worktreeID = params["worktreeID"], let tabID = params["tabID"] else {
         AgentHookSocketServer.sendCommandResponse(
-          clientFD: clientFD, ok: false, error: "Missing worktreeID/tabID for surface list.")
+          clientFD: clientFD, ok: false, error: "Missing worktreeID/tabID for surface list.", )
         return
       }
       guard let surfaces = terminalManager.listSurfaces(worktreeID: worktreeID, tabID: tabID) else {
         AgentHookSocketServer.sendCommandResponse(
-          clientFD: clientFD, ok: false, error: "Worktree or tab not found.")
+          clientFD: clientFD, ok: false, error: "Worktree or tab not found.", )
         return
       }
       AgentHookSocketServer.sendQueryResponse(clientFD: clientFD, data: surfaces)
     default:
       AgentHookSocketServer.sendCommandResponse(
-        clientFD: clientFD, ok: false, error: "Unknown resource: \(resource)")
+        clientFD: clientFD, ok: false, error: "Unknown resource: \(resource)", )
     }
   }
 

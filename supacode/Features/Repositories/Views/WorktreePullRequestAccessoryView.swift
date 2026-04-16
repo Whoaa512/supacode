@@ -19,7 +19,7 @@ struct WorktreePullRequestDisplay {
     self.pullRequestState = pullRequestState
     self.pullRequestBadgeStyle = PullRequestBadgeStyle.style(
       state: pullRequestState,
-      number: pullRequestNumber
+      number: pullRequestNumber,
     )
   }
 }

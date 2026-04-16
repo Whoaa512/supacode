@@ -38,7 +38,7 @@ public nonisolated struct ScriptDefinition: Identifiable, Codable, Equatable, Ha
     name: String? = nil,
     systemImage: String? = nil,
     tintColor: TerminalTabTintColor? = nil,
-    command: String = ""
+    command: String = "",
   ) {
     self.id = id
     self.kind = kind

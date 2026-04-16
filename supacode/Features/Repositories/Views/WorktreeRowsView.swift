@@ -37,25 +37,25 @@ struct WorktreeRowsView: View {
         id: "main",
         rows: sections.main.map { [$0] } ?? [],
         hideSubtitle: isSoleDefaultWorktree,
-        moveBehavior: .disabled
+        moveBehavior: .disabled,
       ),
       GroupConfiguration(
         id: "pinned",
         rows: sections.pinned,
         hideSubtitle: false,
-        moveBehavior: .pinned(repository.id)
+        moveBehavior: .pinned(repository.id),
       ),
       GroupConfiguration(
         id: "pending",
         rows: sections.pending,
         hideSubtitle: false,
-        moveBehavior: .disabled
+        moveBehavior: .disabled,
       ),
       GroupConfiguration(
         id: "unpinned",
         rows: sections.unpinned,
         hideSubtitle: false,
-        moveBehavior: .unpinned(repository.id)
+        moveBehavior: .unpinned(repository.id),
       ),
     ]
 
@@ -69,7 +69,7 @@ struct WorktreeRowsView: View {
         isRepositoryRemoving: isRepositoryRemoving,
         hideSubtitle: groupConfiguration.hideSubtitle,
         moveBehavior: groupConfiguration.moveBehavior,
-        shortcutIndexByID: shortcutIndexByID
+        shortcutIndexByID: shortcutIndexByID,
       )
     }
   }
@@ -104,7 +104,7 @@ private struct WorktreeRowGroupView: View {
         isRepositoryRemoving: isRepositoryRemoving,
         hideSubtitle: hideSubtitle,
         moveDisabled: moveDisabled(for: row),
-        shortcutHint: shortcutHint(for: shortcutIndexByID[row.id])
+        shortcutHint: shortcutHint(for: shortcutIndexByID[row.id]),
       )
     }
     .onMove(perform: moveRows)
@@ -166,7 +166,7 @@ private struct WorktreeRowContainer: View {
       taskStatus: terminalManager.stateIfExists(for: row.id)?.taskStatus ?? .idle,
       showsNotificationIndicator: terminalManager.hasUnseenNotifications(for: row.id),
       notifications: terminalManager.stateIfExists(for: row.id)?.notifications ?? [],
-      shortcutHint: shortcutHint
+      shortcutHint: shortcutHint,
     )
     .environment(\.focusNotificationAction) { notification in
       guard let terminalState = terminalManager.stateIfExists(for: row.id) else {
@@ -188,7 +188,7 @@ private struct WorktreeRowContainer: View {
           worktree: worktree,
           row: row,
           store: store,
-          selectedWorktreeIDs: selectedWorktreeIDs
+          selectedWorktreeIDs: selectedWorktreeIDs,
         )
       }
     }
@@ -238,7 +238,7 @@ private struct WorktreeContextMenu: View {
     @Shared(.repositorySettings(worktree.repositoryRootURL)) var repositorySettings
     return OpenWorktreeAction.fromSettingsID(
       repositorySettings.openActionID,
-      defaultEditorID: settingsFile.global.defaultEditorID
+      defaultEditorID: settingsFile.global.defaultEditorID,
     )
   }
 
@@ -293,13 +293,13 @@ private struct WorktreeContextMenu: View {
       .map {
         RepositoriesFeature.ArchiveWorktreeTarget(
           worktreeID: $0.id,
-          repositoryID: $0.repositoryID
+          repositoryID: $0.repositoryID,
         )
       }
     let deleteTargets = contextRows.map {
       RepositoriesFeature.DeleteWorktreeTarget(
         worktreeID: $0.id,
-        repositoryID: $0.repositoryID
+        repositoryID: $0.repositoryID,
       )
     }
 

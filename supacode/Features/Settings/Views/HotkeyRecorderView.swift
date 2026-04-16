@@ -100,7 +100,7 @@ struct HotkeyRecorderPopover: View {
         HotkeyRecorderRepresentable(
           onRecorded: handleRecorded,
           onCancelled: onCancelled,
-          onModifiersChanged: { activeModifiers = $0 }
+          onModifiersChanged: { activeModifiers = $0 },
         )
         .frame(width: 0, height: 0)
       }

@@ -6,7 +6,7 @@ import UserNotifications
 private final class ForegroundSystemNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
   func userNotificationCenter(
     _ center: UNUserNotificationCenter,
-    willPresent notification: UNNotification
+    willPresent notification: UNNotification,
   ) async -> UNNotificationPresentationOptions {
     await Task.yield()
     return [.badge, .sound, .banner]
@@ -51,7 +51,7 @@ public nonisolated struct SystemNotificationClient: Sendable {
     authorizationStatus: @escaping @MainActor @Sendable () async -> AuthorizationStatus,
     requestAuthorization: @escaping @MainActor @Sendable () async -> AuthorizationRequestResult,
     send: @escaping @MainActor @Sendable (_ title: String, _ body: String) async -> Void,
-    openSettings: @escaping @MainActor @Sendable () async -> Void
+    openSettings: @escaping @MainActor @Sendable () async -> Void,
   ) {
     self.authorizationStatus = authorizationStatus
     self.requestAuthorization = requestAuthorization
@@ -86,7 +86,7 @@ extension SystemNotificationClient: DependencyKey {
       } catch {
         return AuthorizationRequestResult(
           granted: false,
-          errorMessage: error.localizedDescription
+          errorMessage: error.localizedDescription,
         )
       }
     },
@@ -99,7 +99,7 @@ extension SystemNotificationClient: DependencyKey {
       let request = UNNotificationRequest(
         identifier: UUID().uuidString,
         content: content,
-        trigger: nil
+        trigger: nil,
       )
       try? await center.add(request)
     },
@@ -108,14 +108,14 @@ extension SystemNotificationClient: DependencyKey {
         return
       }
       _ = NSWorkspace.shared.open(url)
-    }
+    },
   )
 
   public static let testValue = SystemNotificationClient(
     authorizationStatus: { .notDetermined },
     requestAuthorization: { AuthorizationRequestResult(granted: false, errorMessage: nil) },
     send: { _, _ in },
-    openSettings: {}
+    openSettings: {},
   )
 }
 

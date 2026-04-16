@@ -37,13 +37,13 @@ struct GhosttySurfaceViewTests {
     #expect(
       GhosttySurfaceView.accessibilityString(
         for: NSRange(location: 6, length: 4),
-        in: content
+        in: content,
       ) == "beta"
     )
     #expect(
       GhosttySurfaceView.accessibilityString(
         for: NSRange(location: 99, length: 1),
-        in: content
+        in: content,
       ) == nil
     )
   }
@@ -51,7 +51,7 @@ struct GhosttySurfaceViewTests {
   @Test func keyboardLayoutChangeKeyUpSuppressionSuppressesMatchingKeyUp() {
     let suppression = GhosttySurfaceView.KeyboardLayoutChangeKeyUpSuppression(
       keyCode: 49,
-      timestamp: 10
+      timestamp: 10,
     )
 
     #expect(suppression.suppresses(keyCode: 49, timestamp: 10.1))
@@ -61,7 +61,7 @@ struct GhosttySurfaceViewTests {
   @Test func keyboardLayoutChangeKeyUpSuppressionIgnoresDifferentKeyUp() {
     let suppression = GhosttySurfaceView.KeyboardLayoutChangeKeyUpSuppression(
       keyCode: 49,
-      timestamp: 10
+      timestamp: 10,
     )
 
     #expect(!suppression.suppresses(keyCode: 50, timestamp: 10.1))
@@ -72,7 +72,7 @@ struct GhosttySurfaceViewTests {
   @Test func keyboardLayoutChangeKeyUpSuppressionExpires() {
     let suppression = GhosttySurfaceView.KeyboardLayoutChangeKeyUpSuppression(
       keyCode: 49,
-      timestamp: 10
+      timestamp: 10,
     )
 
     #expect(!suppression.suppresses(keyCode: 49, timestamp: 11.1))
@@ -83,7 +83,7 @@ struct GhosttySurfaceViewTests {
     #expect(
       GhosttySurfaceScrollView.reportedSurfaceSize(
         scrollContentSize: CGSize(width: 799, height: 600),
-        surfaceFrameSize: CGSize(width: 816, height: 600)
+        surfaceFrameSize: CGSize(width: 816, height: 600),
       ) == CGSize(width: 799, height: 600)
     )
   }
@@ -93,7 +93,7 @@ struct GhosttySurfaceViewTests {
       id: UUID(),
       runtime: GhosttyRuntime(),
       workingDirectory: nil,
-      context: GHOSTTY_SURFACE_CONTEXT_TAB
+      context: GHOSTTY_SURFACE_CONTEXT_TAB,
     )
     let wrapper = GhosttySurfaceScrollView(surfaceView: surfaceView)
 

@@ -24,7 +24,7 @@ struct ArchivedWorktreesDetailView: View {
         guard let repositoryID = repositoryByWorktreeID[worktreeID] else { return nil }
         return RepositoriesFeature.DeleteWorktreeTarget(
           worktreeID: worktreeID,
-          repositoryID: repositoryID
+          repositoryID: repositoryID,
         )
       }
     let deleteWorktreeAction: (() -> Void)? = {
@@ -43,7 +43,7 @@ struct ArchivedWorktreesDetailView: View {
       ContentUnavailableView(
         "Archived Worktrees",
         systemImage: "archivebox",
-        description: Text("Archive worktrees to keep them out of the main list.")
+        description: Text("Archive worktrees to keep them out of the main list."),
       )
     } else {
       List(selection: $selectedArchivedWorktreeIDs) {
@@ -59,7 +59,7 @@ struct ArchivedWorktreesDetailView: View {
                   },
                   onDelete: {
                     store.send(.requestDeleteWorktree(worktree.id, group.repository.id))
-                  }
+                  },
                 )
                 .tag(worktree.id)
                 .typeSelectEquivalent("")
@@ -73,7 +73,7 @@ struct ArchivedWorktreesDetailView: View {
               worktreeCount: group.worktrees.count,
               isCollapsed: collapsedRepositoryIDs.contains(group.repository.id),
               showsTopSeparator: index > 0,
-              onToggle: { toggleSection(group.repository.id) }
+              onToggle: { toggleSection(group.repository.id) },
             )
           }
         }

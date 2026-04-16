@@ -79,7 +79,7 @@ extension RepositoryPersistenceClient: DependencyKey {
         $sharedLastFocused.withLock {
           $0 = id
         }
-      }
+      },
     )
   }()
   static let testValue = RepositoryPersistenceClient(
@@ -94,7 +94,7 @@ extension RepositoryPersistenceClient: DependencyKey {
     loadWorktreeOrderByRepository: { [:] },
     saveWorktreeOrderByRepository: { _ in },
     loadLastFocusedWorktreeID: { nil },
-    saveLastFocusedWorktreeID: { _ in }
+    saveLastFocusedWorktreeID: { _ in },
   )
 }
 

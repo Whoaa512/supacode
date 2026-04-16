@@ -7,7 +7,7 @@ struct GhosttySearchNavigatorTests {
     let actions = GhosttySearchNavigator.bindingActions(
       direction: .next,
       selected: 4,
-      total: 5
+      total: 5,
     )
 
     #expect(actions == Array(repeating: "navigate_search:previous", count: 4))
@@ -17,7 +17,7 @@ struct GhosttySearchNavigatorTests {
     let actions = GhosttySearchNavigator.bindingActions(
       direction: .previous,
       selected: 0,
-      total: 5
+      total: 5,
     )
 
     #expect(actions == Array(repeating: "navigate_search:next", count: 4))
@@ -27,7 +27,7 @@ struct GhosttySearchNavigatorTests {
     let actions = GhosttySearchNavigator.bindingActions(
       direction: .next,
       selected: 1,
-      total: 5
+      total: 5,
     )
 
     #expect(actions == ["navigate_search:next"])
@@ -37,7 +37,7 @@ struct GhosttySearchNavigatorTests {
     let actions = GhosttySearchNavigator.bindingActions(
       direction: .next,
       selected: nil,
-      total: 5
+      total: 5,
     )
 
     #expect(actions == ["navigate_search:next"])

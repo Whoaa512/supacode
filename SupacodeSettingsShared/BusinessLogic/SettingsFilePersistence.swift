@@ -8,7 +8,7 @@ public nonisolated struct SettingsFileStorage: Sendable {
 
   public init(
     load: @escaping @Sendable (URL) throws -> Data,
-    save: @escaping @Sendable (Data, URL) throws -> Void
+    save: @escaping @Sendable (Data, URL) throws -> Void,
   ) {
     self.load = load
     self.save = save
@@ -23,7 +23,7 @@ public nonisolated enum SettingsFileStorageKey: DependencyKey {
         let directory = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try data.write(to: url, options: [.atomic])
-      }
+      },
     )
   }
   public static var previewValue: SettingsFileStorage { .inMemory() }
@@ -53,7 +53,7 @@ extension SettingsFileStorage {
     let storage = InMemorySettingsFileStorage()
     return SettingsFileStorage(
       load: { try storage.load($0) },
-      save: { try storage.save($0, $1) }
+      save: { try storage.save($0, $1) },
     )
   }
 }
@@ -124,7 +124,7 @@ public nonisolated struct SettingsFileKey: SharedKey {
 
   public func subscribe(
     context _: LoadContext<SettingsFile>,
-    subscriber _: SharedSubscriber<SettingsFile>
+    subscriber _: SharedSubscriber<SettingsFile>,
   ) -> SharedSubscription {
     SharedSubscription {}
   }

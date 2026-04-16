@@ -13,7 +13,7 @@ public nonisolated struct CodexSettingsClient: Sendable {
     installProgress: @escaping @Sendable () async throws -> Void,
     installNotifications: @escaping @Sendable () async throws -> Void,
     uninstallProgress: @escaping @Sendable () async throws -> Void,
-    uninstallNotifications: @escaping @Sendable () async throws -> Void
+    uninstallNotifications: @escaping @Sendable () async throws -> Void,
   ) {
     self.checkInstalled = checkInstalled
     self.installProgress = installProgress
@@ -39,14 +39,14 @@ extension CodexSettingsClient: DependencyKey {
     },
     uninstallNotifications: {
       try CodexSettingsInstaller().uninstallNotificationHooks()
-    }
+    },
   )
   public static let testValue = Self(
     checkInstalled: { _ in false },
     installProgress: {},
     installNotifications: {},
     uninstallProgress: {},
-    uninstallNotifications: {}
+    uninstallNotifications: {},
   )
 }
 

@@ -14,6 +14,6 @@ struct SupacodeCLI: ParsableCommand {
       SettingsCommand.self,
       SocketCommand.self,
     ],
-    defaultSubcommand: OpenCommand.self
+    defaultSubcommand: OpenCommand.self,
   )
 }

@@ -29,7 +29,7 @@ extension DependencyValues {
 private func performOpenWorktreeAction(
   action: OpenWorktreeAction,
   worktree: Worktree,
-  onError: @escaping @MainActor @Sendable (OpenActionError) -> Void
+  onError: @escaping @MainActor @Sendable (OpenActionError) -> Void,
 ) {
   let actionTitle = action.title
   switch action {
@@ -42,7 +42,7 @@ private func performOpenWorktreeAction(
       onError(
         OpenActionError(
           title: "\(action.title) not found",
-          message: "Install \(action.title) to open this worktree."
+          message: "Install \(action.title) to open this worktree.",
         )
       )
       return
@@ -58,7 +58,7 @@ private func performOpenWorktreeAction(
         onError(
           OpenActionError(
             title: "Unable to open in \(actionTitle)",
-            message: error.localizedDescription
+            message: error.localizedDescription,
           )
         )
       }
@@ -70,7 +70,7 @@ private func performOpenWorktreeAction(
       onError(
         OpenActionError(
           title: "\(action.title) not found",
-          message: "Install \(action.title) to open this worktree."
+          message: "Install \(action.title) to open this worktree.",
         )
       )
       return
@@ -78,7 +78,7 @@ private func performOpenWorktreeAction(
     NSWorkspace.shared.open(
       [worktree.workingDirectory],
       withApplicationAt: appURL,
-      configuration: .init()
+      configuration: .init(),
     ) { _, error in
       guard let error else {
         return
@@ -87,7 +87,7 @@ private func performOpenWorktreeAction(
         onError(
           OpenActionError(
             title: "Unable to open in \(actionTitle)",
-            message: error.localizedDescription
+            message: error.localizedDescription,
           )
         )
       }

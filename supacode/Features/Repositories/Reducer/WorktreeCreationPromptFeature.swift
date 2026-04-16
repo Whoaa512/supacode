@@ -59,7 +59,7 @@ struct WorktreeCreationPromptFeature {
               repositoryID: state.repositoryID,
               branchName: trimmed,
               baseRef: state.selectedBaseRef,
-              fetchOrigin: state.fetchOrigin
+              fetchOrigin: state.fetchOrigin,
             )
           )
         )

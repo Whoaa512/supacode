@@ -8,7 +8,7 @@ struct TerminalTabContentStack<Content: View>: View {
   init(
     tabs: [TerminalTabItem],
     selectedTabId: TerminalTabID,
-    @ViewBuilder content: @escaping (TerminalTabID) -> Content
+    @ViewBuilder content: @escaping (TerminalTabID) -> Content,
   ) {
     self.tabs = tabs
     self.selectedTabId = selectedTabId

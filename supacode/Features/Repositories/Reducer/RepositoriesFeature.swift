@@ -148,7 +148,7 @@ struct RepositoriesFeature {
       [Repository],
       failures: [LoadFailure],
       invalidRoots: [String],
-      roots: [URL]
+      roots: [URL],
     )
     case selectWorktree(Worktree.ID?, focusTerminal: Bool = false)
     case selectNextWorktree
@@ -162,32 +162,32 @@ struct RepositoriesFeature {
       repositoryID: Repository.ID,
       nameSource: WorktreeCreationNameSource,
       baseRefSource: WorktreeCreationBaseRefSource,
-      fetchOrigin: Bool
+      fetchOrigin: Bool,
     )
     case promptedWorktreeCreationDataLoaded(
       repositoryID: Repository.ID,
       baseRefOptions: [String],
       automaticBaseRef: String,
-      selectedBaseRef: String?
+      selectedBaseRef: String?,
     )
     case startPromptedWorktreeCreation(
       repositoryID: Repository.ID,
       branchName: String,
       baseRef: String?,
-      fetchOrigin: Bool
+      fetchOrigin: Bool,
     )
     case promptedWorktreeCreationChecked(
       repositoryID: Repository.ID,
       branchName: String,
       baseRef: String?,
       fetchOrigin: Bool,
-      duplicateMessage: String?
+      duplicateMessage: String?,
     )
     case pendingWorktreeProgressUpdated(id: Worktree.ID, progress: WorktreeCreationProgress)
     case createRandomWorktreeSucceeded(
       Worktree,
       repositoryID: Repository.ID,
-      pendingID: Worktree.ID
+      pendingID: Worktree.ID,
     )
     case createRandomWorktreeFailed(
       title: String,
@@ -196,12 +196,12 @@ struct RepositoriesFeature {
       previousSelection: Worktree.ID?,
       repositoryID: Repository.ID,
       name: String?,
-      baseDirectory: URL
+      baseDirectory: URL,
     )
     case consumeSetupScript(Worktree.ID)
     case consumeTerminalFocus(Worktree.ID)
     case scriptCompleted(
-      worktreeID: Worktree.ID, scriptID: UUID, kind: BlockingScriptKind, exitCode: Int?, tabId: TerminalTabID?)
+      worktreeID: Worktree.ID, scriptID: UUID, kind: BlockingScriptKind, exitCode: Int?, tabId: TerminalTabID?, )
     case requestArchiveWorktree(Worktree.ID, Repository.ID)
     case requestArchiveWorktrees([ArchiveWorktreeTarget])
     case archiveWorktreeConfirmed(Worktree.ID, Repository.ID)
@@ -217,7 +217,7 @@ struct RepositoriesFeature {
       Worktree.ID,
       repositoryID: Repository.ID,
       selectionWasRemoved: Bool,
-      nextSelection: Worktree.ID?
+      nextSelection: Worktree.ID?,
     )
     case repositoriesMoved(IndexSet, Int)
     case pinnedWorktreesMoved(repositoryID: Repository.ID, IndexSet, Int)
@@ -238,7 +238,7 @@ struct RepositoriesFeature {
     case repositoryPullRequestRefreshCompleted(Repository.ID)
     case repositoryPullRequestsLoaded(
       repositoryID: Repository.ID,
-      pullRequestsByWorktreeID: [Worktree.ID: GithubPullRequest?]
+      pullRequestsByWorktreeID: [Worktree.ID: GithubPullRequest?],
     )
     case setGithubIntegrationEnabled(Bool)
     case setMergedWorktreeAction(MergedWorktreeAction?)
@@ -382,7 +382,7 @@ struct RepositoriesFeature {
               repositories,
               failures: failures,
               roots: roots,
-              animated: false
+              animated: false,
             )
           )
         }
@@ -412,7 +412,7 @@ struct RepositoriesFeature {
           roots: roots,
           shouldPruneArchivedWorktreeIDs: failures.isEmpty,
           state: &state,
-          animated: animated
+          animated: animated,
         )
         state.repositoryRoots = roots
         state.isInitialLoadComplete = true
@@ -424,7 +424,7 @@ struct RepositoriesFeature {
           previousSelectionID: previousSelection,
           previousSelectedWorktree: previousSelectedWorktree,
           selectedWorktreeID: state.selectedWorktreeID,
-          selectedWorktree: selectedWorktree
+          selectedWorktree: selectedWorktree,
         )
         var allEffects: [Effect<Action>] = []
         if repositoriesChanged {
@@ -495,7 +495,7 @@ struct RepositoriesFeature {
               repositories,
               failures: failures,
               invalidRoots: invalidRoots,
-              roots: mergedRoots
+              roots: mergedRoots,
             )
           )
         }
@@ -510,7 +510,7 @@ struct RepositoriesFeature {
           roots: roots,
           shouldPruneArchivedWorktreeIDs: failures.isEmpty,
           state: &state,
-          animated: false
+          animated: false,
         )
         state.repositoryRoots = roots
         state.isInitialLoadComplete = true
@@ -521,7 +521,7 @@ struct RepositoriesFeature {
           let message = invalidRoots.map { "\($0) is not a Git repository." }.joined(separator: "\n")
           state.alert = messageAlert(
             title: "Some folders couldn't be opened",
-            message: message
+            message: message,
           )
         }
         let selectedWorktree = state.worktree(for: state.selectedWorktreeID)
@@ -529,7 +529,7 @@ struct RepositoriesFeature {
           previousSelectionID: previousSelection,
           previousSelectedWorktree: previousSelectedWorktree,
           selectedWorktreeID: state.selectedWorktreeID,
-          selectedWorktree: selectedWorktree
+          selectedWorktree: selectedWorktree,
         )
         var allEffects: [Effect<Action>] = [
           .send(.delegate(.repositoriesChanged(state.repositories)))
@@ -575,7 +575,7 @@ struct RepositoriesFeature {
         return reduceSelectionChanged(
           into: &state,
           selections: selections,
-          focusTerminal: focusTerminal
+          focusTerminal: focusTerminal,
         )
 
       case .repositoryExpansionChanged(let repositoryID, let isExpanded):
@@ -641,14 +641,14 @@ struct RepositoriesFeature {
         guard !trimmed.isEmpty else {
           state.alert = messageAlert(
             title: "Branch name required",
-            message: "Enter a branch name to rename."
+            message: "Enter a branch name to rename.",
           )
           return .none
         }
         guard !trimmed.contains(where: \.isWhitespace) else {
           state.alert = messageAlert(
             title: "Branch name invalid",
-            message: "Branch names can't contain spaces."
+            message: "Branch names can't contain spaces.",
           )
           return .none
         }
@@ -664,7 +664,7 @@ struct RepositoriesFeature {
             await send(
               .presentAlert(
                 title: "Unable to rename branch",
-                message: error.localizedDescription
+                message: error.localizedDescription,
               )
             )
           }
@@ -689,14 +689,14 @@ struct RepositoriesFeature {
         guard let repository = state.repositories[id: repositoryID] else {
           state.alert = messageAlert(
             title: "Unable to create worktree",
-            message: "Unable to resolve a repository for the new worktree."
+            message: "Unable to resolve a repository for the new worktree.",
           )
           return .none
         }
         if state.removingRepositoryIDs.contains(repository.id) {
           state.alert = messageAlert(
             title: "Unable to create worktree",
-            message: "This repository is being removed."
+            message: "This repository is being removed.",
           )
           return .none
         }
@@ -709,9 +709,9 @@ struct RepositoriesFeature {
                 repositoryID: repository.id,
                 nameSource: .random,
                 baseRefSource: .repositorySetting,
-                fetchOrigin: settingsFile.global.fetchOriginBeforeWorktreeCreation
+                fetchOrigin: settingsFile.global.fetchOriginBeforeWorktreeCreation,
               )
-            )
+            ),
           )
         }
         @Shared(.repositorySettings(repository.rootURL)) var repositorySettings
@@ -758,7 +758,7 @@ struct RepositoriesFeature {
               repositoryID: repositoryID,
               baseRefOptions: baseRefOptions,
               automaticBaseRef: automaticBaseRef,
-              selectedBaseRef: selectedBaseRef
+              selectedBaseRef: selectedBaseRef,
             )
           )
         }
@@ -768,7 +768,7 @@ struct RepositoriesFeature {
         let repositoryID,
         let baseRefOptions,
         let automaticBaseRef,
-        let selectedBaseRef
+        let selectedBaseRef,
       ):
         guard let repository = state.repositories[id: repositoryID] else {
           return .none
@@ -782,7 +782,7 @@ struct RepositoriesFeature {
           branchName: "",
           selectedBaseRef: selectedBaseRef,
           fetchOrigin: promptSettingsFile.global.fetchOriginBeforeWorktreeCreation,
-          validationMessage: nil
+          validationMessage: nil,
         )
         return .none
 
@@ -790,7 +790,7 @@ struct RepositoriesFeature {
         state.worktreeCreationPrompt = nil
         return .merge(
           .cancel(id: CancelID.worktreePromptLoad),
-          .cancel(id: CancelID.worktreePromptValidation)
+          .cancel(id: CancelID.worktreePromptValidation),
         )
 
       case .worktreeCreationPrompt(
@@ -801,7 +801,7 @@ struct RepositoriesFeature {
             repositoryID: repositoryID,
             branchName: branchName,
             baseRef: baseRef,
-            fetchOrigin: fetchOrigin
+            fetchOrigin: fetchOrigin,
           )
         )
 
@@ -810,7 +810,7 @@ struct RepositoriesFeature {
           state.worktreeCreationPrompt = nil
           state.alert = messageAlert(
             title: "Unable to create worktree",
-            message: "Unable to resolve a repository for the new worktree."
+            message: "Unable to resolve a repository for the new worktree.",
           )
           return .none
         }
@@ -836,7 +836,7 @@ struct RepositoriesFeature {
               branchName: branchName,
               baseRef: baseRef,
               fetchOrigin: fetchOrigin,
-              duplicateMessage: duplicateMessage
+              duplicateMessage: duplicateMessage,
             )
           )
         }
@@ -847,7 +847,7 @@ struct RepositoriesFeature {
         let branchName,
         let baseRef,
         let fetchOrigin,
-        let duplicateMessage
+        let duplicateMessage,
       ):
         guard let prompt = state.worktreeCreationPrompt, prompt.repositoryID == repositoryID else {
           return .none
@@ -863,7 +863,7 @@ struct RepositoriesFeature {
             repositoryID: repositoryID,
             nameSource: .explicit(branchName),
             baseRefSource: .explicit(baseRef),
-            fetchOrigin: fetchOrigin
+            fetchOrigin: fetchOrigin,
           )
         )
 
@@ -871,14 +871,14 @@ struct RepositoriesFeature {
         guard let repository = state.repositories[id: repositoryID] else {
           state.alert = messageAlert(
             title: "Unable to create worktree",
-            message: "Unable to resolve a repository for the new worktree."
+            message: "Unable to resolve a repository for the new worktree.",
           )
           return .none
         }
         if state.removingRepositoryIDs.contains(repository.id) {
           state.alert = messageAlert(
             title: "Unable to create worktree",
-            message: "This repository is being removed."
+            message: "This repository is being removed.",
           )
           return .none
         }
@@ -890,7 +890,7 @@ struct RepositoriesFeature {
         let worktreeBaseDirectory = SupacodePaths.worktreeBaseDirectory(
           for: repository.rootURL,
           globalDefaultPath: globalDefaultWorktreeBaseDirectoryPath,
-          repositoryOverridePath: repositorySettings.worktreeBaseDirectoryPath
+          repositoryOverridePath: repositorySettings.worktreeBaseDirectoryPath,
         )
         let selectedBaseRef = repositorySettings.worktreeBaseRef
         let globalSettings = settingsFile.global
@@ -903,7 +903,7 @@ struct RepositoriesFeature {
           PendingWorktree(
             id: pendingID,
             repositoryID: repository.id,
-            progress: WorktreeCreationProgress(stage: .loadingLocalBranches, worktreeName: initialWorktreeName)
+            progress: WorktreeCreationProgress(stage: .loadingLocalBranches, worktreeName: initialWorktreeName),
           )
         )
         setSingleWorktreeSelection(pendingID, state: &state)
@@ -914,7 +914,7 @@ struct RepositoriesFeature {
           var newWorktreeName: String?
           var progress = WorktreeCreationProgress(
             stage: .loadingLocalBranches,
-            worktreeName: initialWorktreeName
+            worktreeName: initialWorktreeName,
           )
           var progressUpdateThrottle = WorktreeCreationProgressUpdateThrottle(
             stride: worktreeCreationProgressUpdateStride
@@ -923,7 +923,7 @@ struct RepositoriesFeature {
             await send(
               .pendingWorktreeProgressUpdated(
                 id: pendingID,
-                progress: progress
+                progress: progress,
               )
             )
             let branchNames = try await gitClient.localBranchNames(repository.rootURL)
@@ -935,7 +935,7 @@ struct RepositoriesFeature {
               await send(
                 .pendingWorktreeProgressUpdated(
                   id: pendingID,
-                  progress: progress
+                  progress: progress,
                 )
               )
               let generatedName = await MainActor.run {
@@ -953,7 +953,7 @@ struct RepositoriesFeature {
                     previousSelection: previousSelection,
                     repositoryID: repository.id,
                     name: nil,
-                    baseDirectory: worktreeBaseDirectory
+                    baseDirectory: worktreeBaseDirectory,
                   )
                 )
                 return
@@ -970,7 +970,7 @@ struct RepositoriesFeature {
                     previousSelection: previousSelection,
                     repositoryID: repository.id,
                     name: nil,
-                    baseDirectory: worktreeBaseDirectory
+                    baseDirectory: worktreeBaseDirectory,
                   )
                 )
                 return
@@ -984,7 +984,7 @@ struct RepositoriesFeature {
                     previousSelection: previousSelection,
                     repositoryID: repository.id,
                     name: nil,
-                    baseDirectory: worktreeBaseDirectory
+                    baseDirectory: worktreeBaseDirectory,
                   )
                 )
                 return
@@ -998,7 +998,7 @@ struct RepositoriesFeature {
                     previousSelection: previousSelection,
                     repositoryID: repository.id,
                     name: nil,
-                    baseDirectory: worktreeBaseDirectory
+                    baseDirectory: worktreeBaseDirectory,
                   )
                 )
                 return
@@ -1012,7 +1012,7 @@ struct RepositoriesFeature {
                     previousSelection: previousSelection,
                     repositoryID: repository.id,
                     name: nil,
-                    baseDirectory: worktreeBaseDirectory
+                    baseDirectory: worktreeBaseDirectory,
                   )
                 )
                 return
@@ -1025,7 +1025,7 @@ struct RepositoriesFeature {
             await send(
               .pendingWorktreeProgressUpdated(
                 id: pendingID,
-                progress: progress
+                progress: progress,
               )
             )
             let isBareRepository = (try? await gitClient.isBareRepository(repository.rootURL)) ?? false
@@ -1035,7 +1035,7 @@ struct RepositoriesFeature {
             await send(
               .pendingWorktreeProgressUpdated(
                 id: pendingID,
-                progress: progress
+                progress: progress,
               )
             )
             let resolvedBaseRef: String
@@ -1072,7 +1072,7 @@ struct RepositoriesFeature {
                 await send(
                   .pendingWorktreeProgressUpdated(
                     id: pendingID,
-                    progress: progress
+                    progress: progress,
                   )
                 )
                 do {
@@ -1083,7 +1083,7 @@ struct RepositoriesFeature {
                   )
                   progress.appendOutputLine(
                     "Fetch failed: \(error.localizedDescription)",
-                    maxLines: worktreeCreationProgressLineLimit
+                    maxLines: worktreeCreationProgressLineLimit,
                   )
                   await send(
                     .pendingWorktreeProgressUpdated(id: pendingID, progress: progress)
@@ -1107,12 +1107,12 @@ struct RepositoriesFeature {
               name: name,
               copyIgnored: copyIgnored,
               copyUntracked: copyUntracked,
-              baseRef: resolvedBaseRef
+              baseRef: resolvedBaseRef,
             )
             await send(
               .pendingWorktreeProgressUpdated(
                 id: pendingID,
-                progress: progress
+                progress: progress,
               )
             )
             let stream = createWorktreeStream(
@@ -1121,7 +1121,7 @@ struct RepositoriesFeature {
               worktreeBaseDirectory,
               copyIgnored,
               copyUntracked,
-              resolvedBaseRef
+              resolvedBaseRef,
             )
             for try await event in stream {
               switch event {
@@ -1135,7 +1135,7 @@ struct RepositoriesFeature {
                   await send(
                     .pendingWorktreeProgressUpdated(
                       id: pendingID,
-                      progress: progress
+                      progress: progress,
                     )
                   )
                 }
@@ -1144,7 +1144,7 @@ struct RepositoriesFeature {
                   await send(
                     .pendingWorktreeProgressUpdated(
                       id: pendingID,
-                      progress: progress
+                      progress: progress,
                     )
                   )
                 }
@@ -1152,7 +1152,7 @@ struct RepositoriesFeature {
                   .createRandomWorktreeSucceeded(
                     newWorktree,
                     repositoryID: repository.id,
-                    pendingID: pendingID
+                    pendingID: pendingID,
                   )
                 )
                 return
@@ -1160,14 +1160,14 @@ struct RepositoriesFeature {
             }
             throw GitClientError.commandFailed(
               command: "wt sw",
-              message: "Worktree creation finished without a result."
+              message: "Worktree creation finished without a result.",
             )
           } catch {
             if progressUpdateThrottle.flush() {
               await send(
                 .pendingWorktreeProgressUpdated(
                   id: pendingID,
-                  progress: progress
+                  progress: progress,
                 )
               )
             }
@@ -1179,7 +1179,7 @@ struct RepositoriesFeature {
                 previousSelection: previousSelection,
                 repositoryID: repository.id,
                 name: newWorktreeName,
-                baseDirectory: worktreeBaseDirectory
+                baseDirectory: worktreeBaseDirectory,
               )
             )
           }
@@ -1189,7 +1189,7 @@ struct RepositoriesFeature {
         state.worktreeCreationPrompt = nil
         return .merge(
           .cancel(id: CancelID.worktreePromptLoad),
-          .cancel(id: CancelID.worktreePromptValidation)
+          .cancel(id: CancelID.worktreePromptValidation),
         )
 
       case .worktreeCreationPrompt:
@@ -1202,7 +1202,7 @@ struct RepositoriesFeature {
       case .createRandomWorktreeSucceeded(
         let worktree,
         let repositoryID,
-        let pendingID
+        let pendingID,
       ):
         analyticsClient.capture("worktree_created", nil)
         state.pendingSetupScriptWorktreeIDs.insert(worktree.id)
@@ -1216,7 +1216,7 @@ struct RepositoriesFeature {
           .send(.reloadRepositories(animated: false)),
           .send(.delegate(.repositoriesChanged(state.repositories))),
           .send(.delegate(.selectedWorktreeChanged(state.worktree(for: state.selectedWorktreeID)))),
-          .send(.delegate(.worktreeCreated(worktree)))
+          .send(.delegate(.worktreeCreated(worktree))),
         )
 
       case .createRandomWorktreeFailed(
@@ -1226,7 +1226,7 @@ struct RepositoriesFeature {
         let previousSelection,
         let repositoryID,
         let name,
-        let baseDirectory
+        let baseDirectory,
       ):
         let previousSelectedWorktree = state.worktree(for: previousSelection)
         removePendingWorktree(pendingID, state: &state)
@@ -1235,7 +1235,7 @@ struct RepositoriesFeature {
           repositoryID: repositoryID,
           name: name,
           baseDirectory: baseDirectory,
-          state: &state
+          state: &state,
         )
         state.alert = messageAlert(title: title, message: message)
         let selectedWorktree = state.worktree(for: state.selectedWorktreeID)
@@ -1243,7 +1243,7 @@ struct RepositoriesFeature {
           previousSelectionID: previousSelection,
           previousSelectedWorktree: previousSelectedWorktree,
           selectedWorktreeID: state.selectedWorktreeID,
-          selectedWorktree: selectedWorktree
+          selectedWorktree: selectedWorktree,
         )
         var effects: [Effect<Action>] = []
         if cleanup.didRemoveWorktree {
@@ -1411,7 +1411,7 @@ struct RepositoriesFeature {
           exitCode: exitCode,
           worktreeID: worktreeID,
           tabId: tabId,
-          state: state
+          state: state,
         )
         return .none
 
@@ -1451,7 +1451,7 @@ struct RepositoriesFeature {
             state.alert = messageAlert(
               title: "Archive failed",
               message: "The archive script completed successfully, but the worktree could not be found."
-                + " It may have been removed."
+                + " It may have been removed.",
             )
             return .none
           }
@@ -1461,7 +1461,7 @@ struct RepositoriesFeature {
           return .none
         case let code?:
           state.alert = blockingScriptFailureAlert(
-            kind: .archive, exitCode: code, worktreeID: worktreeID, tabId: tabId, state: state
+            kind: .archive, exitCode: code, worktreeID: worktreeID, tabId: tabId, state: state,
           )
           return .none
         }
@@ -1475,7 +1475,7 @@ struct RepositoriesFeature {
           )
           state.alert = messageAlert(
             title: "Archive failed",
-            message: "The worktree could not be found. It may have already been removed."
+            message: "The worktree could not be found. It may have already been removed.",
           )
           return .none
         }
@@ -1517,7 +1517,7 @@ struct RepositoriesFeature {
           previousSelectionID: previousSelection,
           previousSelectedWorktree: previousSelectedWorktree,
           selectedWorktreeID: state.selectedWorktreeID,
-          selectedWorktree: selectedWorktree
+          selectedWorktree: selectedWorktree,
         )
         var effects: [Effect<Action>] = [
           .send(.delegate(.repositoriesChanged(repositories))),
@@ -1559,7 +1559,7 @@ struct RepositoriesFeature {
           .send(.delegate(.repositoriesChanged(repositories))),
           .run { _ in
             await repositoryPersistence.saveArchivedWorktreeDates(archivedWorktreeDates)
-          }
+          },
         )
 
       case .requestDeleteWorktree(let worktreeID, let repositoryID):
@@ -1574,7 +1574,7 @@ struct RepositoriesFeature {
         if state.isMainWorktree(worktree) {
           state.alert = messageAlert(
             title: "Delete not allowed",
-            message: "Deleting the main worktree is not allowed."
+            message: "Deleting the main worktree is not allowed.",
           )
           return .none
         }
@@ -1705,7 +1705,7 @@ struct RepositoriesFeature {
             state.alert = messageAlert(
               title: "Delete failed",
               message: "The delete script completed successfully, but the worktree could not be found."
-                + " It may have been removed."
+                + " It may have been removed.",
             )
             return .none
           }
@@ -1715,7 +1715,7 @@ struct RepositoriesFeature {
           return .none
         case let code?:
           state.alert = blockingScriptFailureAlert(
-            kind: .delete, exitCode: code, worktreeID: worktreeID, tabId: tabId, state: state
+            kind: .delete, exitCode: code, worktreeID: worktreeID, tabId: tabId, state: state,
           )
           return .none
         }
@@ -1729,7 +1729,7 @@ struct RepositoriesFeature {
           )
           state.alert = messageAlert(
             title: "Delete failed",
-            message: "The worktree could not be found. It may have already been removed."
+            message: "The worktree could not be found. It may have already been removed.",
           )
           return .none
         }
@@ -1745,14 +1745,14 @@ struct RepositoriesFeature {
           do {
             _ = try await gitClient.removeWorktree(
               worktree,
-              deleteBranchOnDeleteWorktree
+              deleteBranchOnDeleteWorktree,
             )
             await send(
               .worktreeDeleted(
                 worktree.id,
                 repositoryID: repository.id,
                 selectionWasRemoved: selectionWasRemoved,
-                nextSelection: nextSelection
+                nextSelection: nextSelection,
               )
             )
           } catch {
@@ -1764,7 +1764,7 @@ struct RepositoriesFeature {
         let worktreeID,
         let repositoryID,
         _,
-        let nextSelection
+        let nextSelection,
       ):
         analyticsClient.capture("worktree_deleted", nil)
         let previousSelection = state.selectedWorktreeID
@@ -1805,7 +1805,7 @@ struct RepositoriesFeature {
           previousSelectionID: previousSelection,
           previousSelectedWorktree: previousSelectedWorktree,
           selectedWorktreeID: state.selectedWorktreeID,
-          selectedWorktree: selectedWorktree
+          selectedWorktree: selectedWorktree,
         )
         var immediateEffects: [Effect<Action>] = [
           .send(.delegate(.repositoriesChanged(repositories)))
@@ -1842,7 +1842,7 @@ struct RepositoriesFeature {
         }
         return .concatenate(
           .merge(immediateEffects),
-          .merge(followupEffects)
+          .merge(followupEffects),
         )
 
       case .repositoriesMoved(let offsets, let destination):
@@ -1865,7 +1865,7 @@ struct RepositoriesFeature {
         withAnimation(.snappy(duration: 0.2)) {
           state.pinnedWorktreeIDs = state.replacingPinnedWorktreeIDs(
             in: repository,
-            with: reordered
+            with: reordered,
           )
         }
         let pinnedWorktreeIDs = state.pinnedWorktreeIDs
@@ -1915,7 +1915,7 @@ struct RepositoriesFeature {
               repositories,
               failures: failures,
               roots: roots,
-              animated: true
+              animated: true,
             )
           )
         }
@@ -1959,11 +1959,11 @@ struct RepositoriesFeature {
                 repositories,
                 failures: failures,
                 roots: roots,
-                animated: true
+                animated: true,
               )
             )
           }
-          .cancellable(id: CancelID.load, cancelInFlight: true)
+          .cancellable(id: CancelID.load, cancelInFlight: true),
         )
 
       case .pinWorktree(let worktreeID):
@@ -2020,7 +2020,7 @@ struct RepositoriesFeature {
         var effects: [Effect<Action>] = [
           .run { _ in
             await repositoryPersistence.savePinnedWorktreeIDs(pinnedWorktreeIDs)
-          },
+          }
         ]
         if didUpdateWorktreeOrder {
           let worktreeOrderByRepository = state.worktreeOrderByRepository
@@ -2047,7 +2047,7 @@ struct RepositoriesFeature {
         var effects: [Effect<Action>] = [
           .run { _ in
             await repositoryPersistence.savePinnedWorktreeIDs(pinnedWorktreeIDs)
-          },
+          }
         ]
         if didUpdateWorktreeOrder {
           let worktreeOrderByRepository = state.worktreeOrderByRepository
@@ -2095,7 +2095,7 @@ struct RepositoriesFeature {
             .worktreeInfoEvent(
               .repositoryPullRequestRefresh(
                 repositoryRootURL: repositoryRootURL,
-                worktreeIDs: worktreeIDs
+                worktreeIDs: worktreeIDs,
               )
             )
           )
@@ -2119,7 +2119,7 @@ struct RepositoriesFeature {
           let reordered = reorderedUnpinnedWorktreeIDs(
             for: worktreeID,
             in: repository,
-            state: state
+            state: state,
           )
           if state.worktreeOrderByRepository[repositoryID] != reordered {
             withAnimation(.snappy(duration: 0.2)) {
@@ -2164,7 +2164,7 @@ struct RepositoriesFeature {
                 .worktreeLineChangesLoaded(
                   worktreeID: worktreeID,
                   added: changes.added,
-                  removed: changes.removed
+                  removed: changes.removed,
                 )
               )
             }
@@ -2191,7 +2191,7 @@ struct RepositoriesFeature {
                 repositoryID: repositoryID,
                 repositoryRootURL: repositoryRootURL,
                 worktreeIDs: worktreeIDs,
-                refreshesByRepositoryID: &state.queuedPullRequestRefreshByRepositoryID
+                refreshesByRepositoryID: &state.queuedPullRequestRefreshByRepositoryID,
               )
               return .none
             }
@@ -2200,14 +2200,14 @@ struct RepositoriesFeature {
               repositoryID: repositoryID,
               repositoryRootURL: repositoryRootURL,
               worktrees: worktrees,
-              branches: branches
+              branches: branches,
             )
           case .unknown:
             queuePullRequestRefresh(
               repositoryID: repositoryID,
               repositoryRootURL: repositoryRootURL,
               worktreeIDs: worktreeIDs,
-              refreshesByRepositoryID: &state.pendingPullRequestRefreshByRepositoryID
+              refreshesByRepositoryID: &state.pendingPullRequestRefreshByRepositoryID,
             )
             return .send(.refreshGithubIntegrationAvailability)
           case .checking:
@@ -2215,7 +2215,7 @@ struct RepositoriesFeature {
               repositoryID: repositoryID,
               repositoryRootURL: repositoryRootURL,
               worktreeIDs: worktreeIDs,
-              refreshesByRepositoryID: &state.pendingPullRequestRefreshByRepositoryID
+              refreshesByRepositoryID: &state.pendingPullRequestRefreshByRepositoryID,
             )
             return .none
           case .unavailable:
@@ -2223,7 +2223,7 @@ struct RepositoriesFeature {
               repositoryID: repositoryID,
               repositoryRootURL: repositoryRootURL,
               worktreeIDs: worktreeIDs,
-              refreshesByRepositoryID: &state.pendingPullRequestRefreshByRepositoryID
+              refreshesByRepositoryID: &state.pendingPullRequestRefreshByRepositoryID,
             )
             return .none
           case .disabled:
@@ -2256,7 +2256,7 @@ struct RepositoriesFeature {
               repositoryID: repositoryID,
               repositoryRootURL: queued.repositoryRootURL,
               worktreeIDs: queued.worktreeIDs,
-              refreshesByRepositoryID: &state.pendingPullRequestRefreshByRepositoryID
+              refreshesByRepositoryID: &state.pendingPullRequestRefreshByRepositoryID,
             )
           }
           state.queuedPullRequestRefreshByRepositoryID.removeAll()
@@ -2285,12 +2285,12 @@ struct RepositoriesFeature {
                 .worktreeInfoEvent(
                   .repositoryPullRequestRefresh(
                     repositoryRootURL: pending.repositoryRootURL,
-                    worktreeIDs: pending.worktreeIDs
+                    worktreeIDs: pending.worktreeIDs,
                   )
                 )
               )
             }
-          )
+          ),
         )
 
       case .repositoryPullRequestRefreshCompleted(let repositoryID):
@@ -2306,7 +2306,7 @@ struct RepositoriesFeature {
           .worktreeInfoEvent(
             .repositoryPullRequestRefresh(
               repositoryRootURL: pending.repositoryRootURL,
-              worktreeIDs: pending.worktreeIDs
+              worktreeIDs: pending.worktreeIDs,
             )
           )
         )
@@ -2320,7 +2320,7 @@ struct RepositoriesFeature {
           worktreeID: worktreeID,
           added: added,
           removed: removed,
-          state: &state
+          state: &state,
         )
         return .none
 
@@ -2344,7 +2344,7 @@ struct RepositoriesFeature {
           updateWorktreePullRequest(
             worktreeID: worktreeID,
             pullRequest: pullRequest,
-            state: &state
+            state: &state,
           )
           if let mergedAction = state.mergedWorktreeAction,
             !previousMerged,
@@ -2379,7 +2379,7 @@ struct RepositoriesFeature {
           return .send(
             .presentAlert(
               title: "Pull request not available",
-              message: "Supacode could not find a pull request for this worktree."
+              message: "Supacode could not find a pull request for this worktree.",
             )
           )
         }
@@ -2387,7 +2387,7 @@ struct RepositoriesFeature {
         let worktreeRoot = worktree.workingDirectory
         let pullRequestRefresh = WorktreeInfoWatcherClient.Event.repositoryPullRequestRefresh(
           repositoryRootURL: repoRoot,
-          worktreeIDs: repository.worktrees.map(\.id)
+          worktreeIDs: repository.worktrees.map(\.id),
         )
         let branchName = pullRequest.headRefName ?? worktree.name
         let failingCheckDetailsURL = (pullRequest.statusCheckRollup?.checks ?? []).first {
@@ -2399,7 +2399,7 @@ struct RepositoriesFeature {
             return .send(
               .presentAlert(
                 title: "Invalid pull request URL",
-                message: "Supacode could not open the pull request URL."
+                message: "Supacode could not open the pull request URL.",
               )
             )
           }
@@ -2412,7 +2412,7 @@ struct RepositoriesFeature {
             return .send(
               .presentAlert(
                 title: "Failing check not found",
-                message: "Supacode could not find a failing check URL."
+                message: "Supacode could not find a failing check URL.",
               )
             )
           }
@@ -2429,7 +2429,7 @@ struct RepositoriesFeature {
             return .send(
               .presentAlert(
                 title: "Failing check not found",
-                message: "Supacode could not find a failing check with details."
+                message: "Supacode could not find a failing check with details.",
               )
             )
           }
@@ -2445,7 +2445,7 @@ struct RepositoriesFeature {
               await send(
                 .presentAlert(
                   title: "GitHub integration unavailable",
-                  message: "Enable GitHub integration to mark a pull request as ready."
+                  message: "Enable GitHub integration to mark a pull request as ready.",
                 )
               )
               return
@@ -2460,7 +2460,7 @@ struct RepositoriesFeature {
               await send(
                 .presentAlert(
                   title: "Failed to mark pull request ready",
-                  message: error.localizedDescription
+                  message: error.localizedDescription,
                 )
               )
             }
@@ -2474,7 +2474,7 @@ struct RepositoriesFeature {
               await send(
                 .presentAlert(
                   title: "GitHub integration unavailable",
-                  message: "Enable GitHub integration to merge a pull request."
+                  message: "Enable GitHub integration to merge a pull request.",
                 )
               )
               return
@@ -2494,7 +2494,7 @@ struct RepositoriesFeature {
               await send(
                 .presentAlert(
                   title: "Failed to merge pull request",
-                  message: error.localizedDescription
+                  message: error.localizedDescription,
                 )
               )
             }
@@ -2508,7 +2508,7 @@ struct RepositoriesFeature {
               await send(
                 .presentAlert(
                   title: "GitHub integration unavailable",
-                  message: "Enable GitHub integration to close a pull request."
+                  message: "Enable GitHub integration to close a pull request.",
                 )
               )
               return
@@ -2524,7 +2524,7 @@ struct RepositoriesFeature {
               await send(
                 .presentAlert(
                   title: "Failed to close pull request",
-                  message: error.localizedDescription
+                  message: error.localizedDescription,
                 )
               )
             }
@@ -2538,7 +2538,7 @@ struct RepositoriesFeature {
               await send(
                 .presentAlert(
                   title: "GitHub integration unavailable",
-                  message: "Enable GitHub integration to copy CI failure logs."
+                  message: "Enable GitHub integration to copy CI failure logs.",
                 )
               )
               return
@@ -2547,7 +2547,7 @@ struct RepositoriesFeature {
               await send(
                 .presentAlert(
                   title: "Branch name unavailable",
-                  message: "Supacode could not determine the pull request branch."
+                  message: "Supacode could not determine the pull request branch.",
                 )
               )
               return
@@ -2559,7 +2559,7 @@ struct RepositoriesFeature {
                 await send(
                   .presentAlert(
                     title: "No workflow runs found",
-                    message: "Supacode could not find any workflow runs for this branch."
+                    message: "Supacode could not find any workflow runs for this branch.",
                   )
                 )
                 return
@@ -2569,7 +2569,7 @@ struct RepositoriesFeature {
                 await send(
                   .presentAlert(
                     title: "No failing workflow run",
-                    message: "Supacode could not find a failing workflow run to copy logs from."
+                    message: "Supacode could not find a failing workflow run to copy logs from.",
                   )
                 )
                 return
@@ -2586,7 +2586,7 @@ struct RepositoriesFeature {
                 await send(
                   .presentAlert(
                     title: "No CI logs available",
-                    message: "The workflow run failed but produced no logs."
+                    message: "The workflow run failed but produced no logs.",
                   )
                 )
                 return
@@ -2601,7 +2601,7 @@ struct RepositoriesFeature {
               await send(
                 .presentAlert(
                   title: "Failed to copy CI failure logs",
-                  message: error.localizedDescription
+                  message: error.localizedDescription,
                 )
               )
             }
@@ -2615,7 +2615,7 @@ struct RepositoriesFeature {
               await send(
                 .presentAlert(
                   title: "GitHub integration unavailable",
-                  message: "Enable GitHub integration to re-run failed jobs."
+                  message: "Enable GitHub integration to re-run failed jobs.",
                 )
               )
               return
@@ -2624,7 +2624,7 @@ struct RepositoriesFeature {
               await send(
                 .presentAlert(
                   title: "Branch name unavailable",
-                  message: "Supacode could not determine the pull request branch."
+                  message: "Supacode could not determine the pull request branch.",
                 )
               )
               return
@@ -2636,7 +2636,7 @@ struct RepositoriesFeature {
                 await send(
                   .presentAlert(
                     title: "No workflow runs found",
-                    message: "Supacode could not find any workflow runs for this branch."
+                    message: "Supacode could not find any workflow runs for this branch.",
                   )
                 )
                 return
@@ -2646,7 +2646,7 @@ struct RepositoriesFeature {
                 await send(
                   .presentAlert(
                     title: "No failing workflow run",
-                    message: "Supacode could not find a failing workflow run to re-run."
+                    message: "Supacode could not find a failing workflow run to re-run.",
                   )
                 )
                 return
@@ -2659,7 +2659,7 @@ struct RepositoriesFeature {
               await send(
                 .presentAlert(
                   title: "Failed to re-run failed jobs",
-                  message: error.localizedDescription
+                  message: error.localizedDescription,
                 )
               )
             }
@@ -2674,7 +2674,7 @@ struct RepositoriesFeature {
           state.inFlightPullRequestRefreshRepositoryIDs.removeAll()
           return .merge(
             .cancel(id: CancelID.githubIntegrationRecovery),
-            .send(.refreshGithubIntegrationAvailability)
+            .send(.refreshGithubIntegrationAvailability),
           )
         }
         state.githubIntegrationAvailability = .disabled
@@ -2686,12 +2686,12 @@ struct RepositoriesFeature {
           updateWorktreePullRequest(
             worktreeID: worktreeID,
             pullRequest: nil,
-            state: &state
+            state: &state,
           )
         }
         return .merge(
           .cancel(id: CancelID.githubIntegrationAvailability),
-          .cancel(id: CancelID.githubIntegrationRecovery)
+          .cancel(id: CancelID.githubIntegrationRecovery),
         )
 
       case .setMergedWorktreeAction(let action):
@@ -2750,7 +2750,7 @@ struct RepositoriesFeature {
       case .alert(.presented(.viewTerminalTab(let worktreeID, let tabId))):
         return .merge(
           .send(.selectWorktree(worktreeID, focusTerminal: true)),
-          .send(.delegate(.selectTerminalTab(worktreeID, tabId: tabId)))
+          .send(.delegate(.selectTerminalTab(worktreeID, tabId: tabId))),
         )
 
       case .alert(.dismiss):
@@ -2773,7 +2773,7 @@ struct RepositoriesFeature {
     repositoryID: Repository.ID,
     repositoryRootURL: URL,
     worktrees: [Worktree],
-    branches: [String]
+    branches: [String],
   ) -> Effect<Action> {
     let gitClient = gitClient
     let githubCLI = githubCLI
@@ -2787,7 +2787,7 @@ struct RepositoriesFeature {
           remoteInfo.host,
           remoteInfo.owner,
           remoteInfo.repo,
-          branches
+          branches,
         )
         var pullRequestsByWorktreeID: [Worktree.ID: GithubPullRequest?] = [:]
         for worktree in worktrees {
@@ -2796,7 +2796,7 @@ struct RepositoriesFeature {
         await send(
           .repositoryPullRequestsLoaded(
             repositoryID: repositoryID,
-            pullRequestsByWorktreeID: pullRequestsByWorktreeID
+            pullRequestsByWorktreeID: pullRequestsByWorktreeID,
           )
         )
       } catch {
@@ -2819,7 +2819,7 @@ struct RepositoriesFeature {
           repositories,
           failures: failures,
           roots: roots,
-          animated: animated
+          animated: animated,
         )
       )
     }
@@ -2844,7 +2844,7 @@ struct RepositoriesFeature {
             return WorktreesFetchResult(
               root: root,
               worktrees: nil,
-              errorMessage: error.localizedDescription
+              errorMessage: error.localizedDescription,
             )
           }
         }
@@ -2870,14 +2870,14 @@ struct RepositoriesFeature {
           id: rootID,
           rootURL: normalizedRoot,
           name: name,
-          worktrees: IdentifiedArray(uniqueElements: worktrees)
+          worktrees: IdentifiedArray(uniqueElements: worktrees),
         )
         loaded.append(repository)
       } else {
         failures.append(
           LoadFailure(
             rootID: rootID,
-            message: result.errorMessage ?? "Unknown error"
+            message: result.errorMessage ?? "Unknown error",
           )
         )
       }
@@ -2890,7 +2890,7 @@ struct RepositoriesFeature {
     roots: [URL],
     shouldPruneArchivedWorktreeIDs: Bool,
     state: inout State,
-    animated: Bool
+    animated: Bool,
   ) -> ApplyRepositoriesResult {
     let previousCounts = Dictionary(
       uniqueKeysWithValues: state.repositories.map { ($0.id, $0.worktrees.count) }
@@ -2983,7 +2983,7 @@ struct RepositoriesFeature {
       didPruneCollapsedRepositoryIDs: didPruneCollapsedRepositoryIDs,
       didPruneRepositoryOrder: didPruneRepositoryOrder,
       didPruneWorktreeOrder: didPruneWorktreeOrder,
-      didPruneArchivedWorktreeIDs: didPruneArchivedWorktreeIDs
+      didPruneArchivedWorktreeIDs: didPruneArchivedWorktreeIDs,
     )
   }
 
@@ -2992,7 +2992,7 @@ struct RepositoriesFeature {
     exitCode: Int,
     worktreeID: Worktree.ID,
     tabId: TerminalTabID?,
-    state: State
+    state: State,
   ) -> AlertState<Alert> {
     let worktreeName = state.worktree(for: worktreeID)?.name
     let repoName = state.repositoryID(containing: worktreeID)
@@ -3032,7 +3032,7 @@ struct RepositoriesFeature {
 
   private func confirmationAlertForRepositoryRemoval(
     repositoryID: Repository.ID,
-    state: State
+    state: State,
   ) -> AlertState<Alert>? {
     guard let repository = state.repositories[id: repositoryID] else {
       return nil
@@ -3166,7 +3166,7 @@ extension RepositoriesFeature.State {
   /// worktree belongs to a different repository).
   func runningScriptColors(
     for worktreeID: Worktree.ID,
-    scriptsByID: [UUID: ScriptDefinition]
+    scriptsByID: [UUID: ScriptDefinition],
   ) -> [TerminalTabTintColor] {
     guard let scriptIDs = runningScriptsByWorktreeID[worktreeID] else { return [] }
     return scriptIDs.sorted().map { scriptsByID[$0]?.resolvedTintColor ?? .green }
@@ -3194,7 +3194,7 @@ extension RepositoriesFeature.State {
       info: worktreeInfo(for: pending.id),
       isPinned: false,
       isMainWorktree: false,
-      status: status
+      status: status,
     )
   }
 
@@ -3202,7 +3202,7 @@ extension RepositoriesFeature.State {
     _ worktree: Worktree,
     repositoryID: Repository.ID,
     isPinned: Bool,
-    isMainWorktree: Bool
+    isMainWorktree: Bool,
   ) -> WorktreeRowModel {
     let status: WorktreeRowModel.Status =
       if removingRepositoryIDs.contains(repositoryID)
@@ -3224,7 +3224,7 @@ extension RepositoriesFeature.State {
       info: worktreeInfo(for: worktree.id),
       isPinned: isPinned,
       isMainWorktree: isMainWorktree,
-      status: status
+      status: status,
     )
   }
 
@@ -3242,7 +3242,7 @@ extension RepositoriesFeature.State {
           worktree,
           repositoryID: repository.id,
           isPinned: pinnedWorktreeIDs.contains(worktree.id),
-          isMainWorktree: isMainWorktree(worktree)
+          isMainWorktree: isMainWorktree(worktree),
         )
       }
     }
@@ -3320,7 +3320,7 @@ extension RepositoriesFeature.State {
 
   func replacingPinnedWorktreeIDs(
     in repository: Repository,
-    with reordered: [Worktree.ID]
+    with reordered: [Worktree.ID],
   ) -> [Worktree.ID] {
     let repoPinnedIDs = Set(orderedPinnedWorktreeIDs(in: repository))
     var iterator = reordered.makeIterator()
@@ -3416,7 +3416,7 @@ extension RepositoriesFeature.State {
           mainWorktree,
           repositoryID: repository.id,
           isPinned: false,
-          isMainWorktree: true
+          isMainWorktree: true,
         )
       } else {
         nil
@@ -3428,7 +3428,7 @@ extension RepositoriesFeature.State {
           worktree,
           repositoryID: repository.id,
           isPinned: true,
-          isMainWorktree: false
+          isMainWorktree: false,
         )
       )
     }
@@ -3443,7 +3443,7 @@ extension RepositoriesFeature.State {
           worktree,
           repositoryID: repository.id,
           isPinned: false,
-          isMainWorktree: false
+          isMainWorktree: false,
         )
       )
     }
@@ -3461,7 +3461,7 @@ extension RepositoriesFeature.State {
           worktree,
           repositoryID: repository.id,
           isPinned: false,
-          isMainWorktree: false
+          isMainWorktree: false,
         )
       )
     }
@@ -3469,7 +3469,7 @@ extension RepositoriesFeature.State {
       main: mainRow,
       pinned: pinnedRows,
       pending: pendingRows,
-      unpinned: unpinnedRows
+      unpinned: unpinnedRows,
     )
   }
 
@@ -3523,7 +3523,7 @@ private func removePendingWorktree(_ id: String, state: inout RepositoriesFeatur
 private func updatePendingWorktreeProgress(
   _ id: String,
   progress: WorktreeCreationProgress,
-  state: inout RepositoriesFeature.State
+  state: inout RepositoriesFeature.State,
 ) {
   guard let index = state.pendingWorktrees.firstIndex(where: { $0.id == id }) else {
     return
@@ -3534,7 +3534,7 @@ private func updatePendingWorktreeProgress(
 private func insertWorktree(
   _ worktree: Worktree,
   repositoryID: Repository.ID,
-  state: inout RepositoriesFeature.State
+  state: inout RepositoriesFeature.State,
 ) {
   guard let index = state.repositories.index(id: repositoryID) else { return }
   let repository = state.repositories[index]
@@ -3547,7 +3547,7 @@ private func insertWorktree(
     id: repository.id,
     rootURL: repository.rootURL,
     name: repository.name,
-    worktrees: worktrees
+    worktrees: worktrees,
   )
 }
 
@@ -3555,7 +3555,7 @@ private func insertWorktree(
 private func removeWorktree(
   _ worktreeID: Worktree.ID,
   repositoryID: Repository.ID,
-  state: inout RepositoriesFeature.State
+  state: inout RepositoriesFeature.State,
 ) -> Bool {
   guard let index = state.repositories.index(id: repositoryID) else { return false }
   let repository = state.repositories[index]
@@ -3566,7 +3566,7 @@ private func removeWorktree(
     id: repository.id,
     rootURL: repository.rootURL,
     name: repository.name,
-    worktrees: worktrees
+    worktrees: worktrees,
   )
   return true
 }
@@ -3575,14 +3575,14 @@ private func cleanupFailedWorktree(
   repositoryID: Repository.ID,
   name: String?,
   baseDirectory: URL,
-  state: inout RepositoriesFeature.State
+  state: inout RepositoriesFeature.State,
 ) -> FailedWorktreeCleanup {
   guard let name, !name.isEmpty else {
     return FailedWorktreeCleanup(
       didRemoveWorktree: false,
       didUpdatePinned: false,
       didUpdateOrder: false,
-      worktree: nil
+      worktree: nil,
     )
   }
   let repositoryRootURL = URL(fileURLWithPath: repositoryID).standardizedFileURL
@@ -3596,7 +3596,7 @@ private func cleanupFailedWorktree(
       didRemoveWorktree: false,
       didUpdatePinned: false,
       didUpdateOrder: false,
-      worktree: nil
+      worktree: nil,
     )
   }
   let worktreeID = worktreeURL.path(percentEncoded: false)
@@ -3607,18 +3607,18 @@ private func cleanupFailedWorktree(
       name: name,
       detail: "",
       workingDirectory: worktreeURL,
-      repositoryRootURL: repositoryRootURL
+      repositoryRootURL: repositoryRootURL,
     )
   let cleanup = cleanupWorktreeState(
     worktreeID,
     repositoryID: repositoryID,
-    state: &state
+    state: &state,
   )
   return FailedWorktreeCleanup(
     didRemoveWorktree: cleanup.didRemoveWorktree,
     didUpdatePinned: cleanup.didUpdatePinned,
     didUpdateOrder: cleanup.didUpdateOrder,
-    worktree: worktree
+    worktree: worktree,
   )
 }
 
@@ -3640,7 +3640,7 @@ private struct WorktreeCleanupStateResult {
 private func cleanupWorktreeState(
   _ worktreeID: Worktree.ID,
   repositoryID: Repository.ID,
-  state: inout RepositoriesFeature.State
+  state: inout RepositoriesFeature.State,
 ) -> WorktreeCleanupStateResult {
   let didRemoveWorktree = removeWorktree(worktreeID, repositoryID: repositoryID, state: &state)
   state.pendingWorktrees.removeAll { $0.id == worktreeID }
@@ -3670,7 +3670,7 @@ private func cleanupWorktreeState(
   return WorktreeCleanupStateResult(
     didRemoveWorktree: didRemoveWorktree,
     didUpdatePinned: didUpdatePinned,
-    didUpdateOrder: didUpdateOrder
+    didUpdateOrder: didUpdateOrder,
   )
 }
 
@@ -3689,7 +3689,7 @@ private nonisolated func worktreeCreateCommand(
   name: String,
   copyIgnored: Bool,
   copyUntracked: Bool,
-  baseRef: String
+  baseRef: String,
 ) -> String {
   let baseDir = baseDirectoryURL.path(percentEncoded: false)
   var parts = ["wt", "--base-dir", baseDir, "sw"]
@@ -3723,7 +3723,7 @@ private nonisolated func shellQuote(_ value: String) -> String {
 private func updateWorktreeName(
   _ worktreeID: Worktree.ID,
   name: String,
-  state: inout RepositoriesFeature.State
+  state: inout RepositoriesFeature.State,
 ) {
   for index in state.repositories.indices {
     var repository = state.repositories[index]
@@ -3741,13 +3741,13 @@ private func updateWorktreeName(
       detail: worktree.detail,
       workingDirectory: worktree.workingDirectory,
       repositoryRootURL: worktree.repositoryRootURL,
-      createdAt: worktree.createdAt
+      createdAt: worktree.createdAt,
     )
     repository = Repository(
       id: repository.id,
       rootURL: repository.rootURL,
       name: repository.name,
-      worktrees: worktrees
+      worktrees: worktrees,
     )
     state.repositories[index] = repository
     return
@@ -3758,7 +3758,7 @@ private func updateWorktreeLineChanges(
   worktreeID: Worktree.ID,
   added: Int,
   removed: Int,
-  state: inout RepositoriesFeature.State
+  state: inout RepositoriesFeature.State,
 ) {
   var entry = state.worktreeInfoByID[worktreeID] ?? WorktreeInfoEntry()
   if added == 0 && removed == 0 {
@@ -3778,7 +3778,7 @@ private func updateWorktreeLineChanges(
 private func updateWorktreePullRequest(
   worktreeID: Worktree.ID,
   pullRequest: GithubPullRequest?,
-  state: inout RepositoriesFeature.State
+  state: inout RepositoriesFeature.State,
 ) {
   var entry = state.worktreeInfoByID[worktreeID] ?? WorktreeInfoEntry()
   entry.pullRequest = pullRequest
@@ -3793,7 +3793,7 @@ private func queuePullRequestRefresh(
   repositoryID: Repository.ID,
   repositoryRootURL: URL,
   worktreeIDs: [Worktree.ID],
-  refreshesByRepositoryID: inout [Repository.ID: RepositoriesFeature.PendingPullRequestRefresh]
+  refreshesByRepositoryID: inout [Repository.ID: RepositoriesFeature.PendingPullRequestRefresh],
 ) {
   if var pending = refreshesByRepositoryID[repositoryID] {
     var seenWorktreeIDs = Set(pending.worktreeIDs)
@@ -3804,7 +3804,7 @@ private func queuePullRequestRefresh(
   } else {
     refreshesByRepositoryID[repositoryID] = RepositoriesFeature.PendingPullRequestRefresh(
       repositoryRootURL: repositoryRootURL,
-      worktreeIDs: worktreeIDs
+      worktreeIDs: worktreeIDs,
     )
   }
 }
@@ -3812,7 +3812,7 @@ private func queuePullRequestRefresh(
 private func reorderedUnpinnedWorktreeIDs(
   for worktreeID: Worktree.ID,
   in repository: Repository,
-  state: RepositoriesFeature.State
+  state: RepositoriesFeature.State,
 ) -> [Worktree.ID] {
   var ordered = state.orderedUnpinnedWorktreeIDs(in: repository)
   guard let index = ordered.firstIndex(of: worktreeID) else {
@@ -3826,25 +3826,25 @@ private func reorderedUnpinnedWorktreeIDs(
 private func restoreSelection(
   _ id: Worktree.ID?,
   pendingID: Worktree.ID,
-  state: inout RepositoriesFeature.State
+  state: inout RepositoriesFeature.State,
 ) {
   guard state.selection == .worktree(pendingID) else { return }
   setSingleWorktreeSelection(
     isSelectionValid(id, state: state) ? id : nil,
-    state: &state
+    state: &state,
   )
 }
 
 private func isSelectionValid(
   _ id: Worktree.ID?,
-  state: RepositoriesFeature.State
+  state: RepositoriesFeature.State,
 ) -> Bool {
   state.selectedRow(for: id) != nil
 }
 
 private func setSingleWorktreeSelection(
   _ worktreeID: Worktree.ID?,
-  state: inout RepositoriesFeature.State
+  state: inout RepositoriesFeature.State,
 ) {
   state.selection = worktreeID.map(SidebarSelection.worktree)
   if let worktreeID {
@@ -3857,7 +3857,7 @@ private func setSingleWorktreeSelection(
 private func reduceSelectionChanged(
   into state: inout RepositoriesFeature.State,
   selections: Set<SidebarSelection>,
-  focusTerminal: Bool
+  focusTerminal: Bool,
 ) -> Effect<RepositoriesFeature.Action> {
   let previousSelection = state.selectedWorktreeID
   let previousSelectedWorktree = state.worktree(for: previousSelection)
@@ -3907,7 +3907,7 @@ private func reduceSelectionChanged(
     previousSelectionID: previousSelection,
     previousSelectedWorktree: previousSelectedWorktree,
     selectedWorktreeID: nextSelectedWorktreeID,
-    selectedWorktree: selectedWorktree
+    selectedWorktree: selectedWorktree,
   )
   return selectionChanged ? .send(.delegate(.selectedWorktreeChanged(selectedWorktree))) : .none
 }
@@ -3916,7 +3916,7 @@ private func selectionDidChange(
   previousSelectionID: Worktree.ID?,
   previousSelectedWorktree: Worktree?,
   selectedWorktreeID: Worktree.ID?,
-  selectedWorktree: Worktree?
+  selectedWorktree: Worktree?,
 ) -> Bool {
   previousSelectionID != selectedWorktreeID
     || previousSelectedWorktree?.workingDirectory != selectedWorktree?.workingDirectory
@@ -3975,7 +3975,7 @@ private func pruneCollapsedRepositoryIDs(state: inout RepositoriesFeature.State)
 
 private func pruneRepositoryOrderIDs(
   roots: [URL],
-  state: inout RepositoriesFeature.State
+  state: inout RepositoriesFeature.State,
 ) -> Bool {
   let rootIDs = roots.map { $0.standardizedFileURL.path(percentEncoded: false) }
   let availableIDs = Set(rootIDs + state.repositories.map(\.id))
@@ -3989,7 +3989,7 @@ private func pruneRepositoryOrderIDs(
 
 private func pruneWorktreeOrderByRepository(
   roots: [URL],
-  state: inout RepositoriesFeature.State
+  state: inout RepositoriesFeature.State,
 ) -> Bool {
   let rootIDs = Set(roots.map { $0.standardizedFileURL.path(percentEncoded: false) })
   let repositoriesByID = Dictionary(uniqueKeysWithValues: state.repositories.map { ($0.id, $0) })
@@ -4030,7 +4030,7 @@ private func pruneWorktreeOrderByRepository(
 
 private func pruneArchivedWorktreeIDs(
   availableWorktreeIDs: Set<Worktree.ID>,
-  state: inout RepositoriesFeature.State
+  state: inout RepositoriesFeature.State,
 ) -> Bool {
   let before = state.archivedWorktreeDates.count
   state.archivedWorktreeDates = state.archivedWorktreeDates.filter { availableWorktreeIDs.contains($0.key) }
@@ -4039,7 +4039,7 @@ private func pruneArchivedWorktreeIDs(
 
 private func firstAvailableWorktreeID(
   from repositories: [Repository],
-  state: RepositoriesFeature.State
+  state: RepositoriesFeature.State,
 ) -> Worktree.ID? {
   for repository in repositories {
     if let first = state.orderedWorktrees(in: repository).first {
@@ -4051,7 +4051,7 @@ private func firstAvailableWorktreeID(
 
 private func firstAvailableWorktreeID(
   in repositoryID: Repository.ID,
-  state: RepositoriesFeature.State
+  state: RepositoriesFeature.State,
 ) -> Worktree.ID? {
   guard let repository = state.repositories[id: repositoryID] else {
     return nil
@@ -4062,7 +4062,7 @@ private func firstAvailableWorktreeID(
 private func nextWorktreeID(
   afterRemoving worktree: Worktree,
   in repository: Repository,
-  state: RepositoriesFeature.State
+  state: RepositoriesFeature.State,
 ) -> Worktree.ID? {
   let orderedIDs = state.orderedWorktrees(in: repository).map(\.id)
   guard let index = orderedIDs.firstIndex(of: worktree.id) else { return nil }

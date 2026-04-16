@@ -10,7 +10,7 @@ struct GhosttySurfaceBridgeTests {
   func openUrlRequestPreservesHTTPSURL() {
     let request = ghosttyOpenURLRequest(
       urlString: "https://supacode.dev/changelog",
-      kind: GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN
+      kind: GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN,
     )
 
     #expect(request?.kind == .unknown)
@@ -22,7 +22,7 @@ struct GhosttySurfaceBridgeTests {
   func openUrlRequestTreatsTildePathAsFileURL() {
     let request = ghosttyOpenURLRequest(
       urlString: "~/code/github.com/supabitapp/supacode",
-      kind: GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN
+      kind: GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN,
     )
 
     #expect(request?.url.isFileURL == true)
@@ -39,7 +39,7 @@ struct GhosttySurfaceBridgeTests {
     let input = "~\(username)/code/github.com/supabitapp/supacode"
     let request = ghosttyOpenURLRequest(
       urlString: input,
-      kind: GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN
+      kind: GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN,
     )
 
     #expect(request?.url.isFileURL == true)
@@ -50,7 +50,7 @@ struct GhosttySurfaceBridgeTests {
   func openUrlRequestTreatsPlainPathWithSpacesAsFileURL() {
     let request = ghosttyOpenURLRequest(
       urlString: "/tmp/supa code/output.txt",
-      kind: GHOSTTY_ACTION_OPEN_URL_KIND_TEXT
+      kind: GHOSTTY_ACTION_OPEN_URL_KIND_TEXT,
     )
 
     #expect(request?.kind == .text)
@@ -62,7 +62,7 @@ struct GhosttySurfaceBridgeTests {
   func openUrlRequestTreatsUnknownStringAsFilePath() {
     let request = ghosttyOpenURLRequest(
       urlString: "relative/path",
-      kind: GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN
+      kind: GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN,
     )
 
     #expect(request?.url.isFileURL == true)
@@ -95,7 +95,7 @@ struct GhosttySurfaceBridgeTests {
       "Body".withCString { bodyPtr in
         action.action.desktop_notification = ghostty_action_desktop_notification_s(
           title: titlePtr,
-          body: bodyPtr
+          body: bodyPtr,
         )
         _ = bridge.handleAction(target: target, action: action)
       }
@@ -108,7 +108,7 @@ struct GhosttySurfaceBridgeTests {
   private func withOpenURLAction<T>(
     url: String,
     kind: ghostty_action_open_url_kind_e = GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN,
-    _ body: (ghostty_action_s) -> T
+    _ body: (ghostty_action_s) -> T,
   ) -> T {
     var action = ghostty_action_s(tag: GHOSTTY_ACTION_OPEN_URL, action: .init())
     action.action.open_url.kind = kind

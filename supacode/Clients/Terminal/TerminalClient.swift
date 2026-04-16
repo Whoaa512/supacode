@@ -27,7 +27,7 @@ struct TerminalClient {
     case focusSurface(Worktree, tabID: TerminalTabID, surfaceID: UUID, input: String? = nil)
     case splitSurface(
       Worktree, tabID: TerminalTabID, surfaceID: UUID, direction: SplitDirection,
-      input: String?, id: UUID? = nil)
+      input: String?, id: UUID? = nil, )
     case destroyTab(Worktree, tabID: TerminalTabID)
     case destroySurface(Worktree, tabID: TerminalTabID, surfaceID: UUID)
     case prune(Set<Worktree.ID>)
@@ -44,7 +44,7 @@ struct TerminalClient {
     case focusChanged(worktreeID: Worktree.ID, surfaceID: UUID)
     case taskStatusChanged(worktreeID: Worktree.ID, status: WorktreeTaskStatus)
     case blockingScriptCompleted(
-      worktreeID: Worktree.ID, kind: BlockingScriptKind, exitCode: Int?, tabId: TerminalTabID?)
+      worktreeID: Worktree.ID, kind: BlockingScriptKind, exitCode: Int?, tabId: TerminalTabID?, )
     case commandPaletteToggleRequested(worktreeID: Worktree.ID)
     case setupScriptConsumed(worktreeID: Worktree.ID)
   }
@@ -56,7 +56,7 @@ extension TerminalClient: DependencyKey {
     events: { fatalError("TerminalClient.events not configured") },
     tabExists: { _, _ in fatalError("TerminalClient.tabExists not configured") },
     surfaceExists: { _, _, _ in fatalError("TerminalClient.surfaceExists not configured") },
-    surfaceExistsInWorktree: { _, _ in fatalError("TerminalClient.surfaceExistsInWorktree not configured") }
+    surfaceExistsInWorktree: { _, _ in fatalError("TerminalClient.surfaceExistsInWorktree not configured") },
   )
 
   static let testValue = TerminalClient(
@@ -64,7 +64,7 @@ extension TerminalClient: DependencyKey {
     events: { AsyncStream { $0.finish() } },
     tabExists: unimplemented("TerminalClient.tabExists", placeholder: true),
     surfaceExists: unimplemented("TerminalClient.surfaceExists", placeholder: true),
-    surfaceExistsInWorktree: unimplemented("TerminalClient.surfaceExistsInWorktree", placeholder: true)
+    surfaceExistsInWorktree: unimplemented("TerminalClient.surfaceExistsInWorktree", placeholder: true),
   )
 }
 

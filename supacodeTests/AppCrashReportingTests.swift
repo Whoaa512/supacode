@@ -49,9 +49,9 @@ struct AppCrashReportingTests {
           crashReportsEnabled: false,
           githubIntegrationEnabled: true,
           deleteBranchOnDeleteWorktree: true,
-          promptForWorktreeCreation: true
+          promptForWorktreeCreation: true,
         ),
-        isDebugBuild: false
+        isDebugBuild: false,
       )
     )
     #expect(!AppCrashReporting.isEnabled(settings: .default, isDebugBuild: true))

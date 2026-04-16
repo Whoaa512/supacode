@@ -46,7 +46,7 @@ extension RepositoriesFeature.State {
             id: worktree.id,
             name: worktree.name,
             notifications: state.notifications,
-            hasUnseenNotifications: terminalManager.hasUnseenNotifications(for: worktree.id)
+            hasUnseenNotifications: terminalManager.hasUnseenNotifications(for: worktree.id),
           )
         }
 
@@ -55,7 +55,7 @@ extension RepositoriesFeature.State {
           ToolbarNotificationRepositoryGroup(
             id: repository.id,
             name: repository.name,
-            worktrees: worktreeGroups
+            worktrees: worktreeGroups,
           )
         )
       }

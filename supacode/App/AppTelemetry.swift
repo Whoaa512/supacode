@@ -34,7 +34,7 @@ enum AppTelemetry {
   static func setup(
     settings: GlobalSettings,
     infoDictionary: [String: Any],
-    hardwareUUID: String? = HardwareInfo.uuid
+    hardwareUUID: String? = HardwareInfo.uuid,
   ) {
     #if DEBUG
       return

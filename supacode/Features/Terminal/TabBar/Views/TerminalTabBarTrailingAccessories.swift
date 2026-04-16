@@ -24,14 +24,14 @@ struct TerminalTabBarTrailingAccessories: View {
         title: "Split Vertically",
         systemImage: "square.split.2x1",
         shortcutBinding: "new_split:right",
-        action: splitVertically
+        action: splitVertically,
       )
       .disabled(!canSplit)
       splitButton(
         title: "Split Horizontally",
         systemImage: "square.split.1x2",
         shortcutBinding: "new_split:down",
-        action: splitHorizontally
+        action: splitHorizontally,
       )
       .disabled(!canSplit)
     }
@@ -66,7 +66,7 @@ struct TerminalTabBarTrailingAccessories: View {
     .popover(
       isPresented: $isHoverPopoverPresented,
       attachmentAnchor: .point(.bottom),
-      arrowEdge: .bottom
+      arrowEdge: .bottom,
     ) {
       hoverPopoverContent
         .onHover { hovering in
@@ -84,7 +84,7 @@ struct TerminalTabBarTrailingAccessories: View {
     title: String,
     systemImage: String,
     shortcutBinding: String,
-    action: @escaping () -> Void
+    action: @escaping () -> Void,
   ) -> some View {
     let shortcut = ghosttyShortcuts.display(for: shortcutBinding)
 

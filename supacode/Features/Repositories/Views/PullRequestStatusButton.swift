@@ -19,7 +19,7 @@ struct PullRequestStatusButton: View {
       HStack(spacing: 6) {
         PullRequestBadgeView(
           text: model.badgeText,
-          color: model.badgeColor
+          color: model.badgeColor,
         )
         .layoutPriority(1)
         if showsChecksRing {

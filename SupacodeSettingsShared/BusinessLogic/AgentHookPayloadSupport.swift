@@ -3,7 +3,7 @@ import Foundation
 nonisolated enum AgentHookPayloadSupport {
   static func extractHookGroups<T: Encodable>(
     from payload: T,
-    invalidConfiguration: @autoclosure () -> Error
+    invalidConfiguration: @autoclosure () -> Error,
   ) throws -> [String: [JSONValue]] {
     guard
       let objectValue = try JSONValue(payload).objectValue,

@@ -13,7 +13,7 @@ public nonisolated struct ShellClient: Sendable {
     runLoginImpl: @escaping @Sendable (URL, [String], URL?, Bool) async throws -> ShellOutput,
     runStream: (@Sendable (URL, [String], URL?) -> AsyncThrowingStream<ShellStreamEvent, Error>)? = nil,
     runLoginStreamImpl:
-      (@Sendable (URL, [String], URL?, Bool) -> AsyncThrowingStream<ShellStreamEvent, Error>)? = nil
+      (@Sendable (URL, [String], URL?, Bool) -> AsyncThrowingStream<ShellStreamEvent, Error>)? = nil,
   ) {
     self.run = run
     self.runLoginImpl = runLoginImpl
@@ -53,7 +53,7 @@ public nonisolated struct ShellClient: Sendable {
     _ executableURL: URL,
     _ arguments: [String],
     _ currentDirectoryURL: URL?,
-    log: Bool = true
+    log: Bool = true,
   ) async throws -> ShellOutput {
     try await runLoginImpl(executableURL, arguments, currentDirectoryURL, log)
   }
@@ -62,7 +62,7 @@ public nonisolated struct ShellClient: Sendable {
     _ executableURL: URL,
     _ arguments: [String],
     _ currentDirectoryURL: URL?,
-    log: Bool = true
+    log: Bool = true,
   ) -> AsyncThrowingStream<ShellStreamEvent, Error> {
     runLoginStreamImpl(executableURL, arguments, currentDirectoryURL, log)
   }
@@ -74,7 +74,7 @@ extension ShellClient: DependencyKey {
       try await runProcess(
         executableURL: executableURL,
         arguments: arguments,
-        currentDirectoryURL: currentDirectoryURL
+        currentDirectoryURL: currentDirectoryURL,
       )
     },
     runLoginImpl: { executableURL, arguments, currentDirectoryURL, log in
@@ -90,7 +90,7 @@ extension ShellClient: DependencyKey {
       let result = try await runProcess(
         executableURL: shellURL,
         arguments: shellArguments,
-        currentDirectoryURL: currentDirectoryURL
+        currentDirectoryURL: currentDirectoryURL,
       )
       return result
     },
@@ -98,7 +98,7 @@ extension ShellClient: DependencyKey {
       runProcessStream(
         executableURL: executableURL,
         arguments: arguments,
-        currentDirectoryURL: currentDirectoryURL
+        currentDirectoryURL: currentDirectoryURL,
       )
     },
     runLoginStreamImpl: { executableURL, arguments, currentDirectoryURL, log in
@@ -114,9 +114,9 @@ extension ShellClient: DependencyKey {
       return runProcessStream(
         executableURL: shellURL,
         arguments: shellArguments,
-        currentDirectoryURL: currentDirectoryURL
+        currentDirectoryURL: currentDirectoryURL,
       )
-    }
+    },
   )
 
   public static let liveValue = live
@@ -135,7 +135,7 @@ extension ShellClient: DependencyKey {
         continuation.yield(.finished(ShellOutput(stdout: "", stderr: "", exitCode: 0)))
         continuation.finish()
       }
-    }
+    },
   )
 }
 
@@ -151,12 +151,12 @@ private nonisolated let shellLogger = SupaLogger("Shell")
 nonisolated private func runProcess(
   executableURL: URL,
   arguments: [String],
-  currentDirectoryURL: URL?
+  currentDirectoryURL: URL?,
 ) async throws -> ShellOutput {
   let stream = runProcessStream(
     executableURL: executableURL,
     arguments: arguments,
-    currentDirectoryURL: currentDirectoryURL
+    currentDirectoryURL: currentDirectoryURL,
   )
   let command = ([executableURL.path(percentEncoded: false)] + arguments).joined(separator: " ")
   return try await collectOutput(from: stream, command: command)
@@ -165,7 +165,7 @@ nonisolated private func runProcess(
 nonisolated private func runProcessStream(
   executableURL: URL,
   arguments: [String],
-  currentDirectoryURL: URL?
+  currentDirectoryURL: URL?,
 ) -> AsyncThrowingStream<ShellStreamEvent, Error> {
   AsyncThrowingStream { continuation in
     Task.detached {
@@ -191,7 +191,7 @@ nonisolated private func runProcessStream(
               .line(
                 ShellStreamLine(
                   source: .stdout,
-                  text: line
+                  text: line,
                 )
               )
             )
@@ -204,7 +204,7 @@ nonisolated private func runProcessStream(
               .line(
                 ShellStreamLine(
                   source: .stderr,
-                  text: line
+                  text: line,
                 )
               )
             )
@@ -220,7 +220,7 @@ nonisolated private func runProcessStream(
               command: command,
               stdout: output.stdout,
               stderr: output.stderr,
-              exitCode: output.exitCode
+              exitCode: output.exitCode,
             )
           )
           return
@@ -236,7 +236,7 @@ nonisolated private func runProcessStream(
 
 nonisolated private func collectOutput(
   from stream: AsyncThrowingStream<ShellStreamEvent, Error>,
-  command: String
+  command: String,
 ) async throws -> ShellOutput {
   var finalOutput: ShellOutput?
   for try await event in stream {
@@ -302,7 +302,7 @@ private actor ShellOutputAccumulator {
     ShellOutput(
       stdout: ShellOutputAccumulator.normalized(lines: stdoutLines),
       stderr: ShellOutputAccumulator.normalized(lines: stderrLines),
-      exitCode: exitCode
+      exitCode: exitCode,
     )
   }
 

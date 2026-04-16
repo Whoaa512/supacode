@@ -59,7 +59,7 @@ struct GithubBatchPullRequestsTests {
     let prs = response.pullRequestsByBranch(
       aliasMap: ["branch0": "feature-a", "branch1": "feature-b"],
       owner: "octo",
-      repo: "repo"
+      repo: "repo",
     )
     #expect(prs["feature-a"]?.number == 2)
     #expect(prs["feature-a"]?.title == "Primary PR")
@@ -105,7 +105,7 @@ struct GithubBatchPullRequestsTests {
     let prs = response.pullRequestsByBranch(
       aliasMap: ["branch0": "main"],
       owner: "octo",
-      repo: "repo"
+      repo: "repo",
     )
     #expect(prs["main"] == nil)
   }
@@ -149,7 +149,7 @@ struct GithubBatchPullRequestsTests {
     let prs = response.pullRequestsByBranch(
       aliasMap: ["branch0": "feature-a"],
       owner: "octo",
-      repo: "repo"
+      repo: "repo",
     )
     #expect(prs["feature-a"]?.number == 9)
     #expect(prs["feature-a"]?.title == "Fork PR")
@@ -208,7 +208,7 @@ struct GithubBatchPullRequestsTests {
     let prs = response.pullRequestsByBranch(
       aliasMap: ["branch0": "feature-a"],
       owner: "octo",
-      repo: "repo"
+      repo: "repo",
     )
     #expect(prs["feature-a"]?.number == 8)
   }
@@ -265,7 +265,7 @@ struct GithubBatchPullRequestsTests {
     let prs = response.pullRequestsByBranch(
       aliasMap: ["branch0": "feature-a"],
       owner: "octo",
-      repo: "repo"
+      repo: "repo",
     )
     #expect(prs["feature-a"]?.number == 11)
     #expect(prs["feature-a"]?.title == "Open PR")
@@ -323,7 +323,7 @@ struct GithubBatchPullRequestsTests {
     let prs = response.pullRequestsByBranch(
       aliasMap: ["branch0": "feature-a"],
       owner: "octo",
-      repo: "repo"
+      repo: "repo",
     )
     #expect(prs["feature-a"]?.number == 21)
     #expect(prs["feature-a"]?.title == "Merged Newer")
@@ -367,7 +367,7 @@ struct GithubBatchPullRequestsTests {
     let prs = response.pullRequestsByBranch(
       aliasMap: ["branch0": "main"],
       owner: "octo",
-      repo: "repo"
+      repo: "repo",
     )
     #expect(prs["main"] == nil)
   }

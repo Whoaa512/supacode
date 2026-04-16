@@ -17,7 +17,7 @@ struct SettingsCommand: ParsableCommand {
     abstract: "Open Supacode settings.",
     subcommands: [
       Repo.self
-    ]
+    ],
   )
 
   @Argument(help: "Settings section: \(SettingsSection.allCases.map(\.rawValue).joined(separator: ", ")).")

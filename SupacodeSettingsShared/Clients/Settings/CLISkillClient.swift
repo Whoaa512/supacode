@@ -9,7 +9,7 @@ public nonisolated struct CLISkillClient: Sendable {
   public init(
     checkInstalled: @escaping @Sendable (SkillAgent) async -> Bool,
     install: @escaping @Sendable (SkillAgent) async throws -> Void,
-    uninstall: @escaping @Sendable (SkillAgent) async throws -> Void
+    uninstall: @escaping @Sendable (SkillAgent) async throws -> Void,
   ) {
     self.checkInstalled = checkInstalled
     self.install = install

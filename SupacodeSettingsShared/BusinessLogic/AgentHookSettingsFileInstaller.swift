@@ -21,7 +21,7 @@ nonisolated struct AgentHookSettingsFileInstaller {
   init(
     fileManager: FileManager,
     errors: Errors,
-    logWarning: @escaping @Sendable (String) -> Void = { settingsInstallerLogger.warning($0) }
+    logWarning: @escaping @Sendable (String) -> Void = { settingsInstallerLogger.warning($0) },
   ) {
     self.fileManager = fileManager
     self.errors = errors
@@ -32,7 +32,7 @@ nonisolated struct AgentHookSettingsFileInstaller {
   /// is present in the settings file.
   func containsMatchingHooks(
     settingsURL: URL,
-    hookGroupsByEvent: [String: [JSONValue]]
+    hookGroupsByEvent: [String: [JSONValue]],
   ) -> Bool {
     do {
       let settingsObject = try loadSettingsObject(at: settingsURL)
@@ -87,7 +87,7 @@ nonisolated struct AgentHookSettingsFileInstaller {
   /// Removes matching hooks and any legacy Supacode-owned commands.
   func uninstall(
     settingsURL: URL,
-    hookGroupsByEvent: @autoclosure () throws -> [String: [JSONValue]]
+    hookGroupsByEvent: @autoclosure () throws -> [String: [JSONValue]],
   ) throws {
     let settingsObject = try loadSettingsObject(at: settingsURL)
     let commandsToPrune = Self.commands(from: try hookGroupsByEvent())
@@ -108,12 +108,12 @@ nonisolated struct AgentHookSettingsFileInstaller {
 
   func install(
     settingsURL: URL,
-    hookGroupsByEvent: @autoclosure () throws -> [String: [JSONValue]]
+    hookGroupsByEvent: @autoclosure () throws -> [String: [JSONValue]],
   ) throws {
     let settingsObject = try loadSettingsObject(at: settingsURL)
     let mergedObject = try mergedSettingsObject(
       from: settingsObject,
-      hookGroupsByEvent: try hookGroupsByEvent()
+      hookGroupsByEvent: try hookGroupsByEvent(),
     )
     try writeSettings(mergedObject, to: settingsURL)
   }
@@ -121,7 +121,7 @@ nonisolated struct AgentHookSettingsFileInstaller {
   private func writeSettings(_ object: [String: JSONValue], to url: URL) throws {
     try fileManager.createDirectory(
       at: url.deletingLastPathComponent(),
-      withIntermediateDirectories: true
+      withIntermediateDirectories: true,
     )
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -152,7 +152,7 @@ nonisolated struct AgentHookSettingsFileInstaller {
 
   private func mergedSettingsObject(
     from settingsObject: [String: JSONValue],
-    hookGroupsByEvent: [String: [JSONValue]]
+    hookGroupsByEvent: [String: [JSONValue]],
   ) throws -> [String: JSONValue] {
     var mergedObject = settingsObject
     var hooksObject: [String: JSONValue]
@@ -190,7 +190,7 @@ nonisolated struct AgentHookSettingsFileInstaller {
 
   private func existingGroups(
     for event: String,
-    hooksObject: [String: JSONValue]
+    hooksObject: [String: JSONValue],
   ) throws -> [JSONValue] {
     guard let existingValue = hooksObject[event] else { return [] }
     guard let groups = existingValue.arrayValue else {

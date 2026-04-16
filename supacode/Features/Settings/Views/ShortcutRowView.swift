@@ -46,7 +46,7 @@ struct HotkeyCellView: View {
             onRecorded(newOverride)
           },
           onCancelled: { isRecording = false },
-          conflictChecker: conflictChecker
+          conflictChecker: conflictChecker,
         )
       }
       .contextMenu {

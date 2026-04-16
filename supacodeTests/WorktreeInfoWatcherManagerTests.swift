@@ -10,7 +10,7 @@ struct WorktreeInfoWatcherManagerTests {
     let tempWorktree = try makeTempWorktree()
     let manager = WorktreeInfoWatcherManager(
       focusedInterval: .seconds(3_600),
-      unfocusedInterval: .seconds(3_600)
+      unfocusedInterval: .seconds(3_600),
     )
     let (collector, task) = startCollecting(manager.eventStream())
 
@@ -33,7 +33,7 @@ struct WorktreeInfoWatcherManagerTests {
     let manager = WorktreeInfoWatcherManager(
       focusedInterval: .milliseconds(80),
       unfocusedInterval: .milliseconds(80),
-      clock: clock
+      clock: clock,
     )
     let (collector, task) = startCollecting(manager.eventStream())
 
@@ -66,7 +66,7 @@ struct WorktreeInfoWatcherManagerTests {
       focusedInterval: .seconds(3_600),
       unfocusedInterval: .seconds(3_600),
       pullRequestSelectionRefreshCooldown: .milliseconds(500),
-      clock: clock
+      clock: clock,
     )
     let (collector, task) = startCollecting(manager.eventStream())
 
@@ -107,7 +107,7 @@ struct WorktreeInfoWatcherManagerTests {
       focusedInterval: .seconds(3_600),
       unfocusedInterval: .seconds(3_600),
       pullRequestSelectionRefreshCooldown: .milliseconds(500),
-      clock: clock
+      clock: clock,
     )
     let (collector, task) = startCollecting(manager.eventStream())
 
@@ -196,7 +196,7 @@ private func makeTempWorktree() throws -> TempWorktree {
     name: "eagle",
     detail: "detail",
     workingDirectory: worktreeDirectory,
-    repositoryRootURL: tempRoot
+    repositoryRootURL: tempRoot,
   )
   return TempWorktree(worktree: worktree, tempRoot: tempRoot, headURL: headURL)
 }
@@ -216,7 +216,7 @@ private func makeTempRepository(worktreeNames: [String]) throws -> TempRepositor
       name: name,
       detail: "detail",
       workingDirectory: worktreeDirectory,
-      repositoryRootURL: tempRoot
+      repositoryRootURL: tempRoot,
     )
     worktrees.append(worktree)
   }

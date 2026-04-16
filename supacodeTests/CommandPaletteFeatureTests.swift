@@ -34,7 +34,7 @@ struct CommandPaletteFeatureTests {
     let deleting = makeWorktree(
       id: "\(rootPath)/wt-delete",
       name: "delete",
-      repoRoot: rootPath
+      repoRoot: rootPath,
     )
     let repository = makeRepository(rootPath: rootPath, name: "Repo", worktrees: [keep, deleting])
     var state = RepositoriesFeature.State(repositories: [repository])
@@ -48,9 +48,9 @@ struct CommandPaletteFeatureTests {
           worktreeName: "pending",
           baseRef: "origin/main",
           copyIgnored: false,
-          copyUntracked: false
-        )
-      ),
+          copyUntracked: false,
+        ),
+      )
     ]
 
     let items = CommandPaletteFeature.commandPaletteItems(from: state)
@@ -74,9 +74,9 @@ struct CommandPaletteFeatureTests {
           title: "Focus Split Right",
           description: "Focus the split to the right.",
           action: "goto_split:right",
-          actionKey: "goto_split"
-        ),
-      ]
+          actionKey: "goto_split",
+        )
+      ],
     )
 
     let ghosttyItem = items.first {
@@ -98,9 +98,9 @@ struct CommandPaletteFeatureTests {
           title: "Focus Split Right",
           description: "",
           action: "goto_split:right",
-          actionKey: "goto_split"
-        ),
-      ]
+          actionKey: "goto_split",
+        )
+      ],
     )
 
     #expect(
@@ -118,19 +118,19 @@ struct CommandPaletteFeatureTests {
       id: "ghostty.goto_split:right|Focus Split Right",
       title: "Focus Split Right",
       subtitle: nil,
-      kind: .ghosttyCommand("goto_split:right")
+      kind: .ghosttyCommand("goto_split:right"),
     )
     let prAction = CommandPaletteItem(
       id: "pr.open",
       title: "Open PR on GitHub",
       subtitle: "PR title",
       kind: .openPullRequest("wt-1"),
-      priorityTier: 2
+      priorityTier: 2,
     )
 
     let result = CommandPaletteFeature.filterItems(
       items: [ghosttyItem, prAction],
-      query: ""
+      query: "",
     )
 
     #expect(!result.contains { $0.id == ghosttyItem.id })
@@ -144,7 +144,7 @@ struct CommandPaletteFeatureTests {
       name: "repo",
       detail: "main",
       repoRoot: rootPath,
-      workingDirectory: rootPath
+      workingDirectory: rootPath,
     )
     let repository = makeRepository(rootPath: rootPath, name: "Repo", worktrees: [main])
     let items = CommandPaletteFeature.commandPaletteItems(
@@ -184,13 +184,13 @@ struct CommandPaletteFeatureTests {
       name: "repo",
       detail: "main",
       repoRoot: rootPath,
-      workingDirectory: rootPath
+      workingDirectory: rootPath,
     )
     let feature = makeWorktree(
       id: "\(rootPath)/wt-feature",
       name: "feature",
       detail: "feature",
-      repoRoot: rootPath
+      repoRoot: rootPath,
     )
     let repository = makeRepository(rootPath: rootPath, name: "Repo", worktrees: [main, feature])
     let items = CommandPaletteFeature.commandPaletteItems(
@@ -221,7 +221,7 @@ struct CommandPaletteFeatureTests {
       id: "\(rootPath)/wt-detail",
       name: "detail",
       detail: "   ",
-      repoRoot: rootPath
+      repoRoot: rootPath,
     )
     let repository = makeRepository(rootPath: rootPath, name: "Repo", worktrees: [worktree])
     let items = CommandPaletteFeature.commandPaletteItems(
@@ -242,7 +242,7 @@ struct CommandPaletteFeatureTests {
       id: "\(rootPath)/wt-path",
       name: "khoi/cache",
       detail: "main",
-      repoRoot: rootPath
+      repoRoot: rootPath,
     )
     let repository = makeRepository(rootPath: rootPath, name: "Repo", worktrees: [worktree])
     let items = CommandPaletteFeature.commandPaletteItems(
@@ -264,19 +264,19 @@ struct CommandPaletteFeatureTests {
       name: "repo",
       detail: "main",
       repoRoot: rootPath,
-      workingDirectory: rootPath
+      workingDirectory: rootPath,
     )
     let pinned = makeWorktree(
       id: "\(rootPath)/wt-pinned",
       name: "pinned",
       detail: "pinned",
-      repoRoot: rootPath
+      repoRoot: rootPath,
     )
     let unpinned = makeWorktree(
       id: "\(rootPath)/wt-unpinned",
       name: "unpinned",
       detail: "unpinned",
-      repoRoot: rootPath
+      repoRoot: rootPath,
     )
     let repository = makeRepository(
       rootPath: rootPath, name: "Repo",
@@ -284,7 +284,7 @@ struct CommandPaletteFeatureTests {
         main,
         pinned,
         unpinned,
-      ])
+      ], )
     var state = RepositoriesFeature.State(repositories: [repository])
     state.pinnedWorktreeIDs = [pinned.id]
     state.worktreeOrderByRepository = [repository.id: [unpinned.id]]
@@ -307,14 +307,14 @@ struct CommandPaletteFeatureTests {
       name: "repo-a",
       detail: "main",
       repoRoot: repoAPath,
-      workingDirectory: repoAPath
+      workingDirectory: repoAPath,
     )
     let mainB = makeWorktree(
       id: repoBPath,
       name: "repo-b",
       detail: "main",
       repoRoot: repoBPath,
-      workingDirectory: repoBPath
+      workingDirectory: repoBPath,
     )
     let repoA = makeRepository(rootPath: repoAPath, name: "Repo A", worktrees: [mainA])
     let repoB = makeRepository(rootPath: repoBPath, name: "Repo B", worktrees: [mainB])
@@ -336,39 +336,39 @@ struct CommandPaletteFeatureTests {
       id: "global.open-settings",
       title: "Open Settings",
       subtitle: nil,
-      kind: .openSettings
+      kind: .openSettings,
     )
     let newWorktree = CommandPaletteItem(
       id: "global.new-worktree",
       title: "New Worktree",
       subtitle: nil,
-      kind: .newWorktree
+      kind: .newWorktree,
     )
     let selectFox = CommandPaletteItem(
       id: "worktree.fox.select",
       title: "Repo / fox",
       subtitle: "main",
-      kind: .worktreeSelect("wt-fox")
+      kind: .worktreeSelect("wt-fox"),
     )
     let archiveFox = CommandPaletteItem(
       id: "worktree.fox.archive",
       title: "Repo / fox",
       subtitle: "Archive Worktree - main",
-      kind: .archiveWorktree("wt-fox", "repo-fox")
+      kind: .archiveWorktree("wt-fox", "repo-fox"),
     )
     let removeFox = CommandPaletteItem(
       id: "worktree.fox.remove",
       title: "Repo / fox",
       subtitle: "Remove Worktree - main",
-      kind: .removeWorktree("wt-fox", "repo-fox")
+      kind: .removeWorktree("wt-fox", "repo-fox"),
     )
 
     expectNoDifference(
       CommandPaletteFeature.filterItems(
         items: [openSettings, newWorktree, selectFox, archiveFox, removeFox],
-        query: ""
+        query: "",
       ),
-      []
+      [],
     )
   }
 
@@ -391,18 +391,18 @@ struct CommandPaletteFeatureTests {
       id: "global.open-settings",
       title: "Open Settings",
       subtitle: nil,
-      kind: .openSettings
+      kind: .openSettings,
     )
     let selectSettings = CommandPaletteItem(
       id: "worktree.settings.select",
       title: "Repo / settings",
       subtitle: "main",
-      kind: .worktreeSelect("wt-settings")
+      kind: .worktreeSelect("wt-settings"),
     )
 
     expectNoDifference(
       CommandPaletteFeature.filterItems(items: [selectSettings, openSettings], query: "set"),
-      [selectSettings, openSettings]
+      [selectSettings, openSettings],
     )
   }
 
@@ -411,18 +411,18 @@ struct CommandPaletteFeatureTests {
       id: "worktree.set.select",
       title: "Set",
       subtitle: nil,
-      kind: .worktreeSelect("wt-set")
+      kind: .worktreeSelect("wt-set"),
     )
     let long = CommandPaletteItem(
       id: "worktree.settings.select",
       title: "Settings",
       subtitle: nil,
-      kind: .worktreeSelect("wt-settings")
+      kind: .worktreeSelect("wt-settings"),
     )
 
     expectNoDifference(
       CommandPaletteFeature.filterItems(items: [long, short], query: "set"),
-      [short, long]
+      [short, long],
     )
   }
 
@@ -431,12 +431,12 @@ struct CommandPaletteFeatureTests {
       id: "worktree.fox.select",
       title: "Repo / fox",
       subtitle: "main",
-      kind: .worktreeSelect("wt-fox")
+      kind: .worktreeSelect("wt-fox"),
     )
 
     expectNoDifference(
       CommandPaletteFeature.filterItems(items: [item], query: "main"),
-      [item]
+      [item],
     )
   }
 
@@ -445,12 +445,12 @@ struct CommandPaletteFeatureTests {
       id: "worktree.fox.select",
       title: "Repo / fox",
       subtitle: "main",
-      kind: .worktreeSelect("wt-fox")
+      kind: .worktreeSelect("wt-fox"),
     )
 
     expectNoDifference(
       CommandPaletteFeature.filterItems(items: [item], query: "repo main"),
-      [item]
+      [item],
     )
   }
 
@@ -463,7 +463,7 @@ struct CommandPaletteFeatureTests {
     state.worktreeInfoByID[worktree.id] = WorktreeInfoEntry(
       addedLines: nil,
       removedLines: nil,
-      pullRequest: makePullRequest(isDraft: true)
+      pullRequest: makePullRequest(isDraft: true),
     )
 
     let items = CommandPaletteFeature.commandPaletteItems(from: state)
@@ -481,12 +481,12 @@ struct CommandPaletteFeatureTests {
       detailsUrl: "https://example.com/check/1",
       status: "COMPLETED",
       conclusion: "FAILURE",
-      state: nil
+      state: nil,
     )
     state.worktreeInfoByID[worktree.id] = WorktreeInfoEntry(
       addedLines: nil,
       removedLines: nil,
-      pullRequest: makePullRequest(checks: [failingCheck])
+      pullRequest: makePullRequest(checks: [failingCheck]),
     )
 
     let items = CommandPaletteFeature.commandPaletteItems(from: state)
@@ -503,12 +503,12 @@ struct CommandPaletteFeatureTests {
     let failingCheck = GithubPullRequestStatusCheck(
       status: "COMPLETED",
       conclusion: "FAILURE",
-      state: nil
+      state: nil,
     )
     state.worktreeInfoByID[worktree.id] = WorktreeInfoEntry(
       addedLines: nil,
       removedLines: nil,
-      pullRequest: makePullRequest(checks: [failingCheck])
+      pullRequest: makePullRequest(checks: [failingCheck]),
     )
 
     let items = CommandPaletteFeature.commandPaletteItems(from: state)
@@ -527,8 +527,8 @@ struct CommandPaletteFeatureTests {
       removedLines: nil,
       pullRequest: makePullRequest(
         mergeable: "MERGEABLE",
-        mergeStateStatus: "CLEAN"
-      )
+        mergeStateStatus: "CLEAN",
+      ),
     )
 
     let items = CommandPaletteFeature.commandPaletteItems(from: state)
@@ -545,7 +545,7 @@ struct CommandPaletteFeatureTests {
     state.worktreeInfoByID[worktree.id] = WorktreeInfoEntry(
       addedLines: nil,
       removedLines: nil,
-      pullRequest: makePullRequest(state: "OPEN")
+      pullRequest: makePullRequest(state: "OPEN"),
     )
 
     let items = CommandPaletteFeature.commandPaletteItems(from: state)
@@ -568,7 +568,7 @@ struct CommandPaletteFeatureTests {
     state.worktreeInfoByID[worktree.id] = WorktreeInfoEntry(
       addedLines: nil,
       removedLines: nil,
-      pullRequest: makePullRequest(state: "MERGED")
+      pullRequest: makePullRequest(state: "MERGED"),
     )
 
     let items = CommandPaletteFeature.commandPaletteItems(from: state)
@@ -586,8 +586,8 @@ struct CommandPaletteFeatureTests {
       removedLines: nil,
       pullRequest: makePullRequest(
         mergeable: "UNKNOWN",
-        mergeStateStatus: "BLOCKED"
-      )
+        mergeStateStatus: "BLOCKED",
+      ),
     )
 
     let items = CommandPaletteFeature.commandPaletteItems(from: state)
@@ -600,13 +600,13 @@ struct CommandPaletteFeatureTests {
       id: "global.recent",
       title: "Open",
       subtitle: nil,
-      kind: .openRepository
+      kind: .openRepository,
     )
     let older = CommandPaletteItem(
       id: "global.older",
       title: "Open",
       subtitle: nil,
-      kind: .openSettings
+      kind: .openSettings,
     )
     let recency: [CommandPaletteItem.ID: TimeInterval] = [
       recent.id: now.timeIntervalSince1970 - 1 * 86_400,
@@ -618,9 +618,9 @@ struct CommandPaletteFeatureTests {
         items: [older, recent],
         query: "open",
         recencyByID: recency,
-        now: now
+        now: now,
       ),
-      [recent, older]
+      [recent, older],
     )
   }
 
@@ -629,22 +629,22 @@ struct CommandPaletteFeatureTests {
       id: "global.open-settings",
       title: "Open Settings",
       subtitle: nil,
-      kind: .openSettings
+      kind: .openSettings,
     )
     let ghosttyItem = CommandPaletteItem(
       id: "ghostty.open-settings|Open Settings",
       title: "Open Settings",
       subtitle: nil,
       kind: .ghosttyCommand("open_settings"),
-      priorityTier: CommandPaletteItem.defaultPriorityTier + 100
+      priorityTier: CommandPaletteItem.defaultPriorityTier + 100,
     )
 
     expectNoDifference(
       CommandPaletteFeature.filterItems(
         items: [ghosttyItem, supacodeItem],
-        query: "open settings"
+        query: "open settings",
       ),
-      [supacodeItem, ghosttyItem]
+      [supacodeItem, ghosttyItem],
     )
   }
 
@@ -655,18 +655,18 @@ struct CommandPaletteFeatureTests {
       id: "global.check-for-updates",
       title: "Check for Updates",
       subtitle: nil,
-      kind: .checkForUpdates
+      kind: .checkForUpdates,
     )
     let worktreeFox = CommandPaletteItem(
       id: "worktree.fox.select",
       title: "Repo / fox",
       subtitle: nil,
-      kind: .worktreeSelect("wt-fox")
+      kind: .worktreeSelect("wt-fox"),
     )
 
     expectNoDifference(
       CommandPaletteFeature.filterItems(items: [checkForUpdates, worktreeFox], query: "fox"),
-      [worktreeFox]
+      [worktreeFox],
     )
   }
 
@@ -675,18 +675,18 @@ struct CommandPaletteFeatureTests {
       id: "global.open-settings",
       title: "Open Settings",
       subtitle: nil,
-      kind: .openSettings
+      kind: .openSettings,
     )
     let worktreeOpen = CommandPaletteItem(
       id: "worktree.open.select",
       title: "open",
       subtitle: nil,
-      kind: .worktreeSelect("wt-open")
+      kind: .worktreeSelect("wt-open"),
     )
 
     let result = CommandPaletteFeature.filterItems(
       items: [openSettings, worktreeOpen],
-      query: "open"
+      query: "open",
     )
     #expect(result.first?.id == worktreeOpen.id)
   }
@@ -696,24 +696,24 @@ struct CommandPaletteFeatureTests {
       id: "global.open-repository",
       title: "Open Repository",
       subtitle: nil,
-      kind: .openRepository
+      kind: .openRepository,
     )
     let worktreeRepo = CommandPaletteItem(
       id: "worktree.repo.select",
       title: "repo",
       subtitle: nil,
-      kind: .worktreeSelect("wt-repo")
+      kind: .worktreeSelect("wt-repo"),
     )
     let refreshWorktrees = CommandPaletteItem(
       id: "global.refresh-worktrees",
       title: "Refresh Worktrees",
       subtitle: nil,
-      kind: .refreshWorktrees
+      kind: .refreshWorktrees,
     )
 
     let result = CommandPaletteFeature.filterItems(
       items: [openRepo, worktreeRepo, refreshWorktrees],
-      query: "repo"
+      query: "repo",
     )
 
     #expect(result.contains { $0.id == worktreeRepo.id })
@@ -726,18 +726,18 @@ struct CommandPaletteFeatureTests {
       id: "global.check-for-updates",
       title: "Check for Updates",
       subtitle: nil,
-      kind: .checkForUpdates
+      kind: .checkForUpdates,
     )
     let worktreeFox = CommandPaletteItem(
       id: "worktree.fox.select",
       title: "Repo / fox",
       subtitle: nil,
-      kind: .worktreeSelect("wt-fox")
+      kind: .worktreeSelect("wt-fox"),
     )
 
     expectNoDifference(
       CommandPaletteFeature.filterItems(items: [checkForUpdates, worktreeFox], query: "zzz"),
-      []
+      [],
     )
   }
 
@@ -746,24 +746,24 @@ struct CommandPaletteFeatureTests {
       id: "global.open-settings",
       title: "Open Settings",
       subtitle: nil,
-      kind: .openSettings
+      kind: .openSettings,
     )
     let worktreeAlpha = CommandPaletteItem(
       id: "worktree.alpha.select",
       title: "set",
       subtitle: nil,
-      kind: .worktreeSelect("wt-alpha")
+      kind: .worktreeSelect("wt-alpha"),
     )
     let worktreeBeta = CommandPaletteItem(
       id: "worktree.beta.select",
       title: "sett",
       subtitle: nil,
-      kind: .worktreeSelect("wt-beta")
+      kind: .worktreeSelect("wt-beta"),
     )
 
     let result = CommandPaletteFeature.filterItems(
       items: [openSettings, worktreeAlpha, worktreeBeta],
-      query: "set"
+      query: "set",
     )
 
     #expect(result.count == 3)
@@ -777,18 +777,18 @@ struct CommandPaletteFeatureTests {
       title: "Merge PR",
       subtitle: "Ready",
       kind: .mergePullRequest("wt-1"),
-      priorityTier: 0
+      priorityTier: 0,
     )
     let worktreeMerge = CommandPaletteItem(
       id: "worktree.merge.select",
       title: "Merge",
       subtitle: nil,
-      kind: .worktreeSelect("wt-merge")
+      kind: .worktreeSelect("wt-merge"),
     )
 
     let result = CommandPaletteFeature.filterItems(
       items: [worktreeMerge, prAction],
-      query: "merge"
+      query: "merge",
     )
 
     #expect(result.count == 2)
@@ -803,13 +803,13 @@ struct CommandPaletteFeatureTests {
       id: "global.open-settings",
       title: "Open Settings",
       subtitle: nil,
-      kind: .openSettings
+      kind: .openSettings,
     )
     let worktreeItem = CommandPaletteItem(
       id: "worktree.settings.select",
       title: "Repo / settings",
       subtitle: nil,
-      kind: .worktreeSelect("wt-settings")
+      kind: .worktreeSelect("wt-settings"),
     )
     let recency: [CommandPaletteItem.ID: TimeInterval] = [
       worktreeItem.id: now.timeIntervalSince1970 - 1 * 86_400,
@@ -820,7 +820,7 @@ struct CommandPaletteFeatureTests {
       items: [globalItem, worktreeItem],
       query: "settings",
       recencyByID: recency,
-      now: now
+      now: now,
     )
 
     #expect(result.first?.id == worktreeItem.id)
@@ -831,18 +831,18 @@ struct CommandPaletteFeatureTests {
       id: "global.pr.open",
       title: "Open PR on GitHub",
       subtitle: "deploy-fixes",
-      kind: .openPullRequest("wt-1")
+      kind: .openPullRequest("wt-1"),
     )
     let worktreeItem = CommandPaletteItem(
       id: "worktree.deploy.select",
       title: "Repo / deploy-fixes",
       subtitle: nil,
-      kind: .worktreeSelect("wt-deploy")
+      kind: .worktreeSelect("wt-deploy"),
     )
 
     let result = CommandPaletteFeature.filterItems(
       items: [globalItem, worktreeItem],
-      query: "deploy"
+      query: "deploy",
     )
 
     #expect(result.first?.id == worktreeItem.id)
@@ -853,18 +853,18 @@ struct CommandPaletteFeatureTests {
       id: "global.new-worktree",
       title: "New Worktree",
       subtitle: nil,
-      kind: .newWorktree
+      kind: .newWorktree,
     )
     let worktreeItem = CommandPaletteItem(
       id: "worktree.new.select",
       title: "new",
       subtitle: nil,
-      kind: .worktreeSelect("wt-new")
+      kind: .worktreeSelect("wt-new"),
     )
 
     let result = CommandPaletteFeature.filterItems(
       items: [globalItem, worktreeItem],
-      query: "new"
+      query: "new",
     )
 
     #expect(result.first?.id == worktreeItem.id)
@@ -875,25 +875,25 @@ struct CommandPaletteFeatureTests {
       id: "global.check-for-updates",
       title: "Check for Updates",
       subtitle: nil,
-      kind: .checkForUpdates
+      kind: .checkForUpdates,
     )
     let worktreeFox = CommandPaletteItem(
       id: "worktree.fox.select",
       title: "Repo / fox",
       subtitle: nil,
-      kind: .worktreeSelect("wt-fox")
+      kind: .worktreeSelect("wt-fox"),
     )
     let prAction = CommandPaletteItem(
       id: "pr.open",
       title: "Open PR on GitHub",
       subtitle: "PR title",
       kind: .openPullRequest("wt-1"),
-      priorityTier: 2
+      priorityTier: 2,
     )
 
     let result = CommandPaletteFeature.filterItems(
       items: [checkForUpdates, worktreeFox, prAction],
-      query: ""
+      query: "",
     )
 
     #expect(!result.contains { $0.id == checkForUpdates.id })
@@ -906,22 +906,22 @@ struct CommandPaletteFeatureTests {
       id: "global.check-for-updates",
       title: "Check for Updates",
       subtitle: nil,
-      kind: .checkForUpdates
+      kind: .checkForUpdates,
     )
     let worktreeFox = CommandPaletteItem(
       id: "worktree.fox.select",
       title: "Repo / fox",
       subtitle: nil,
-      kind: .worktreeSelect("wt-fox")
+      kind: .worktreeSelect("wt-fox"),
     )
 
     let emptyResult = CommandPaletteFeature.filterItems(
       items: [checkForUpdates, worktreeFox],
-      query: ""
+      query: "",
     )
     let whitespaceResult = CommandPaletteFeature.filterItems(
       items: [checkForUpdates, worktreeFox],
-      query: "   "
+      query: "   ",
     )
 
     expectNoDifference(emptyResult, whitespaceResult)
@@ -932,22 +932,22 @@ struct CommandPaletteFeatureTests {
       id: "global.open-settings",
       title: "Open Settings",
       subtitle: nil,
-      kind: .openSettings
+      kind: .openSettings,
     )
     let worktreeItem = CommandPaletteItem(
       id: "worktree.open.select",
       title: "open",
       subtitle: nil,
-      kind: .worktreeSelect("wt-open")
+      kind: .worktreeSelect("wt-open"),
     )
 
     let resultAB = CommandPaletteFeature.filterItems(
       items: [globalItem, worktreeItem],
-      query: "open"
+      query: "open",
     )
     let resultBA = CommandPaletteFeature.filterItems(
       items: [worktreeItem, globalItem],
-      query: "open"
+      query: "open",
     )
 
     #expect(resultAB.first?.id == resultBA.first?.id)
@@ -962,7 +962,7 @@ struct CommandPaletteFeatureTests {
       id: "global.open-repository",
       title: "Open Repository",
       subtitle: nil,
-      kind: .openRepository
+      kind: .openRepository,
     )
     let store = TestStore(initialState: state) {
       CommandPaletteFeature()
@@ -985,7 +985,7 @@ struct CommandPaletteFeatureTests {
       id: "ghostty.goto_split:right|Focus Split Right",
       title: "Focus Split Right",
       subtitle: nil,
-      kind: .ghosttyCommand("goto_split:right")
+      kind: .ghosttyCommand("goto_split:right"),
     )
     var state = CommandPaletteFeature.State()
     state.isPresented = true
@@ -1017,7 +1017,7 @@ struct CommandPaletteFeatureTests {
 
     let items = CommandPaletteFeature.commandPaletteItems(
       from: state,
-      scripts: [runDef, testDef]
+      scripts: [runDef, testDef],
     )
 
     let runItem = items.first { $0.id == "script.\(runDef.id).run" }
@@ -1038,7 +1038,7 @@ struct CommandPaletteFeatureTests {
     let items = CommandPaletteFeature.commandPaletteItems(
       from: state,
       scripts: [definition],
-      runningScriptIDs: [definition.id]
+      runningScriptIDs: [definition.id],
     )
 
     let stopItem = items.first { $0.id == "script.\(definition.id).stop" }
@@ -1061,7 +1061,7 @@ struct CommandPaletteFeatureTests {
 
     let items = CommandPaletteFeature.commandPaletteItems(
       from: state,
-      scripts: [emptyDef, validDef]
+      scripts: [emptyDef, validDef],
     )
 
     #expect(items.contains { $0.id == "script.\(emptyDef.id).run" } == false)
@@ -1072,7 +1072,7 @@ struct CommandPaletteFeatureTests {
     let definition = ScriptDefinition(kind: .run, command: "npm run dev")
     let items = CommandPaletteFeature.commandPaletteItems(
       from: RepositoriesFeature.State(),
-      scripts: [definition]
+      scripts: [definition],
     )
 
     #expect(items.contains { $0.id == "script.\(definition.id).run" } == false)
@@ -1082,7 +1082,7 @@ struct CommandPaletteFeatureTests {
     let definition = ScriptDefinition(kind: .run, command: "npm run dev")
     let ids = CommandPaletteFeature.recencyRetentionIDs(
       from: [],
-      scripts: [definition]
+      scripts: [definition],
     )
 
     #expect(ids.contains("script.\(definition.id).run"))
@@ -1095,28 +1095,28 @@ private func makeWorktree(
   name: String,
   detail: String = "detail",
   repoRoot: String,
-  workingDirectory: String? = nil
+  workingDirectory: String? = nil,
 ) -> Worktree {
   Worktree(
     id: id,
     name: name,
     detail: detail,
     workingDirectory: URL(fileURLWithPath: workingDirectory ?? id),
-    repositoryRootURL: URL(fileURLWithPath: repoRoot)
+    repositoryRootURL: URL(fileURLWithPath: repoRoot),
   )
 }
 
 private func makeRepository(
   rootPath: String,
   name: String,
-  worktrees: [Worktree]
+  worktrees: [Worktree],
 ) -> Repository {
   let rootURL = URL(fileURLWithPath: rootPath)
   return Repository(
     id: rootURL.path(percentEncoded: false),
     rootURL: rootURL,
     name: name,
-    worktrees: IdentifiedArray(uniqueElements: worktrees)
+    worktrees: IdentifiedArray(uniqueElements: worktrees),
   )
 }
 
@@ -1126,7 +1126,7 @@ private func makePullRequest(
   reviewDecision: String? = nil,
   mergeable: String? = nil,
   mergeStateStatus: String? = nil,
-  checks: [GithubPullRequestStatusCheck] = []
+  checks: [GithubPullRequestStatusCheck] = [],
 ) -> GithubPullRequest {
   GithubPullRequest(
     number: 1,
@@ -1144,6 +1144,6 @@ private func makePullRequest(
     baseRefName: "main",
     commitsCount: 1,
     authorLogin: "khoi",
-    statusCheckRollup: checks.isEmpty ? nil : GithubPullRequestStatusCheckRollup(checks: checks)
+    statusCheckRollup: checks.isEmpty ? nil : GithubPullRequestStatusCheckRollup(checks: checks),
   )
 }

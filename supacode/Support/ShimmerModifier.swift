@@ -36,7 +36,7 @@ struct ShimmerModifier: ViewModifier {
         LinearGradient(
           gradient: isActive ? gradient : Gradient(colors: [.black]),
           startPoint: startPoint,
-          endPoint: endPoint
+          endPoint: endPoint,
         )
       )
       .animation(isActive ? animation : nil, value: animating)

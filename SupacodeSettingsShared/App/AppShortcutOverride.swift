@@ -208,7 +208,7 @@ extension AppShortcutOverride {
         &deadKeyState,
         4,
         &length,
-        &chars
+        &chars,
       )
       guard status == noErr, length > 0 else {
         if status != noErr {
@@ -273,7 +273,7 @@ extension AppShortcutOverride {
     forDisplayedKeyEquivalent character: Character,
     candidateKeyCodes: [UInt16] = candidatePrintableKeyCodes,
     modifierStates: [UInt32] = menuDisplayModifierStates,
-    translatedCharacter: (UInt16, UInt32) -> String?
+    translatedCharacter: (UInt16, UInt32) -> String?,
   ) -> UInt16? {
     let target = String(character).lowercased()
     for modifierState in modifierStates {

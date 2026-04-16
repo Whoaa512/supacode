@@ -15,7 +15,7 @@ struct TerminalTabItem: Identifiable, Equatable, Sendable {
     icon: String?,
     isDirty: Bool = false,
     isTitleLocked: Bool = false,
-    tintColor: TerminalTabTintColor? = nil
+    tintColor: TerminalTabTintColor? = nil,
   ) {
     self.id = id
     self.title = title

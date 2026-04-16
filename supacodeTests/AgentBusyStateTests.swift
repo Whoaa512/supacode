@@ -370,7 +370,7 @@ struct AgentBusyStateTests {
 
   private func nextEvent(
     _ stream: AsyncStream<TerminalClient.Event>,
-    matching predicate: (TerminalClient.Event) -> Bool
+    matching predicate: (TerminalClient.Event) -> Bool,
   ) async -> TerminalClient.Event? {
     for await event in stream where predicate(event) {
       return event

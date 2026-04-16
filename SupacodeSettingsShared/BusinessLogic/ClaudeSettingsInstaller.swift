@@ -6,7 +6,7 @@ nonisolated struct ClaudeSettingsInstaller {
 
   init(
     homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
-    fileManager: FileManager = .default
+    fileManager: FileManager = .default,
   ) {
     self.homeDirectoryURL = homeDirectoryURL
     self.fileManager = fileManager
@@ -25,35 +25,35 @@ nonisolated struct ClaudeSettingsInstaller {
     }
     return fileInstaller.containsMatchingHooks(
       settingsURL: settingsURL,
-      hookGroupsByEvent: groups
+      hookGroupsByEvent: groups,
     )
   }
 
   func installProgressHooks() throws {
     try fileInstaller.install(
       settingsURL: settingsURL,
-      hookGroupsByEvent: try ClaudeHookSettings.progressHookGroupsByEvent()
+      hookGroupsByEvent: try ClaudeHookSettings.progressHookGroupsByEvent(),
     )
   }
 
   func installNotificationHooks() throws {
     try fileInstaller.install(
       settingsURL: settingsURL,
-      hookGroupsByEvent: try ClaudeHookSettings.notificationHookGroupsByEvent()
+      hookGroupsByEvent: try ClaudeHookSettings.notificationHookGroupsByEvent(),
     )
   }
 
   func uninstallProgressHooks() throws {
     try fileInstaller.uninstall(
       settingsURL: settingsURL,
-      hookGroupsByEvent: try ClaudeHookSettings.progressHookGroupsByEvent()
+      hookGroupsByEvent: try ClaudeHookSettings.progressHookGroupsByEvent(),
     )
   }
 
   func uninstallNotificationHooks() throws {
     try fileInstaller.uninstall(
       settingsURL: settingsURL,
-      hookGroupsByEvent: try ClaudeHookSettings.notificationHookGroupsByEvent()
+      hookGroupsByEvent: try ClaudeHookSettings.notificationHookGroupsByEvent(),
     )
   }
 
@@ -80,8 +80,8 @@ nonisolated struct ClaudeSettingsInstaller {
         invalidEventHooks: { ClaudeSettingsInstallerError.invalidEventHooks($0) },
         invalidHooksObject: { ClaudeSettingsInstallerError.invalidHooksObject },
         invalidJSON: { ClaudeSettingsInstallerError.invalidJSON($0) },
-        invalidRootObject: { ClaudeSettingsInstallerError.invalidRootObject }
-      )
+        invalidRootObject: { ClaudeSettingsInstallerError.invalidRootObject },
+      ),
     )
   }
 }

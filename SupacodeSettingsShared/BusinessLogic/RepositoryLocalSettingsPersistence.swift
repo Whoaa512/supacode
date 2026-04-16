@@ -14,7 +14,7 @@ nonisolated enum RepositoryLocalSettingsStorageKey: DependencyKey {
         let directory = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try data.write(to: url, options: [.atomic])
-      }
+      },
     )
   }
 
@@ -34,7 +34,7 @@ extension RepositoryLocalSettingsStorage {
     let storage = InMemoryRepositoryLocalSettingsStorage()
     return RepositoryLocalSettingsStorage(
       load: { try storage.load($0) },
-      save: { try storage.save($0, $1) }
+      save: { try storage.save($0, $1) },
     )
   }
 }

@@ -8,14 +8,14 @@ nonisolated enum ClaudeHookSettings {
   static func progressHookGroupsByEvent() throws -> [String: [JSONValue]] {
     try AgentHookPayloadSupport.extractHookGroups(
       from: ClaudeProgressPayload(),
-      invalidConfiguration: ClaudeHookSettingsError.invalidConfiguration
+      invalidConfiguration: ClaudeHookSettingsError.invalidConfiguration,
     )
   }
 
   static func notificationHookGroupsByEvent() throws -> [String: [JSONValue]] {
     try AgentHookPayloadSupport.extractHookGroups(
       from: ClaudeNotificationPayload(),
-      invalidConfiguration: ClaudeHookSettingsError.invalidConfiguration
+      invalidConfiguration: ClaudeHookSettingsError.invalidConfiguration,
     )
   }
 }

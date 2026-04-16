@@ -22,12 +22,12 @@ struct TerminalLayoutSnapshotTests {
                   direction: .vertical,
                   ratio: 0.4,
                   left: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: "/tmp")),
-                  right: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: nil))
+                  right: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: nil)),
                 )
-              )
+              ),
             )
           ),
-          focusedLeafIndex: 1
+          focusedLeafIndex: 1,
         ),
         TerminalLayoutSnapshot.TabSnapshot(
           id: nil,
@@ -35,10 +35,10 @@ struct TerminalLayoutSnapshotTests {
           icon: nil,
           tintColor: nil,
           layout: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: "/Users/test")),
-          focusedLeafIndex: 0
+          focusedLeafIndex: 0,
         ),
       ],
-      selectedTabIndex: 0
+      selectedTabIndex: 0,
     )
 
     let encoder = JSONEncoder()
@@ -54,7 +54,7 @@ struct TerminalLayoutSnapshotTests {
         direction: .horizontal,
         ratio: 0.5,
         left: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: "/first")),
-        right: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: "/second"))
+        right: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: "/second")),
       )
     )
     #expect(node.firstLeaf.workingDirectory == "/first")
@@ -71,9 +71,9 @@ struct TerminalLayoutSnapshotTests {
             direction: .vertical,
             ratio: 0.5,
             left: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: nil)),
-            right: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: nil))
+            right: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: nil)),
           )
-        )
+        ),
       )
     )
     #expect(node.leafCount == 3)
@@ -88,10 +88,10 @@ struct TerminalLayoutSnapshotTests {
           icon: nil,
           tintColor: nil,
           layout: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: "/home")),
-          focusedLeafIndex: 0
-        ),
+          focusedLeafIndex: 0,
+        )
       ],
-      selectedTabIndex: 0
+      selectedTabIndex: 0,
     )
 
     let data = try JSONEncoder().encode(snapshot)

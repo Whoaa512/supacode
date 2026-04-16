@@ -73,9 +73,9 @@ public struct RepositorySettingsView: View {
             SupacodePaths.worktreeBaseDirectory(
               for: store.rootURL,
               globalDefaultPath: store.globalDefaultWorktreeBaseDirectoryPath,
-              repositoryOverridePath: nil
+              repositoryOverridePath: nil,
             ).path(percentEncoded: false)
-          )
+          ),
         ) {
           Text("Default directory").monospaced(false)
           Text("Parent path for new worktrees.").monospaced(false)
@@ -101,11 +101,11 @@ public struct RepositorySettingsView: View {
       Section("Environment Variables") {
         ScriptEnvironmentRow(
           name: "SUPACODE_WORKTREE_PATH",
-          description: "Path to the active worktree."
+          description: "Path to the active worktree.",
         )
         ScriptEnvironmentRow(
           name: "SUPACODE_ROOT_PATH",
-          description: "Path to the repository root."
+          description: "Path to the repository root.",
         )
       }
     }

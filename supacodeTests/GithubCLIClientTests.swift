@@ -44,7 +44,7 @@ actor GithubBatchShellProbe {
       ghCallCount: ghCallCount,
       maxInFlight: maxInFlight,
       whichCallCount: whichCallCount,
-      loginCallCount: loginCallCount
+      loginCallCount: loginCallCount,
     )
   }
 }
@@ -76,7 +76,7 @@ struct GithubCLIClientTests {
           await probe.endGhCall()
           throw error
         }
-      }
+      },
     )
     let client = GithubCLIClient.live(shell: shell)
     let branches = (0..<100).map { "feature-\($0)" }
@@ -113,7 +113,7 @@ struct GithubCLIClientTests {
             command: "gh api graphql",
             stdout: "",
             stderr: "boom",
-            exitCode: 1
+            exitCode: 1,
           )
         }
         do {
@@ -125,7 +125,7 @@ struct GithubCLIClientTests {
           await probe.endGhCall()
           throw error
         }
-      }
+      },
     )
     let client = GithubCLIClient.live(shell: shell)
     let branches = (0..<30).map { "feature-\($0)" }
@@ -165,7 +165,7 @@ struct GithubCLIClientTests {
         let stdout = graphQLResponse(for: arguments)
         await probe.endGhCall()
         return ShellOutput(stdout: stdout, stderr: "", exitCode: 0)
-      }
+      },
     )
     let client = GithubCLIClient.live(shell: shell)
     let uniqueBranches = (0..<30).map { "feature-\($0)" }
@@ -198,7 +198,7 @@ struct GithubCLIClientTests {
         _ = await probe.beginGhCall()
         await probe.endGhCall()
         return ShellOutput(stdout: "gh version 2.79.0", stderr: "", exitCode: 0)
-      }
+      },
     )
     let client = GithubCLIClient.live(shell: shell)
 

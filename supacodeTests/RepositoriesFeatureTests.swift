@@ -58,7 +58,7 @@ struct RepositoriesFeatureTests {
         [repository],
         failures: [],
         roots: [repository.rootURL],
-        animated: false
+        animated: false,
       )
     ) {
       $0.isRefreshingWorktrees = false
@@ -150,7 +150,7 @@ struct RepositoriesFeatureTests {
     await store.send(
       .selectionChanged(
         [.worktree(wt3.id), .worktree(wt2.id)],
-        focusTerminal: true
+        focusTerminal: true,
       )
     ) {
       $0.selection = .worktree(wt2.id)
@@ -269,11 +269,11 @@ struct RepositoriesFeatureTests {
     let repoBID = "/tmp/repo-b"
     let repoA = makeRepository(
       id: repoAID,
-      worktrees: [makeWorktree(id: "\(repoAID)/wt1", name: "wt1", repoRoot: repoAID)]
+      worktrees: [makeWorktree(id: "\(repoAID)/wt1", name: "wt1", repoRoot: repoAID)],
     )
     let repoB = makeRepository(
       id: repoBID,
-      worktrees: [makeWorktree(id: "\(repoBID)/wt1", name: "wt1", repoRoot: repoBID)]
+      worktrees: [makeWorktree(id: "\(repoBID)/wt1", name: "wt1", repoRoot: repoBID)],
     )
     let initialState = makeState(repositories: [repoA, repoB])
     initialState.$collapsedRepositoryIDs.withLock { $0 = [repoA.id, repoB.id, "/tmp/missing"] }
@@ -286,7 +286,7 @@ struct RepositoriesFeatureTests {
         [repoA],
         failures: [],
         roots: [repoA.rootURL],
-        animated: false
+        animated: false,
       )
     ) {
       $0.repositories = [repoA]
@@ -564,7 +564,7 @@ struct RepositoriesFeatureTests {
         branchName: "",
         selectedBaseRef: nil,
         fetchOrigin: true,
-        validationMessage: nil
+        validationMessage: nil,
       )
     }
   }
@@ -582,7 +582,7 @@ struct RepositoriesFeatureTests {
       branchName: "feature/new-branch",
       selectedBaseRef: nil,
       fetchOrigin: true,
-      validationMessage: nil
+      validationMessage: nil,
     )
     let store = TestStore(initialState: state) {
       RepositoriesFeature()
@@ -612,7 +612,7 @@ struct RepositoriesFeatureTests {
       branchName: "feature/new",
       selectedBaseRef: nil,
       fetchOrigin: true,
-      validationMessage: nil
+      validationMessage: nil,
     )
     let store = TestStore(initialState: state) {
       RepositoriesFeature()
@@ -646,7 +646,7 @@ struct RepositoriesFeatureTests {
               repositoryID: repository.id,
               branchName: "feature/new",
               baseRef: nil,
-              fetchOrigin: true
+              fetchOrigin: true,
             )
           )
         )
@@ -671,7 +671,7 @@ struct RepositoriesFeatureTests {
       branchName: "feature/existing",
       selectedBaseRef: nil,
       fetchOrigin: true,
-      validationMessage: nil
+      validationMessage: nil,
     )
     let store = TestStore(initialState: state) {
       RepositoriesFeature()
@@ -684,7 +684,7 @@ struct RepositoriesFeatureTests {
         repositoryID: repository.id,
         branchName: "feature/existing",
         baseRef: nil,
-        fetchOrigin: true
+        fetchOrigin: true,
       )
     ) {
       $0.worktreeCreationPrompt?.validationMessage = nil
@@ -723,11 +723,11 @@ struct RepositoriesFeatureTests {
     let promptLoadGate = PromptLoadGate()
     let repoA = makeRepository(
       id: repoRootA,
-      worktrees: [makeWorktree(id: repoRootA, name: "main", repoRoot: repoRootA)]
+      worktrees: [makeWorktree(id: repoRootA, name: "main", repoRoot: repoRootA)],
     )
     let repoB = makeRepository(
       id: repoRootB,
-      worktrees: [makeWorktree(id: repoRootB, name: "main", repoRoot: repoRootB)]
+      worktrees: [makeWorktree(id: repoRootB, name: "main", repoRoot: repoRootB)],
     )
     let store = TestStore(initialState: makeState(repositories: [repoA, repoB])) {
       RepositoriesFeature()
@@ -754,7 +754,7 @@ struct RepositoriesFeatureTests {
         branchName: "",
         selectedBaseRef: nil,
         fetchOrigin: true,
-        validationMessage: nil
+        validationMessage: nil,
       )
     }
     await store.finish()
@@ -774,7 +774,7 @@ struct RepositoriesFeatureTests {
       branchName: "feature/new-branch",
       selectedBaseRef: nil,
       fetchOrigin: true,
-      validationMessage: nil
+      validationMessage: nil,
     )
     let store = TestStore(initialState: state) {
       RepositoriesFeature()
@@ -790,7 +790,7 @@ struct RepositoriesFeatureTests {
         repositoryID: repository.id,
         branchName: "feature/new-branch",
         baseRef: nil,
-        fetchOrigin: true
+        fetchOrigin: true,
       )
     ) {
       $0.worktreeCreationPrompt?.validationMessage = nil
@@ -831,7 +831,7 @@ struct RepositoriesFeatureTests {
         repositoryID: repository.id,
         nameSource: .explicit("../../Desktop"),
         baseRefSource: .repositorySetting,
-        fetchOrigin: false
+        fetchOrigin: false,
       )
     )
     await store.receive(\.createRandomWorktreeFailed) {
@@ -873,7 +873,7 @@ struct RepositoriesFeatureTests {
         repositoryID: repository.id,
         nameSource: .explicit("feature/new-branch"),
         baseRefSource: .repositorySetting,
-        fetchOrigin: false
+        fetchOrigin: false,
       )
     ) {
       $0.pendingWorktrees = [
@@ -882,9 +882,9 @@ struct RepositoriesFeatureTests {
           repositoryID: repository.id,
           progress: WorktreeCreationProgress(
             stage: .loadingLocalBranches,
-            worktreeName: "feature/new-branch"
-          )
-        ),
+            worktreeName: "feature/new-branch",
+          ),
+        )
       ]
       $0.selection = SidebarSelection.worktree(pendingID)
       $0.sidebarSelectedWorktreeIDs = [pendingID]
@@ -895,7 +895,7 @@ struct RepositoriesFeatureTests {
       store.state.pendingWorktrees[0].progress
         == WorktreeCreationProgress(
           stage: .loadingLocalBranches,
-          worktreeName: "feature/new-branch"
+          worktreeName: "feature/new-branch",
         ))
 
     await validationClock.advance(by: .seconds(1))
@@ -943,7 +943,7 @@ struct RepositoriesFeatureTests {
         previousSelection: nil,
         repositoryID: repository.id,
         name: "../../Desktop",
-        baseDirectory: URL(fileURLWithPath: "/tmp/repo/.worktrees")
+        baseDirectory: URL(fileURLWithPath: "/tmp/repo/.worktrees"),
       )
     ) {
       $0.alert = expectedAlert
@@ -959,7 +959,7 @@ struct RepositoriesFeatureTests {
     let createdWorktree = makeWorktree(
       id: "/tmp/repo/swift-otter",
       name: "swift-otter",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     @Shared(.settingsFile) var settingsFile
     $settingsFile.withLock { $0.global.promptForWorktreeCreation = false }
@@ -1280,7 +1280,7 @@ struct RepositoriesFeatureTests {
     let createdWorktree = makeWorktree(
       id: "/tmp/repo/swift-otter",
       name: "swift-otter",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let observedBaseDirectory = LockIsolated<URL?>(nil)
     @Shared(.settingsFile) var settingsFile
@@ -1319,7 +1319,7 @@ struct RepositoriesFeatureTests {
     let expectedBaseDirectory = SupacodePaths.worktreeBaseDirectory(
       for: repository.rootURL,
       globalDefaultPath: "/tmp/global-worktrees",
-      repositoryOverridePath: "/tmp/repo-override"
+      repositoryOverridePath: "/tmp/repo-override",
     )
     #expect(observedBaseDirectory.value == expectedBaseDirectory)
   }
@@ -1331,7 +1331,7 @@ struct RepositoriesFeatureTests {
     let createdWorktree = makeWorktree(
       id: "/tmp/repo/swift-otter",
       name: "swift-otter",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let observedBaseDirectory = LockIsolated<URL?>(nil)
     @Shared(.settingsFile) var settingsFile
@@ -1370,7 +1370,7 @@ struct RepositoriesFeatureTests {
     let expectedBaseDirectory = SupacodePaths.worktreeBaseDirectory(
       for: repository.rootURL,
       globalDefaultPath: "/tmp/global-worktrees",
-      repositoryOverridePath: nil
+      repositoryOverridePath: nil,
     )
     #expect(observedBaseDirectory.value == expectedBaseDirectory)
   }
@@ -1426,12 +1426,12 @@ struct RepositoriesFeatureTests {
     let createTimeBaseDirectory = SupacodePaths.worktreeBaseDirectory(
       for: repository.rootURL,
       globalDefaultPath: "/tmp/worktrees-original",
-      repositoryOverridePath: nil
+      repositoryOverridePath: nil,
     )
     let changedBaseDirectory = SupacodePaths.worktreeBaseDirectory(
       for: repository.rootURL,
       globalDefaultPath: "/tmp/worktrees-changed",
-      repositoryOverridePath: nil
+      repositoryOverridePath: nil,
     )
     let removedWorktreePath = LockIsolated<String?>(nil)
     @Shared(.settingsFile) var settingsFile
@@ -1468,7 +1468,7 @@ struct RepositoriesFeatureTests {
         previousSelection: nil,
         repositoryID: repository.id,
         name: "new-branch",
-        baseDirectory: createTimeBaseDirectory
+        baseDirectory: createTimeBaseDirectory,
       )
     ) {
       $0.alert = expectedAlert
@@ -1495,7 +1495,7 @@ struct RepositoriesFeatureTests {
     let repoRoot = "/tmp/repo"
     let repository = makeRepository(
       id: repoRoot,
-      worktrees: [makeWorktree(id: repoRoot, name: "main", repoRoot: repoRoot)]
+      worktrees: [makeWorktree(id: repoRoot, name: "main", repoRoot: repoRoot)],
     )
     let pendingID = "pending:test"
     var state = makeState(repositories: [repository])
@@ -1504,8 +1504,8 @@ struct RepositoriesFeatureTests {
       PendingWorktree(
         id: pendingID,
         repositoryID: repository.id,
-        progress: WorktreeCreationProgress(stage: .loadingLocalBranches)
-      ),
+        progress: WorktreeCreationProgress(stage: .loadingLocalBranches),
+      )
     ]
     let store = TestStore(initialState: state) {
       RepositoriesFeature()
@@ -1516,12 +1516,12 @@ struct RepositoriesFeatureTests {
       worktreeName: "swift-otter",
       baseRef: "origin/main",
       copyIgnored: false,
-      copyUntracked: true
+      copyUntracked: true,
     )
     await store.send(
       .pendingWorktreeProgressUpdated(
         id: pendingID,
-        progress: nextProgress
+        progress: nextProgress,
       )
     ) {
       $0.pendingWorktrees[0].progress = nextProgress
@@ -1540,9 +1540,9 @@ struct RepositoriesFeatureTests {
         repositoryID: repository.id,
         progress: WorktreeCreationProgress(
           stage: .checkingRepositoryMode,
-          worktreeName: "swift-otter"
-        )
-      ),
+          worktreeName: "swift-otter",
+        ),
+      )
     ]
     let store = TestStore(initialState: state) {
       RepositoriesFeature()
@@ -1566,7 +1566,7 @@ struct RepositoriesFeatureTests {
         previousSelection: nil,
         repositoryID: repository.id,
         name: nil,
-        baseDirectory: URL(fileURLWithPath: "/tmp/repo/.worktrees")
+        baseDirectory: URL(fileURLWithPath: "/tmp/repo/.worktrees"),
       )
     ) {
       $0.pendingWorktrees = []
@@ -1577,7 +1577,7 @@ struct RepositoriesFeatureTests {
     await store.send(
       .pendingWorktreeProgressUpdated(
         id: pendingID,
-        progress: WorktreeCreationProgress(stage: .creatingWorktree)
+        progress: WorktreeCreationProgress(stage: .creatingWorktree),
       )
     )
     #expect(store.state.pendingWorktrees.isEmpty)
@@ -1727,7 +1727,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -1738,8 +1738,8 @@ struct RepositoriesFeatureTests {
       featureWorktree.id: WorktreeInfoEntry(
         addedLines: nil,
         removedLines: nil,
-        pullRequest: makePullRequest(state: "MERGED")
-      ),
+        pullRequest: makePullRequest(state: "MERGED"),
+      )
     ]
     let fixedDate = Date(timeIntervalSince1970: 1_000_000)
     let store = TestStore(initialState: state) {
@@ -1765,7 +1765,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -1802,7 +1802,7 @@ struct RepositoriesFeatureTests {
         scriptID: definition.id,
         kind: .script(definition),
         exitCode: 1,
-        tabId: nil
+        tabId: nil,
       )
     ) {
       $0.runningScriptsByWorktreeID = [:]
@@ -1812,7 +1812,7 @@ struct RepositoriesFeatureTests {
         exitMessage: "Script failed (exit code 1).",
         worktreeID: worktree.id,
         repoName: "repo",
-        worktreeName: "feature"
+        worktreeName: "feature",
       )
     }
   }
@@ -1835,7 +1835,7 @@ struct RepositoriesFeatureTests {
         scriptID: definition.id,
         kind: .script(definition),
         exitCode: 0,
-        tabId: nil
+        tabId: nil,
       )
     ) {
       $0.runningScriptsByWorktreeID = [:]
@@ -1862,7 +1862,7 @@ struct RepositoriesFeatureTests {
         scriptID: definition.id,
         kind: .script(definition),
         exitCode: nil,
-        tabId: nil
+        tabId: nil,
       )
     ) {
       $0.runningScriptsByWorktreeID = [:]
@@ -1893,7 +1893,7 @@ struct RepositoriesFeatureTests {
         scriptID: definition.id,
         kind: .script(definition),
         exitCode: 1,
-        tabId: tabId
+        tabId: tabId,
       )
     ) {
       $0.runningScriptsByWorktreeID = [:]
@@ -1904,7 +1904,7 @@ struct RepositoriesFeatureTests {
         worktreeID: worktree.id,
         tabId: tabId,
         repoName: repository.name,
-        worktreeName: "feature"
+        worktreeName: "feature",
       )
     }
 
@@ -1921,7 +1921,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     let tabId = TerminalTabID()
@@ -1939,7 +1939,7 @@ struct RepositoriesFeatureTests {
         worktreeID: featureWorktree.id,
         tabId: tabId,
         repoName: "repo",
-        worktreeName: "feature"
+        worktreeName: "feature",
       )
     }
   }
@@ -1950,7 +1950,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     let tabId = TerminalTabID()
@@ -1968,7 +1968,7 @@ struct RepositoriesFeatureTests {
         worktreeID: featureWorktree.id,
         tabId: tabId,
         repoName: "repo",
-        worktreeName: "feature"
+        worktreeName: "feature",
       )
     }
   }
@@ -1979,7 +1979,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -2005,7 +2005,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -2021,7 +2021,7 @@ struct RepositoriesFeatureTests {
         exitMessage: "Script exited with code 7.",
         worktreeID: featureWorktree.id,
         repoName: "repo",
-        worktreeName: "feature"
+        worktreeName: "feature",
       )
     }
     #expect(store.state.archivedWorktreeIDs.isEmpty)
@@ -2033,7 +2033,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -2055,7 +2055,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     let store = TestStore(initialState: makeState(repositories: [repository])) {
@@ -2072,7 +2072,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     let reloadedRepository = makeRepository(id: repoRoot, worktrees: [mainWorktree])
@@ -2088,7 +2088,7 @@ struct RepositoriesFeatureTests {
         [reloadedRepository],
         failures: [],
         roots: [repository.rootURL],
-        animated: false
+        animated: false,
       )
     )
     #expect(store.state.archivingWorktreeIDs.contains(featureWorktree.id))
@@ -2103,7 +2103,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     let reloadedRepository = makeRepository(id: repoRoot, worktrees: [mainWorktree])
@@ -2119,7 +2119,7 @@ struct RepositoriesFeatureTests {
         [reloadedRepository],
         failures: [],
         roots: [repository.rootURL],
-        animated: false
+        animated: false,
       )
     )
     #expect(store.state.archivingWorktreeIDs.contains(featureWorktree.id))
@@ -2146,7 +2146,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -2174,7 +2174,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     @Shared(.repositorySettings(repository.rootURL)) var repositorySettings
@@ -2200,7 +2200,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -2217,7 +2217,7 @@ struct RepositoriesFeatureTests {
         exitMessage: "Script failed (exit code 1).",
         worktreeID: featureWorktree.id,
         repoName: "repo",
-        worktreeName: "feature"
+        worktreeName: "feature",
       )
     }
     #expect(store.state.archivedWorktreeIDs.isEmpty)
@@ -2229,7 +2229,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -2252,7 +2252,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
 
@@ -2268,11 +2268,11 @@ struct RepositoriesFeatureTests {
       await store.send(.archiveScriptCompleted(worktreeID: featureWorktree.id, exitCode: exitCode, tabId: nil))
       #expect(
         store.state.archivedWorktreeIDs.isEmpty,
-        "Exit code \(exitCode) should NOT archive the worktree"
+        "Exit code \(exitCode) should NOT archive the worktree",
       )
       #expect(
         store.state.alert != nil,
-        "Exit code \(exitCode) should show an alert"
+        "Exit code \(exitCode) should show an alert",
       )
     }
   }
@@ -2285,7 +2285,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -2310,7 +2310,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -2346,7 +2346,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -2362,7 +2362,7 @@ struct RepositoriesFeatureTests {
         exitMessage: "Script exited with code 7.",
         worktreeID: featureWorktree.id,
         repoName: "repo",
-        worktreeName: "feature"
+        worktreeName: "feature",
       )
     }
   }
@@ -2373,7 +2373,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -2394,7 +2394,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     let store = TestStore(initialState: makeState(repositories: [repository])) {
@@ -2410,7 +2410,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -2476,7 +2476,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -2494,7 +2494,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     let reloadedRepository = makeRepository(id: repoRoot, worktrees: [mainWorktree])
@@ -2510,7 +2510,7 @@ struct RepositoriesFeatureTests {
         [reloadedRepository],
         failures: [],
         roots: [repository.rootURL],
-        animated: false
+        animated: false,
       )
     )
     #expect(store.state.deleteScriptWorktreeIDs.contains(featureWorktree.id))
@@ -2525,7 +2525,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     let reloadedRepository = makeRepository(id: repoRoot, worktrees: [mainWorktree])
@@ -2541,7 +2541,7 @@ struct RepositoriesFeatureTests {
         [reloadedRepository],
         failures: [],
         roots: [repository.rootURL],
-        animated: false
+        animated: false,
       )
     )
     #expect(store.state.deleteScriptWorktreeIDs.contains(featureWorktree.id))
@@ -2675,7 +2675,7 @@ struct RepositoriesFeatureTests {
         id: repository.id,
         rootURL: repository.rootURL,
         name: repository.name,
-        worktrees: worktrees
+        worktrees: worktrees,
       )
       $0.repositories[id: repository.id] = repository
     }
@@ -2689,13 +2689,13 @@ struct RepositoriesFeatureTests {
       worktrees: [
         makeWorktree(id: "/tmp/repo-a/wt1", name: "wt1", repoRoot: "/tmp/repo-a"),
         makeWorktree(id: "/tmp/repo-a/wt2", name: "wt2", repoRoot: "/tmp/repo-a"),
-      ]
+      ],
     )
     let repoB = makeRepository(
       id: "/tmp/repo-b",
       worktrees: [
         makeWorktree(id: "/tmp/repo-b/wt3", name: "wt3", repoRoot: "/tmp/repo-b")
-      ]
+      ],
     )
     let state = makeState(repositories: [repoA, repoB])
 
@@ -2705,7 +2705,7 @@ struct RepositoriesFeatureTests {
         "/tmp/repo-a/wt1",
         "/tmp/repo-a/wt2",
         "/tmp/repo-b/wt3",
-      ]
+      ],
     )
   }
 
@@ -2714,13 +2714,13 @@ struct RepositoriesFeatureTests {
       id: "/tmp/repo-a",
       worktrees: [
         makeWorktree(id: "/tmp/repo-a/wt1", name: "wt1", repoRoot: "/tmp/repo-a")
-      ]
+      ],
     )
     let repoB = makeRepository(
       id: "/tmp/repo-b",
       worktrees: [
         makeWorktree(id: "/tmp/repo-b/wt2", name: "wt2", repoRoot: "/tmp/repo-b")
-      ]
+      ],
     )
     var state = makeState(repositories: [repoA, repoB])
     state.repositoryOrderIDs = [repoB.id, repoA.id]
@@ -2730,7 +2730,7 @@ struct RepositoriesFeatureTests {
       [
         "/tmp/repo-b/wt2",
         "/tmp/repo-a/wt1",
-      ]
+      ],
     )
   }
 
@@ -2739,13 +2739,13 @@ struct RepositoriesFeatureTests {
       id: "/tmp/repo-a",
       worktrees: [
         makeWorktree(id: "/tmp/repo-a/wt1", name: "wt1", repoRoot: "/tmp/repo-a")
-      ]
+      ],
     )
     let repoB = makeRepository(
       id: "/tmp/repo-b",
       worktrees: [
         makeWorktree(id: "/tmp/repo-b/wt2", name: "wt2", repoRoot: "/tmp/repo-b")
-      ]
+      ],
     )
     var state = makeState(repositories: [repoA, repoB])
     state.repositoryOrderIDs = [repoA.id, repoB.id]
@@ -2754,7 +2754,7 @@ struct RepositoriesFeatureTests {
       state.orderedWorktreeRows(includingRepositoryIDs: [repoB.id]).map(\.id),
       [
         "/tmp/repo-b/wt2"
-      ]
+      ],
     )
   }
 
@@ -2769,7 +2769,7 @@ struct RepositoriesFeatureTests {
       [
         repoB.id,
         repoA.id,
-      ]
+      ],
     )
   }
 
@@ -2780,7 +2780,7 @@ struct RepositoriesFeatureTests {
     let worktree3 = makeWorktree(id: "/tmp/repo/wt3", name: "wt3", repoRoot: repoRoot)
     let repository = makeRepository(
       id: repoRoot,
-      worktrees: [worktree1, worktree2, worktree3]
+      worktrees: [worktree1, worktree2, worktree3],
     )
     var state = makeState(repositories: [repository])
     state.worktreeOrderByRepository[repoRoot] = [worktree2.id]
@@ -2791,7 +2791,7 @@ struct RepositoriesFeatureTests {
         worktree1.id,
         worktree3.id,
         worktree2.id,
-      ]
+      ],
     )
   }
 
@@ -2802,7 +2802,7 @@ struct RepositoriesFeatureTests {
     let worktree3 = makeWorktree(id: "/tmp/repo/wt3", name: "wt3", repoRoot: repoRoot)
     let repository = makeRepository(
       id: repoRoot,
-      worktrees: [worktree1, worktree2, worktree3]
+      worktrees: [worktree1, worktree2, worktree3],
     )
     var state = makeState(repositories: [repository])
     state.worktreeOrderByRepository[repoRoot] = [worktree1.id, worktree2.id, worktree3.id]
@@ -2845,7 +2845,7 @@ struct RepositoriesFeatureTests {
         [],
         failures: [RepositoriesFeature.LoadFailure(rootID: repository.id, message: "boom")],
         roots: [repository.rootURL],
-        animated: false
+        animated: false,
       )
     ) {
       $0.loadFailuresByID = [repository.id: "boom"]
@@ -2874,7 +2874,7 @@ struct RepositoriesFeatureTests {
         [],
         failures: [RepositoriesFeature.LoadFailure(rootID: repository.id, message: "boom")],
         roots: [repository.rootURL],
-        animated: false
+        animated: false,
       )
     ) {
       $0.loadFailuresByID = [repository.id: "boom"]
@@ -2885,7 +2885,7 @@ struct RepositoriesFeatureTests {
     await store.receive(\.delegate.repositoriesChanged)
     expectNoDifference(
       store.state.worktreeOrderByRepository,
-      [repoRoot: [worktree1.id, worktree2.id]]
+      [repoRoot: [worktree1.id, worktree2.id]],
     )
   }
 
@@ -2904,7 +2904,7 @@ struct RepositoriesFeatureTests {
         [],
         failures: [RepositoriesFeature.LoadFailure(rootID: repository.id, message: "boom")],
         roots: [repository.rootURL],
-        animated: false
+        animated: false,
       )
     ) {
       $0.loadFailuresByID = [repository.id: "boom"]
@@ -2933,7 +2933,7 @@ struct RepositoriesFeatureTests {
         [updatedRepository],
         failures: [],
         roots: [repository.rootURL],
-        animated: false
+        animated: false,
       )
     ) {
       $0.repositories = [updatedRepository]
@@ -2960,7 +2960,7 @@ struct RepositoriesFeatureTests {
         [updatedRepository],
         failures: [],
         roots: [repository.rootURL],
-        animated: false
+        animated: false,
       )
     ) {
       $0.repositories = [updatedRepository]
@@ -2986,8 +2986,8 @@ struct RepositoriesFeatureTests {
       PendingWorktree(
         id: removedWorktree.id,
         repositoryID: repository.id,
-        progress: WorktreeCreationProgress(stage: .choosingWorktreeName)
-      ),
+        progress: WorktreeCreationProgress(stage: .choosingWorktreeName),
+      )
     ]
     initialState.pinnedWorktreeIDs = [removedWorktree.id]
     initialState.worktreeInfoByID = [
@@ -3004,7 +3004,7 @@ struct RepositoriesFeatureTests {
         removedWorktree.id,
         repositoryID: repository.id,
         selectionWasRemoved: false,
-        nextSelection: nil
+        nextSelection: nil,
       )
     ) {
       $0.deletingWorktreeIDs = []
@@ -3042,7 +3042,7 @@ struct RepositoriesFeatureTests {
         removedWorktree.id,
         repositoryID: repository.id,
         selectionWasRemoved: false,
-        nextSelection: nil
+        nextSelection: nil,
       )
     ) {
       $0.deletingWorktreeIDs = []
@@ -3069,8 +3069,8 @@ struct RepositoriesFeatureTests {
       PendingWorktree(
         id: pendingID,
         repositoryID: repository.id,
-        progress: WorktreeCreationProgress(stage: .loadingLocalBranches)
-      ),
+        progress: WorktreeCreationProgress(stage: .loadingLocalBranches),
+      )
     ]
     initialState.selection = .worktree(pendingID)
     initialState.sidebarSelectedWorktreeIDs = [existingWorktree.id, pendingID]
@@ -3084,7 +3084,7 @@ struct RepositoriesFeatureTests {
       .createRandomWorktreeSucceeded(
         newWorktree,
         repositoryID: repository.id,
-        pendingID: pendingID
+        pendingID: pendingID,
       )
     ) {
       $0.pendingSetupScriptWorktreeIDs.insert(newWorktree.id)
@@ -3110,7 +3110,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -3125,13 +3125,13 @@ struct RepositoriesFeatureTests {
     await store.send(
       .repositoryPullRequestsLoaded(
         repositoryID: repository.id,
-        pullRequestsByWorktreeID: [featureWorktree.id: mergedPullRequest]
+        pullRequestsByWorktreeID: [featureWorktree.id: mergedPullRequest],
       )
     ) {
       $0.worktreeInfoByID[featureWorktree.id] = WorktreeInfoEntry(
         addedLines: nil,
         removedLines: nil,
-        pullRequest: mergedPullRequest
+        pullRequest: mergedPullRequest,
       )
     }
     await store.receive(\.archiveWorktreeConfirmed)
@@ -3155,13 +3155,13 @@ struct RepositoriesFeatureTests {
     await store.send(
       .repositoryPullRequestsLoaded(
         repositoryID: repository.id,
-        pullRequestsByWorktreeID: [mainWorktree.id: mergedPullRequest]
+        pullRequestsByWorktreeID: [mainWorktree.id: mergedPullRequest],
       )
     ) {
       $0.worktreeInfoByID[mainWorktree.id] = WorktreeInfoEntry(
         addedLines: nil,
         removedLines: nil,
-        pullRequest: mergedPullRequest
+        pullRequest: mergedPullRequest,
       )
     }
     await store.finish()
@@ -3173,7 +3173,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -3189,13 +3189,13 @@ struct RepositoriesFeatureTests {
     await store.send(
       .repositoryPullRequestsLoaded(
         repositoryID: repository.id,
-        pullRequestsByWorktreeID: [featureWorktree.id: mergedPullRequest]
+        pullRequestsByWorktreeID: [featureWorktree.id: mergedPullRequest],
       )
     ) {
       $0.worktreeInfoByID[featureWorktree.id] = WorktreeInfoEntry(
         addedLines: nil,
         removedLines: nil,
-        pullRequest: mergedPullRequest
+        pullRequest: mergedPullRequest,
       )
     }
     await store.receive(\.deleteWorktreeConfirmed)
@@ -3207,7 +3207,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -3220,13 +3220,13 @@ struct RepositoriesFeatureTests {
     await store.send(
       .repositoryPullRequestsLoaded(
         repositoryID: repository.id,
-        pullRequestsByWorktreeID: [featureWorktree.id: mergedPullRequest]
+        pullRequestsByWorktreeID: [featureWorktree.id: mergedPullRequest],
       )
     ) {
       $0.worktreeInfoByID[featureWorktree.id] = WorktreeInfoEntry(
         addedLines: nil,
         removedLines: nil,
-        pullRequest: mergedPullRequest
+        pullRequest: mergedPullRequest,
       )
     }
     await store.finish()
@@ -3238,7 +3238,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -3252,13 +3252,13 @@ struct RepositoriesFeatureTests {
     await store.send(
       .repositoryPullRequestsLoaded(
         repositoryID: repository.id,
-        pullRequestsByWorktreeID: [featureWorktree.id: mergedPullRequest]
+        pullRequestsByWorktreeID: [featureWorktree.id: mergedPullRequest],
       )
     ) {
       $0.worktreeInfoByID[featureWorktree.id] = WorktreeInfoEntry(
         addedLines: nil,
         removedLines: nil,
-        pullRequest: mergedPullRequest
+        pullRequest: mergedPullRequest,
       )
     }
     await store.finish()
@@ -3270,7 +3270,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -3284,13 +3284,13 @@ struct RepositoriesFeatureTests {
     await store.send(
       .repositoryPullRequestsLoaded(
         repositoryID: repository.id,
-        pullRequestsByWorktreeID: [featureWorktree.id: mergedPullRequest]
+        pullRequestsByWorktreeID: [featureWorktree.id: mergedPullRequest],
       )
     ) {
       $0.worktreeInfoByID[featureWorktree.id] = WorktreeInfoEntry(
         addedLines: nil,
         removedLines: nil,
-        pullRequest: mergedPullRequest
+        pullRequest: mergedPullRequest,
       )
     }
     await store.finish()
@@ -3302,7 +3302,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -3316,13 +3316,13 @@ struct RepositoriesFeatureTests {
     await store.send(
       .repositoryPullRequestsLoaded(
         repositoryID: repository.id,
-        pullRequestsByWorktreeID: [featureWorktree.id: mergedPullRequest]
+        pullRequestsByWorktreeID: [featureWorktree.id: mergedPullRequest],
       )
     ) {
       $0.worktreeInfoByID[featureWorktree.id] = WorktreeInfoEntry(
         addedLines: nil,
         removedLines: nil,
-        pullRequest: mergedPullRequest
+        pullRequest: mergedPullRequest,
       )
     }
     await store.finish()
@@ -3334,7 +3334,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     let mergedPullRequest = makePullRequest(state: "MERGED", headRefName: featureWorktree.name)
@@ -3343,7 +3343,7 @@ struct RepositoriesFeatureTests {
     state.worktreeInfoByID[featureWorktree.id] = WorktreeInfoEntry(
       addedLines: nil,
       removedLines: nil,
-      pullRequest: mergedPullRequest
+      pullRequest: mergedPullRequest,
     )
     let store = TestStore(initialState: state) {
       RepositoriesFeature()
@@ -3367,19 +3367,19 @@ struct RepositoriesFeatureTests {
       baseRefName: "main",
       commitsCount: 1,
       authorLogin: "khoi",
-      statusCheckRollup: nil
+      statusCheckRollup: nil,
     )
 
     await store.send(
       .repositoryPullRequestsLoaded(
         repositoryID: repository.id,
-        pullRequestsByWorktreeID: [featureWorktree.id: refreshedPullRequest]
+        pullRequestsByWorktreeID: [featureWorktree.id: refreshedPullRequest],
       )
     ) {
       $0.worktreeInfoByID[featureWorktree.id] = WorktreeInfoEntry(
         addedLines: nil,
         removedLines: nil,
-        pullRequest: refreshedPullRequest
+        pullRequest: refreshedPullRequest,
       )
     }
     await store.finish()
@@ -3391,7 +3391,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     let openPullRequest = makePullRequest(state: "OPEN", headRefName: featureWorktree.name, number: 12)
@@ -3401,7 +3401,7 @@ struct RepositoriesFeatureTests {
     state.worktreeInfoByID[featureWorktree.id] = WorktreeInfoEntry(
       addedLines: nil,
       removedLines: nil,
-      pullRequest: openPullRequest
+      pullRequest: openPullRequest,
     )
     let mergedNumbers = LockIsolated<[Int]>([])
     let store = TestStore(initialState: state) {
@@ -3434,7 +3434,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     let openPullRequest = makePullRequest(state: "OPEN", headRefName: featureWorktree.name, number: 12)
@@ -3443,7 +3443,7 @@ struct RepositoriesFeatureTests {
     state.worktreeInfoByID[featureWorktree.id] = WorktreeInfoEntry(
       addedLines: nil,
       removedLines: nil,
-      pullRequest: openPullRequest
+      pullRequest: openPullRequest,
     )
     let closedNumbers = LockIsolated<[Int]>([])
     let store = TestStore(initialState: state) {
@@ -3474,7 +3474,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var initialState = makeState(repositories: [repository])
@@ -3493,7 +3493,7 @@ struct RepositoriesFeatureTests {
       .worktreeInfoEvent(
         .repositoryPullRequestRefresh(
           repositoryRootURL: URL(fileURLWithPath: repoRoot),
-          worktreeIDs: [mainWorktree.id, featureWorktree.id]
+          worktreeIDs: [mainWorktree.id, featureWorktree.id],
         )
       )
     ) {
@@ -3511,7 +3511,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     let store = TestStore(initialState: makeState(repositories: [repository])) {
@@ -3532,13 +3532,13 @@ struct RepositoriesFeatureTests {
       .worktreeInfoEvent(
         .repositoryPullRequestRefresh(
           repositoryRootURL: URL(fileURLWithPath: repoRoot),
-          worktreeIDs: [mainWorktree.id, featureWorktree.id]
+          worktreeIDs: [mainWorktree.id, featureWorktree.id],
         )
       )
     ) {
       $0.pendingPullRequestRefreshByRepositoryID[repository.id] = RepositoriesFeature.PendingPullRequestRefresh(
         repositoryRootURL: URL(fileURLWithPath: repoRoot),
-        worktreeIDs: [mainWorktree.id, featureWorktree.id]
+        worktreeIDs: [mainWorktree.id, featureWorktree.id],
       )
     }
     await store.receive(\.refreshGithubIntegrationAvailability) {
@@ -3564,7 +3564,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var initialState = makeState(repositories: [repository])
@@ -3577,13 +3577,13 @@ struct RepositoriesFeatureTests {
       .worktreeInfoEvent(
         .repositoryPullRequestRefresh(
           repositoryRootURL: URL(fileURLWithPath: repoRoot),
-          worktreeIDs: [mainWorktree.id, featureWorktree.id]
+          worktreeIDs: [mainWorktree.id, featureWorktree.id],
         )
       )
     ) {
       $0.pendingPullRequestRefreshByRepositoryID[repository.id] = RepositoriesFeature.PendingPullRequestRefresh(
         repositoryRootURL: URL(fileURLWithPath: repoRoot),
-        worktreeIDs: [mainWorktree.id, featureWorktree.id]
+        worktreeIDs: [mainWorktree.id, featureWorktree.id],
       )
     }
     await store.finish()
@@ -3595,14 +3595,14 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var initialState = makeState(repositories: [repository])
     initialState.githubIntegrationAvailability = .unavailable
     initialState.pendingPullRequestRefreshByRepositoryID[repository.id] = RepositoriesFeature.PendingPullRequestRefresh(
       repositoryRootURL: URL(fileURLWithPath: repoRoot),
-      worktreeIDs: [mainWorktree.id, featureWorktree.id]
+      worktreeIDs: [mainWorktree.id, featureWorktree.id],
     )
     let store = TestStore(initialState: initialState) {
       RepositoriesFeature()
@@ -3633,7 +3633,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var initialState = makeState(repositories: [repository])
@@ -3641,7 +3641,7 @@ struct RepositoriesFeatureTests {
     initialState.inFlightPullRequestRefreshRepositoryIDs = [repository.id]
     initialState.queuedPullRequestRefreshByRepositoryID[repository.id] = RepositoriesFeature.PendingPullRequestRefresh(
       repositoryRootURL: URL(fileURLWithPath: repoRoot),
-      worktreeIDs: [mainWorktree.id, featureWorktree.id]
+      worktreeIDs: [mainWorktree.id, featureWorktree.id],
     )
     let store = TestStore(initialState: initialState) {
       RepositoriesFeature()
@@ -3651,7 +3651,7 @@ struct RepositoriesFeatureTests {
       $0.githubIntegrationAvailability = .unavailable
       $0.pendingPullRequestRefreshByRepositoryID[repository.id] = RepositoriesFeature.PendingPullRequestRefresh(
         repositoryRootURL: URL(fileURLWithPath: repoRoot),
-        worktreeIDs: [mainWorktree.id, featureWorktree.id]
+        worktreeIDs: [mainWorktree.id, featureWorktree.id],
       )
       $0.queuedPullRequestRefreshByRepositoryID = [:]
       $0.inFlightPullRequestRefreshRepositoryIDs = []
@@ -3670,7 +3670,7 @@ struct RepositoriesFeatureTests {
     state.githubIntegrationAvailability = .disabled
     state.pendingPullRequestRefreshByRepositoryID["repo"] = RepositoriesFeature.PendingPullRequestRefresh(
       repositoryRootURL: URL(fileURLWithPath: "/tmp/repo"),
-      worktreeIDs: []
+      worktreeIDs: [],
     )
     let expectedState = state
     let store = TestStore(initialState: state) {
@@ -3689,7 +3689,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
@@ -3699,7 +3699,7 @@ struct RepositoriesFeatureTests {
       RepositoriesFeature
       .PendingPullRequestRefresh(
         repositoryRootURL: URL(fileURLWithPath: repoRoot),
-        worktreeIDs: [mainWorktree.id, featureWorktree.id]
+        worktreeIDs: [mainWorktree.id, featureWorktree.id],
       )
     let store = TestStore(initialState: state) {
       RepositoriesFeature()
@@ -3732,7 +3732,7 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     let pullRequest = makePullRequest(state: "OPEN", headRefName: featureWorktree.name)
@@ -3740,7 +3740,7 @@ struct RepositoriesFeatureTests {
     state.worktreeInfoByID[featureWorktree.id] = WorktreeInfoEntry(
       addedLines: nil,
       removedLines: nil,
-      pullRequest: pullRequest
+      pullRequest: pullRequest,
     )
     let store = TestStore(initialState: state) {
       RepositoriesFeature()
@@ -3749,7 +3749,7 @@ struct RepositoriesFeatureTests {
     await store.send(
       .repositoryPullRequestsLoaded(
         repositoryID: repository.id,
-        pullRequestsByWorktreeID: [featureWorktree.id: pullRequest]
+        pullRequestsByWorktreeID: [featureWorktree.id: pullRequest],
       )
     )
     await store.finish()
@@ -3761,14 +3761,14 @@ struct RepositoriesFeatureTests {
     let featureWorktree = makeWorktree(
       id: "\(repoRoot)/feature",
       name: "feature",
-      repoRoot: repoRoot
+      repoRoot: repoRoot,
     )
     let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
     var state = makeState(repositories: [repository])
     state.worktreeInfoByID[featureWorktree.id] = WorktreeInfoEntry(
       addedLines: nil,
       removedLines: nil,
-      pullRequest: makePullRequest(state: "OPEN", headRefName: featureWorktree.name)
+      pullRequest: makePullRequest(state: "OPEN", headRefName: featureWorktree.name),
     )
     let store = TestStore(initialState: state) {
       RepositoriesFeature()
@@ -3778,7 +3778,7 @@ struct RepositoriesFeatureTests {
     await store.send(
       .repositoryPullRequestsLoaded(
         repositoryID: repository.id,
-        pullRequestsByWorktreeID: pullRequestsByWorktreeID
+        pullRequestsByWorktreeID: pullRequestsByWorktreeID,
       )
     ) {
       $0.worktreeInfoByID.removeValue(forKey: featureWorktree.id)
@@ -4026,7 +4026,7 @@ struct RepositoriesFeatureTests {
         [repository],
         failures: [],
         roots: [repository.rootURL],
-        animated: false
+        animated: false,
       )
     )
     await store.receive(\.autoDeleteExpiredArchivedWorktrees)
@@ -4066,7 +4066,7 @@ struct RepositoriesFeatureTests {
         [repository],
         failures: [],
         invalidRoots: [],
-        roots: [repository.rootURL]
+        roots: [repository.rootURL],
       )
     )
     await store.receive(\.autoDeleteExpiredArchivedWorktrees)
@@ -4284,7 +4284,7 @@ struct RepositoriesFeatureTests {
     id: String,
     name: String,
     repoRoot: String = "/tmp/repo",
-    createdAt: Date? = nil
+    createdAt: Date? = nil,
   ) -> Worktree {
     Worktree(
       id: id,
@@ -4292,14 +4292,14 @@ struct RepositoriesFeatureTests {
       detail: "detail",
       workingDirectory: URL(fileURLWithPath: id),
       repositoryRootURL: URL(fileURLWithPath: repoRoot),
-      createdAt: createdAt
+      createdAt: createdAt,
     )
   }
 
   private func makePullRequest(
     state: String,
     headRefName: String? = nil,
-    number: Int = 1
+    number: Int = 1,
   ) -> GithubPullRequest {
     GithubPullRequest(
       number: number,
@@ -4317,20 +4317,20 @@ struct RepositoriesFeatureTests {
       baseRefName: "main",
       commitsCount: 1,
       authorLogin: "khoi",
-      statusCheckRollup: nil
+      statusCheckRollup: nil,
     )
   }
 
   private func makeRepository(
     id: String,
     name: String = "repo",
-    worktrees: [Worktree]
+    worktrees: [Worktree],
   ) -> Repository {
     Repository(
       id: id,
       rootURL: URL(fileURLWithPath: id),
       name: name,
-      worktrees: IdentifiedArray(uniqueElements: worktrees)
+      worktrees: IdentifiedArray(uniqueElements: worktrees),
     )
   }
 
@@ -4340,7 +4340,7 @@ struct RepositoriesFeatureTests {
     worktreeID: Worktree.ID,
     tabId: TerminalTabID? = nil,
     repoName: String,
-    worktreeName: String
+    worktreeName: String,
   ) -> AlertState<RepositoriesFeature.Alert> {
     AlertState {
       TextState("\(kind.tabTitle) failed")
@@ -4374,12 +4374,12 @@ struct RepositoriesFeatureTests {
     let repoA = makeRepository(
       id: repoRootA,
       name: URL(fileURLWithPath: repoRootA).lastPathComponent,
-      worktrees: [worktreeA]
+      worktrees: [worktreeA],
     )
     let repoB = makeRepository(
       id: repoRootB,
       name: URL(fileURLWithPath: repoRootB).lastPathComponent,
-      worktrees: [worktreeB]
+      worktrees: [worktreeB],
     )
     let gate = AsyncGate()
     let startedRoots = LockIsolated<Set<String>>([])
@@ -4435,12 +4435,12 @@ struct RepositoriesFeatureTests {
     let repoA = makeRepository(
       id: repoRootA,
       name: URL(fileURLWithPath: repoRootA).lastPathComponent,
-      worktrees: [worktreeA]
+      worktrees: [worktreeA],
     )
     let repoB = makeRepository(
       id: repoRootB,
       name: URL(fileURLWithPath: repoRootB).lastPathComponent,
-      worktrees: [worktreeB]
+      worktrees: [worktreeB],
     )
 
     var state = RepositoriesFeature.State()

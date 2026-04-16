@@ -19,7 +19,7 @@ struct TerminalTabsOverflowShadow: View {
         LinearGradient(
           gradient: Gradient(colors: gradientColors),
           startPoint: startPoint,
-          endPoint: endPoint
+          endPoint: endPoint,
         )
       )
       .allowsHitTesting(false)

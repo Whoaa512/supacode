@@ -79,7 +79,7 @@ nonisolated enum SocketClient {
   private static func withConnection<T>(
     to path: String,
     sending data: Data,
-    body: (Int32) throws -> T
+    body: (Int32) throws -> T,
   ) throws -> T {
     let socketFD = socket(AF_UNIX, SOCK_STREAM, 0)
     guard socketFD >= 0 else {

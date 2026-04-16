@@ -14,7 +14,7 @@ struct Worktree: Identifiable, Hashable, Sendable {
     detail: String,
     workingDirectory: URL,
     repositoryRootURL: URL,
-    createdAt: Date? = nil
+    createdAt: Date? = nil,
   ) {
     self.id = id
     self.name = name

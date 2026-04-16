@@ -26,7 +26,7 @@ struct WorktreeEnvironmentTests {
           docker compose down
           codex exec "test"
           """,
-        shellPath: "/opt/homebrew/bin/fish"
+        shellPath: "/opt/homebrew/bin/fish",
       )
     )
     defer {
@@ -67,7 +67,7 @@ struct WorktreeEnvironmentTests {
         script: """
 
           """,
-        shellPath: "/bin/zsh"
+        shellPath: "/bin/zsh",
       ) == nil
     )
   }
@@ -76,12 +76,12 @@ struct WorktreeEnvironmentTests {
     let launch = try #require(
       try makeBlockingScriptLaunch(
         script: "exit 1",
-        shellPath: "/bin/zsh"
+        shellPath: "/bin/zsh",
       )
     )
     let tempHome = URL(
       fileURLWithPath: "/tmp/supacode-zsh-home-\(UUID().uuidString.lowercased())",
-      isDirectory: true
+      isDirectory: true,
     )
     try FileManager.default.createDirectory(at: tempHome, withIntermediateDirectories: true)
     defer {
@@ -103,18 +103,18 @@ struct WorktreeEnvironmentTests {
     let fileManager = FileManager.default
     let baseDirectoryURL = fileManager.temporaryDirectory.appending(
       path: "supacode temporary path's with spaces \(UUID().uuidString.lowercased())",
-      directoryHint: .isDirectory
+      directoryHint: .isDirectory,
     )
     let launch = try #require(
       try makeBlockingScriptLaunch(
         script: "exit 1",
         shellPath: "/bin/zsh",
-        baseDirectoryURL: baseDirectoryURL
+        baseDirectoryURL: baseDirectoryURL,
       )
     )
     let tempHome = fileManager.temporaryDirectory.appending(
       path: "supacode-zsh-home-\(UUID().uuidString.lowercased())",
-      directoryHint: .isDirectory
+      directoryHint: .isDirectory,
     )
     try fileManager.createDirectory(at: tempHome, withIntermediateDirectories: true)
     defer {

@@ -16,7 +16,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
     title: String,
     subtitle: String?,
     kind: Kind,
-    priorityTier: Int = defaultPriorityTier
+    priorityTier: Int = defaultPriorityTier,
   ) {
     self.id = id
     self.title = title

@@ -18,7 +18,7 @@ struct AppearanceOptionCardView: View {
             RoundedRectangle(cornerRadius: 8)
               .strokeBorder(
                 isSelected ? Color.accentColor : .clear,
-                lineWidth: 2
+                lineWidth: 2,
               )
           }
         Text(mode.title)

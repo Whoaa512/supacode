@@ -13,19 +13,19 @@ nonisolated struct CodexSettingsInstaller {
 
   init(
     homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
-    fileManager: FileManager = .default
+    fileManager: FileManager = .default,
   ) {
     self.init(
       homeDirectoryURL: homeDirectoryURL,
       fileManager: fileManager,
-      runEnableHooksCommand: Self.runEnableHooksCommand
+      runEnableHooksCommand: Self.runEnableHooksCommand,
     )
   }
 
   init(
     homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
     fileManager: FileManager = .default,
-    runEnableHooksCommand: @escaping @Sendable () async throws -> CommandResult
+    runEnableHooksCommand: @escaping @Sendable () async throws -> CommandResult,
   ) {
     self.homeDirectoryURL = homeDirectoryURL
     self.fileManager = fileManager
@@ -45,7 +45,7 @@ nonisolated struct CodexSettingsInstaller {
     }
     return fileInstaller.containsMatchingHooks(
       settingsURL: settingsURL,
-      hookGroupsByEvent: groups
+      hookGroupsByEvent: groups,
     )
   }
 
@@ -53,7 +53,7 @@ nonisolated struct CodexSettingsInstaller {
     try await enableHooksFeature()
     try fileInstaller.install(
       settingsURL: settingsURL,
-      hookGroupsByEvent: try CodexHookSettings.progressHookGroupsByEvent()
+      hookGroupsByEvent: try CodexHookSettings.progressHookGroupsByEvent(),
     )
   }
 
@@ -61,21 +61,21 @@ nonisolated struct CodexSettingsInstaller {
     try await enableHooksFeature()
     try fileInstaller.install(
       settingsURL: settingsURL,
-      hookGroupsByEvent: try CodexHookSettings.notificationHookGroupsByEvent()
+      hookGroupsByEvent: try CodexHookSettings.notificationHookGroupsByEvent(),
     )
   }
 
   func uninstallProgressHooks() throws {
     try fileInstaller.uninstall(
       settingsURL: settingsURL,
-      hookGroupsByEvent: try CodexHookSettings.progressHookGroupsByEvent()
+      hookGroupsByEvent: try CodexHookSettings.progressHookGroupsByEvent(),
     )
   }
 
   func uninstallNotificationHooks() throws {
     try fileInstaller.uninstall(
       settingsURL: settingsURL,
-      hookGroupsByEvent: try CodexHookSettings.notificationHookGroupsByEvent()
+      hookGroupsByEvent: try CodexHookSettings.notificationHookGroupsByEvent(),
     )
   }
 
@@ -122,7 +122,7 @@ nonisolated struct CodexSettingsInstaller {
 
   static func loginShellURL(
     environment: [String: String] = ProcessInfo.processInfo.environment,
-    currentUserShellPath: String? = currentUserShellPath()
+    currentUserShellPath: String? = currentUserShellPath(),
   ) -> URL {
     let shellPath =
       normalizedShellPath(currentUserShellPath)
@@ -156,8 +156,8 @@ nonisolated struct CodexSettingsInstaller {
         invalidEventHooks: { CodexSettingsInstallerError.invalidEventHooks($0) },
         invalidHooksObject: { CodexSettingsInstallerError.invalidHooksObject },
         invalidJSON: { CodexSettingsInstallerError.invalidJSON($0) },
-        invalidRootObject: { CodexSettingsInstallerError.invalidRootObject }
-      )
+        invalidRootObject: { CodexSettingsInstallerError.invalidRootObject },
+      ),
     )
   }
 }

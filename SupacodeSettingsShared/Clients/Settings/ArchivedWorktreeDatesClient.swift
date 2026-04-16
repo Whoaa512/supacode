@@ -11,7 +11,7 @@ public nonisolated struct ArchivedWorktreeDatesClient: Sendable {
 
   public init(
     load: @escaping @Sendable () async -> [String: Date],
-    save: @escaping @Sendable ([String: Date]) async -> Void
+    save: @escaping @Sendable ([String: Date]) async -> Void,
   ) {
     self.load = load
     self.save = save
@@ -46,12 +46,12 @@ extension ArchivedWorktreeDatesClient: DependencyKey {
       @Shared(.appStorage(archivedWorktreeDatesStorageKey)) var sharedDates: [String: Date] = [:]
       let normalizedDates = RepositoryPathNormalizer.normalizeDictionaryKeys(dates)
       $sharedDates.withLock { $0 = normalizedDates }
-    }
+    },
   )
 
   public static let testValue = ArchivedWorktreeDatesClient(
     load: { [:] },
-    save: { _ in }
+    save: { _ in },
   )
 }
 

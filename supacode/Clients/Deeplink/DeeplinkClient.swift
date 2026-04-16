@@ -78,7 +78,7 @@ private nonisolated enum DeeplinkParser {
 
   private static func parseWorktree(
     pathSegments: [String],
-    queryItems: [URLQueryItem]
+    queryItems: [URLQueryItem],
   ) -> Deeplink? {
     // Expected: <percent-encoded-worktree-id>[/<action>[/<sub-path>...]].
     guard !pathSegments.isEmpty else {
@@ -127,7 +127,7 @@ private nonisolated enum DeeplinkParser {
   private static func parseWorktreeTab(
     worktreeID: Worktree.ID,
     pathSegments: [String],
-    queryItems: [URLQueryItem]
+    queryItems: [URLQueryItem],
   ) -> Deeplink? {
     // "tab/<tab-uuid>" → focus tab.
     // "tab/new" → create new tab.
@@ -173,7 +173,7 @@ private nonisolated enum DeeplinkParser {
     worktreeID: Worktree.ID,
     tabUUID: UUID,
     pathSegments: [String],
-    queryItems: [URLQueryItem]
+    queryItems: [URLQueryItem],
   ) -> Deeplink? {
     guard let surfaceUUID = UUID(uuidString: pathSegments[4]) else {
       logger.warning("Invalid surface UUID: \(pathSegments[4])")
@@ -212,7 +212,7 @@ private nonisolated enum DeeplinkParser {
 
   private static func parseRepo(
     pathSegments: [String],
-    queryItems: [URLQueryItem]
+    queryItems: [URLQueryItem],
   ) -> Deeplink? {
     // "open" → add repository.
     // "<encoded-id>/worktree/new" → create worktree.

@@ -77,7 +77,7 @@ struct RepositorySettingsCodableTests {
       runScript: "stale legacy command",
       scripts: [ScriptDefinition(kind: .test, command: "npm test")],
       openActionID: "automatic",
-      worktreeBaseRef: nil
+      worktreeBaseRef: nil,
     )
     let data = try JSONEncoder().encode(settings)
     let raw = try JSONDecoder().decode([String: AnyCodable].self, from: data)
@@ -165,7 +165,7 @@ struct RepositorySettingsScriptTests {
       initialState: RepositorySettingsFeature.State(
         rootURL: Self.rootURL,
         settings: settings,
-      ),
+      )
     ) {
       RepositorySettingsFeature()
     }

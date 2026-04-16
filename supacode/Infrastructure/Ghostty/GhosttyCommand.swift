@@ -10,7 +10,7 @@ struct GhosttyCommand: Equatable, Sendable {
     title: String,
     description: String,
     action: String,
-    actionKey: String
+    actionKey: String,
   ) {
     self.title = title
     self.description = description
@@ -23,7 +23,7 @@ struct GhosttyCommand: Equatable, Sendable {
       title: String(cString: cValue.title),
       description: String(cString: cValue.description),
       action: String(cString: cValue.action),
-      actionKey: String(cString: cValue.action_key)
+      actionKey: String(cString: cValue.action_key),
     )
   }
 }

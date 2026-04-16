@@ -21,7 +21,7 @@ nonisolated final class GitWorktreeDiscoveryRecorder: @unchecked Sendable {
       Invocation(
         executablePath: executableURL.path(percentEncoded: false),
         arguments: arguments,
-        currentDirectoryPath: currentDirectoryURL?.path(percentEncoded: false)
+        currentDirectoryPath: currentDirectoryURL?.path(percentEncoded: false),
       )
     )
     lock.unlock()
@@ -33,7 +33,7 @@ nonisolated final class GitWorktreeDiscoveryRecorder: @unchecked Sendable {
       Invocation(
         executablePath: executableURL.path(percentEncoded: false),
         arguments: arguments,
-        currentDirectoryPath: currentDirectoryURL?.path(percentEncoded: false)
+        currentDirectoryPath: currentDirectoryURL?.path(percentEncoded: false),
       )
     )
     lock.unlock()
@@ -62,7 +62,7 @@ struct GitClientWorktreeDiscoveryTests {
         recorder.recordRun(
           executableURL: executableURL,
           arguments: arguments,
-          currentDirectoryURL: currentDirectoryURL
+          currentDirectoryURL: currentDirectoryURL,
         )
         return ShellOutput(stdout: "/tmp/repo\n", stderr: "", exitCode: 0)
       },
@@ -70,11 +70,11 @@ struct GitClientWorktreeDiscoveryTests {
         recorder.recordLogin(
           executableURL: executableURL,
           arguments: arguments,
-          currentDirectoryURL: currentDirectoryURL
+          currentDirectoryURL: currentDirectoryURL,
         )
         Issue.record("repoRoot should not use runLogin when direct execution succeeds")
         return ShellOutput(stdout: "", stderr: "", exitCode: 0)
-      }
+      },
     )
     let client = GitClient(shell: shell)
     let worktreeURL = URL(fileURLWithPath: "/tmp/repo/worktree")
@@ -110,7 +110,7 @@ struct GitClientWorktreeDiscoveryTests {
         recorder.recordRun(
           executableURL: executableURL,
           arguments: arguments,
-          currentDirectoryURL: currentDirectoryURL
+          currentDirectoryURL: currentDirectoryURL,
         )
         return ShellOutput(stdout: output, stderr: "", exitCode: 0)
       },
@@ -118,11 +118,11 @@ struct GitClientWorktreeDiscoveryTests {
         recorder.recordLogin(
           executableURL: executableURL,
           arguments: arguments,
-          currentDirectoryURL: currentDirectoryURL
+          currentDirectoryURL: currentDirectoryURL,
         )
         Issue.record("worktrees should not use runLogin when direct execution succeeds")
         return ShellOutput(stdout: "", stderr: "", exitCode: 0)
-      }
+      },
     )
     let client = GitClient(shell: shell)
     let repoRoot = URL(fileURLWithPath: "/tmp/repo")
@@ -148,23 +148,23 @@ struct GitClientWorktreeDiscoveryTests {
         recorder.recordRun(
           executableURL: executableURL,
           arguments: arguments,
-          currentDirectoryURL: currentDirectoryURL
+          currentDirectoryURL: currentDirectoryURL,
         )
         throw ShellClientError(
           command: "wt root",
           stdout: "",
           stderr: "git: command not found",
-          exitCode: 127
+          exitCode: 127,
         )
       },
       runLoginImpl: { executableURL, arguments, currentDirectoryURL, _ in
         recorder.recordLogin(
           executableURL: executableURL,
           arguments: arguments,
-          currentDirectoryURL: currentDirectoryURL
+          currentDirectoryURL: currentDirectoryURL,
         )
         return ShellOutput(stdout: "/tmp/repo\n", stderr: "", exitCode: 0)
-      }
+      },
     )
     let client = GitClient(shell: shell)
 
@@ -192,24 +192,24 @@ struct GitClientWorktreeDiscoveryTests {
         recorder.recordRun(
           executableURL: executableURL,
           arguments: arguments,
-          currentDirectoryURL: currentDirectoryURL
+          currentDirectoryURL: currentDirectoryURL,
         )
         throw ShellClientError(
           command: "wt ls --json",
           stdout: "",
           stderr: "permission denied",
-          exitCode: 1
+          exitCode: 1,
         )
       },
       runLoginImpl: { executableURL, arguments, currentDirectoryURL, _ in
         recorder.recordLogin(
           executableURL: executableURL,
           arguments: arguments,
-          currentDirectoryURL: currentDirectoryURL
+          currentDirectoryURL: currentDirectoryURL,
         )
         Issue.record("worktrees should not fallback to runLogin for regular command failures")
         return ShellOutput(stdout: "", stderr: "", exitCode: 0)
-      }
+      },
     )
     let client = GitClient(shell: shell)
 

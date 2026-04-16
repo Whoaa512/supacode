@@ -223,7 +223,7 @@ public enum OpenWorktreeAction: CaseIterable, Identifiable {
 
   public static func fromSettingsID(
     _ settingsID: String?,
-    defaultEditorID: String?
+    defaultEditorID: String?,
   ) -> OpenWorktreeAction {
     if let settingsID, settingsID != automaticSettingsID,
       let action = allCases.first(where: { $0.settingsID == settingsID })

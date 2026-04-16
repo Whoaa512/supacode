@@ -10,7 +10,7 @@ enum Deeplink: Equatable, Sendable {
     repositoryID: Repository.ID,
     branch: String?,
     baseRef: String?,
-    fetchOrigin: Bool
+    fetchOrigin: Bool,
   )
   case settings(section: DeeplinkSettingsSection?)
   case settingsRepo(repositoryID: Repository.ID)

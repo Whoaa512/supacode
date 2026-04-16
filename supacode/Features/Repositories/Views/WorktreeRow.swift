@@ -67,7 +67,7 @@ struct WorktreeRow: View {
     taskStatus: WorktreeTaskStatus,
     showsNotificationIndicator: Bool,
     notifications: [WorktreeTerminalNotification],
-    shortcutHint: String?
+    shortcutHint: String?,
   ) {
     self.isArchiving = row.isArchiving
     self.isDeleting = row.isDeleting
@@ -111,7 +111,7 @@ struct WorktreeRow: View {
     // Pull request display.
     let prDisplay = WorktreePullRequestDisplay(
       worktreeName: row.name,
-      pullRequest: showsPullRequestInfo ? row.info?.pullRequest : nil
+      pullRequest: showsPullRequestInfo ? row.info?.pullRequest : nil,
     )
     self.pullRequestBadgeText = prDisplay.pullRequestBadgeStyle?.text
     if let pullRequest = prDisplay.pullRequest {
@@ -174,7 +174,7 @@ struct WorktreeRow: View {
           name: name,
           subtitle: subtitle,
           worktreeColor: worktreeColor,
-          isBusy: isBusy
+          isBusy: isBusy,
         )
         Spacer(minLength: 0)
         TrailingView(
@@ -185,7 +185,7 @@ struct WorktreeRow: View {
           runningScriptColors: runningScriptColors,
           isWaitingForInput: isWaitingForInput,
           showsNotificationIndicator: showsNotificationIndicator,
-          notifications: notifications
+          notifications: notifications,
         )
       }
     } icon: {
@@ -195,7 +195,7 @@ struct WorktreeRow: View {
         isPending: isPending,
         gitIconName: gitIconName,
         gitIconColor: gitIconColor,
-        checkBadgeState: checkBadgeState
+        checkBadgeState: checkBadgeState,
       )
     }
     .labelStyle(.verticallyCentered)
@@ -343,7 +343,7 @@ private struct TrailingView: View {
           runningScriptColors: runningScriptColors,
           isWaitingForInput: isWaitingForInput,
           showsNotificationIndicator: showsNotificationIndicator,
-          notifications: notifications
+          notifications: notifications,
         )
       }
     }
@@ -391,14 +391,14 @@ private struct StatusIndicator: View {
           PingDot(
             style: isEmphasized ? AnyShapeStyle(.primary) : AnyShapeStyle(.yellow),
             size: 6,
-            showsSolidCenter: !showsNotificationIndicator
+            showsSolidCenter: !showsNotificationIndicator,
           )
         } else if isRunning {
           MultiColorPingDot(
             colors: runningScriptColors,
             isEmphasized: isEmphasized,
             size: 6,
-            showsSolidCenter: !showsNotificationIndicator
+            showsSolidCenter: !showsNotificationIndicator,
           )
         }
         if showsNotificationIndicator {
@@ -444,7 +444,7 @@ private struct MultiColorPingDot: View {
       PingDot(
         style: resolved.first.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.green),
         size: size,
-        showsSolidCenter: showsSolidCenter
+        showsSolidCenter: showsSolidCenter,
       )
     } else if reduceMotion {
       // Show a static dot with the first color when motion is reduced.

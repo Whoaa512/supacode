@@ -197,7 +197,7 @@ struct SettingsFeatureAgentHookTests {
 
   private func eventually(
     maxYields: Int = 100,
-    _ predicate: () -> Bool
+    _ predicate: () -> Bool,
   ) async {
     for _ in 0..<maxYields {
       if predicate() { return }

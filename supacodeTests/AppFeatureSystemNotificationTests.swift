@@ -23,7 +23,7 @@ struct AppFeatureSystemNotificationTests {
           authorizationRequests.withValue { $0 += 1 }
           return SystemNotificationClient.AuthorizationRequestResult(
             granted: false,
-            errorMessage: "Mock request error"
+            errorMessage: "Mock request error",
           )
         }
       }
@@ -73,7 +73,7 @@ struct AppFeatureSystemNotificationTests {
           authorizationRequests.withValue { $0 += 1 }
           return SystemNotificationClient.AuthorizationRequestResult(
             granted: false,
-            errorMessage: "Mock request error"
+            errorMessage: "Mock request error",
           )
         }
         $0.systemNotificationClient.openSettings = {
@@ -139,7 +139,7 @@ struct AppFeatureSystemNotificationTests {
         .notificationReceived(
           worktreeID: "/tmp/repo/wt-1",
           title: "Done",
-          body: "Build succeeded"
+          body: "Build succeeded",
         )
       )
     )
@@ -173,7 +173,7 @@ struct AppFeatureSystemNotificationTests {
         .notificationReceived(
           worktreeID: "/tmp/repo/wt-1",
           title: "Done",
-          body: "Build succeeded"
+          body: "Build succeeded",
         )
       )
     )
@@ -209,7 +209,7 @@ struct AppFeatureSystemNotificationTests {
         .notificationReceived(
           worktreeID: "/tmp/repo/wt-1",
           title: "Done",
-          body: "Build succeeded"
+          body: "Build succeeded",
         )
       )
     )

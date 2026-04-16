@@ -13,7 +13,7 @@ struct UpdatesFeature {
     case applySettings(
       updateChannel: UpdateChannel,
       automaticallyChecks: Bool,
-      automaticallyDownloads: Bool
+      automaticallyDownloads: Bool,
     )
     case checkForUpdates
   }

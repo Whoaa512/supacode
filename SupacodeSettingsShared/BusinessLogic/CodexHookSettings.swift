@@ -8,14 +8,14 @@ nonisolated enum CodexHookSettings {
   static func progressHookGroupsByEvent() throws -> [String: [JSONValue]] {
     try AgentHookPayloadSupport.extractHookGroups(
       from: CodexProgressPayload(),
-      invalidConfiguration: CodexHookSettingsError.invalidConfiguration
+      invalidConfiguration: CodexHookSettingsError.invalidConfiguration,
     )
   }
 
   static func notificationHookGroupsByEvent() throws -> [String: [JSONValue]] {
     try AgentHookPayloadSupport.extractHookGroups(
       from: CodexNotificationPayload(),
-      invalidConfiguration: CodexHookSettingsError.invalidConfiguration
+      invalidConfiguration: CodexHookSettingsError.invalidConfiguration,
     )
   }
 }

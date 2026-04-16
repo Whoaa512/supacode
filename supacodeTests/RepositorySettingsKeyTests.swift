@@ -163,7 +163,7 @@ struct RepositorySettingsKeyTests {
 
     try localStorage.save(
       encode(localSettings),
-      at: SupacodePaths.repositorySettingsURL(for: rootURL)
+      at: SupacodePaths.repositorySettingsURL(for: rootURL),
     )
 
     let loaded = withDependencies {
@@ -334,7 +334,7 @@ nonisolated final class RepositoryLocalSettingsTestStorage: @unchecked Sendable 
   var storage: RepositoryLocalSettingsStorage {
     RepositoryLocalSettingsStorage(
       load: { try self.load($0) },
-      save: { try self.save($0, at: $1) }
+      save: { try self.save($0, at: $1) },
     )
   }
 

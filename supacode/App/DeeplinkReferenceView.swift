@@ -58,30 +58,30 @@ struct DeeplinkReferenceView: View {
   private static let tabSurfaceRows: [DeeplinkEntry] = [
     .init(
       url: "supacode://worktree/<worktree_id>/tab/<tab_id>",
-      description: "Focus a tab."
+      description: "Focus a tab.",
     ),
     .init(
       url: "supacode://worktree/<worktree_id>/tab/new",
       description: "Create a new tab.",
-      params: "?input=<cmd>&id=<uuid>"
+      params: "?input=<cmd>&id=<uuid>",
     ),
     .init(
       url: "supacode://worktree/<worktree_id>/tab/<tab_id>/destroy",
-      description: "Close a tab."
+      description: "Close a tab.",
     ),
     .init(
       url: "supacode://worktree/<worktree_id>/tab/<tab_id>/surface/<surface_id>",
       description: "Focus a surface.",
-      params: "?input=<cmd>"
+      params: "?input=<cmd>",
     ),
     .init(
       url: "supacode://worktree/<worktree_id>/tab/<tab_id>/surface/<surface_id>/split",
       description: "Split a surface. Defaults to horizontal.",
-      params: "?direction=horizontal|vertical&input=<cmd>&id=<uuid>"
+      params: "?direction=horizontal|vertical&input=<cmd>&id=<uuid>",
     ),
     .init(
       url: "supacode://worktree/<worktree_id>/tab/<tab_id>/surface/<surface_id>/destroy",
-      description: "Close a surface."
+      description: "Close a surface.",
     ),
   ]
 
@@ -90,7 +90,7 @@ struct DeeplinkReferenceView: View {
     .init(
       url: "supacode://repo/<repo_id>/worktree/new",
       description: "Create a worktree.",
-      params: "?branch=<name>&base=<ref>&fetch=true"
+      params: "?branch=<name>&base=<ref>&fetch=true",
     ),
   ]
 
@@ -99,7 +99,7 @@ struct DeeplinkReferenceView: View {
     .init(
       url: "supacode://settings/<section>",
       description: "Open a specific section.",
-      params: "general|notifications|worktrees|developer|shortcuts|updates|github"
+      params: "general|notifications|worktrees|developer|shortcuts|updates|github",
     ),
     .init(url: "supacode://settings/repo/<repo_id>", description: "Open repository settings."),
   ]

@@ -16,7 +16,7 @@ struct WorktreeCommand: ParsableCommand {
       Pin.self,
       Unpin.self,
     ],
-    defaultSubcommand: Focus.self
+    defaultSubcommand: Focus.self,
   )
 }
 
