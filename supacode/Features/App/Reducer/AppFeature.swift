@@ -23,6 +23,9 @@ private enum CancelID {
   /// Watchdog for a socket-backed confirmation dialog left open, so its fd
   /// times out instead of lingering until the user acts.
   static let deeplinkConfirmationTimeout = "app.deeplinkConfirmationTimeout"
+  #if DEBUG
+    static let upstreamUpdateCheck = "app.upstreamUpdateCheck"
+  #endif
 }
 
 /// Default seconds the app holds a socket connection open waiting for a
@@ -70,6 +73,9 @@ struct AppFeature {
     var repositories: RepositoriesFeature.State
     var settings: SettingsFeature.State
     var updates = UpdatesFeature.State()
+    #if DEBUG
+      var upstreamUpdate = UpstreamUpdateFeature.State()
+    #endif
     var commandPalette = CommandPaletteFeature.State()
     /// Terminal-orchestration state. Owns the per-tab feature collection so
     /// tab-bar views scope through `\.terminals` (narrow) instead of the full
@@ -195,6 +201,9 @@ struct AppFeature {
     case repositories(RepositoriesFeature.Action)
     case settings(SettingsFeature.Action)
     case updates(UpdatesFeature.Action)
+    #if DEBUG
+      case upstreamUpdate(UpstreamUpdateFeature.Action)
+    #endif
     case commandPalette(CommandPaletteFeature.Action)
     case openActionSelectionChanged(OpenWorktreeAction)
     case worktreeSettingsLoaded(RepositorySettings, worktreeID: Worktree.ID)
@@ -263,7 +272,7 @@ struct AppFeature {
         return .none
 
       case .appLaunched:
-        return .merge(
+        var effects: [Effect<Action>] = [
           .send(.repositories(.task)),
           .send(.settings(.task)),
           .run { _ in
@@ -290,8 +299,12 @@ struct AppFeature {
             let staged = AgentPresenceFeature.stageRestore(fromLayouts: layouts.values)
             await terminalClient.reapOrphanSessions(known)
             await send(.agentPresence(.restoreFromSnapshot(staged: staged)))
-          }
-        )
+          },
+        ]
+        #if DEBUG
+          effects.append(.send(.upstreamUpdate(.checkForUpdates)))
+        #endif
+        return .merge(effects)
 
       case .agentPresence(.delegate(.surfacesChanged(let surfaces))):
         // Persist on every presence delta, debounced, so a crash mid-session
@@ -317,7 +330,7 @@ struct AppFeature {
       case .scenePhaseChanged(let phase):
         switch phase {
         case .active:
-          return .merge(
+          var activeEffects: [Effect<Action>] = [
             .send(.repositories(.refreshWorktrees)),
             // Re-probe agent integrations on activation so the sidebar
             // card reflects external installs (e.g. `claude install`)
@@ -330,8 +343,21 @@ struct AppFeature {
                 await send(.repositories(.refreshWorktrees))
               }
             }
-            .cancellable(id: CancelID.periodicRefresh, cancelInFlight: true)
-          )
+            .cancellable(id: CancelID.periodicRefresh, cancelInFlight: true),
+          ]
+          #if DEBUG
+            activeEffects.append(
+              .run { send in
+                while !Task.isCancelled {
+                  try? await ContinuousClock().sleep(for: .seconds(3600))
+                  guard !Task.isCancelled else { return }
+                  await send(.upstreamUpdate(.checkForUpdates))
+                }
+              }
+              .cancellable(id: CancelID.upstreamUpdateCheck, cancelInFlight: true)
+            )
+          #endif
+          return .merge(activeEffects)
         case .background:
           // Snapshot on the way out so a force-quit / crash doesn't drop
           // running-agent state before `applicationWillTerminate` fires.
@@ -350,7 +376,11 @@ struct AppFeature {
         case .inactive:
           return .cancel(id: CancelID.periodicRefresh)
         @unknown default:
-          return .cancel(id: CancelID.periodicRefresh)
+          var cancelEffects: [Effect<Action>] = [.cancel(id: CancelID.periodicRefresh)]
+          #if DEBUG
+            cancelEffects.append(.cancel(id: CancelID.upstreamUpdateCheck))
+          #endif
+          return .merge(cancelEffects)
         }
 
       case .repositories(.delegate(.selectedWorktreeChanged(let worktree))):
@@ -1139,11 +1169,25 @@ struct AppFeature {
       case .updates:
         return .none
 
+      #if DEBUG
+        case .upstreamUpdate(.openInSupacode):
+          guard let repoPath = state.upstreamUpdate.status?.repositoryPath else { return .none }
+          let repoURL = URL(fileURLWithPath: repoPath)
+          return .send(.repositories(.openRepositories([repoURL])))
+
+        case .upstreamUpdate:
+          return .none
+      #endif
+
       case .commandPalette(.delegate(.selectWorktree(let worktreeID))):
         return .send(.repositories(.selectWorktree(worktreeID)))
 
       case .commandPalette(.delegate(.checkForUpdates)):
-        return .send(.updates(.checkForUpdates))
+        #if DEBUG
+          return .send(.upstreamUpdate(.checkForUpdates))
+        #else
+          return .send(.updates(.checkForUpdates))
+        #endif
 
       case .commandPalette(.delegate(.openSettings)):
         return .send(.settings(.setSelection(.general)))
@@ -1441,6 +1485,11 @@ struct AppFeature {
     Scope(state: \.updates, action: \.updates) {
       UpdatesFeature()
     }
+    #if DEBUG
+      Scope(state: \.upstreamUpdate, action: \.upstreamUpdate) {
+        UpstreamUpdateFeature()
+      }
+    #endif
     Scope(state: \.commandPalette, action: \.commandPalette) {
       CommandPaletteFeature()
     }
