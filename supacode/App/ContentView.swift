@@ -26,8 +26,15 @@ struct ContentView: View {
 
   var body: some View {
     NavigationSplitView(columnVisibility: $leftSidebarVisibility) {
-      SidebarView(store: repositoriesStore, terminalManager: terminalManager)
-        .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
+      VStack(spacing: 0) {
+        SidebarView(store: repositoriesStore, terminalManager: terminalManager)
+        #if DEBUG
+          UpstreamUpdateBannerView(
+            store: store.scope(state: \.upstreamUpdate, action: \.upstreamUpdate)
+          )
+        #endif
+      }
+      .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
     } detail: {
       WorktreeDetailView(store: store, terminalManager: terminalManager)
     }
