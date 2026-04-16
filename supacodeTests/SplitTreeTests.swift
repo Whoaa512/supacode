@@ -1,6 +1,9 @@
 import AppKit
+import DependenciesTestSupport
+import Sharing
 import Testing
 
+@testable import SupacodeSettingsShared
 @testable import supacode
 
 @MainActor
@@ -134,11 +137,65 @@ struct SplitTreeTests {
     #expect(emissions == [first.id, second.id])
   }
 
+  @Test(.dependencies) func newSplitEqualizesWhenSettingEnabled() throws {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.equalizeSplitsOnSplit = true }
+
+    let state = WorktreeTerminalState(
+      runtime: GhosttyRuntime(),
+      worktree: makeWorktree(),
+      splitPreserveZoomOnNavigation: { false },
+    )
+    let tabId = state.createTab()!
+    let first = state.splitTree(for: tabId).root!.leftmostLeaf()
+
+    _ = state.performSplitAction(.newSplit(direction: .right), for: first.id)
+    let secondLeaves = state.splitTree(for: tabId).leaves()
+    let second = secondLeaves.first { $0.id != first.id }!
+
+    _ = state.performSplitAction(.newSplit(direction: .right), for: second.id)
+
+    let tree = state.splitTree(for: tabId)
+    #expect(tree.leaves().count == 3)
+
+    if case .split(let topSplit) = tree.root {
+      let leftLeafCount = topSplit.left.leaves().count
+      let rightLeafCount = topSplit.right.leaves().count
+      let expectedRatio = Double(leftLeafCount) / Double(leftLeafCount + rightLeafCount)
+      #expect(abs(topSplit.ratio - expectedRatio) < 0.01)
+    }
+  }
+
+  @Test(.dependencies) func newSplitDoesNotEqualizeWhenSettingDisabled() throws {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.equalizeSplitsOnSplit = false }
+
+    let state = WorktreeTerminalState(
+      runtime: GhosttyRuntime(),
+      worktree: makeWorktree(),
+      splitPreserveZoomOnNavigation: { false },
+    )
+    let tabId = state.createTab()!
+    let first = state.splitTree(for: tabId).root!.leftmostLeaf()
+
+    _ = state.performSplitAction(.newSplit(direction: .right), for: first.id)
+    let secondLeaves = state.splitTree(for: tabId).leaves()
+    let second = secondLeaves.first { $0.id != first.id }!
+
+    _ = state.performSplitAction(.newSplit(direction: .right), for: second.id)
+
+    let tree = state.splitTree(for: tabId)
+    if case .split(let topSplit) = tree.root {
+      #expect(abs(topSplit.ratio - 0.5) < 0.01)
+    }
+  }
+  }
+
   private func makeWorktreeFixture(preserveZoomOnNavigation: Bool) -> WorktreeFixture {
     let state = WorktreeTerminalState(
       runtime: GhosttyRuntime(),
       worktree: makeWorktree(),
-      splitPreserveZoomOnNavigation: { preserveZoomOnNavigation }
+      splitPreserveZoomOnNavigation: { preserveZoomOnNavigation },
     )
     let tabId = state.createTab()!
     let first = state.splitTree(for: tabId).root!.leftmostLeaf()
@@ -148,7 +205,7 @@ struct SplitTreeTests {
       state: state,
       tabId: tabId,
       first: first,
-      second: leaves.first { $0.id != first.id }
+      second: leaves.first { $0.id != first.id },
     )
   }
 
@@ -158,7 +215,7 @@ struct SplitTreeTests {
       name: "wt-1",
       detail: "detail",
       workingDirectory: URL(fileURLWithPath: "/tmp/repo/wt-1"),
-      repositoryRootURL: URL(fileURLWithPath: "/tmp/repo")
+      repositoryRootURL: URL(fileURLWithPath: "/tmp/repo"),
     )
   }
 }
