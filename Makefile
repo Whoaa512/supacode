@@ -88,12 +88,12 @@ run-app: build-app # Build then launch (Debug) with log streaming
 	exec_name="$$(echo "$$settings" | jq -r '.[0].buildSettings.EXECUTABLE_NAME')"; \
 	"$$build_dir/$$product/Contents/MacOS/$$exec_name"
 
-install-dev-build: build-app # install dev build to /Applications
+install-dev-build: build-app # install dev build to /Applications as supacode-dev.app
 	@settings="$$(xcodebuild -workspace "$(PROJECT_WORKSPACE)" -scheme "$(APP_SCHEME)" -configuration Debug -showBuildSettings -json 2>/dev/null)"; \
 	build_dir="$$(echo "$$settings" | jq -r '.[0].buildSettings.BUILT_PRODUCTS_DIR')"; \
 	product="$$(echo "$$settings" | jq -r '.[0].buildSettings.FULL_PRODUCT_NAME')"; \
 	src="$$build_dir/$$product"; \
-	dst="/Applications/$$product"; \
+	dst="/Applications/supacode-dev.app"; \
 	if [ ! -d "$$src" ]; then \
 		echo "app not found: $$src"; \
 		exit 1; \
