@@ -841,7 +841,7 @@ final class WorktreeTerminalState {
           windowIsVisible: lastWindowIsVisible == true,
           windowIsKey: lastWindowIsKey == true,
           focusedSurfaceID: focusedId,
-          surfaceID: surface.id
+          surfaceID: surface.id,
         )
         surface.setOcclusion(activity.isVisible)
         surface.focusDidChange(activity.isFocused)
@@ -861,7 +861,7 @@ final class WorktreeTerminalState {
     windowIsVisible: Bool,
     windowIsKey: Bool,
     focusedSurfaceID: UUID?,
-    surfaceID: UUID
+    surfaceID: UUID,
   ) -> SurfaceActivity {
     let isVisible = isSurfaceVisibleInTree && isSelectedTab && windowIsVisible
     let isFocused = isVisible && windowIsKey && focusedSurfaceID == surfaceID
@@ -1172,7 +1172,7 @@ final class WorktreeTerminalState {
     _ action: GhosttySplitAction,
     for surfaceID: UUID,
     newSurfaceID: UUID? = nil,
-    initialInput: String? = nil
+    initialInput: String? = nil,
   ) -> Bool {
     guard let tabId = tabID(containing: surfaceID), var tree = trees[tabId] else {
       return false
@@ -1195,11 +1195,15 @@ final class WorktreeTerminalState {
         surfaceID: newSurfaceID,
       )
       do {
-        let newTree = try tree.inserting(
+        var newTree = try tree.inserting(
           view: newSurface,
           at: targetSurface,
-          direction: mapSplitDirection(direction)
+          direction: mapSplitDirection(direction),
         )
+        @Shared(.settingsFile) var settingsFile
+        if settingsFile.global.equalizeSplitsOnSplit {
+          newTree = newTree.equalized()
+        }
         updateTree(newTree, for: tabId)
         focusSurface(newSurface, in: tabId)
         return true
@@ -1236,7 +1240,7 @@ final class WorktreeTerminalState {
           node: targetNode,
           by: amount,
           in: spatialDirection,
-          with: CGRect(origin: .zero, size: tree.viewBounds())
+          with: CGRect(origin: .zero, size: tree.viewBounds()),
         )
         updateTree(newTree, for: tabId)
         return true
@@ -1284,7 +1288,7 @@ final class WorktreeTerminalState {
         let newTree = try treeWithoutSource.inserting(
           view: payload,
           at: destination,
-          direction: mapDropZone(zone)
+          direction: mapDropZone(zone),
         )
         updateTree(newTree, for: tabId)
         focusSurface(payload, in: tabId)
@@ -1687,7 +1691,7 @@ final class WorktreeTerminalState {
   private func restoreLayoutNode(
     _ node: TerminalLayoutSnapshot.LayoutNode,
     anchor: GhosttySurfaceView,
-    tabId: TerminalTabID
+    tabId: TerminalTabID,
   ) {
     guard case .split(let split) = node else { return }
 
@@ -1792,7 +1796,7 @@ final class WorktreeTerminalState {
   private func blockingScriptLaunch(_ script: String) throws -> BlockingScriptRunner.LaunchArtifacts? {
     try BlockingScriptRunner.makeLaunch(
       script: script,
-      shellPath: defaultShellPath()
+      shellPath: defaultShellPath(),
     )
   }
 
@@ -1833,7 +1837,7 @@ final class WorktreeTerminalState {
     _ kind: BlockingScriptKind,
     tabId: TerminalTabID,
     exitCode: Int?,
-    reportedTabId: TerminalTabID?
+    reportedTabId: TerminalTabID?,
   ) {
     tabManager.markBlockingScriptCompleted(tabId)
     emitTabProjection(for: tabId)
@@ -2540,9 +2544,9 @@ final class WorktreeTerminalState {
           title: trimmedTitle,
           body: trimmedBody,
           createdAt: now,
-          isRead: isViewed
+          isRead: isViewed,
         ),
-        at: 0
+        at: 0,
       )
       if !isViewed { incrementUnseenCount(surfaceID) }
       // Trimming only prunes the visible log; the unseen counter is untouched.

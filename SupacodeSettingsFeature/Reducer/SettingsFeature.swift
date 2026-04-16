@@ -70,6 +70,7 @@ public struct SettingsFeature {
     public var automatedActionPolicy: AutomatedActionPolicy
     public var defaultWorktreeBaseDirectoryPath: String
     public var autoDeleteArchivedWorktreesAfterDays: AutoDeletePeriod?
+    public var equalizeSplitsOnSplit: Bool
     public var shortcutOverrides: [AppShortcutID: AppShortcutOverride]
     public var globalScripts: [ScriptDefinition]
     public var richAgentNotificationsEnabled: Bool
@@ -125,6 +126,7 @@ public struct SettingsFeature {
       terminalThemeSyncEnabled = settings.terminalThemeSyncEnabled
       automatedActionPolicy = settings.automatedActionPolicy
       autoDeleteArchivedWorktreesAfterDays = settings.autoDeleteArchivedWorktreesAfterDays
+      equalizeSplitsOnSplit = settings.equalizeSplitsOnSplit
       shortcutOverrides = settings.shortcutOverrides
       globalScripts = settings.globalScripts
       richAgentNotificationsEnabled = settings.richAgentNotificationsEnabled
@@ -169,6 +171,7 @@ public struct SettingsFeature {
           defaultWorktreeBaseDirectoryPath
         ),
         autoDeleteArchivedWorktreesAfterDays: autoDeleteArchivedWorktreesAfterDays,
+        equalizeSplitsOnSplit: equalizeSplitsOnSplit,
         shortcutOverrides: shortcutOverrides,
         globalScripts: globalScripts,
         richAgentNotificationsEnabled: richAgentNotificationsEnabled,
@@ -307,6 +310,7 @@ public struct SettingsFeature {
         state.terminalThemeSyncEnabled = normalizedSettings.terminalThemeSyncEnabled
         state.automatedActionPolicy = normalizedSettings.automatedActionPolicy
         state.autoDeleteArchivedWorktreesAfterDays = normalizedSettings.autoDeleteArchivedWorktreesAfterDays
+        state.equalizeSplitsOnSplit = normalizedSettings.equalizeSplitsOnSplit
         state.shortcutOverrides = normalizedSettings.shortcutOverrides
         state.globalScripts = normalizedSettings.globalScripts
         state.richAgentNotificationsEnabled = normalizedSettings.richAgentNotificationsEnabled
@@ -671,7 +675,7 @@ public struct SettingsFeature {
         rootURL: summary.rootURL,
         host: summary.host,
         isGitRepository: summary.isGitRepository,
-        settings: repositorySettings
+        settings: repositorySettings,
       )
     } else {
       // Summary can flip kind at runtime (git → folder or vice versa)

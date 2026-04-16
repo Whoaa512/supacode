@@ -19,7 +19,7 @@ public struct AppearanceSettingsView: View {
             ForEach(AppearanceMode.allCases) { mode in
               AppearanceOptionCardView(
                 mode: mode,
-                isSelected: mode == appearanceMode.wrappedValue
+                isSelected: mode == appearanceMode.wrappedValue,
               ) {
                 appearanceMode.wrappedValue = mode
               }
@@ -145,6 +145,12 @@ public struct AppearanceSettingsView: View {
         Text("Analytics")
       } footer: {
         Text("Changes to Analytics require Supacode to restart before they take effect.")
+      }
+      Section {
+        Toggle(isOn: $store.equalizeSplitsOnSplit) {
+          Text("Equalize splits on split")
+          Text("Automatically equalize all pane sizes when creating a new split.")
+        }
       }
     }
     .formStyle(.grouped)
