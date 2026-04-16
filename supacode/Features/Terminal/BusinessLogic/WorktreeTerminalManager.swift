@@ -36,16 +36,16 @@ final class WorktreeTerminalManager {
   }
 
   private func configureSocketServer(_ server: AgentHookSocketServer) {
-    server.onBusy = { [weak self] worktreeID, tabID, surfaceID, active in
+    server.onBusy = { [weak self] worktreeID, tabID, surfaceID, busyState in
       let decoded = worktreeID.removingPercentEncoding ?? worktreeID
-      guard let state = self?.states[decoded] else {
+      guard let terminalState = self?.states[decoded] else {
         terminalLogger.debug("Dropped busy update for unknown worktree \(decoded)")
         return
       }
-      state.setAgentBusy(
+      terminalState.setAgentState(
         surfaceID: surfaceID,
         tabID: TerminalTabID(rawValue: tabID),
-        active: active
+        state: busyState
       )
     }
     server.onNotification = { [weak self] worktreeID, _, surfaceID, notification in

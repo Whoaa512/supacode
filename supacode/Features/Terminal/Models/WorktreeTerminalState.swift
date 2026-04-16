@@ -80,14 +80,23 @@ final class WorktreeTerminalState {
   }
 
   var taskStatus: WorktreeTaskStatus {
-    trees.keys.contains(where: { isTabBusy($0) }) ? .running : .idle
+    if trees.keys.contains(where: { isTabWaitingForInput($0) }) { return .waitingForInput }
+    if trees.keys.contains(where: { isTabBusy($0) }) { return .running }
+    return .idle
+  }
+
+  private func isTabWaitingForInput(_ tabId: TerminalTabID) -> Bool {
+    guard let tree = trees[tabId] else { return false }
+    return tree.leaves().contains { surface in
+      surface.bridge.state.agentBusyState == .waitingForInput
+    }
   }
 
   private func isTabBusy(_ tabId: TerminalTabID) -> Bool {
     guard let tree = trees[tabId] else { return false }
     return tree.leaves().contains { surface in
       isRunningProgressState(surface.bridge.state.progressState)
-        || surface.bridge.state.agentBusy
+        || surface.bridge.state.agentBusyState != .idle
     }
   }
 
@@ -317,12 +326,12 @@ final class WorktreeTerminalState {
   }
 
   /// Sets or clears the agent busy flag on a specific surface.
-  func setAgentBusy(surfaceID: UUID, tabID: TerminalTabID, active: Bool) {
+  func setAgentState(surfaceID: UUID, tabID: TerminalTabID, state: AgentBusyState) {
     guard let surface = surfaces[surfaceID] else {
       terminalStateLogger.debug("Dropped busy update for unknown surface \(surfaceID) in worktree \(worktree.id)")
       return
     }
-    surface.bridge.state.agentBusy = active
+    surface.bridge.state.agentBusyState = state
     tabManager.updateDirty(tabID, isDirty: isTabBusy(tabID))
     emitTaskStatusIfChanged()
   }

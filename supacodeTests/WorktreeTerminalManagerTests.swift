@@ -208,16 +208,16 @@ struct WorktreeTerminalManagerTests {
 
     #expect(manager.taskStatus(for: worktree.id) == .idle)
 
-    surface2.bridge.state.agentBusy = true
+    surface2.bridge.state.agentBusyState = .busy
     #expect(manager.taskStatus(for: worktree.id) == .running)
 
-    surface1.bridge.state.agentBusy = true
+    surface1.bridge.state.agentBusyState = .busy
     #expect(manager.taskStatus(for: worktree.id) == .running)
 
-    surface2.bridge.state.agentBusy = false
+    surface2.bridge.state.agentBusyState = .idle
     #expect(manager.taskStatus(for: worktree.id) == .running)
 
-    surface1.bridge.state.agentBusy = false
+    surface1.bridge.state.agentBusyState = .idle
     #expect(manager.taskStatus(for: worktree.id) == .idle)
   }
 

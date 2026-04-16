@@ -33,4 +33,12 @@ nonisolated enum AgentHookSettingsCommand {
       + #" | /usr/bin/nc -U -w1 "$SUPACODE_SOCKET_PATH""#
     return "\(envCheck) && \(send) 2>/dev/null || true"
   }
+
+  /// Sends `worktreeID tabID surfaceID 2` over a Unix socket.
+  static func waitingForInputCommand() -> String {
+    let send =
+      #"echo "\#(ids) 2""#
+      + #" | /usr/bin/nc -U -w1 "$SUPACODE_SOCKET_PATH""#
+    return "\(envCheck) && \(send) 2>/dev/null || true"
+  }
 }
