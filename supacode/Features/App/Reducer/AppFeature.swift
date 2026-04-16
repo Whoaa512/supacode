@@ -13,6 +13,9 @@ private nonisolated let notificationsLogger = SupaLogger("Notifications")
 
 private enum CancelID {
   static let periodicRefresh = "app.periodicRefresh"
+  #if DEBUG
+    static let upstreamUpdateCheck = "app.upstreamUpdateCheck"
+  #endif
 }
 
 @Reducer
@@ -22,6 +25,9 @@ struct AppFeature {
     var repositories: RepositoriesFeature.State
     var settings: SettingsFeature.State
     var updates = UpdatesFeature.State()
+    #if DEBUG
+      var upstreamUpdate = UpstreamUpdateFeature.State()
+    #endif
     var commandPalette = CommandPaletteFeature.State()
     var openActionSelection: OpenWorktreeAction = .finder
     var repoScripts: [ScriptDefinition] = []
@@ -84,6 +90,9 @@ struct AppFeature {
     case repositories(RepositoriesFeature.Action)
     case settings(SettingsFeature.Action)
     case updates(UpdatesFeature.Action)
+    #if DEBUG
+      case upstreamUpdate(UpstreamUpdateFeature.Action)
+    #endif
     case commandPalette(CommandPaletteFeature.Action)
     case openActionSelectionChanged(OpenWorktreeAction)
     case worktreeSettingsLoaded(RepositorySettings, worktreeID: Worktree.ID)
@@ -134,7 +143,7 @@ struct AppFeature {
     let core = Reduce<State, Action> { state, action in
       switch action {
       case .appLaunched:
-        return .merge(
+        var effects: [Effect<Action>] = [
           .send(.repositories(.task)),
           .send(.settings(.task)),
           .run { _ in
@@ -151,14 +160,18 @@ struct AppFeature {
             for await event in await worktreeInfoWatcher.events() {
               await send(.repositories(.worktreeInfoEvent(event)))
             }
-          }
-        )
+          },
+        ]
+        #if DEBUG
+          effects.append(.send(.upstreamUpdate(.checkForUpdates)))
+        #endif
+        return .merge(effects)
 
       case .scenePhaseChanged(let phase):
         switch phase {
         case .active:
           analyticsClient.capture("app_activated", nil)
-          return .merge(
+          var activeEffects: [Effect<Action>] = [
             .send(.repositories(.refreshWorktrees)),
             // Re-probe agent integrations on activation so the sidebar
             // card reflects external installs (e.g. `claude install`)
@@ -171,8 +184,21 @@ struct AppFeature {
                 await send(.repositories(.refreshWorktrees))
               }
             }
-            .cancellable(id: CancelID.periodicRefresh, cancelInFlight: true)
-          )
+            .cancellable(id: CancelID.periodicRefresh, cancelInFlight: true),
+          ]
+          #if DEBUG
+            activeEffects.append(
+              .run { send in
+                while !Task.isCancelled {
+                  try? await ContinuousClock().sleep(for: .seconds(3600))
+                  guard !Task.isCancelled else { return }
+                  await send(.upstreamUpdate(.checkForUpdates))
+                }
+              }
+              .cancellable(id: CancelID.upstreamUpdateCheck, cancelInFlight: true)
+            )
+          #endif
+          return .merge(activeEffects)
         case .inactive, .background:
           let terminalClient = terminalClient
           var effects: [Effect<Action>] = [
@@ -184,7 +210,11 @@ struct AppFeature {
           #endif
           return .merge(effects)
         @unknown default:
-          return .cancel(id: CancelID.periodicRefresh)
+          var cancelEffects: [Effect<Action>] = [.cancel(id: CancelID.periodicRefresh)]
+          #if DEBUG
+            cancelEffects.append(.cancel(id: CancelID.upstreamUpdateCheck))
+          #endif
+          return .merge(cancelEffects)
         }
 
       case .repositories(.delegate(.selectedWorktreeChanged(let worktree))):
@@ -765,11 +795,25 @@ struct AppFeature {
       case .updates:
         return .none
 
+      #if DEBUG
+        case .upstreamUpdate(.openInSupacode):
+          guard let repoPath = state.upstreamUpdate.status?.repositoryPath else { return .none }
+          let repoURL = URL(fileURLWithPath: repoPath)
+          return .send(.repositories(.openRepositories([repoURL])))
+
+        case .upstreamUpdate:
+          return .none
+      #endif
+
       case .commandPalette(.delegate(.selectWorktree(let worktreeID))):
         return .send(.repositories(.selectWorktree(worktreeID)))
 
       case .commandPalette(.delegate(.checkForUpdates)):
-        return .send(.updates(.checkForUpdates))
+        #if DEBUG
+          return .send(.upstreamUpdate(.checkForUpdates))
+        #else
+          return .send(.updates(.checkForUpdates))
+        #endif
 
       case .commandPalette(.delegate(.openSettings)):
         return .send(.settings(.setSelection(.general)))
@@ -934,6 +978,11 @@ struct AppFeature {
     Scope(state: \.updates, action: \.updates) {
       UpdatesFeature()
     }
+    #if DEBUG
+      Scope(state: \.upstreamUpdate, action: \.upstreamUpdate) {
+        UpstreamUpdateFeature()
+      }
+    #endif
     Scope(state: \.commandPalette, action: \.commandPalette) {
       CommandPaletteFeature()
     }

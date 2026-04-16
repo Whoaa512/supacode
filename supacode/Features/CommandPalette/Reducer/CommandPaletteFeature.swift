@@ -171,12 +171,21 @@ struct CommandPaletteFeature {
     runningScriptIDs: Set<UUID> = []
   ) -> [CommandPaletteItem] {
     var items: [CommandPaletteItem] = [
-      CommandPaletteItem(
-        id: CommandPaletteItemID.globalCheckForUpdates,
-        title: "Check for Updates",
-        subtitle: nil,
-        kind: .checkForUpdates
-      ),
+      {
+        #if DEBUG
+          let updateTitle = "Check Upstream Updates"
+          let updateSubtitle: String? = "Fetch and show new commits from upstream"
+        #else
+          let updateTitle = "Check for Updates"
+          let updateSubtitle: String? = nil
+        #endif
+        return CommandPaletteItem(
+          id: CommandPaletteItemID.globalCheckForUpdates,
+          title: updateTitle,
+          subtitle: updateSubtitle,
+          kind: .checkForUpdates,
+        )
+      }(),
       CommandPaletteItem(
         id: CommandPaletteItemID.globalOpenSettings,
         title: "Open Settings",

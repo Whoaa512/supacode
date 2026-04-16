@@ -29,7 +29,14 @@ struct ContentView: View {
       SidebarView(store: repositoriesStore, terminalManager: terminalManager)
         .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-          CodingAgentsSidebarCardView(store: store)
+          VStack(spacing: 0) {
+            #if DEBUG
+              UpstreamUpdateBannerView(
+                store: store.scope(state: \.upstreamUpdate, action: \.upstreamUpdate)
+              )
+            #endif
+            CodingAgentsSidebarCardView(store: store)
+          }
         }
     } detail: {
       WorktreeDetailView(store: store, terminalManager: terminalManager)
