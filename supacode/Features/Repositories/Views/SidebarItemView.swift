@@ -16,6 +16,7 @@ struct SidebarItemView: View {
   let pullRequestBadgeText: String?
   let showsPullRequestInfo: Bool
   let runningScriptColors: [TerminalTabTintColor]
+  let isWaitingForInput: Bool
   let showsNotificationIndicator: Bool
   let notifications: [WorktreeTerminalNotification]
   let shortcutHint: String?
@@ -64,7 +65,7 @@ struct SidebarItemView: View {
     hideSubtitleOnMatch: Bool,
     showsPullRequestInfo: Bool,
     runningScriptColors: [TerminalTabTintColor],
-    isTaskRunning: Bool,
+    taskStatus: WorktreeTaskStatus,
     showsNotificationIndicator: Bool,
     notifications: [WorktreeTerminalNotification],
     shortcutHint: String?
@@ -76,10 +77,13 @@ struct SidebarItemView: View {
     self.info = row.info
     self.showsPullRequestInfo = showsPullRequestInfo
     self.runningScriptColors = runningScriptColors
+    self.isWaitingForInput = taskStatus == .waitingForInput
     self.showsNotificationIndicator = showsNotificationIndicator
     self.notifications = notifications
     self.shortcutHint = shortcutHint
-    self.isBusy = row.isArchiving || row.isDeleting || row.isPending || isTaskRunning
+    self.isBusy =
+      row.isArchiving || row.isDeleting || row.isPending
+      || taskStatus == .running || taskStatus == .waitingForInput
 
     // Worktree color.
     self.worktreeColor =
@@ -193,6 +197,7 @@ struct SidebarItemView: View {
           showsPullRequestInfo: showsPullRequestInfo,
           pullRequestBadgeText: pullRequestBadgeText,
           runningScriptColors: runningScriptColors,
+          isWaitingForInput: isWaitingForInput,
           showsNotificationIndicator: showsNotificationIndicator,
           notifications: notifications
         )
@@ -345,6 +350,7 @@ private struct TrailingView: View {
   let showsPullRequestInfo: Bool
   let pullRequestBadgeText: String?
   let runningScriptColors: [TerminalTabTintColor]
+  let isWaitingForInput: Bool
   let showsNotificationIndicator: Bool
   let notifications: [WorktreeTerminalNotification]
 
@@ -364,6 +370,7 @@ private struct TrailingView: View {
         }
         StatusIndicator(
           runningScriptColors: runningScriptColors,
+          isWaitingForInput: isWaitingForInput,
           showsNotificationIndicator: showsNotificationIndicator,
           notifications: notifications
         )
@@ -398,6 +405,7 @@ private struct DiffStatsView: View {
 
 private struct StatusIndicator: View {
   let runningScriptColors: [TerminalTabTintColor]
+  let isWaitingForInput: Bool
   let showsNotificationIndicator: Bool
   let notifications: [WorktreeTerminalNotification]
   @Environment(\.backgroundProminence) private var backgroundProminence
@@ -406,9 +414,15 @@ private struct StatusIndicator: View {
   var body: some View {
     let isEmphasized = backgroundProminence == .increased
     let isRunning = !runningScriptColors.isEmpty
-    if isRunning || showsNotificationIndicator {
+    if isWaitingForInput || isRunning || showsNotificationIndicator {
       ZStack {
-        if isRunning {
+        if isWaitingForInput {
+          PingDot(
+            style: isEmphasized ? AnyShapeStyle(.primary) : AnyShapeStyle(.yellow),
+            size: 6,
+            showsSolidCenter: !showsNotificationIndicator
+          )
+        } else if isRunning {
           MultiColorPingDot(
             colors: runningScriptColors,
             isEmphasized: isEmphasized,
