@@ -17,7 +17,7 @@ public nonisolated enum SupacodePaths {
 
   public static func normalizedWorktreeBaseDirectoryPath(
     _ rawPath: String?,
-    repositoryRootURL: URL? = nil
+    repositoryRootURL: URL? = nil,
   ) -> String? {
     guard let rawPath else {
       return nil
@@ -43,12 +43,12 @@ public nonisolated enum SupacodePaths {
   public static func worktreeBaseDirectory(
     for repositoryRootURL: URL,
     globalDefaultPath: String?,
-    repositoryOverridePath: String?
+    repositoryOverridePath: String?,
   ) -> URL {
     let rootURL = repositoryRootURL.standardizedFileURL
     if let repositoryOverridePath = normalizedWorktreeBaseDirectoryPath(
       repositoryOverridePath,
-      repositoryRootURL: rootURL
+      repositoryRootURL: rootURL,
     ) {
       return URL(filePath: repositoryOverridePath, directoryHint: .isDirectory).standardizedFileURL
     }
@@ -65,16 +65,24 @@ public nonisolated enum SupacodePaths {
     for repositoryRootURL: URL,
     globalDefaultPath: String?,
     repositoryOverridePath: String?,
-    branchName: String = "swift-otter"
+    branchName: String = "swift-otter",
   ) -> String {
     worktreeBaseDirectory(
       for: repositoryRootURL,
       globalDefaultPath: globalDefaultPath,
-      repositoryOverridePath: repositoryOverridePath
+      repositoryOverridePath: repositoryOverridePath,
     )
     .appending(path: branchName, directoryHint: .isDirectory)
     .standardizedFileURL
     .path(percentEncoded: false)
+  }
+
+  public static var scrollbackDirectory: URL {
+    baseDirectory.appending(path: "scrollback", directoryHint: .isDirectory)
+  }
+
+  public static func scrollbackFileURL(for surfaceID: UUID) -> URL {
+    scrollbackDirectory.appending(path: "\(surfaceID.uuidString).vt", directoryHint: .notDirectory)
   }
 
   public static var layoutsURL: URL {

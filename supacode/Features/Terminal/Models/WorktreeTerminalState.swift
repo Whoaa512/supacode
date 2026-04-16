@@ -143,6 +143,7 @@ final class WorktreeTerminalState {
     if let snapshot = pendingLayoutSnapshot {
       pendingLayoutSnapshot = nil
       restoreFromSnapshot(snapshot, focusing: focusing)
+      Self.cleanupScrollbackFiles()
       isEnsuringInitialTab = false
       return
     }
@@ -836,6 +837,17 @@ final class WorktreeTerminalState {
     return TerminalLayoutSnapshot(tabs: tabSnapshots, selectedTabIndex: selectedIndex)
   }
 
+  func saveScrollbackFiles() {
+    let dir = SupacodePaths.scrollbackDirectory
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    for (id, view) in surfaces {
+      let path = SupacodePaths.scrollbackFileURL(for: id).path(percentEncoded: false)
+      if !view.writeScrollback(to: path) {
+        layoutLogger.debug("No scrollback to save for surface \(id)")
+      }
+    }
+  }
+
   private func captureLayoutNode(
     _ node: SplitTree<GhosttySurfaceView>.Node
   ) -> TerminalLayoutSnapshot.LayoutNode {
@@ -885,6 +897,7 @@ final class WorktreeTerminalState {
       if let customTitle = tabSnapshot.customTitle {
         tabManager.setCustomTitle(tabId, title: customTitle)
       }
+      let scrollbackPath = Self.scrollbackPathIfAvailable(for: tabSnapshot.layout.firstLeaf.id)
       let surface = createSurface(
         tabId: tabId,
         initialInput: nil,
@@ -892,6 +905,7 @@ final class WorktreeTerminalState {
         inheritingFromSurfaceId: nil,
         context: context,
         surfaceID: tabSnapshot.layout.firstLeaf.id,
+        initialScrollbackPath: scrollbackPath,
       )
       let tree = SplitTree(view: surface)
       trees[tabId] = tree
@@ -943,6 +957,7 @@ final class WorktreeTerminalState {
     let direction: SplitTree<GhosttySurfaceView>.NewDirection =
       split.direction == .horizontal ? .right : .down
 
+    let scrollbackPath = Self.scrollbackPathIfAvailable(for: split.right.firstLeaf.id)
     guard
       let newSurface = createRestorationSplit(
         at: anchor,
@@ -951,6 +966,7 @@ final class WorktreeTerminalState {
         workingDirectory: rightWorkingDir,
         tabId: tabId,
         surfaceID: split.right.firstLeaf.id,
+        initialScrollbackPath: scrollbackPath,
       )
     else {
       layoutLogger.warning("Skipping subtree restoration for tab \(tabId.rawValue)")
@@ -968,7 +984,8 @@ final class WorktreeTerminalState {
     ratio: Double,
     workingDirectory: URL?,
     tabId: TerminalTabID,
-    surfaceID: UUID? = nil
+    surfaceID: UUID? = nil,
+    initialScrollbackPath: String? = nil,
   ) -> GhosttySurfaceView? {
     guard var tree = trees[tabId] else { return nil }
     let newSurface = createSurface(
@@ -978,6 +995,7 @@ final class WorktreeTerminalState {
       inheritingFromSurfaceId: anchor.id,
       context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
       surfaceID: surfaceID,
+      initialScrollbackPath: initialScrollbackPath,
     )
     do {
       tree = try tree.inserting(view: newSurface, at: anchor, direction: direction, ratio: ratio)
@@ -988,6 +1006,26 @@ final class WorktreeTerminalState {
       newSurface.closeSurface()
       surfaces.removeValue(forKey: newSurface.id)
       return nil
+    }
+  }
+
+  private static func scrollbackPathIfAvailable(for surfaceID: UUID?) -> String? {
+    guard let surfaceID else { return nil }
+    let url = SupacodePaths.scrollbackFileURL(for: surfaceID)
+    let path = url.path(percentEncoded: false)
+    guard FileManager.default.isReadableFile(atPath: path) else { return nil }
+    return path
+  }
+
+  static func cleanupScrollbackFiles() {
+    let dir = SupacodePaths.scrollbackDirectory
+    guard
+      let items = try? FileManager.default.contentsOfDirectory(
+        at: dir, includingPropertiesForKeys: nil,
+      )
+    else { return }
+    for item in items {
+      try? FileManager.default.removeItem(at: item)
     }
   }
 
@@ -1098,7 +1136,7 @@ final class WorktreeTerminalState {
     let repoPath = worktree.repositoryRootURL.path(percentEncoded: false)
     env["SUPACODE_REPO_ID"] = percentEncode(repoPath, allowedCharacters: percentEncodingSet, label: "SUPACODE_REPO_ID")
     env["SUPACODE_WORKTREE_ID"] = percentEncode(
-      worktree.id, allowedCharacters: percentEncodingSet, label: "SUPACODE_WORKTREE_ID")
+      worktree.id, allowedCharacters: percentEncodingSet, label: "SUPACODE_WORKTREE_ID",)
     env["SUPACODE_TAB_ID"] = tabId.rawValue.uuidString
     env["SUPACODE_SURFACE_ID"] = surfaceID.uuidString
     if let socketPath {
@@ -1132,7 +1170,8 @@ final class WorktreeTerminalState {
     workingDirectoryOverride: URL? = nil,
     inheritingFromSurfaceId: UUID?,
     context: ghostty_surface_context_e,
-    surfaceID: UUID? = nil
+    surfaceID: UUID? = nil,
+    initialScrollbackPath: String? = nil,
   ) -> GhosttySurfaceView {
     let resolvedID: UUID
     if let requested = surfaceID {
@@ -1156,7 +1195,8 @@ final class WorktreeTerminalState {
       initialInput: initialInput,
       environmentVariables: surfaceEnvironment(tabId: tabId, surfaceID: surfaceID),
       fontSize: inherited.fontSize,
-      context: context
+      context: context,
+      initialScrollbackPath: initialScrollbackPath,
     )
     view.bridge.onTitleChange = { [weak self, weak view] title in
       guard let self, let view else { return }
