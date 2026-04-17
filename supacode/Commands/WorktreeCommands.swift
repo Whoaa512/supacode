@@ -165,7 +165,7 @@ struct WorktreeCommands: Commands {
     }
     CommandGroup(replacing: .newItem) {
       Button("Add Repository or Folder...", systemImage: "folder.badge.plus") {
-        store.send(.repositories(.setOpenPanelPresented(true)))
+        store.send(.commandPalette(.enterBrowseMode(basePath: nil)))
       }
       .appKeyboardShortcut(openRepo)
       .help("Add Repository or Folder (\(openRepo?.display ?? "none"))")
