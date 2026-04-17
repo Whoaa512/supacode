@@ -785,6 +785,7 @@ struct RepositoriesFeature {
           baseRefOptions: baseRefOptions,
           branchName: "",
           selectedBaseRef: selectedBaseRef,
+          baseRefSearchText: selectedBaseRef ?? "",
           fetchOrigin: promptSettingsFile.global.fetchOriginBeforeWorktreeCreation,
           validationMessage: nil,
         )

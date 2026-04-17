@@ -4,6 +4,7 @@ import SwiftUI
 struct WorktreeCreationPromptView: View {
   @Bindable var store: StoreOf<WorktreeCreationPromptFeature>
   @FocusState private var isBranchFieldFocused: Bool
+  @FocusState private var isBaseRefFieldFocused: Bool
 
   var body: some View {
     Form {
@@ -14,24 +15,29 @@ struct WorktreeCreationPromptView: View {
             store.send(.createButtonTapped)
           }
       } header: {
-        // `NavigationStack` with title and subtitle is bugged inside
-        // sheets in macOS 26.*, and this is a nice enough fallback.
         Text("New Worktree")
         Text("Create a branch in `\(store.repositoryName)`.")
       }
       .headerProminence(.increased)
 
       Section {
-        Picker(selection: $store.selectedBaseRef) {
-          automaticRefLabel
-            .tag(Optional<String>.none)
-          ForEach(store.baseRefOptions, id: \.self) { ref in
-            Text(ref)
-              .tag(Optional(ref))
-          }
-        } label: {
+        VStack(alignment: .leading, spacing: 4) {
           Text("Base ref")
           Text("The branch or ref the new worktree will be created from.")
+            .foregroundStyle(.secondary)
+            .font(.caption)
+
+          BaseRefSearchField(
+            searchText: $store.baseRefSearchText,
+            isFocused: $isBaseRefFieldFocused,
+            automaticBaseRef: store.automaticBaseRef,
+            filteredOptions: store.filteredBaseRefOptions,
+            selectedBaseRef: store.selectedBaseRef,
+            onSelect: { ref in
+              store.send(.baseRefSelected(ref))
+              isBaseRefFieldFocused = false
+            },
+          )
         }
 
         Toggle(isOn: $store.fetchOrigin) {
@@ -75,10 +81,87 @@ struct WorktreeCreationPromptView: View {
     .frame(minWidth: 420)
     .task { isBranchFieldFocused = true }
   }
+}
 
-  private var automaticRefLabel: Text {
-    let ref = store.automaticBaseRef
-    guard !ref.isEmpty else { return Text("Auto") }
-    return Text("Auto \(Text(ref).foregroundStyle(.secondary))")
+private struct BaseRefSearchField: View {
+  @Binding var searchText: String
+  var isFocused: FocusState<Bool>.Binding
+  let automaticBaseRef: String
+  let filteredOptions: [String]
+  let selectedBaseRef: String?
+  let onSelect: (String?) -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(spacing: 4) {
+        Image(systemName: "magnifyingglass")
+          .foregroundStyle(.secondary)
+          .font(.caption)
+          .accessibilityHidden(true)
+        TextField(autoPlaceholder, text: $searchText)
+          .textFieldStyle(.plain)
+          .focused(isFocused)
+        if selectedBaseRef != nil {
+          Button {
+            onSelect(nil)
+          } label: {
+            Image(systemName: "xmark.circle.fill")
+              .foregroundStyle(.secondary)
+              .accessibilityLabel("Reset to auto")
+          }
+          .buttonStyle(.plain)
+          .help("Reset to auto")
+        }
+      }
+      .padding(.horizontal, 8)
+      .padding(.vertical, 6)
+      .background(.quinary)
+      .clipShape(RoundedRectangle(cornerRadius: 6))
+
+      if isFocused.wrappedValue {
+        suggestionsList
+      }
+    }
+  }
+
+  private var autoPlaceholder: String {
+    guard !automaticBaseRef.isEmpty else { return "Search refs…" }
+    return "Auto (\(automaticBaseRef))"
+  }
+
+  @ViewBuilder
+  private var suggestionsList: some View {
+    let suggestions = filteredOptions
+    if !suggestions.isEmpty {
+      ScrollView {
+        LazyVStack(alignment: .leading, spacing: 0) {
+          ForEach(suggestions, id: \.self) { ref in
+            Button {
+              onSelect(ref)
+            } label: {
+              HStack {
+                Text(ref)
+                  .monospaced()
+                  .lineLimit(1)
+                Spacer()
+                if selectedBaseRef == ref {
+                  Image(systemName: "checkmark")
+                    .foregroundStyle(.tint)
+                    .accessibilityHidden(true)
+                }
+              }
+              .contentShape(Rectangle())
+              .padding(.horizontal, 8)
+              .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      }
+      .frame(maxHeight: 180)
+      .background(.quinary)
+      .clipShape(RoundedRectangle(cornerRadius: 6))
+      .padding(.top, 4)
+    }
   }
 }
