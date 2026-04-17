@@ -414,6 +414,14 @@ final class WorktreeTerminalManager {
     states[worktreeID]?.taskStatus
   }
 
+  func waitingForInputWorktreeIDs() -> Set<Worktree.ID> {
+    var ids: Set<Worktree.ID> = []
+    for (id, state) in states where state.taskStatus == .waitingForInput {
+      ids.insert(id)
+    }
+    return ids
+  }
+
   func isBlockingScriptRunning(kind: BlockingScriptKind, for worktreeID: Worktree.ID) -> Bool {
     states[worktreeID]?.isBlockingScriptRunning(kind: kind) == true
   }

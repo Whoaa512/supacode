@@ -92,8 +92,9 @@ struct ContentView: View {
           from: store.repositories,
           ghosttyCommands: ghosttyShortcuts.commandPaletteEntries,
           scripts: store.scripts,
-          runningScriptIDs: store.runningScriptIDs
-        )
+          runningScriptIDs: store.runningScriptIDs,
+          waitingForInputWorktreeIDs: terminalManager.waitingForInputWorktreeIDs(),
+        ),
       )
     }
     .background(WindowTabbingDisabler())

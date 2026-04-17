@@ -318,7 +318,8 @@ struct CommandPaletteFeature {
     from repositories: RepositoriesFeature.State,
     ghosttyCommands: [GhosttyCommand] = [],
     scripts: [ScriptDefinition] = [],
-    runningScriptIDs: Set<UUID> = []
+    runningScriptIDs: Set<UUID> = [],
+    waitingForInputWorktreeIDs: Set<Worktree.ID> = [],
   ) -> [CommandPaletteItem] {
     var items: [CommandPaletteItem] = [
       {
@@ -390,17 +391,15 @@ struct CommandPaletteFeature {
     for row in repositories.orderedSidebarItems() {
       guard row.status == .idle else { continue }
       let repositoryName = repositories.repositoryName(for: row.repositoryID) ?? "Repository"
-      // Folder rows only have a synthetic "main" worktree whose name
-      // matches the repository, so the usual `repo / worktree`
-      // format would render as `Foo / Foo`. Use the repository name
-      // alone for folders.
       let title = row.isFolder ? repositoryName : "\(repositoryName) / \(row.name)"
+      let isWaitingForInput = waitingForInputWorktreeIDs.contains(row.id)
       items.append(
         CommandPaletteItem(
           id: CommandPaletteItemID.worktreeSelect(row.id),
           title: title,
           subtitle: nil,
-          kind: .worktreeSelect(row.id)
+          kind: .worktreeSelect(row.id),
+          priorityTier: isWaitingForInput ? 0 : CommandPaletteItem.defaultPriorityTier,
         )
       )
     }

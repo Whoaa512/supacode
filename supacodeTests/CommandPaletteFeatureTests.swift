@@ -307,6 +307,45 @@ struct CommandPaletteFeatureTests {
     expectNoDifference(selectIDs, [main.id, pinned.id, unpinned.id])
   }
 
+  @Test func commandPaletteItems_waitingForInputWorktrees_floatToTopWhenEmptyQuery() {
+    let rootPath = "/tmp/repo"
+    let main = makeWorktree(
+      id: rootPath,
+      name: "repo",
+      detail: "main",
+      repoRoot: rootPath,
+      workingDirectory: rootPath,
+    )
+    let waiting = makeWorktree(
+      id: "\(rootPath)/wt-waiting",
+      name: "waiting",
+      detail: "waiting",
+      repoRoot: rootPath,
+    )
+    let idle = makeWorktree(
+      id: "\(rootPath)/wt-idle",
+      name: "idle",
+      detail: "idle",
+      repoRoot: rootPath,
+    )
+    let repository = makeRepository(
+      rootPath: rootPath, name: "Repo",
+      worktrees: [main, waiting, idle],
+    )
+    let state = RepositoriesFeature.State(repositories: [repository])
+
+    let items = CommandPaletteFeature.commandPaletteItems(
+      from: state,
+      waitingForInputWorktreeIDs: [waiting.id],
+    )
+    let ordered = CommandPaletteFeature.filterItems(items: items, query: "")
+    let selectIDs = ordered.compactMap { item -> Worktree.ID? in
+      if case .worktreeSelect(let id) = item.kind { return id }
+      return nil
+    }
+    #expect(selectIDs.first == waiting.id)
+  }
+
   @Test func commandPaletteItems_respectsRepositoryOrder() {
     let repoAPath = "/tmp/repo-a"
     let repoBPath = "/tmp/repo-b"
