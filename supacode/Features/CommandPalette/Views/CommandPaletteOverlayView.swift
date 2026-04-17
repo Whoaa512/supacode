@@ -280,6 +280,8 @@ private struct CommandPaletteRowView: View {
       .rerunFailedJobs, .openFailingCheckDetails, .worktreeSelect,
       .customizeRepositoryAppearance, .customizeWorktreeAppearance:
       return nil
+    case .forkWorktree:
+      return "Fork"
     case .removeWorktree:
       return "Remove"
     case .archiveWorktree:
@@ -333,6 +335,8 @@ private struct CommandPaletteRowView: View {
       return "exclamationmark.triangle"
     case .worktreeSelect:
       return nil
+    case .forkWorktree:
+      return "arrow.triangle.branch"
     case .removeWorktree:
       return "trash"
     case .archiveWorktree:
@@ -362,7 +366,7 @@ private struct CommandPaletteRowView: View {
       .copyCiFailureLogs,
       .rerunFailedJobs, .openFailingCheckDetails:
       return true
-    case .worktreeSelect, .removeWorktree, .archiveWorktree:
+    case .worktreeSelect, .removeWorktree, .archiveWorktree, .forkWorktree:
       return false
     case .renameBranch, .customizeRepositoryAppearance, .customizeWorktreeAppearance:
       return true
@@ -497,6 +501,8 @@ private struct CommandPaletteRowView: View {
       base = row.title
     case .removeWorktree:
       base = "Remove \(row.title)"
+    case .forkWorktree:
+      base = "Fork \(row.title)"
     case .archiveWorktree:
       base = "Archive \(row.title)"
     case .renameBranch:
