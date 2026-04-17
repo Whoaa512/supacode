@@ -212,6 +212,12 @@ struct SupacodeApp: App {
       @SharedReader(.layouts) var layouts: [String: TerminalLayoutSnapshot] = [:]
       return layouts[worktreeID]
     }
+    // One-shot launch cleanup: keep only scrollback files referenced by any saved layout snapshot.
+    do {
+      @SharedReader(.layouts) var layouts: [String: TerminalLayoutSnapshot] = [:]
+      let knownIDs = Set(layouts.values.flatMap(\.allSurfaceIDs))
+      WorktreeTerminalState.pruneScrollbackFiles(keeping: knownIDs)
+    }
     return terminalManager
   }
 
