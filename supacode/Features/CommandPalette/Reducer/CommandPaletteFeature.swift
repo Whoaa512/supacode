@@ -124,11 +124,19 @@ struct CommandPaletteFeature {
         return .none
 
       case .activateItem(let item):
+        state.recencyByItemID[item.id] = now.timeIntervalSince1970
+        saveRecency(state.recencyByItemID)
+        if item.kind == .openRepository {
+          let path = FileManager.default.homeDirectoryForCurrentUser
+          state.mode = .browse
+          state.query = ""
+          state.selectedIndex = nil
+          state.browse = BrowseState(currentPath: path)
+          return .send(.browseLoadDirectory(path))
+        }
         state.isPresented = false
         state.query = ""
         state.selectedIndex = nil
-        state.recencyByItemID[item.id] = now.timeIntervalSince1970
-        saveRecency(state.recencyByItemID)
         return .send(.delegate(delegateAction(for: item.kind)))
 
       case .updateSelection(let itemsCount):
