@@ -5,6 +5,7 @@ import SwiftUI
 struct SidebarCommands: Commands {
   @FocusedValue(\.toggleLeftSidebarAction) private var toggleLeftSidebarAction
   @FocusedValue(\.revealInSidebarAction) private var revealInSidebarAction
+  @FocusedValue(\.focusSidebarSearchAction) private var focusSidebarSearchAction
   @Shared(.settingsFile) private var settingsFile
   @Shared(.appStorage("worktreeRowDisplayMode")) private var displayMode: WorktreeRowDisplayMode = .branchFirst
   @Shared(.appStorage("worktreeRowHideSubtitleOnMatch")) private var hideSubtitleOnMatch = true
@@ -13,6 +14,7 @@ struct SidebarCommands: Commands {
     let overrides = settingsFile.global.shortcutOverrides
     let toggleLeftSidebar = AppShortcuts.toggleLeftSidebar.effective(from: overrides)
     let revealInSidebar = AppShortcuts.revealInSidebar.effective(from: overrides)
+    let sidebarSearch = AppShortcuts.sidebarSearch.effective(from: overrides)
     CommandGroup(replacing: .sidebar) {
       Button("Toggle Left Sidebar", systemImage: "sidebar.leading") {
         toggleLeftSidebarAction?()
@@ -26,6 +28,12 @@ struct SidebarCommands: Commands {
       .appKeyboardShortcut(revealInSidebar)
       .help("Reveal in Sidebar (\(revealInSidebar?.display ?? "none"))")
       .disabled(revealInSidebarAction == nil)
+      Button("Search Sidebar") {
+        focusSidebarSearchAction?()
+      }
+      .appKeyboardShortcut(sidebarSearch)
+      .help("Search Sidebar (\(sidebarSearch?.display ?? "none"))")
+      .disabled(focusSidebarSearchAction == nil)
       Section {
         Picker("Title and Subtitle", systemImage: "textformat", selection: Binding($displayMode)) {
           ForEach(WorktreeRowDisplayMode.allCases) { mode in

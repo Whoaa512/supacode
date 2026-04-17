@@ -17,10 +17,13 @@ struct SidebarView: View {
     let deleteWorktreeAction = makeDeleteWorktreeAction(rows: effectiveSelectedRows)
     let openRepo = AppShortcuts.openRepository.effective(from: settingsFile.global.shortcutOverrides)
 
-    return SidebarListView(
-      store: store,
-      terminalManager: terminalManager,
-    )
+    return VStack(spacing: 0) {
+      SidebarSearchField(store: store)
+      SidebarListView(
+        store: store,
+        terminalManager: terminalManager,
+      )
+    }
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
         Menu {
