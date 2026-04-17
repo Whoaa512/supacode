@@ -34,6 +34,7 @@ public struct SettingsFeature {
     public var defaultWorktreeBaseDirectoryPath: String
     public var autoDeleteArchivedWorktreesAfterDays: AutoDeletePeriod?
     public var equalizeSplitsOnSplit: Bool
+    public var autoSelectNewlyOpenedRepository: Bool
     public var shortcutOverrides: [AppShortcutID: AppShortcutOverride]
     public var cliInstallState = AgentHooksInstallState.checking
     public var claudeSkillState = AgentHooksInstallState.checking
@@ -76,6 +77,7 @@ public struct SettingsFeature {
       automatedActionPolicy = settings.automatedActionPolicy
       autoDeleteArchivedWorktreesAfterDays = settings.autoDeleteArchivedWorktreesAfterDays
       equalizeSplitsOnSplit = settings.equalizeSplitsOnSplit
+      autoSelectNewlyOpenedRepository = settings.autoSelectNewlyOpenedRepository
       shortcutOverrides = settings.shortcutOverrides
       defaultWorktreeBaseDirectoryPath =
         SupacodePaths.normalizedWorktreeBaseDirectoryPath(settings.defaultWorktreeBaseDirectoryPath) ?? ""
@@ -112,6 +114,7 @@ public struct SettingsFeature {
         ),
         autoDeleteArchivedWorktreesAfterDays: autoDeleteArchivedWorktreesAfterDays,
         equalizeSplitsOnSplit: equalizeSplitsOnSplit,
+        autoSelectNewlyOpenedRepository: autoSelectNewlyOpenedRepository,
         shortcutOverrides: shortcutOverrides,
       )
     }
@@ -248,6 +251,7 @@ public struct SettingsFeature {
         state.automatedActionPolicy = normalizedSettings.automatedActionPolicy
         state.autoDeleteArchivedWorktreesAfterDays = normalizedSettings.autoDeleteArchivedWorktreesAfterDays
         state.equalizeSplitsOnSplit = normalizedSettings.equalizeSplitsOnSplit
+        state.autoSelectNewlyOpenedRepository = normalizedSettings.autoSelectNewlyOpenedRepository
         state.shortcutOverrides = normalizedSettings.shortcutOverrides
         state.defaultWorktreeBaseDirectoryPath = normalizedSettings.defaultWorktreeBaseDirectoryPath ?? ""
         state.syncGlobalDefaults(from: normalizedSettings)

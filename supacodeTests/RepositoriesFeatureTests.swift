@@ -4073,6 +4073,96 @@ struct RepositoriesFeatureTests {
     await store.receive(\.deleteWorktreeConfirmed)
   }
 
+  @Test func openRepositoriesFinishedSelectsFirstWorktreeOfNewlyOpenedRepository() async {
+    let existingRoot = "/tmp/existing"
+    let existingWorktree = makeWorktree(id: existingRoot, name: "main", repoRoot: existingRoot)
+    let existingRepository = makeRepository(id: existingRoot, worktrees: [existingWorktree])
+
+    let newRoot = "/tmp/new"
+    let newWorktree = makeWorktree(id: newRoot, name: "main", repoRoot: newRoot)
+    let newRepository = makeRepository(id: newRoot, worktrees: [newWorktree])
+
+    var state = makeState(repositories: [existingRepository])
+    state.selection = .worktree(existingWorktree.id)
+
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.autoSelectNewlyOpenedRepository = true }
+
+    let store = TestStore(initialState: state) {
+      RepositoriesFeature()
+    }
+    store.exhaustivity = .off
+
+    await store.send(
+      .openRepositoriesFinished(
+        [existingRepository, newRepository],
+        failures: [],
+        invalidRoots: [],
+        roots: [existingRepository.rootURL, newRepository.rootURL],
+      )
+    )
+
+    #expect(store.state.selection == .worktree(newWorktree.id))
+    #expect(store.state.sidebarSelectedWorktreeIDs == [newWorktree.id])
+  }
+
+  @Test func openRepositoriesFinishedKeepsSelectionWhenSettingDisabled() async {
+    let existingRoot = "/tmp/existing"
+    let existingWorktree = makeWorktree(id: existingRoot, name: "main", repoRoot: existingRoot)
+    let existingRepository = makeRepository(id: existingRoot, worktrees: [existingWorktree])
+
+    let newRoot = "/tmp/new"
+    let newWorktree = makeWorktree(id: newRoot, name: "main", repoRoot: newRoot)
+    let newRepository = makeRepository(id: newRoot, worktrees: [newWorktree])
+
+    var state = makeState(repositories: [existingRepository])
+    state.selection = .worktree(existingWorktree.id)
+
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.autoSelectNewlyOpenedRepository = false }
+
+    let store = TestStore(initialState: state) {
+      RepositoriesFeature()
+    }
+    store.exhaustivity = .off
+
+    await store.send(
+      .openRepositoriesFinished(
+        [existingRepository, newRepository],
+        failures: [],
+        invalidRoots: [],
+        roots: [existingRepository.rootURL, newRepository.rootURL],
+      )
+    )
+
+    #expect(store.state.selection == .worktree(existingWorktree.id))
+  }
+
+  @Test func openRepositoriesFinishedDoesNotAutoSelectOnFirstLoad() async {
+    let repoRoot = "/tmp/repo"
+    let worktree = makeWorktree(id: repoRoot, name: "main", repoRoot: repoRoot)
+    let repository = makeRepository(id: repoRoot, worktrees: [worktree])
+
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.autoSelectNewlyOpenedRepository = true }
+
+    let store = TestStore(initialState: makeState(repositories: [])) {
+      RepositoriesFeature()
+    }
+    store.exhaustivity = .off
+
+    await store.send(
+      .openRepositoriesFinished(
+        [repository],
+        failures: [],
+        invalidRoots: [],
+        roots: [repository.rootURL],
+      )
+    )
+
+    #expect(store.state.selection == nil)
+  }
+
   // MARK: - Select Next/Previous Worktree
 
   @Test func selectNextWorktreeWrapsForward() async {
