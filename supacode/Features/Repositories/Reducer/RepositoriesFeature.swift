@@ -68,6 +68,10 @@ struct RepositoriesFeature {
     var repositories: IdentifiedArrayOf<Repository> = []
     var repositoryRoots: [URL] = []
     var repositoryOrderIDs: [Repository.ID] = []
+    var folders: IdentifiedArrayOf<SidebarFolder> = []
+    var sidebarRootOrder: [SidebarRootItemID] = []
+    var collapsedFolderIDs: Set<UUID> = []
+    var sidebarSearchQuery: String = ""
     var loadFailuresByID: [Repository.ID: String] = [:]
     var selection: SidebarSelection?
     var worktreeInfoByID: [Worktree.ID: WorktreeInfoEntry] = [:]
@@ -135,6 +139,17 @@ struct RepositoriesFeature {
     case pinnedWorktreeIDsLoaded([Worktree.ID])
     case archivedWorktreeDatesLoaded([Worktree.ID: Date])
     case repositoryOrderIDsLoaded([Repository.ID])
+    case sidebarFoldersLoaded([SidebarFolder])
+    case sidebarRootOrderLoaded([SidebarRootItemID])
+    case collapsedFolderIDsLoaded([UUID])
+    case folderCreated(name: String)
+    case folderRenamed(UUID, String)
+    case folderDeleted(UUID)
+    case folderCollapseToggled(UUID)
+    case repositoryMovedToFolder(Repository.ID, folderID: UUID?, destinationIndex: Int)
+    case folderContentsReordered(UUID, IndexSet, Int)
+    case sidebarRootReordered(IndexSet, Int)
+    case sidebarSearchQueryChanged(String)
     case worktreeOrderByRepositoryLoaded([Repository.ID: [Worktree.ID]])
     case lastFocusedWorktreeIDLoaded(Worktree.ID?)
     case refreshWorktrees
@@ -279,6 +294,7 @@ struct RepositoriesFeature {
     let didPruneRepositoryOrder: Bool
     let didPruneWorktreeOrder: Bool
     let didPruneArchivedWorktreeIDs: Bool
+    let didUpdateSidebarStructure: Bool
   }
 
   enum StatusToast: Equatable {
@@ -337,10 +353,16 @@ struct RepositoriesFeature {
           let repositoryOrderIDs = await repositoryPersistence.loadRepositoryOrderIDs()
           let worktreeOrderByRepository =
             await repositoryPersistence.loadWorktreeOrderByRepository()
+          let folders = await repositoryPersistence.loadSidebarFolders()
+          let rootOrder = await repositoryPersistence.loadSidebarRootOrder()
+          let collapsedFolderIDs = await repositoryPersistence.loadCollapsedFolderIDs()
           await send(.pinnedWorktreeIDsLoaded(pinned))
           await send(.archivedWorktreeDatesLoaded(archived))
           await send(.repositoryOrderIDsLoaded(repositoryOrderIDs))
           await send(.worktreeOrderByRepositoryLoaded(worktreeOrderByRepository))
+          await send(.sidebarFoldersLoaded(folders))
+          await send(.sidebarRootOrderLoaded(rootOrder))
+          await send(.collapsedFolderIDsLoaded(collapsedFolderIDs))
           await send(.lastFocusedWorktreeIDLoaded(lastFocused))
           await send(.loadPersistedRepositories)
         }
@@ -355,6 +377,18 @@ struct RepositoriesFeature {
 
       case .repositoryOrderIDsLoaded(let repositoryOrderIDs):
         state.repositoryOrderIDs = repositoryOrderIDs
+        return .none
+
+      case .sidebarFoldersLoaded(let folders):
+        state.folders = IdentifiedArray(uniqueElements: folders)
+        return .none
+
+      case .sidebarRootOrderLoaded(let rootOrder):
+        state.sidebarRootOrder = rootOrder
+        return .none
+
+      case .collapsedFolderIDsLoaded(let ids):
+        state.collapsedFolderIDs = Set(ids)
         return .none
 
       case .worktreeOrderByRepositoryLoaded(let worktreeOrderByRepository):
@@ -456,6 +490,15 @@ struct RepositoriesFeature {
           allEffects.append(
             .run { _ in
               await repositoryPersistence.saveWorktreeOrderByRepository(worktreeOrderByRepository)
+            })
+        }
+        if applyResult.didUpdateSidebarStructure {
+          let folders = Array(state.folders)
+          let order = state.sidebarRootOrder
+          allEffects.append(
+            .run { _ in
+              await repositoryPersistence.saveSidebarFolders(folders)
+              await repositoryPersistence.saveSidebarRootOrder(order)
             })
         }
         if applyResult.didPruneArchivedWorktreeIDs {
@@ -560,6 +603,15 @@ struct RepositoriesFeature {
           allEffects.append(
             .run { _ in
               await repositoryPersistence.saveWorktreeOrderByRepository(worktreeOrderByRepository)
+            })
+        }
+        if applyResult.didUpdateSidebarStructure {
+          let folders = Array(state.folders)
+          let order = state.sidebarRootOrder
+          allEffects.append(
+            .run { _ in
+              await repositoryPersistence.saveSidebarFolders(folders)
+              await repositoryPersistence.saveSidebarRootOrder(order)
             })
         }
         if applyResult.didPruneArchivedWorktreeIDs {
@@ -1860,6 +1912,67 @@ struct RepositoriesFeature {
           await repositoryPersistence.saveRepositoryOrderIDs(repositoryOrderIDs)
         }
 
+      case .folderCreated(let name):
+        let newFolder = SidebarFolder(id: uuid(), name: name)
+        state.folders.append(newFolder)
+        state.sidebarRootOrder.append(.folder(newFolder.id))
+        return persistSidebarStructure(state: state)
+
+      case .folderRenamed(let id, let newName):
+        guard state.folders[id: id] != nil else { return .none }
+        state.folders[id: id]?.name = newName
+        let folders = Array(state.folders)
+        return .run { _ in
+          await repositoryPersistence.saveSidebarFolders(folders)
+        }
+
+      case .folderDeleted(let id):
+        guard let folder = state.folders[id: id] else { return .none }
+        let insertionIndex = state.sidebarRootOrder.firstIndex(of: .folder(id)) ?? state.sidebarRootOrder.count
+        state.folders.remove(id: id)
+        state.sidebarRootOrder.removeAll { $0 == .folder(id) }
+        state.collapsedFolderIDs.remove(id)
+        let repoItems = folder.repositoryIDs.map(SidebarRootItemID.repository)
+        state.sidebarRootOrder.insert(contentsOf: repoItems, at: min(insertionIndex, state.sidebarRootOrder.count))
+        return persistSidebarStructure(state: state)
+
+      case .folderCollapseToggled(let id):
+        if state.collapsedFolderIDs.contains(id) {
+          state.collapsedFolderIDs.remove(id)
+        } else {
+          state.collapsedFolderIDs.insert(id)
+        }
+        let ids = Array(state.collapsedFolderIDs)
+        return .run { _ in
+          await repositoryPersistence.saveCollapsedFolderIDs(ids)
+        }
+
+      case .repositoryMovedToFolder(let repoID, let folderID, let destinationIndex):
+        moveRepository(repoID, toFolder: folderID, destinationIndex: destinationIndex, state: &state)
+        return persistSidebarStructure(state: state)
+
+      case .folderContentsReordered(let folderID, let offsets, let destination):
+        guard var folder = state.folders[id: folderID] else { return .none }
+        folder.repositoryIDs.move(fromOffsets: offsets, toOffset: destination)
+        state.folders[id: folderID] = folder
+        let folders = Array(state.folders)
+        return .run { _ in
+          await repositoryPersistence.saveSidebarFolders(folders)
+        }
+
+      case .sidebarRootReordered(let offsets, let destination):
+        withAnimation(.snappy(duration: 0.2)) {
+          state.sidebarRootOrder.move(fromOffsets: offsets, toOffset: destination)
+        }
+        let order = state.sidebarRootOrder
+        return .run { _ in
+          await repositoryPersistence.saveSidebarRootOrder(order)
+        }
+
+      case .sidebarSearchQueryChanged(let query):
+        state.sidebarSearchQuery = query
+        return .none
+
       case .pinnedWorktreesMoved(let repositoryID, let offsets, let destination):
         guard let repository = state.repositories[id: repositoryID] else { return .none }
         let currentPinned = state.orderedPinnedWorktreeIDs(in: repository)
@@ -2962,6 +3075,7 @@ struct RepositoriesFeature {
     let didPruneCollapsedRepositoryIDs = pruneCollapsedRepositoryIDs(state: &state)
     let didPruneRepositoryOrder = pruneRepositoryOrderIDs(roots: roots, state: &state)
     let didPruneWorktreeOrder = pruneWorktreeOrderByRepository(roots: roots, state: &state)
+    let didUpdateSidebarStructure = reconcileSidebarStructure(roots: roots, state: &state)
     let didPruneArchivedWorktreeIDs =
       shouldPruneArchivedWorktreeIDs
       ? pruneArchivedWorktreeIDs(availableWorktreeIDs: availableWorktreeIDs, state: &state)
@@ -2988,6 +3102,7 @@ struct RepositoriesFeature {
       didPruneRepositoryOrder: didPruneRepositoryOrder,
       didPruneWorktreeOrder: didPruneWorktreeOrder,
       didPruneArchivedWorktreeIDs: didPruneArchivedWorktreeIDs,
+      didUpdateSidebarStructure: didUpdateSidebarStructure,
     )
   }
 
@@ -3284,6 +3399,65 @@ extension RepositoriesFeature.State {
 
   func orderedRepositoryIDs() -> [Repository.ID] {
     orderedRepositoryRoots().map { $0.standardizedFileURL.path(percentEncoded: false) }
+  }
+
+  enum SidebarDisplayItem: Equatable, Hashable {
+    case repository(Repository.ID)
+    case folder(UUID, repositoryIDs: [Repository.ID])
+  }
+
+  func sidebarDisplayItems() -> [SidebarDisplayItem] {
+    guard !sidebarRootOrder.isEmpty else {
+      return repositories.map { .repository($0.id) }
+    }
+    return sidebarRootOrder.compactMap { item in
+      switch item {
+      case .repository(let id):
+        return repositories[id: id] == nil && loadFailuresByID[id] == nil ? nil : .repository(id)
+      case .folder(let id):
+        guard let folder = folders[id: id] else { return nil }
+        return .folder(id, repositoryIDs: folder.repositoryIDs)
+      }
+    }
+  }
+
+  func isFolderCollapsed(_ id: UUID) -> Bool {
+    collapsedFolderIDs.contains(id)
+  }
+
+  func folder(for id: UUID) -> SidebarFolder? {
+    folders[id: id]
+  }
+
+  func repositoryMatchesSearch(_ repository: Repository, query: String) -> Bool {
+    guard !query.isEmpty else { return true }
+    let lower = query.lowercased()
+    if repository.name.lowercased().contains(lower) { return true }
+    return repository.worktrees.contains { worktree in
+      worktreeMatches(worktree, lowerQuery: lower)
+    }
+  }
+
+  func worktreeMatches(_ worktree: Worktree, query: String) -> Bool {
+    guard !query.isEmpty else { return true }
+    return worktreeMatches(worktree, lowerQuery: query.lowercased())
+  }
+
+  private func worktreeMatches(_ worktree: Worktree, lowerQuery: String) -> Bool {
+    if worktree.name.lowercased().contains(lowerQuery) { return true }
+    if worktree.detail.lowercased().contains(lowerQuery) { return true }
+    if worktree.workingDirectory.lastPathComponent.lowercased().contains(lowerQuery) { return true }
+    return false
+  }
+
+  func folderMatchesSearch(_ folder: SidebarFolder, query: String) -> Bool {
+    guard !query.isEmpty else { return true }
+    let lower = query.lowercased()
+    if folder.name.lowercased().contains(lower) { return true }
+    return folder.repositoryIDs.contains { repoID in
+      guard let repo = repositories[id: repoID] else { return false }
+      return repositoryMatchesSearch(repo, query: query)
+    }
   }
 
   func repositoryID(for worktreeID: Worktree.ID?) -> Repository.ID? {
@@ -4088,4 +4262,113 @@ extension String {
       .sorted { $0.count > $1.count }
       .first { hasPrefix("\($0)/") }
   }
+}
+
+private func reconcileSidebarStructure(
+  roots: [URL],
+  state: inout RepositoriesFeature.State,
+) -> Bool {
+  let availableIDs = Set(
+    roots.map { $0.standardizedFileURL.path(percentEncoded: false) }
+      + state.repositories.map(\.id)
+  )
+  var didChange = false
+  var orderedRepos: [Repository.ID] = []
+  var orderedFolders: [UUID] = []
+  let seenBefore = state.sidebarRootOrder
+  var filteredRoot: [SidebarRootItemID] = []
+  for item in state.sidebarRootOrder {
+    switch item {
+    case .folder(let id):
+      guard state.folders[id: id] != nil else {
+        didChange = true
+        continue
+      }
+      guard !orderedFolders.contains(id) else {
+        didChange = true
+        continue
+      }
+      orderedFolders.append(id)
+      filteredRoot.append(item)
+    case .repository(let repoID):
+      guard availableIDs.contains(repoID) else {
+        didChange = true
+        continue
+      }
+      guard !orderedRepos.contains(repoID) else {
+        didChange = true
+        continue
+      }
+      orderedRepos.append(repoID)
+      filteredRoot.append(item)
+    }
+  }
+  var reposInFolders: Set<Repository.ID> = []
+  var folderUpdates: [(UUID, [Repository.ID])] = []
+  for folder in state.folders {
+    var pruned: [Repository.ID] = []
+    for repoID in folder.repositoryIDs where availableIDs.contains(repoID) && !reposInFolders.contains(repoID) {
+      pruned.append(repoID)
+      reposInFolders.insert(repoID)
+    }
+    if pruned != folder.repositoryIDs {
+      folderUpdates.append((folder.id, pruned))
+      didChange = true
+    }
+  }
+  for (folderID, pruned) in folderUpdates {
+    state.folders[id: folderID]?.repositoryIDs = pruned
+  }
+  let placedRepos = Set(orderedRepos).union(reposInFolders)
+  let missingRepos = state.repositories.map(\.id).filter { !placedRepos.contains($0) }
+  if !missingRepos.isEmpty {
+    filteredRoot.append(contentsOf: missingRepos.map(SidebarRootItemID.repository))
+    didChange = true
+  }
+  let missingFolderIDs = state.folders.map(\.id).filter { !orderedFolders.contains($0) }
+  if !missingFolderIDs.isEmpty {
+    filteredRoot.append(contentsOf: missingFolderIDs.map(SidebarRootItemID.folder))
+    didChange = true
+  }
+  if filteredRoot != seenBefore {
+    state.sidebarRootOrder = filteredRoot
+    didChange = true
+  }
+  return didChange
+}
+
+private func persistSidebarStructure(state: RepositoriesFeature.State) -> Effect<RepositoriesFeature.Action> {
+  @Dependency(RepositoryPersistenceClient.self) var repositoryPersistence
+  let folders = Array(state.folders)
+  let order = state.sidebarRootOrder
+  return .run { _ in
+    await repositoryPersistence.saveSidebarFolders(folders)
+    await repositoryPersistence.saveSidebarRootOrder(order)
+  }
+}
+
+private func moveRepository(
+  _ repositoryID: Repository.ID,
+  toFolder folderID: UUID?,
+  destinationIndex: Int,
+  state: inout RepositoriesFeature.State,
+) {
+  state.sidebarRootOrder.removeAll { $0 == .repository(repositoryID) }
+  for folder in state.folders {
+    guard folder.repositoryIDs.contains(repositoryID) else { continue }
+    state.folders[id: folder.id]?.repositoryIDs.removeAll { $0 == repositoryID }
+  }
+  guard let folderID else {
+    let clamped = max(0, min(destinationIndex, state.sidebarRootOrder.count))
+    state.sidebarRootOrder.insert(.repository(repositoryID), at: clamped)
+    return
+  }
+  guard var folder = state.folders[id: folderID] else {
+    let clamped = max(0, min(destinationIndex, state.sidebarRootOrder.count))
+    state.sidebarRootOrder.insert(.repository(repositoryID), at: clamped)
+    return
+  }
+  let clamped = max(0, min(destinationIndex, folder.repositoryIDs.count))
+  folder.repositoryIDs.insert(repositoryID, at: clamped)
+  state.folders[id: folderID] = folder
 }

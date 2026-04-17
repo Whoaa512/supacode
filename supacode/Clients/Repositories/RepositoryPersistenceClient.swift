@@ -16,6 +16,12 @@ struct RepositoryPersistenceClient {
   var saveWorktreeOrderByRepository: @Sendable ([Repository.ID: [Worktree.ID]]) async -> Void
   var loadLastFocusedWorktreeID: @Sendable () async -> Worktree.ID?
   var saveLastFocusedWorktreeID: @Sendable (Worktree.ID?) async -> Void
+  var loadSidebarFolders: @Sendable () async -> [SidebarFolder]
+  var saveSidebarFolders: @Sendable ([SidebarFolder]) async -> Void
+  var loadSidebarRootOrder: @Sendable () async -> [SidebarRootItemID]
+  var saveSidebarRootOrder: @Sendable ([SidebarRootItemID]) async -> Void
+  var loadCollapsedFolderIDs: @Sendable () async -> [UUID]
+  var saveCollapsedFolderIDs: @Sendable ([UUID]) async -> Void
 }
 
 extension RepositoryPersistenceClient: DependencyKey {
@@ -80,6 +86,32 @@ extension RepositoryPersistenceClient: DependencyKey {
           $0 = id
         }
       },
+      loadSidebarFolders: {
+        @Shared(.appStorage("sidebarFolders")) var folders: Data = Data()
+        return (try? JSONDecoder().decode([SidebarFolder].self, from: folders)) ?? []
+      },
+      saveSidebarFolders: { folders in
+        @Shared(.appStorage("sidebarFolders")) var sharedFolders: Data = Data()
+        let encoded = (try? JSONEncoder().encode(folders)) ?? Data()
+        $sharedFolders.withLock { $0 = encoded }
+      },
+      loadSidebarRootOrder: {
+        @Shared(.appStorage("sidebarRootOrder")) var order: Data = Data()
+        return (try? JSONDecoder().decode([SidebarRootItemID].self, from: order)) ?? []
+      },
+      saveSidebarRootOrder: { order in
+        @Shared(.appStorage("sidebarRootOrder")) var sharedOrder: Data = Data()
+        let encoded = (try? JSONEncoder().encode(order)) ?? Data()
+        $sharedOrder.withLock { $0 = encoded }
+      },
+      loadCollapsedFolderIDs: {
+        @Shared(.appStorage("collapsedFolderIDs")) var ids: [UUID] = []
+        return ids
+      },
+      saveCollapsedFolderIDs: { ids in
+        @Shared(.appStorage("collapsedFolderIDs")) var sharedIDs: [UUID] = []
+        $sharedIDs.withLock { $0 = ids }
+      },
     )
   }()
   static let testValue = RepositoryPersistenceClient(
@@ -95,6 +127,12 @@ extension RepositoryPersistenceClient: DependencyKey {
     saveWorktreeOrderByRepository: { _ in },
     loadLastFocusedWorktreeID: { nil },
     saveLastFocusedWorktreeID: { _ in },
+    loadSidebarFolders: { [] },
+    saveSidebarFolders: { _ in },
+    loadSidebarRootOrder: { [] },
+    saveSidebarRootOrder: { _ in },
+    loadCollapsedFolderIDs: { [] },
+    saveCollapsedFolderIDs: { _ in },
   )
 }
 
