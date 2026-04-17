@@ -667,6 +667,12 @@ private struct SidebarItemContextMenu: View {
         }
         .help("Rename the local branch for this worktree")
       }
+      if let singleRow = contextRows.first, !rowIsFolder, !singleRow.isMainWorktree {
+        Button("Fork Worktree", systemImage: "arrow.triangle.branch") {
+          store.send(.forkWorktree(worktreeID: worktree.id, repositoryID: repositoryID))
+        }
+        .help("Create a new worktree branching from this one")
+      }
       Divider()
       if rowIsFolder {
         // Folder rows render through SidebarItemRow, which reads customization from the per-row
