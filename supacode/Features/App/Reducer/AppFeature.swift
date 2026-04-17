@@ -822,6 +822,12 @@ struct AppFeature {
         return .send(.repositories(.createRandomWorktree))
 
       case .commandPalette(.delegate(.openRepository)):
+        return .send(.commandPalette(.enterBrowseMode(basePath: nil)))
+
+      case .commandPalette(.delegate(.browseSelectRepository(let url))):
+        return .send(.repositories(.openRepositories([url])))
+
+      case .commandPalette(.delegate(.browseOpenNativePanel)):
         return .send(.repositories(.setOpenPanelPresented(true)))
 
       case .commandPalette(.delegate(.removeWorktree(let worktreeID, let repositoryID))):

@@ -44,12 +44,33 @@ struct AppFeatureCommandPaletteTests {
     }
   }
 
-  @Test(.dependencies) func openRepositoryShowsOpenPanel() async {
+  @Test(.dependencies) func openRepositoryEntersBrowseMode() async {
+    let store = TestStore(initialState: AppFeature.State()) {
+      AppFeature()
+    }
+    store.exhaustivity = .off
+
+    await store.send(.commandPalette(.delegate(.openRepository)))
+    await store.receive(\.commandPalette.enterBrowseMode)
+  }
+
+  @Test(.dependencies) func browseSelectRepositoryOpensRepository() async {
+    let testURL = URL(fileURLWithPath: "/tmp/test-repo")
+    let store = TestStore(initialState: AppFeature.State()) {
+      AppFeature()
+    }
+    store.exhaustivity = .off
+
+    await store.send(.commandPalette(.delegate(.browseSelectRepository(testURL))))
+    await store.receive(\.repositories.openRepositories)
+  }
+
+  @Test(.dependencies) func browseOpenNativePanelShowsOpenPanel() async {
     let store = TestStore(initialState: AppFeature.State()) {
       AppFeature()
     }
 
-    await store.send(.commandPalette(.delegate(.openRepository)))
+    await store.send(.commandPalette(.delegate(.browseOpenNativePanel)))
     await store.receive(\.repositories.setOpenPanelPresented) {
       $0.repositories.isOpenPanelPresented = true
     }
