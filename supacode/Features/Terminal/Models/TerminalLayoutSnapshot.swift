@@ -53,4 +53,25 @@ extension TerminalLayoutSnapshot.LayoutNode {
       return split.left.leafCount + split.right.leafCount
     }
   }
+
+  /// Collects all surface IDs in the subtree.
+  func collectSurfaceIDs(into ids: inout Set<UUID>) {
+    switch self {
+    case .leaf(let surface):
+      if let id = surface.id { ids.insert(id) }
+    case .split(let split):
+      split.left.collectSurfaceIDs(into: &ids)
+      split.right.collectSurfaceIDs(into: &ids)
+    }
+  }
+}
+
+extension TerminalLayoutSnapshot {
+  var allSurfaceIDs: Set<UUID> {
+    var ids: Set<UUID> = []
+    for tab in tabs {
+      tab.layout.collectSurfaceIDs(into: &ids)
+    }
+    return ids
+  }
 }
