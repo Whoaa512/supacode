@@ -200,7 +200,7 @@ private struct WorktreeFileMenu: Commands {
     CommandGroup(replacing: .newItem) {
       Menu("Add Repository or Folder", systemImage: "folder.badge.plus") {
         Button("Add Local Repository or Folder...", systemImage: "laptopcomputer") {
-          store.send(.repositories(.setOpenPanelPresented(true)))
+          store.send(.commandPalette(.enterBrowseMode(basePath: nil)))
         }
         .appKeyboardShortcut(openRepo)
         .help("Add a local repository or folder (\(openRepo?.display ?? "none"))")
