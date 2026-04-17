@@ -11,15 +11,23 @@ struct WorktreeCreationPromptFeature {
     let baseRefOptions: [String]
     var branchName: String
     var selectedBaseRef: String?
+    var baseRefSearchText = ""
     var fetchOrigin: Bool
     var validationMessage: String?
     var isValidating = false
+
+    var filteredBaseRefOptions: [String] {
+      let query = baseRefSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !query.isEmpty else { return baseRefOptions }
+      return baseRefOptions.filter { $0.localizedCaseInsensitiveContains(query) }
+    }
   }
 
   enum Action: BindableAction, Equatable {
     case binding(BindingAction<State>)
     case cancelButtonTapped
     case createButtonTapped
+    case baseRefSelected(String?)
     case setValidationMessage(String?)
     case setValidating(Bool)
     case delegate(Delegate)
@@ -37,6 +45,11 @@ struct WorktreeCreationPromptFeature {
       switch action {
       case .binding:
         state.validationMessage = nil
+        return .none
+
+      case .baseRefSelected(let ref):
+        state.selectedBaseRef = ref
+        state.baseRefSearchText = ref ?? ""
         return .none
 
       case .cancelButtonTapped:
