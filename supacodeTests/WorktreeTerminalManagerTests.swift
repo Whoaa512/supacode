@@ -117,7 +117,7 @@ struct WorktreeTerminalManagerTests {
       return
     }
 
-    server.onBusy?(encodedID, tabId.rawValue, surface.id, true)
+    server.onBusy?(encodedID, tabId.rawValue, surface.id, .busy)
 
     #expect(manager.taskStatus(for: worktree.id) == .running)
   }
