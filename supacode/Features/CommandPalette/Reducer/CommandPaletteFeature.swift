@@ -78,6 +78,7 @@ struct CommandPaletteFeature {
     case checkForUpdates
     case openSettings
     case newWorktree
+    case forkWorktree(Worktree.ID, Repository.ID)
     case openRepository
     case addRemoteRepository
     case removeWorktree(Worktree.ID, Repository.ID)
@@ -445,7 +446,23 @@ struct CommandPaletteFeature {
       items.append(renameBranchItem)
     }
     // Worktree navigation is the ⌘P switcher's job (see `worktreeSwitcherItems`);
-    // the ⌘⇧P command palette lists actions only, not worktree rows.
+    // the ⌘⇧P command palette lists actions only, not worktree rows. Fork
+    // worktree remains an action, so it stays here.
+    for row in repositories.orderedSidebarItems() {
+      guard row.lifecycle == .idle, !row.isMainWorktree else { continue }
+      let repositoryName = Repository.sidebarDisplayName(
+        custom: repositories.sidebar.sections[row.repositoryID]?.title,
+        fallback: repositories.repositoryName(for: row.repositoryID) ?? "Repository"
+      )
+      items.append(
+        CommandPaletteItem(
+          id: CommandPaletteItemID.forkWorktree(row.id),
+          title: "Fork Worktree: \(row.name)",
+          subtitle: repositoryName,
+          kind: .forkWorktree(row.id, row.repositoryID),
+        )
+      )
+    }
     return items
   }
 
@@ -808,6 +825,10 @@ private enum CommandPaletteItemID {
     "worktree.\(worktreeID).rename-branch"
   }
 
+  static func forkWorktree(_ worktreeID: Worktree.ID) -> CommandPaletteItem.ID {
+    "worktree.\(worktreeID).fork"
+  }
+
   static func ghosttyCommand(_ command: GhosttyCommand) -> CommandPaletteItem.ID {
     "\(ghosttyPrefix)\(command.action)|\(command.title)"
   }
@@ -908,6 +929,8 @@ private func delegateAction(for kind: CommandPaletteItem.Kind) -> CommandPalette
     return .openSettings
   case .newWorktree:
     return .newWorktree
+  case .forkWorktree(let worktreeID, let repositoryID):
+    return .forkWorktree(worktreeID, repositoryID)
   case .openRepository:
     return .openRepository
   case .addRemoteRepository:
@@ -979,6 +1002,7 @@ private func pullRequestDelegateAction(
     .checkForUpdates,
     .openSettings,
     .newWorktree,
+    .forkWorktree,
     .openRepository,
     .addRemoteRepository,
     .removeWorktree,
