@@ -84,6 +84,9 @@ final class WorktreeTerminalState {
   var onBlockingScriptCompleted: ((BlockingScriptKind, Int?, TerminalTabID?) -> Void)?
   var onCommandPaletteToggle: (() -> Void)?
   var onSetupScriptConsumed: (() -> Void)?
+  /// Fires when the persisted layout shape may have changed (tab add/close,
+  /// split add/remove/resize/zoom, tab selection, focus change).
+  var onLayoutDidChange: (() -> Void)?
 
   init(
     runtime: GhosttyRuntime,
@@ -143,7 +146,6 @@ final class WorktreeTerminalState {
     if let snapshot = pendingLayoutSnapshot {
       pendingLayoutSnapshot = nil
       restoreFromSnapshot(snapshot, focusing: focusing)
-      Self.cleanupScrollbackFiles()
       isEnsuringInitialTab = false
       return
     }
@@ -337,6 +339,7 @@ final class WorktreeTerminalState {
       focusSurface(surface, in: tabId)
     }
     onTabCreated?()
+    onLayoutDidChange?()
     return tabId
   }
 
@@ -383,6 +386,7 @@ final class WorktreeTerminalState {
     tabManager.selectTab(tabId)
     focusSurface(in: tabId)
     emitTaskStatusIfChanged()
+    onLayoutDidChange?()
   }
 
   /// Re-evaluate task status and tab dirty flags for a surface whose
@@ -551,6 +555,7 @@ final class WorktreeTerminalState {
       onBlockingScriptCompleted?(closedBlockingKind, nil, nil)
     }
     onTabClosed?()
+    onLayoutDidChange?()
   }
 
   func closeOtherTabs(keeping tabId: TerminalTabID) {
@@ -1017,7 +1022,9 @@ final class WorktreeTerminalState {
     return path
   }
 
-  static func cleanupScrollbackFiles() {
+  /// Removes scrollback files whose surface UUID is not in `knownSurfaceIDs`.
+  /// Pass an empty set to remove everything.
+  static func pruneScrollbackFiles(keeping knownSurfaceIDs: Set<UUID>) {
     let dir = SupacodePaths.scrollbackDirectory
     guard
       let items = try? FileManager.default.contentsOfDirectory(
@@ -1025,6 +1032,11 @@ final class WorktreeTerminalState {
       )
     else { return }
     for item in items {
+      guard item.pathExtension == "vt" else { continue }
+      let filename = item.deletingPathExtension().lastPathComponent
+      if let id = UUID(uuidString: filename), knownSurfaceIDs.contains(id) {
+        continue
+      }
       try? FileManager.default.removeItem(at: item)
     }
   }
@@ -1480,6 +1492,7 @@ final class WorktreeTerminalState {
   private func updateTree(_ tree: SplitTree<GhosttySurfaceView>, for tabId: TerminalTabID) {
     trees[tabId] = tree
     syncFocusIfNeeded()
+    onLayoutDidChange?()
   }
 
   private func isRunningProgressState(_ state: ghostty_action_progress_report_state_e?) -> Bool {
