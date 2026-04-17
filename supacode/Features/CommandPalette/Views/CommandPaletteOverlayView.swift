@@ -31,29 +31,36 @@ struct CommandPaletteOverlayView: View {
                 - CommandPaletteCard.padding,
             )
             VStack {
-              CommandPaletteCard(
-                query: $store.query,
-                selectedIndex: $store.selectedIndex,
-                items: filteredItems,
-                hoveredID: $hoveredID,
-                isQueryFocused: _isQueryFocused,
-                onEvent: { event in
-                  switch event {
-                  case .exit:
-                    store.send(.setPresented(false))
-                  case .submit:
-                    submitSelected(rows: filteredItems)
-                  case .move(let direction):
-                    moveSelection(direction, rows: filteredItems)
-                  }
-                },
-                activate: { id in
-                  activate(id, rows: filteredItems)
-                },
-              )
-              .zIndex(1)
-              .task {
-                isQueryFocused = store.isPresented
+              switch store.mode {
+              case .search:
+                CommandPaletteCard(
+                  query: $store.query,
+                  selectedIndex: $store.selectedIndex,
+                  items: filteredItems,
+                  hoveredID: $hoveredID,
+                  isQueryFocused: _isQueryFocused,
+                  onEvent: { event in
+                    switch event {
+                    case .exit:
+                      store.send(.setPresented(false))
+                    case .submit:
+                      submitSelected(rows: filteredItems)
+                    case .move(let direction):
+                      moveSelection(direction, rows: filteredItems)
+                    }
+                  },
+                  activate: { id in
+                    activate(id, rows: filteredItems)
+                  },
+                )
+                .zIndex(1)
+                .task {
+                  isQueryFocused = store.isPresented
+                }
+
+              case .browse:
+                CommandPaletteBrowseView(store: store)
+                  .zIndex(1)
               }
 
               Spacer(minLength: 0)
@@ -70,10 +77,10 @@ struct CommandPaletteOverlayView: View {
     }
     .onChange(of: store.isPresented) { _, newValue in
       isQueryFocused = newValue
-      if newValue {
+      if newValue, store.mode == .search {
         let updatedItems = refreshFilteredItems(items: items)
         updateSelection(rows: updatedItems)
-      } else {
+      } else if !newValue {
         hoveredID = nil
       }
     }
