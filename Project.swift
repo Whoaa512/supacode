@@ -230,9 +230,11 @@ let project = Project(
         ],
         debug: [
           "CODE_SIGN_ENTITLEMENTS": "supacode/supacodeDebug.entitlements",
+          "SUPACODE_DISPLAY_NAME": "Supacode Dev",
         ],
         release: [
           "CODE_SIGN_ENTITLEMENTS": "supacode/supacode.entitlements",
+          "SUPACODE_DISPLAY_NAME": "Supacode",
         ],
         defaultSettings: .essential
       )
