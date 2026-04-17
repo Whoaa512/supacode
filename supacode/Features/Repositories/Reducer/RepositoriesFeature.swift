@@ -281,6 +281,7 @@ struct RepositoriesFeature {
     case consumePendingSidebarReveal(Int)
     case createRandomWorktree
     case createRandomWorktreeInRepository(Repository.ID)
+    case forkWorktree(worktreeID: Worktree.ID, repositoryID: Repository.ID)
     case createWorktreeInRepository(
       repositoryID: Repository.ID,
       nameSource: WorktreeCreationNameSource,
@@ -913,6 +914,39 @@ struct RepositoriesFeature {
           }
           await send(
             .promptedWorktreeBranchesLoaded(repositoryID: repositoryID, inventory: inventory)
+          )
+        }
+        .cancellable(id: CancelID.worktreePromptLoad, cancelInFlight: true)
+
+      case .forkWorktree(let worktreeID, let repositoryID):
+        guard let repository = state.repositories[id: repositoryID],
+          let worktree = repository.worktrees.first(where: { $0.id == worktreeID })
+        else {
+          return .none
+        }
+        let sourceBranch = worktree.name
+        let gitClient = gitClient
+        let rootURL = repository.rootURL
+        return .run { send in
+          let automaticBaseRef = sourceBranch
+          let baseRefOptions: [String]
+          do {
+            var refs = try await gitClient.branchRefs(rootURL)
+            if !refs.contains(sourceBranch) {
+              refs.append(sourceBranch)
+            }
+            baseRefOptions = refs.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+          } catch {
+            baseRefOptions = [sourceBranch]
+          }
+          guard !Task.isCancelled else { return }
+          await send(
+            .promptedWorktreeCreationDataLoaded(
+              repositoryID: repositoryID,
+              baseRefOptions: baseRefOptions,
+              automaticBaseRef: automaticBaseRef,
+              selectedBaseRef: sourceBranch,
+            )
           )
         }
         .cancellable(id: CancelID.worktreePromptLoad, cancelInFlight: true)
