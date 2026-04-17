@@ -10,7 +10,6 @@ struct SidebarListView: View {
     let state = store.state
     let expandedRepoIDs = state.expandedRepositoryIDs
     let hotkeyRows = state.orderedWorktreeRows(includingRepositoryIDs: expandedRepoIDs)
-    let orderedRoots = state.orderedRepositoryRoots()
     let selectedWorktreeIDs = state.sidebarSelectedWorktreeIDs
     let currentSelections = state.sidebarSelections
     let selection = Binding<Set<SidebarSelection>>(
@@ -22,41 +21,55 @@ struct SidebarListView: View {
     )
     let repositoriesByID = Dictionary(uniqueKeysWithValues: store.repositories.map { ($0.id, $0) })
     let pendingSidebarReveal = state.pendingSidebarReveal
+    let displayItems = state.sidebarDisplayItems()
+    let searchQuery = state.sidebarSearchQuery
 
     return ScrollViewReader { scrollProxy in
       List(selection: selection) {
         if !state.isInitialLoadComplete, store.repositories.isEmpty {
           SidebarPlaceholderView()
-        } else if orderedRoots.isEmpty {
-          ForEach(store.repositories) { repository in
-            SidebarRepositorySectionView(
-              repository: repository,
-              hotkeyRows: hotkeyRows,
-              selectedWorktreeIDs: selectedWorktreeIDs,
-              store: store,
-              terminalManager: terminalManager,
-            )
-          }
         } else {
-          ForEach(sidebarRootRows(from: orderedRoots), id: \.repositoryID) { row in
-            if let failureMessage = state.loadFailuresByID[row.repositoryID] {
-              SidebarFailedRepositoryRow(
-                rootURL: row.rootURL,
-                failureMessage: failureMessage,
-                store: store,
-              )
-            } else if let repository = repositoriesByID[row.repositoryID] {
-              SidebarRepositorySectionView(
-                repository: repository,
-                hotkeyRows: hotkeyRows,
-                selectedWorktreeIDs: selectedWorktreeIDs,
-                store: store,
-                terminalManager: terminalManager,
-              )
+          ForEach(Array(displayItems.enumerated()), id: \.element) { _, item in
+            switch item {
+            case .repository(let repositoryID):
+              if let failureMessage = state.loadFailuresByID[repositoryID] {
+                SidebarFailedRepositoryRow(
+                  rootURL: URL(fileURLWithPath: repositoryID),
+                  failureMessage: failureMessage,
+                  store: store,
+                )
+              } else if let repository = repositoriesByID[repositoryID], repositoryPassesFilter(repository, query: searchQuery, state: state) {
+                SidebarRepositorySectionView(
+                  repository: repository,
+                  hotkeyRows: hotkeyRows,
+                  selectedWorktreeIDs: selectedWorktreeIDs,
+                  store: store,
+                  terminalManager: terminalManager,
+                )
+              }
+            case .folder(let folderID, let repositoryIDs):
+              if let folder = state.folder(for: folderID),
+                state.folderMatchesSearch(folder, query: searchQuery)
+              {
+                let visibleRepoIDs = filteredFolderRepositoryIDs(
+                  repositoryIDs,
+                  query: searchQuery,
+                  state: state,
+                )
+                SidebarFolderSectionView(
+                  folderID: folderID,
+                  folderName: folder.name,
+                  repositoryIDs: visibleRepoIDs,
+                  hotkeyRows: hotkeyRows,
+                  selectedWorktreeIDs: selectedWorktreeIDs,
+                  store: store,
+                  terminalManager: terminalManager,
+                )
+              }
             }
           }
           .onMove { offsets, destination in
-            store.send(.repositoriesMoved(offsets, destination))
+            store.send(.sidebarRootReordered(offsets, destination))
           }
         }
       }
@@ -92,14 +105,23 @@ struct SidebarListView: View {
     }
   }
 
-  private func sidebarRootRows(
-    from orderedRoots: [URL]
-  ) -> [(rootURL: URL, repositoryID: Repository.ID)] {
-    orderedRoots.map { rootURL in
-      (
-        rootURL: rootURL,
-        repositoryID: rootURL.standardizedFileURL.path(percentEncoded: false),
-      )
+  private func repositoryPassesFilter(
+    _ repository: Repository,
+    query: String,
+    state: RepositoriesFeature.State,
+  ) -> Bool {
+    state.repositoryMatchesSearch(repository, query: query)
+  }
+
+  private func filteredFolderRepositoryIDs(
+    _ repositoryIDs: [Repository.ID],
+    query: String,
+    state: RepositoriesFeature.State,
+  ) -> [Repository.ID] {
+    guard !query.isEmpty else { return repositoryIDs }
+    return repositoryIDs.filter { repoID in
+      guard let repo = state.repositories[id: repoID] else { return false }
+      return state.repositoryMatchesSearch(repo, query: query)
     }
   }
 
@@ -141,6 +163,10 @@ private struct SidebarRepositorySectionView: View {
         name: repository.name,
         isRemoving: isRemovingRepository,
       )
+      .draggable(RepositoryIDTransferable(id: repository.id))
+      .contextMenu {
+        SidebarRepositoryMoveMenu(repositoryID: repository.id, store: store)
+      }
     }
     .sectionActions {
       SidebarRepositorySectionActionsView(
