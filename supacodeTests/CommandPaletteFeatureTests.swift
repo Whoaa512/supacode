@@ -1024,19 +1024,29 @@ struct CommandPaletteFeatureTests {
       subtitle: nil,
       kind: .openRepository
     )
+    let homePath = FileManager.default.homeDirectoryForCurrentUser
     let store = TestStore(initialState: state) {
       CommandPaletteFeature()
+    } withDependencies: {
+      $0.fileSystemBrowseClient.listDirectory = { _ in [] }
     }
     let now = Date(timeIntervalSince1970: 1_234_567)
     store.dependencies.date = .constant(now)
 
     await store.send(.activateItem(item)) {
-      $0.isPresented = false
+      $0.mode = .browse
       $0.query = ""
       $0.selectedIndex = nil
       $0.recencyByItemID[item.id] = now.timeIntervalSince1970
+      $0.browse = CommandPaletteFeature.BrowseState(currentPath: homePath)
     }
-    await store.receive(.delegate(.openRepository))
+    await store.receive(.browseLoadDirectory(homePath)) {
+      $0.browse.isLoading = true
+    }
+    await store.receive(.browseDirectoryLoaded([])) {
+      $0.browse.isLoading = false
+      $0.browse.selectedIndex = nil
+    }
   }
 
   @Test func activateGhosttyCommandDispatchesDelegate() async {
