@@ -198,7 +198,7 @@ private struct WorktreeFileMenu: Commands {
     let confirm = AppShortcuts.confirmWorktreeAction.effective(from: overrides)
     CommandGroup(replacing: .newItem) {
       Button("Add Local Repository or Folder...", systemImage: "folder.badge.plus") {
-        store.send(.repositories(.setOpenPanelPresented(true)))
+        store.send(.commandPalette(.enterBrowseMode(basePath: nil)))
       }
       .appKeyboardShortcut(openRepo)
       .help("Add a local repository or folder (\(openRepo?.display ?? "none"))")

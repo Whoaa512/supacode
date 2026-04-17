@@ -6,12 +6,30 @@ import SupacodeSettingsShared
 
 @Reducer
 struct CommandPaletteFeature {
+  enum Mode: Equatable {
+    case search
+    case browse
+  }
+
+  @ObservableState
+  struct BrowseState: Equatable {
+    var currentPath: URL = FileManager.default.homeDirectoryForCurrentUser
+    var entries: [DirectoryEntry] = []
+    var filteredEntries: [DirectoryEntry] = []
+    var filterQuery = ""
+    var selectedIndex: Int?
+    var isLoading = false
+    var pathHistory: [URL] = []
+  }
+
   @ObservableState
   struct State: Equatable {
     var isPresented = false
+    var mode: Mode = .search
     var query = ""
     var selectedIndex: Int?
     var recencyByItemID: [CommandPaletteItem.ID: TimeInterval] = [:]
+    var browse = BrowseState()
   }
 
   enum SelectionMove: Equatable {
@@ -28,6 +46,16 @@ struct CommandPaletteFeature {
     case resetSelection(itemsCount: Int)
     case moveSelection(SelectionMove, itemsCount: Int)
     case pruneRecency([CommandPaletteItem.ID])
+    case enterBrowseMode(basePath: URL?)
+    case browseLoadDirectory(URL)
+    case browseDirectoryLoaded([DirectoryEntry])
+    case browseNavigate(DirectoryEntry)
+    case browseNavigateUp
+    case browseFilterChanged(String)
+    case browseSubmit
+    case browseMoveSelection(SelectionMove)
+    case browseSelectRepository(URL)
+    case browseOpenNativePanel
     case delegate(Delegate)
   }
 
@@ -55,12 +83,15 @@ struct CommandPaletteFeature {
     case openFailingCheckDetails(Worktree.ID)
     case runScript(ScriptDefinition)
     case stopScript(UUID, name: String)
+    case browseSelectRepository(URL)
+    case browseOpenNativePanel
     #if DEBUG
       case debugTestToast(RepositoriesFeature.StatusToast)
     #endif
   }
 
   @Dependency(\.date.now) private var now
+  @Dependency(\.fileSystemBrowseClient) private var fileSystemBrowseClient
 
   var body: some Reducer<State, Action> {
     BindingReducer()
@@ -77,6 +108,8 @@ struct CommandPaletteFeature {
         } else {
           state.query = ""
           state.selectedIndex = nil
+          state.mode = .search
+          state.browse = BrowseState()
         }
         return .none
 
@@ -88,6 +121,8 @@ struct CommandPaletteFeature {
         } else {
           state.query = ""
           state.selectedIndex = nil
+          state.mode = .search
+          state.browse = BrowseState()
         }
         return .none
 
@@ -145,10 +180,117 @@ struct CommandPaletteFeature {
         saveRecency(pruned)
         return .none
 
+      // MARK: - Browse mode
+
+      case .enterBrowseMode(let basePath):
+        let path = basePath ?? FileManager.default.homeDirectoryForCurrentUser
+        state.isPresented = true
+        state.mode = .browse
+        state.query = ""
+        state.browse = BrowseState(currentPath: path)
+        return .send(.browseLoadDirectory(path))
+
+      case .browseLoadDirectory(let url):
+        state.browse.isLoading = true
+        state.browse.currentPath = url
+        state.browse.filterQuery = ""
+        return .run { send in
+          let entries = try await fileSystemBrowseClient.listDirectory(url)
+          await send(.browseDirectoryLoaded(entries))
+        } catch: { _, send in
+          await send(.browseDirectoryLoaded([]))
+        }
+        .cancellable(id: CancelID.browseLoad, cancelInFlight: true)
+
+      case .browseDirectoryLoaded(let entries):
+        state.browse.isLoading = false
+        state.browse.entries = entries
+        state.browse.filteredEntries = entries
+        state.browse.selectedIndex = entries.isEmpty ? nil : 0
+        return .none
+
+      case .browseNavigate(let entry):
+        let url = URL(fileURLWithPath: entry.fullPath)
+        if entry.isGitRepo {
+          state.isPresented = false
+          state.mode = .search
+          state.browse = BrowseState()
+          return .send(.delegate(.browseSelectRepository(url)))
+        }
+        state.browse.pathHistory.append(state.browse.currentPath)
+        return .send(.browseLoadDirectory(url))
+
+      case .browseNavigateUp:
+        guard let parent = state.browse.pathHistory.popLast() else {
+          let parent = state.browse.currentPath.deletingLastPathComponent()
+          guard parent != state.browse.currentPath else { return .none }
+          return .send(.browseLoadDirectory(parent))
+        }
+        return .send(.browseLoadDirectory(parent))
+
+      case .browseFilterChanged(let query):
+        state.browse.filterQuery = query
+        if query.isEmpty {
+          state.browse.filteredEntries = state.browse.entries
+        } else {
+          let lowered = query.lowercased()
+          state.browse.filteredEntries = state.browse.entries.filter {
+            $0.name.lowercased().contains(lowered)
+          }
+        }
+        state.browse.selectedIndex = state.browse.filteredEntries.isEmpty ? nil : 0
+        return .none
+
+      case .browseSubmit:
+        guard let index = state.browse.selectedIndex,
+          state.browse.filteredEntries.indices.contains(index)
+        else { return .none }
+        let entry = state.browse.filteredEntries[index]
+        return .send(.browseNavigate(entry))
+
+      case .browseMoveSelection(let direction):
+        let count = state.browse.filteredEntries.count
+        guard count > 0 else {
+          state.browse.selectedIndex = nil
+          return .none
+        }
+        let maxIndex = count - 1
+        switch direction {
+        case .upSelection:
+          if let idx = state.browse.selectedIndex {
+            state.browse.selectedIndex = idx == 0 ? maxIndex : idx - 1
+          } else {
+            state.browse.selectedIndex = maxIndex
+          }
+        case .downSelection:
+          if let idx = state.browse.selectedIndex {
+            state.browse.selectedIndex = idx == maxIndex ? 0 : idx + 1
+          } else {
+            state.browse.selectedIndex = 0
+          }
+        }
+        return .none
+
+      case .browseSelectRepository(let url):
+        state.isPresented = false
+        state.mode = .search
+        state.browse = BrowseState()
+        return .send(.delegate(.browseSelectRepository(url)))
+
+      case .browseOpenNativePanel:
+        state.isPresented = false
+        state.mode = .search
+        state.browse = BrowseState()
+        return .send(.delegate(.browseOpenNativePanel))
+
       case .delegate:
         return .none
       }
     }
+  }
+
+  private nonisolated enum CancelID: Hashable, Sendable {
+    case browseLoad
   }
 
   static func filterItems(
