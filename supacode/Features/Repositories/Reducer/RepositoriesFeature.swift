@@ -285,6 +285,7 @@ struct RepositoriesFeature {
     /// one `.remoteRepositoryResolved` per repo as each finishes.
     case resolveRemoteRepositories
     case remoteRepositoryResolved(repositoryID: Repository.ID, repository: Repository, failureMessage: String?)
+    case requestOpenRepository
     case loadPersistedRepositories
     case refreshWorktrees
     case reloadRepositories(animated: Bool)
@@ -2990,6 +2991,9 @@ struct RepositoriesFeature {
         // silently restore the old title/color, matching the other removal paths.
         state.$sidebar.withLock { _ = $0.sections.removeValue(forKey: repositoryID) }
         return .send(.loadPersistedRepositories)
+
+      case .requestOpenRepository:
+        return .none
 
       case .loadPersistedRepositories:
         state.alert = nil
