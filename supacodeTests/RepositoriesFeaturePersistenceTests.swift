@@ -46,6 +46,12 @@ struct RepositoriesFeaturePersistenceTests {
           return nil
         },
         saveLastFocusedWorktreeID: { _ in },
+        loadSidebarFolders: { [] },
+        saveSidebarFolders: { _ in },
+        loadSidebarRootOrder: { [] },
+        saveSidebarRootOrder: { _ in },
+        loadCollapsedFolderIDs: { [] },
+        saveCollapsedFolderIDs: { _ in },
       )
     }
 

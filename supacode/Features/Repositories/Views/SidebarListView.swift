@@ -38,7 +38,9 @@ struct SidebarListView: View {
                   failureMessage: failureMessage,
                   store: store,
                 )
-              } else if let repository = repositoriesByID[repositoryID], repositoryPassesFilter(repository, query: searchQuery, state: state) {
+              } else if let repository = repositoriesByID[repositoryID],
+                repositoryPassesFilter(repository, query: searchQuery, state: state)
+              {
                 SidebarRepositorySectionView(
                   repository: repository,
                   hotkeyRows: hotkeyRows,

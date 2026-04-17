@@ -75,6 +75,7 @@ private struct SidebarFolderHeaderView: View {
     HStack(spacing: 6) {
       Image(systemName: "folder.fill")
         .foregroundStyle(.secondary)
+        .accessibilityHidden(true)
       if isRenaming {
         TextField("Folder name", text: $draftName)
           .textFieldStyle(.roundedBorder)

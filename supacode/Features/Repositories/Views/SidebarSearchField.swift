@@ -15,6 +15,7 @@ struct SidebarSearchField: View {
     HStack(spacing: 6) {
       Image(systemName: "magnifyingglass")
         .foregroundStyle(.secondary)
+        .accessibilityHidden(true)
       TextField(
         "Search repositories",
         text: Binding(
