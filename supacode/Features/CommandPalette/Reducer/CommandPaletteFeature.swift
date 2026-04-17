@@ -150,10 +150,18 @@ struct CommandPaletteFeature {
         return .none
 
       case .activateItem(let item):
-        state.isPresented = false
-        state.resetForDismiss()
         state.recencyByItemID[item.id] = now.timeIntervalSince1970
         saveRecency(state.recencyByItemID)
+        if item.kind == .openRepository {
+          let path = FileManager.default.homeDirectoryForCurrentUser
+          state.mode = .browse
+          state.query = ""
+          state.selectedIndex = nil
+          state.browse = BrowseState(currentPath: path)
+          return .send(.browseLoadDirectory(path))
+        }
+        state.isPresented = false
+        state.resetForDismiss()
         // No `.dismissedWithoutSelection` here: every activation delegate
         // resolves to a destination that owns its own focus transition.
         return .send(.delegate(delegateAction(for: item.kind)))
