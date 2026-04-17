@@ -249,6 +249,7 @@ struct RepositoriesFeature {
     /// the view reads to assign ⌃1..⌃0 hotkeys).
     case sidebarNestByBranchChanged
     case setOpenPanelPresented(Bool)
+    case requestOpenRepository
     case loadPersistedRepositories
     case refreshWorktrees
     case reloadRepositories(animated: Bool)
@@ -511,6 +512,9 @@ struct RepositoriesFeature {
 
       case .setOpenPanelPresented(let isPresented):
         state.isOpenPanelPresented = isPresented
+        return .none
+
+      case .requestOpenRepository:
         return .none
 
       case .loadPersistedRepositories:
