@@ -130,6 +130,7 @@ struct RepositoriesFeature {
   enum Action {
     case task
     case setOpenPanelPresented(Bool)
+    case requestOpenRepository
     case loadPersistedRepositories
     case pinnedWorktreeIDsLoaded([Worktree.ID])
     case archivedWorktreeDatesLoaded([Worktree.ID: Date])
@@ -367,6 +368,9 @@ struct RepositoriesFeature {
 
       case .setOpenPanelPresented(let isPresented):
         state.isOpenPanelPresented = isPresented
+        return .none
+
+      case .requestOpenRepository:
         return .none
 
       case .loadPersistedRepositories:

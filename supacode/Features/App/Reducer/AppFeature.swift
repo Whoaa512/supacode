@@ -712,6 +712,9 @@ struct AppFeature {
         state.pendingDeeplinks.removeAll()
         return .merge(pending.map { .send(.deeplink($0)) })
 
+      case .repositories(.requestOpenRepository):
+        return .send(.commandPalette(.enterBrowseMode(basePath: nil)))
+
       case .repositories:
         return .none
 

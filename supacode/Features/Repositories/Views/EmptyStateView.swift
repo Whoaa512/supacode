@@ -22,7 +22,7 @@ struct EmptyStateView: View {
       .font(.subheadline)
       .foregroundStyle(.secondary)
       Button("Open Repository...") {
-        store.send(.setOpenPanelPresented(true))
+        store.send(.requestOpenRepository)
       }
       .appKeyboardShortcut(openRepo)
       .help("Open Repository (\(openRepo?.display ?? "none"))")

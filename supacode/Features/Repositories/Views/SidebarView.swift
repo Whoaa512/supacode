@@ -24,7 +24,7 @@ struct SidebarView: View {
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
         Button {
-          store.send(.setOpenPanelPresented(true))
+          store.send(.requestOpenRepository)
         } label: {
           Image(systemName: "folder.badge.plus")
             .offset(y: -1)
