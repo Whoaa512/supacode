@@ -26,6 +26,10 @@ public struct WorktreeSettingsView: View {
           Text("Fetch remote branch before creating worktree")
           Text("Runs git fetch to ensure the base branch is up to date.")
         }
+        Toggle(isOn: $store.autoSelectNewlyOpenedRepository) {
+          Text("Jump to newly opened repositories")
+          Text("Select the first worktree of a repository right after you add it.")
+        }
         TextField(
           text: $store.defaultWorktreeBaseDirectoryPath,
           prompt: Text(defaultPath)
