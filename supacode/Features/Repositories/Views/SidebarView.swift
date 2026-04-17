@@ -24,7 +24,7 @@ struct SidebarView: View {
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
         Button {
-          store.send(.setOpenPanelPresented(true))
+          store.send(.requestOpenRepository)
         } label: {
           Label {
             Text("Add…")
