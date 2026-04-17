@@ -319,6 +319,7 @@ struct CommandPaletteFeature {
     ghosttyCommands: [GhosttyCommand] = [],
     scripts: [ScriptDefinition] = [],
     runningScriptIDs: Set<UUID> = [],
+    waitingForInputWorktreeIDs: Set<Worktree.ID> = [],
   ) -> [CommandPaletteItem] {
     var items: [CommandPaletteItem] = [
       {
@@ -391,12 +392,14 @@ struct CommandPaletteFeature {
       guard row.status == .idle else { continue }
       let repositoryName = repositories.repositoryName(for: row.repositoryID) ?? "Repository"
       let title = "\(repositoryName) / \(row.name)"
+      let isWaitingForInput = waitingForInputWorktreeIDs.contains(row.id)
       items.append(
         CommandPaletteItem(
           id: CommandPaletteItemID.worktreeSelect(row.id),
           title: title,
           subtitle: nil,
           kind: .worktreeSelect(row.id),
+          priorityTier: isWaitingForInput ? 0 : CommandPaletteItem.defaultPriorityTier,
         )
       )
     }

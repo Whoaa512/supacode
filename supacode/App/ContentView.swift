@@ -86,6 +86,7 @@ struct ContentView: View {
           ghosttyCommands: ghosttyShortcuts.commandPaletteEntries,
           scripts: store.scripts,
           runningScriptIDs: store.runningScriptIDs,
+          waitingForInputWorktreeIDs: terminalManager.waitingForInputWorktreeIDs(),
         ),
       )
     }
