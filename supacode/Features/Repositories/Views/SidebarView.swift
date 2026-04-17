@@ -17,20 +17,35 @@ struct SidebarView: View {
     let deleteWorktreeAction = makeDeleteWorktreeAction(rows: effectiveSelectedRows)
     let openRepo = AppShortcuts.openRepository.effective(from: settingsFile.global.shortcutOverrides)
 
-    return SidebarListView(
-      store: store,
-      terminalManager: terminalManager,
-    )
+    return VStack(spacing: 0) {
+      SidebarSearchField(store: store)
+      SidebarListView(
+        store: store,
+        terminalManager: terminalManager,
+      )
+    }
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
-        Button {
-          store.send(.requestOpenRepository)
+        Menu {
+          Button {
+            store.send(.requestOpenRepository)
+          } label: {
+            Label("Add Repository", systemImage: "folder.badge.plus")
+          }
+          .help("Add Repository (\(openRepo?.display ?? "none"))")
+          Button {
+            store.send(.folderCreated(name: "New Folder"))
+          } label: {
+            Label("New Folder", systemImage: "folder.badge.plus")
+          }
+          .help("New Folder")
         } label: {
-          Image(systemName: "folder.badge.plus")
+          Image(systemName: "plus")
             .offset(y: -1)
-            .accessibilityLabel("Add Repository")
+            .accessibilityLabel("Add")
         }
-        .help("Add Repository (\(openRepo?.display ?? "none"))")
+        .menuIndicator(.hidden)
+        .help("Add Repository or Folder")
       }
     }
     .focusedSceneValue(\.confirmWorktreeAction, confirmWorktreeAction)
