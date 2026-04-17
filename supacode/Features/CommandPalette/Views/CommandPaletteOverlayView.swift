@@ -15,26 +15,33 @@ struct CommandPaletteOverlayView: View {
     // The card fills the glass panel edge to edge; positioning, the material
     // background, corner rounding, and click-away dismissal are all owned by
     // `CommandPalettePanel`, not this view.
-    CommandPaletteCard(
-      query: $store.query,
-      selectedIndex: $store.selectedIndex,
-      items: filteredItems,
-      hoveredID: $hoveredID,
-      isQueryFocused: _isQueryFocused,
-      onEvent: { event in
-        switch event {
-        case .exit:
-          store.send(.setPresented(false))
-        case .submit:
-          submitSelected(rows: filteredItems)
-        case .move(let direction):
-          moveSelection(direction, rows: filteredItems)
-        }
-      },
-      activate: { id in
-        activate(id, rows: filteredItems)
+    Group {
+      switch store.mode {
+      case .search:
+        CommandPaletteCard(
+          query: $store.query,
+          selectedIndex: $store.selectedIndex,
+          items: filteredItems,
+          hoveredID: $hoveredID,
+          isQueryFocused: _isQueryFocused,
+          onEvent: { event in
+            switch event {
+            case .exit:
+              store.send(.setPresented(false))
+            case .submit:
+              submitSelected(rows: filteredItems)
+            case .move(let direction):
+              moveSelection(direction, rows: filteredItems)
+            }
+          },
+          activate: { id in
+            activate(id, rows: filteredItems)
+          }
+        )
+      case .browse:
+        CommandPaletteBrowseView(store: store)
       }
-    )
+    }
     .task {
       isQueryFocused = true
       let updatedItems = refreshFilteredItems(items: items)
