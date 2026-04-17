@@ -25,7 +25,7 @@ struct SidebarView: View {
       ToolbarItem(placement: .primaryAction) {
         Menu {
           Button {
-            store.send(.setOpenPanelPresented(true))
+            store.send(.requestOpenRepository)
           } label: {
             Label("Local Repository or Folder…", systemImage: "laptopcomputer")
           }
