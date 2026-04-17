@@ -34,6 +34,7 @@ struct TerminalClient {
     case setNotificationsEnabled(Bool)
     case setSelectedWorktreeID(Worktree.ID?)
     case refreshTabBarVisibility
+    case saveSnapshots
   }
 
   enum Event: Equatable {

@@ -171,11 +171,15 @@ struct AppFeature {
           #endif
           return .merge(activeEffects)
         case .inactive, .background:
-          var cancelEffects: [Effect<Action>] = [.cancel(id: CancelID.periodicRefresh)]
+          let terminalClient = terminalClient
+          var effects: [Effect<Action>] = [
+            .cancel(id: CancelID.periodicRefresh),
+            .run { _ in await terminalClient.send(.saveSnapshots) },
+          ]
           #if DEBUG
-            cancelEffects.append(.cancel(id: CancelID.upstreamUpdateCheck))
+            effects.append(.cancel(id: CancelID.upstreamUpdateCheck))
           #endif
-          return .merge(cancelEffects)
+          return .merge(effects)
         @unknown default:
           var cancelEffects: [Effect<Action>] = [.cancel(id: CancelID.periodicRefresh)]
           #if DEBUG
