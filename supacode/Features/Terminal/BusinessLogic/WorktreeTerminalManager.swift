@@ -16,6 +16,14 @@ final class WorktreeTerminalManager {
   private var lastNotificationIndicatorCount: Int?
   private var eventContinuation: AsyncStream<TerminalClient.Event>.Continuation?
   private var pendingEvents: [TerminalClient.Event] = []
+  /// Pending debounced layout-save timers, keyed by worktree ID.
+  private var layoutSaveTimers: [Worktree.ID: Timer] = [:]
+  /// Background ticker that periodically persists layout + scrollback for all loaded states.
+  private var periodicPersistTimer: Timer?
+  /// Debounce interval for layout-change saves.
+  private static let layoutSaveDebounceSeconds: TimeInterval = 0.5
+  /// Periodic save cadence for scrollback + layout across all loaded states.
+  private static let periodicPersistSeconds: TimeInterval = 30
   var selectedWorktreeID: Worktree.ID?
   var saveLayoutSnapshot: ((Worktree.ID, TerminalLayoutSnapshot?) -> Void)?
   var loadLayoutSnapshot: ((Worktree.ID) -> TerminalLayoutSnapshot?)?
@@ -24,12 +32,9 @@ final class WorktreeTerminalManager {
   /// Query received from the CLI via socket. Parameters: resource name, params, client FD.
   var onQuery: ((String, [String: String], Int32) -> Void)?
 
-  private var autosaveTask: Task<Void, Never>?
-  private static let autosaveInterval: Duration = .seconds(30)
-
   init(runtime: GhosttyRuntime, socketServer: AgentHookSocketServer? = nil) {
     self.runtime = runtime
-    startAutosaveTimer()
+    startPeriodicPersistTimer()
     let resolvedServer = socketServer ?? AgentHookSocketServer()
     guard resolvedServer.socketPath != nil else {
       self.socketServer = nil
@@ -38,16 +43,6 @@ final class WorktreeTerminalManager {
     }
     self.socketServer = resolvedServer
     configureSocketServer(resolvedServer)
-  }
-
-  private func startAutosaveTimer() {
-    autosaveTask = Task { [weak self] in
-      while !Task.isCancelled {
-        try? await Task.sleep(for: Self.autosaveInterval)
-        guard !Task.isCancelled else { return }
-        self?.saveAllLayoutSnapshots()
-      }
-    }
   }
 
   private func configureSocketServer(_ server: AgentHookSocketServer) {
@@ -243,7 +238,7 @@ final class WorktreeTerminalManager {
       guard id != selectedWorktreeID else { return }
       if let previousID = selectedWorktreeID, let previousState = states[previousID] {
         previousState.setAllSurfacesOccluded()
-        saveLayoutSnapshot?(previousID, previousState.captureLayoutSnapshot())
+        persistState(id: previousID, state: previousState, includeScrollback: true)
       }
       selectedWorktreeID = id
       terminalLogger.info("Selected worktree \(id ?? "nil")")
@@ -342,6 +337,9 @@ final class WorktreeTerminalManager {
     state.onSetupScriptConsumed = { [weak self] in
       self?.emit(.setupScriptConsumed(worktreeID: worktree.id))
     }
+    state.onLayoutDidChange = { [weak self] in
+      self?.scheduleLayoutSave(for: worktree.id)
+    }
     states[worktree.id] = state
     terminalLogger.info("Created terminal state for worktree \(worktree.id)")
     return state
@@ -383,7 +381,7 @@ final class WorktreeTerminalManager {
       removed.append((id, state))
     }
     for (id, state) in removed {
-      saveLayoutSnapshot?(id, state.captureLayoutSnapshot())
+      persistState(id: id, state: state, includeScrollback: true)
       state.closeAllSurfaces()
     }
     if !removed.isEmpty {
@@ -482,13 +480,64 @@ final class WorktreeTerminalManager {
   }
 
   func saveAllLayoutSnapshots() {
-    guard let saveLayoutSnapshot else {
+    guard saveLayoutSnapshot != nil else {
       assertionFailure("saveLayoutSnapshot closure not configured.")
       return
     }
     for (id, state) in states {
+      persistState(id: id, state: state, includeScrollback: true)
+    }
+  }
+
+  /// Persists layout (always) and scrollback (when requested) for one worktree.
+  /// Cancels any pending debounced layout save since this write supersedes it.
+  private func persistState(
+    id: Worktree.ID,
+    state: WorktreeTerminalState,
+    includeScrollback: Bool,
+  ) {
+    layoutSaveTimers.removeValue(forKey: id)?.invalidate()
+    if includeScrollback {
       state.saveScrollbackFiles()
-      saveLayoutSnapshot(id, state.captureLayoutSnapshot())
+    }
+    saveLayoutSnapshot?(id, state.captureLayoutSnapshot())
+  }
+
+  /// Schedules a debounced layout-only save for the given worktree.
+  /// Called from `WorktreeTerminalState.onLayoutDidChange`.
+  private func scheduleLayoutSave(for worktreeID: Worktree.ID) {
+    layoutSaveTimers.removeValue(forKey: worktreeID)?.invalidate()
+    let timer = Timer.scheduledTimer(
+      withTimeInterval: Self.layoutSaveDebounceSeconds,
+      repeats: false,
+    ) { [weak self] _ in
+      MainActor.assumeIsolated {
+        guard let self else { return }
+        self.layoutSaveTimers.removeValue(forKey: worktreeID)
+        guard let state = self.states[worktreeID] else { return }
+        self.persistState(id: worktreeID, state: state, includeScrollback: false)
+      }
+    }
+    layoutSaveTimers[worktreeID] = timer
+  }
+
+  private func startPeriodicPersistTimer() {
+    periodicPersistTimer?.invalidate()
+    let timer = Timer.scheduledTimer(
+      withTimeInterval: Self.periodicPersistSeconds,
+      repeats: true,
+    ) { [weak self] _ in
+      MainActor.assumeIsolated {
+        self?.persistAllLoadedStates()
+      }
+    }
+    periodicPersistTimer = timer
+  }
+
+  private func persistAllLoadedStates() {
+    guard saveLayoutSnapshot != nil else { return }
+    for (id, state) in states {
+      persistState(id: id, state: state, includeScrollback: true)
     }
   }
 
