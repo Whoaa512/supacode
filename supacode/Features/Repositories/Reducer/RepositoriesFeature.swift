@@ -439,6 +439,7 @@ struct RepositoriesFeature {
     /// User cancelled an in-flight creation; the row drops now, the git-side
     /// cleanup happens when the creation's terminal action lands.
     case cancelPendingWorktree(Worktree.ID)
+    case forkWorktree(worktreeID: Worktree.ID, repositoryID: Repository.ID)
     case createWorktreeInRepository(
       repositoryID: Repository.ID,
       nameSource: WorktreeCreationNameSource,
@@ -4058,6 +4059,59 @@ struct RepositoriesFeature {
           return .none
         }
         return .send(.createRandomWorktreeInRepository(repository.id))
+
+      case .forkWorktree(let worktreeID, let repositoryID):
+        guard let repository = state.repositories[id: repositoryID],
+          let worktree = repository.worktrees.first(where: { $0.id == worktreeID })
+        else {
+          return .none
+        }
+        if !repository.isGitRepository {
+          state.alert = messageAlert(
+            title: "Unable to create worktree",
+            message: "Worktrees are only supported for git repositories."
+          )
+          return .none
+        }
+        if state.removingRepositoryIDs[repository.id] != nil {
+          state.alert = messageAlert(
+            title: "Unable to create worktree",
+            message: "This repository is being removed."
+          )
+          return .none
+        }
+        // Open the creation prompt pre-seeded with the source worktree's
+        // branch as the base ref, then background-load the full branch
+        // inventory the same way the normal prompt does.
+        let sourceBranch = worktree.name
+        let forkGitClient = gitClient(for: repository)
+        let forkRootURL = repository.rootURL
+        return .run { send in
+          let automaticBaseRef = await forkGitClient.automaticWorktreeBaseRef(forkRootURL) ?? "HEAD"
+          guard !Task.isCancelled else { return }
+          let remoteNames = (try? await forkGitClient.remoteNames(forkRootURL)) ?? []
+          let defaultBranch = GitReferenceQueries.localBranchName(
+            fromRemoteRef: automaticBaseRef,
+            remoteNames: remoteNames
+          )
+          guard !Task.isCancelled else { return }
+          await send(
+            .promptedWorktreeCreationDataLoaded(
+              repositoryID: repositoryID,
+              automaticBaseRef: automaticBaseRef,
+              defaultBranch: defaultBranch,
+              remoteNames: remoteNames,
+              selectedBaseRef: sourceBranch
+            )
+          )
+          let inventory =
+            (try? await forkGitClient.branchInventory(forkRootURL, remoteNames)) ?? GitBranchInventory()
+          guard !Task.isCancelled else { return }
+          await send(
+            .promptedWorktreeBranchesLoaded(repositoryID: repositoryID, inventory: inventory)
+          )
+        }
+        .cancellable(id: CancelID.worktreePromptLoad, cancelInFlight: true)
 
       case .createRandomWorktreeInRepository(
         let repositoryID, let upstream, let pendingID, let background, let pin):
