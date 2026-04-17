@@ -292,6 +292,7 @@ struct RepositoriesFeatureTests {
       $0.repositories = [repoA]
       $0.repositoryRoots = [repoA.rootURL]
       $0.$collapsedRepositoryIDs.withLock { $0 = [repoA.id] }
+      $0.sidebarRootOrder = [.repository(repoA.id)]
       $0.isInitialLoadComplete = true
     }
     await store.receive(\.delegate.repositoriesChanged)
@@ -4452,6 +4453,7 @@ struct RepositoriesFeatureTests {
     var state = RepositoriesFeature.State()
     state.repositories = IdentifiedArray(uniqueElements: repositories)
     state.repositoryRoots = repositories.map(\.rootURL)
+    state.sidebarRootOrder = repositories.map { .repository($0.id) }
     return state
   }
 
@@ -4510,6 +4512,7 @@ struct RepositoriesFeatureTests {
     await store.receive(\.repositoriesLoaded) {
       $0.repositories = [repoA, repoB]
       $0.repositoryRoots = [repoRootA, repoRootB].map { URL(fileURLWithPath: $0) }
+      $0.sidebarRootOrder = [.repository(repoA.id), .repository(repoB.id)]
       $0.isInitialLoadComplete = true
     }
     await store.receive(\.delegate.repositoriesChanged)
@@ -4558,6 +4561,7 @@ struct RepositoriesFeatureTests {
     await store.receive(\.repositoriesLoaded) {
       $0.repositories = [repoA, repoB]
       $0.repositoryRoots = [repoRootA, repoRootB].map { URL(fileURLWithPath: $0) }
+      $0.sidebarRootOrder = [.repository(repoA.id), .repository(repoB.id)]
       $0.selection = .worktree(worktreeB.id)
       $0.shouldRestoreLastFocusedWorktree = false
       $0.isInitialLoadComplete = true
