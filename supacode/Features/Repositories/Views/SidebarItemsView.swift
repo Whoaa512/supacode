@@ -365,6 +365,12 @@ private struct SidebarItemContextMenu: View {
           NSPasteboard.general.setString(worktree.name, forType: .string)
         }
       }
+      if !row.isMainWorktree {
+        Button("Fork Worktree", systemImage: "arrow.triangle.branch") {
+          store.send(.forkWorktree(worktreeID: row.id, repositoryID: row.repositoryID))
+        }
+        .help("Create a new worktree branching from this one")
+      }
       Divider()
       if row.isFolder {
         // Folder rows have no section-header ellipsis menu, so the

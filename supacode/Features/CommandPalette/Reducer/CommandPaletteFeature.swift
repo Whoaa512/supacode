@@ -64,6 +64,7 @@ struct CommandPaletteFeature {
     case checkForUpdates
     case openSettings
     case newWorktree
+    case forkWorktree(Worktree.ID, Repository.ID)
     case openRepository
     case removeWorktree(Worktree.ID, Repository.ID)
     case archiveWorktree(Worktree.ID, Repository.ID)
@@ -402,6 +403,16 @@ struct CommandPaletteFeature {
           priorityTier: isWaitingForInput ? 0 : CommandPaletteItem.defaultPriorityTier,
         )
       )
+      if !row.isMainWorktree {
+        items.append(
+          CommandPaletteItem(
+            id: CommandPaletteItemID.forkWorktree(row.id),
+            title: "Fork Worktree: \(row.name)",
+            subtitle: repositoryName,
+            kind: .forkWorktree(row.id, row.repositoryID),
+          )
+        )
+      }
     }
     return items
   }
@@ -616,6 +627,10 @@ private enum CommandPaletteItemID {
     "worktree.\(worktreeID).select"
   }
 
+  static func forkWorktree(_ worktreeID: Worktree.ID) -> CommandPaletteItem.ID {
+    "worktree.\(worktreeID).fork"
+  }
+
   static func ghosttyCommand(_ command: GhosttyCommand) -> CommandPaletteItem.ID {
     "\(ghosttyPrefix)\(command.action)|\(command.title)"
   }
@@ -716,6 +731,8 @@ private func delegateAction(for kind: CommandPaletteItem.Kind) -> CommandPalette
     return .openSettings
   case .newWorktree:
     return .newWorktree
+  case .forkWorktree(let worktreeID, let repositoryID):
+    return .forkWorktree(worktreeID, repositoryID)
   case .openRepository:
     return .openRepository
   case .removeWorktree(let worktreeID, let repositoryID):
@@ -772,6 +789,7 @@ private func pullRequestDelegateAction(
     .checkForUpdates,
     .openSettings,
     .newWorktree,
+    .forkWorktree,
     .openRepository,
     .removeWorktree,
     .archiveWorktree,
