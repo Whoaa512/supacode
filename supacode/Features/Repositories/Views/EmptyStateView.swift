@@ -27,7 +27,7 @@ struct EmptyStateView: View {
         .foregroundStyle(.secondary)
       }
       Button("Open Repository or Folder...") {
-        store.send(.setOpenPanelPresented(true))
+        store.send(.requestOpenRepository)
       }
       .appKeyboardShortcut(openRepo)
       .help("Open Repository or Folder (\(openRepo?.display ?? "none"))")
