@@ -824,6 +824,9 @@ struct AppFeature {
       case .commandPalette(.delegate(.newWorktree)):
         return .send(.repositories(.createRandomWorktree))
 
+      case .commandPalette(.delegate(.forkWorktree(let worktreeID, let repositoryID))):
+        return .send(.repositories(.forkWorktree(worktreeID: worktreeID, repositoryID: repositoryID)))
+
       case .commandPalette(.delegate(.openRepository)):
         return .send(.commandPalette(.enterBrowseMode(basePath: nil)))
 
