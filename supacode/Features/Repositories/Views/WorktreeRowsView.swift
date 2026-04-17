@@ -284,6 +284,12 @@ private struct WorktreeContextMenu: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(worktree.name, forType: .string)
       }
+      if !row.isMainWorktree {
+        Button("Fork Worktree", systemImage: "arrow.triangle.branch") {
+          store.send(.forkWorktree(worktreeID: row.id, repositoryID: row.repositoryID))
+        }
+        .help("Create a new worktree branching from this one")
+      }
       Divider()
     }
 

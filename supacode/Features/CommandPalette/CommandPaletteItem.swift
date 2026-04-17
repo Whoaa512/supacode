@@ -31,6 +31,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
     case worktreeSelect(Worktree.ID)
     case openSettings
     case newWorktree
+    case forkWorktree(Worktree.ID, Repository.ID)
     case removeWorktree(Worktree.ID, Repository.ID)
     case archiveWorktree(Worktree.ID, Repository.ID)
     case viewArchivedWorktrees
@@ -67,7 +68,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .rerunFailedJobs,
       .openFailingCheckDetails:
       true
-    case .worktreeSelect, .removeWorktree, .archiveWorktree:
+    case .worktreeSelect, .removeWorktree, .archiveWorktree, .forkWorktree:
       false
     case .runScript, .stopScript:
       true
@@ -95,7 +96,8 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .openFailingCheckDetails,
       .worktreeSelect,
       .removeWorktree,
-      .archiveWorktree:
+      .archiveWorktree,
+      .forkWorktree:
       false
     case .runScript, .stopScript:
       false
@@ -126,6 +128,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .worktreeSelect,
       .removeWorktree,
       .archiveWorktree,
+      .forkWorktree,
       .stopScript:
       nil
     case .runScript(let definition):
