@@ -174,7 +174,15 @@ struct AppFeature {
             .cancellable(id: CancelID.periodicRefresh, cancelInFlight: true)
           )
         case .inactive, .background:
-          return .cancel(id: CancelID.periodicRefresh)
+          let terminalClient = terminalClient
+          var effects: [Effect<Action>] = [
+            .cancel(id: CancelID.periodicRefresh),
+            .run { _ in await terminalClient.send(.saveSnapshots) },
+          ]
+          #if DEBUG
+            effects.append(.cancel(id: CancelID.upstreamUpdateCheck))
+          #endif
+          return .merge(effects)
         @unknown default:
           return .cancel(id: CancelID.periodicRefresh)
         }

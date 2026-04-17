@@ -34,9 +34,12 @@ final class WorktreeTerminalManager {
   /// Query received from the CLI via socket. Parameters: resource name, params, client FD.
   var onQuery: ((String, [String: String], Int32) -> Void)?
 
+  private var autosaveTask: Task<Void, Never>?
+  private static let autosaveInterval: Duration = .seconds(30)
+
   init(runtime: GhosttyRuntime, socketServer: AgentHookSocketServer? = nil) {
     self.runtime = runtime
-    startPeriodicPersistTimer()
+    startAutosaveTimer()
     let resolvedServer = socketServer ?? AgentHookSocketServer()
     guard resolvedServer.socketPath != nil else {
       self.socketServer = nil
@@ -45,6 +48,16 @@ final class WorktreeTerminalManager {
     }
     self.socketServer = resolvedServer
     configureSocketServer(resolvedServer)
+  }
+
+  private func startAutosaveTimer() {
+    autosaveTask = Task { [weak self] in
+      while !Task.isCancelled {
+        try? await Task.sleep(for: Self.autosaveInterval)
+        guard !Task.isCancelled else { return }
+        self?.saveAllLayoutSnapshots()
+      }
+    }
   }
 
   private func configureSocketServer(_ server: AgentHookSocketServer) {
@@ -213,7 +226,8 @@ final class WorktreeTerminalManager {
     case .createTab, .createTabWithInput, .ensureInitialTab, .stopRunScript, .stopScript,
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .performBindingAction,
       .selectTab, .focusSurface, .splitSurface, .destroyTab, .destroySurface, .prune,
-      .setNotificationsEnabled, .setSelectedWorktreeID, .refreshTabBarVisibility, .beginTabRename:
+      .setNotificationsEnabled, .setSelectedWorktreeID, .refreshTabBarVisibility, .beginTabRename,
+      .saveSnapshots:
       return false
     }
     return true
@@ -227,7 +241,8 @@ final class WorktreeTerminalManager {
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .startSearch, .searchSelection,
       .navigateSearchNext, .navigateSearchPrevious, .endSearch, .selectTab, .focusSurface,
       .splitSurface, .destroyTab, .destroySurface, .prune, .setNotificationsEnabled,
-      .setSelectedWorktreeID, .refreshTabBarVisibility, .beginTabRename:
+      .setSelectedWorktreeID, .refreshTabBarVisibility, .beginTabRename,
+      .saveSnapshots:
       return false
     }
     return true
@@ -251,6 +266,8 @@ final class WorktreeTerminalManager {
       }
       selectedWorktreeID = id
       terminalLogger.info("Selected worktree \(id ?? "nil")")
+    case .saveSnapshots:
+      saveAllLayoutSnapshots()
     case .createTab, .createTabWithInput, .ensureInitialTab, .stopRunScript, .stopScript,
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .performBindingAction,
       .startSearch, .searchSelection, .navigateSearchNext, .navigateSearchPrevious, .endSearch,
