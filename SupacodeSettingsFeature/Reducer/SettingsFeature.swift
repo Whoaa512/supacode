@@ -68,6 +68,7 @@ public struct SettingsFeature {
     public var defaultWorktreeBaseDirectoryPath: String
     public var autoDeleteArchivedWorktreesAfterDays: AutoDeletePeriod?
     public var equalizeSplitsOnSplit: Bool
+    public var autoSelectNewlyOpenedRepository: Bool
     public var shortcutOverrides: [AppShortcutID: AppShortcutOverride]
     public var globalScripts: [ScriptDefinition]
     public var richAgentNotificationsEnabled: Bool
@@ -110,6 +111,7 @@ public struct SettingsFeature {
       automatedActionPolicy = settings.automatedActionPolicy
       autoDeleteArchivedWorktreesAfterDays = settings.autoDeleteArchivedWorktreesAfterDays
       equalizeSplitsOnSplit = settings.equalizeSplitsOnSplit
+      autoSelectNewlyOpenedRepository = settings.autoSelectNewlyOpenedRepository
       shortcutOverrides = settings.shortcutOverrides
       globalScripts = settings.globalScripts
       richAgentNotificationsEnabled = settings.richAgentNotificationsEnabled
@@ -150,6 +152,7 @@ public struct SettingsFeature {
         ),
         autoDeleteArchivedWorktreesAfterDays: autoDeleteArchivedWorktreesAfterDays,
         equalizeSplitsOnSplit: equalizeSplitsOnSplit,
+        autoSelectNewlyOpenedRepository: autoSelectNewlyOpenedRepository,
         shortcutOverrides: shortcutOverrides,
         globalScripts: globalScripts,
         richAgentNotificationsEnabled: richAgentNotificationsEnabled,
@@ -288,6 +291,7 @@ public struct SettingsFeature {
         state.automatedActionPolicy = normalizedSettings.automatedActionPolicy
         state.autoDeleteArchivedWorktreesAfterDays = normalizedSettings.autoDeleteArchivedWorktreesAfterDays
         state.equalizeSplitsOnSplit = normalizedSettings.equalizeSplitsOnSplit
+        state.autoSelectNewlyOpenedRepository = normalizedSettings.autoSelectNewlyOpenedRepository
         state.shortcutOverrides = normalizedSettings.shortcutOverrides
         state.globalScripts = normalizedSettings.globalScripts
         state.richAgentNotificationsEnabled = normalizedSettings.richAgentNotificationsEnabled

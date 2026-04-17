@@ -54,6 +54,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   public var automatedActionPolicy: AutomatedActionPolicy
   public var autoDeleteArchivedWorktreesAfterDays: AutoDeletePeriod?
   public var equalizeSplitsOnSplit: Bool
+  public var autoSelectNewlyOpenedRepository: Bool
   public var shortcutOverrides: [AppShortcutID: AppShortcutOverride]
   /// Scripts shared across every repository. Always `.custom` kind.
   public var globalScripts: [ScriptDefinition]
@@ -93,6 +94,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     defaultWorktreeBaseDirectoryPath: nil,
     autoDeleteArchivedWorktreesAfterDays: nil,
     equalizeSplitsOnSplit: false,
+    autoSelectNewlyOpenedRepository: true,
     shortcutOverrides: [:],
     globalScripts: [],
     richAgentNotificationsEnabled: true,
@@ -128,6 +130,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     defaultWorktreeBaseDirectoryPath: String? = nil,
     autoDeleteArchivedWorktreesAfterDays: AutoDeletePeriod? = nil,
     equalizeSplitsOnSplit: Bool = false,
+    autoSelectNewlyOpenedRepository: Bool = true,
     shortcutOverrides: [AppShortcutID: AppShortcutOverride] = [:],
     globalScripts: [ScriptDefinition] = [],
     richAgentNotificationsEnabled: Bool = true,
@@ -161,6 +164,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.defaultWorktreeBaseDirectoryPath = defaultWorktreeBaseDirectoryPath
     self.autoDeleteArchivedWorktreesAfterDays = autoDeleteArchivedWorktreesAfterDays
     self.equalizeSplitsOnSplit = equalizeSplitsOnSplit
+    self.autoSelectNewlyOpenedRepository = autoSelectNewlyOpenedRepository
     self.shortcutOverrides = shortcutOverrides
     self.globalScripts = globalScripts
     self.richAgentNotificationsEnabled = richAgentNotificationsEnabled
@@ -279,6 +283,9 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     equalizeSplitsOnSplit =
       try container.decodeIfPresent(Bool.self, forKey: .equalizeSplitsOnSplit)
       ?? Self.default.equalizeSplitsOnSplit
+    autoSelectNewlyOpenedRepository =
+      try container.decodeIfPresent(Bool.self, forKey: .autoSelectNewlyOpenedRepository)
+      ?? Self.default.autoSelectNewlyOpenedRepository
     shortcutOverrides =
       try container.decodeIfPresent([AppShortcutID: AppShortcutOverride].self, forKey: .shortcutOverrides)
       ?? Self.default.shortcutOverrides

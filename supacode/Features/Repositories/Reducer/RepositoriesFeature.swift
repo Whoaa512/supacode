@@ -582,7 +582,8 @@ struct RepositoriesFeature {
         state.isRefreshingWorktrees = false
         let previousSelection = state.selectedWorktreeID
         let previousSelectedWorktree = state.worktree(for: previousSelection)
-        _ = applyRepositories(
+        let previousRepositoryIDs = Set(state.repositories.map(\.id))
+        let applyResult = applyRepositories(
           repositories,
           roots: roots,
           shouldPruneArchivedWorktreeIDs: failures.isEmpty,
@@ -600,6 +601,14 @@ struct RepositoriesFeature {
             title: "Some items couldn't be opened",
             message: message
           )
+        }
+        @Shared(.settingsFile) var settingsFile
+        if settingsFile.global.autoSelectNewlyOpenedRepository,
+          !previousRepositoryIDs.isEmpty,
+          let newRepository = repositories.first(where: { !previousRepositoryIDs.contains($0.id) }),
+          let firstWorktree = newRepository.worktrees.first
+        {
+          setSingleWorktreeSelection(firstWorktree.id, state: &state)
         }
         let selectedWorktree = state.worktree(for: state.selectedWorktreeID)
         let selectionChanged = selectionDidChange(
