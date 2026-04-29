@@ -20,8 +20,8 @@ struct SidebarSearchField: View {
         "Search repositories",
         text: Binding(
           get: { store.state.sidebarSearchQuery },
-          set: { store.send(.sidebarSearchQueryChanged($0)) }
-        )
+          set: { store.send(.sidebarSearchQueryChanged($0)) },
+        ),
       )
       .textFieldStyle(.plain)
       .focused($isFocused)
