@@ -34,7 +34,7 @@ struct SidebarFolderSectionView: View {
             hotkeyRows: hotkeyRows,
             selectedWorktreeIDs: selectedWorktreeIDs,
             store: store,
-            terminalManager: terminalManager
+            terminalManager: terminalManager,
           )
         }
       }
@@ -44,7 +44,7 @@ struct SidebarFolderSectionView: View {
         folderName: folderName,
         isRenaming: $isRenaming,
         draftName: $draftName,
-        store: store
+        store: store,
       )
     }
     .dropDestination(for: RepositoryIDTransferable.self) { items, _ in
@@ -59,7 +59,7 @@ struct SidebarFolderSectionView: View {
   private var expansionBinding: Binding<Bool> {
     Binding(
       get: { !store.state.isFolderCollapsed(folderID) },
-      set: { _ in store.send(.folderCollapseToggled(folderID)) }
+      set: { _ in store.send(.folderCollapseToggled(folderID)) },
     )
   }
 }
@@ -129,14 +129,14 @@ private struct SidebarFolderChildView: View {
         hotkeyRows: hotkeyRows,
         selectedWorktreeIDs: selectedWorktreeIDs,
         store: store,
-        terminalManager: terminalManager
+        terminalManager: terminalManager,
       )
     } header: {
       RepoSectionHeaderView(
         name: repository.name,
         customTitle: section?.title,
         color: section?.color,
-        isRemoving: isRemoving
+        isRemoving: isRemoving,
       )
       .draggable(RepositoryIDTransferable(id: repository.id))
     }
@@ -144,7 +144,7 @@ private struct SidebarFolderChildView: View {
       SidebarFolderChildActionsView(
         repositoryID: repository.id,
         isRemovingRepository: isRemoving,
-        store: store
+        store: store,
       )
     }
   }
@@ -154,7 +154,7 @@ private struct SidebarFolderChildView: View {
       get: { store.state.isRepositoryExpanded(repository.id) },
       set: { isExpanded in
         store.send(.repositoryExpansionChanged(repository.id, isExpanded: isExpanded))
-      }
+      },
     )
   }
 }
