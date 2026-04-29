@@ -94,6 +94,16 @@
 				<string>public.data</string>
 			</array>
 		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>app.supabit.supacode.repository-id</string>
+			<key>UTTypeDescription</key>
+			<string>Supacode Repository Identifier</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
 	</array>
 </dict>
 </plist>

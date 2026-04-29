@@ -1,7 +1,7 @@
 import Foundation
 import IdentifiedCollections
 
-struct SidebarFolder: Identifiable, Equatable, Codable, Hashable, Sendable {
+nonisolated struct SidebarFolder: Identifiable, Equatable, Codable, Hashable, Sendable {
   let id: UUID
   var name: String
   var repositoryIDs: [Repository.ID]
@@ -13,7 +13,7 @@ struct SidebarFolder: Identifiable, Equatable, Codable, Hashable, Sendable {
   }
 }
 
-enum SidebarRootItemID: Equatable, Hashable, Codable, Sendable {
+nonisolated enum SidebarRootItemID: Equatable, Hashable, Codable, Sendable {
   case folder(UUID)
   case repository(Repository.ID)
 }
