@@ -47,6 +47,8 @@ struct AppFeatureCommandPaletteTests {
   @Test(.dependencies) func openRepositoryEntersBrowseMode() async {
     let store = TestStore(initialState: AppFeature.State()) {
       AppFeature()
+    } withDependencies: {
+      $0.fileSystemBrowseClient.listDirectory = { _ in [] }
     }
     store.exhaustivity = .off
 
@@ -102,10 +104,17 @@ struct AppFeatureCommandPaletteTests {
   @Test(.dependencies) func checkForUpdatesDispatchesUpdateAction() async {
     let store = TestStore(initialState: AppFeature.State()) {
       AppFeature()
+    } withDependencies: {
+      $0.date = .constant(.distantPast)
     }
+    store.exhaustivity = .off
 
     await store.send(.commandPalette(.delegate(.checkForUpdates)))
-    await store.receive(\.updates.checkForUpdates)
+    #if DEBUG
+      await store.receive(\.upstreamUpdate.checkForUpdates)
+    #else
+      await store.receive(\.updates.checkForUpdates)
+    #endif
   }
 
   @Test(.dependencies) func ghosttyCommandDispatchesBindingActionToTerminalClient() async {

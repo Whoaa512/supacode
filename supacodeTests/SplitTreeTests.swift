@@ -189,7 +189,6 @@ struct SplitTreeTests {
       #expect(abs(topSplit.ratio - 0.5) < 0.01)
     }
   }
-  }
 
   private func makeWorktreeFixture(preserveZoomOnNavigation: Bool) -> WorktreeFixture {
     let state = WorktreeTerminalState(

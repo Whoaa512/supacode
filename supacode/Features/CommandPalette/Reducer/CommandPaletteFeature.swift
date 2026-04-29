@@ -308,7 +308,8 @@ struct CommandPaletteFeature {
     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
     let globalItems = items.filter(\.isGlobal)
     guard !trimmed.isEmpty else {
-      let visibleItems = globalItems.filter { !$0.isRootAction }
+      let priorityItems = items.filter { $0.priorityTier < CommandPaletteItem.defaultPriorityTier }
+      let visibleItems = globalItems.filter { !$0.isRootAction } + priorityItems
       return prioritizeItems(items: visibleItems, recencyByID: recencyByID, now: now)
     }
     let scorer = CommandPaletteFuzzyScorer(query: trimmed, recencyByID: recencyByID, now: now)

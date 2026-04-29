@@ -308,7 +308,8 @@ struct CommandPaletteFeatureTests {
   }
 
   @Test func commandPaletteItems_waitingForInputWorktrees_floatToTopWhenEmptyQuery() {
-    let rootPath = "/tmp/repo"
+    let rootURL = URL(fileURLWithPath: "/tmp/repo").standardizedFileURL
+    let rootPath = rootURL.path(percentEncoded: false)
     let main = makeWorktree(
       id: rootPath,
       name: "repo",
@@ -332,7 +333,18 @@ struct CommandPaletteFeatureTests {
       rootPath: rootPath, name: "Repo",
       worktrees: [main, waiting, idle],
     )
-    let state = RepositoriesFeature.State(repositories: [repository])
+    var state = RepositoriesFeature.State(repositories: [repository])
+    state.repositoryRoots = [rootURL]
+    state.$sidebar.withLock { sidebar in
+      sidebar.sections[repository.id] = .init(
+        buckets: [
+          .unpinned: .init(items: [
+            waiting.id: .init(),
+            idle.id: .init(),
+          ]),
+        ]
+      )
+    }
 
     let items = CommandPaletteFeature.commandPaletteItems(
       from: state,
