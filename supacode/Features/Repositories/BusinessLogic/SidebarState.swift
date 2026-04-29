@@ -1,4 +1,5 @@
 import Foundation
+import IdentifiedCollections
 import OrderedCollections
 import SupacodeSettingsShared
 
@@ -25,6 +26,9 @@ nonisolated struct SidebarState: Equatable, Sendable, Codable {
   var schemaVersion: Int
   var sections: OrderedDictionary<Repository.ID, Section>
   var focusedWorktreeID: Worktree.ID?
+  var folders: IdentifiedArrayOf<SidebarFolder>
+  var rootOrder: [SidebarRootItemID]
+  var collapsedFolderIDs: Set<UUID>
 
   /// Memberwise initializer. `schemaVersion` defaults to `0`, meaning
   /// "not migrated yet, or migrator failed". The boot-time migrator
@@ -34,24 +38,30 @@ nonisolated struct SidebarState: Equatable, Sendable, Codable {
   init(
     schemaVersion: Int = 0,
     sections: OrderedDictionary<Repository.ID, Section> = [:],
-    focusedWorktreeID: Worktree.ID? = nil
+    focusedWorktreeID: Worktree.ID? = nil,
+    folders: IdentifiedArrayOf<SidebarFolder> = [],
+    rootOrder: [SidebarRootItemID] = [],
+    collapsedFolderIDs: Set<UUID> = []
   ) {
     self.schemaVersion = schemaVersion
     self.sections = sections
     self.focusedWorktreeID = focusedWorktreeID
+    self.folders = folders
+    self.rootOrder = rootOrder
+    self.collapsedFolderIDs = collapsedFolderIDs
   }
 
   private enum CodingKeys: String, CodingKey {
     case schemaVersion
     case sections
     case focusedWorktreeID
+    case folders
+    case rootOrder
+    case collapsedFolderIDs
   }
 
   init(from decoder: any Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    // Default to `0` when the key is absent so existing
-    // `sidebar.json` files written before `schemaVersion` existed
-    // decode as "not migrated yet".
     self.schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 0
     self.sections =
       try container.decodeIfPresent(
@@ -59,16 +69,33 @@ nonisolated struct SidebarState: Equatable, Sendable, Codable {
         forKey: .sections
       ) ?? [:]
     self.focusedWorktreeID = try container.decodeIfPresent(Worktree.ID.self, forKey: .focusedWorktreeID)
+    let decodedFolders =
+      try container.decodeIfPresent([SidebarFolder].self, forKey: .folders) ?? []
+    self.folders = IdentifiedArray(uniqueElements: decodedFolders)
+    self.rootOrder =
+      try container.decodeIfPresent([SidebarRootItemID].self, forKey: .rootOrder) ?? []
+    let collapsedArray =
+      try container.decodeIfPresent([UUID].self, forKey: .collapsedFolderIDs) ?? []
+    self.collapsedFolderIDs = Set(collapsedArray)
   }
 
   func encode(to encoder: any Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    // Always encode `schemaVersion` so the value round-trips and the
-    // migrator can distinguish "written by migrator" from "written by
-    // first-mutation after migrator failure".
     try container.encode(schemaVersion, forKey: .schemaVersion)
     try container.encode(sections, forKey: .sections)
     try container.encodeIfPresent(focusedWorktreeID, forKey: .focusedWorktreeID)
+    if !folders.isEmpty {
+      try container.encode(Array(folders), forKey: .folders)
+    }
+    if !rootOrder.isEmpty {
+      try container.encode(rootOrder, forKey: .rootOrder)
+    }
+    if !collapsedFolderIDs.isEmpty {
+      try container.encode(
+        Array(collapsedFolderIDs).sorted { $0.uuidString < $1.uuidString },
+        forKey: .collapsedFolderIDs
+      )
+    }
   }
 
   nonisolated enum BucketID: String, Codable, Hashable, Sendable {

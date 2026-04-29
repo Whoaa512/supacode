@@ -86,6 +86,7 @@ struct RepositoriesFeature {
   struct State: Equatable {
     var repositories: IdentifiedArrayOf<Repository> = []
     var repositoryRoots: [URL] = []
+    var sidebarSearchQuery: String = ""
     var loadFailuresByID: [Repository.ID: String] = [:]
     var selection: SidebarSelection?
     var worktreeInfoByID: [Worktree.ID: WorktreeInfoEntry] = [:]
@@ -296,6 +297,13 @@ struct RepositoriesFeature {
     case repositoriesMoved(IndexSet, Int)
     case pinnedWorktreesMoved(repositoryID: Repository.ID, IndexSet, Int)
     case unpinnedWorktreesMoved(repositoryID: Repository.ID, IndexSet, Int)
+    case folderCreated(name: String)
+    case folderRenamed(UUID, String)
+    case folderDeleted(UUID)
+    case folderCollapseToggled(UUID)
+    case repositoryMovedToFolder(Repository.ID, folderID: UUID?, destinationIndex: Int)
+    case sidebarRootReordered(IndexSet, Int)
+    case sidebarSearchQueryChanged(String)
     case deleteWorktreeFailed(String, worktreeID: Worktree.ID)
     case requestDeleteRepository(Repository.ID)
     case removeFailedRepository(Repository.ID)
@@ -2066,6 +2074,66 @@ struct RepositoriesFeature {
             sidebar.reorder(bucket: .unpinned, in: repositoryID, to: reordered)
           }
         }
+        return .none
+
+      case .folderCreated(let name):
+        let newFolder = SidebarFolder(id: uuid(), name: name)
+        state.$sidebar.withLock { sidebar in
+          sidebar.folders.append(newFolder)
+          sidebar.rootOrder.append(.folder(newFolder.id))
+        }
+        return .none
+
+      case .folderRenamed(let id, let newName):
+        state.$sidebar.withLock { sidebar in
+          sidebar.folders[id: id]?.name = newName
+        }
+        return .none
+
+      case .folderDeleted(let id):
+        state.$sidebar.withLock { sidebar in
+          guard let folder = sidebar.folders[id: id] else { return }
+          let insertionIndex =
+            sidebar.rootOrder.firstIndex(of: .folder(id)) ?? sidebar.rootOrder.count
+          sidebar.folders.remove(id: id)
+          sidebar.rootOrder.removeAll { $0 == .folder(id) }
+          sidebar.collapsedFolderIDs.remove(id)
+          let repoItems = folder.repositoryIDs.map(SidebarRootItemID.repository)
+          sidebar.rootOrder.insert(
+            contentsOf: repoItems,
+            at: min(insertionIndex, sidebar.rootOrder.count)
+          )
+        }
+        return .none
+
+      case .folderCollapseToggled(let id):
+        state.$sidebar.withLock { sidebar in
+          if sidebar.collapsedFolderIDs.contains(id) {
+            sidebar.collapsedFolderIDs.remove(id)
+          } else {
+            sidebar.collapsedFolderIDs.insert(id)
+          }
+        }
+        return .none
+
+      case .repositoryMovedToFolder(let repoID, let folderID, let destinationIndex):
+        state.$sidebar.withLock { sidebar in
+          moveRepository(
+            repoID, toFolder: folderID, destinationIndex: destinationIndex, sidebar: &sidebar
+          )
+        }
+        return .none
+
+      case .sidebarRootReordered(let offsets, let destination):
+        withAnimation(.snappy(duration: 0.2)) {
+          state.$sidebar.withLock { sidebar in
+            sidebar.rootOrder.move(fromOffsets: offsets, toOffset: destination)
+          }
+        }
+        return .none
+
+      case .sidebarSearchQueryChanged(let query):
+        state.sidebarSearchQuery = query
         return .none
 
       case .deleteWorktreeFailed(let message, let worktreeID):
@@ -3866,6 +3934,61 @@ extension RepositoriesFeature.State {
     orderedRepositoryRoots().map { $0.standardizedFileURL.path(percentEncoded: false) }
   }
 
+  enum SidebarDisplayItem: Equatable, Hashable {
+    case repository(Repository.ID)
+    case folder(UUID, repositoryIDs: [Repository.ID])
+  }
+
+  func sidebarDisplayItems() -> [SidebarDisplayItem] {
+    let rootOrder = sidebar.rootOrder
+    guard !rootOrder.isEmpty else {
+      return orderedRepositoryIDs().map { .repository($0) }
+    }
+    return rootOrder.compactMap { item in
+      switch item {
+      case .repository(let id):
+        guard repositories[id: id] != nil || loadFailuresByID[id] != nil else { return nil }
+        return .repository(id)
+      case .folder(let id):
+        guard let folder = sidebar.folders[id: id] else { return nil }
+        return .folder(id, repositoryIDs: folder.repositoryIDs)
+      }
+    }
+  }
+
+  func isFolderCollapsed(_ id: UUID) -> Bool {
+    sidebar.collapsedFolderIDs.contains(id)
+  }
+
+  func folder(for id: UUID) -> SidebarFolder? {
+    sidebar.folders[id: id]
+  }
+
+  func repositoryMatchesSearch(_ repository: Repository, query: String) -> Bool {
+    guard !query.isEmpty else { return true }
+    let lower = query.lowercased()
+    if repository.name.lowercased().contains(lower) { return true }
+    return repository.worktrees.contains { worktree in
+      worktreeMatchesSearch(worktree, lowerQuery: lower)
+    }
+  }
+
+  func folderMatchesSearch(_ folder: SidebarFolder, query: String) -> Bool {
+    guard !query.isEmpty else { return true }
+    let lower = query.lowercased()
+    if folder.name.lowercased().contains(lower) { return true }
+    return folder.repositoryIDs.contains { repoID in
+      guard let repo = repositories[id: repoID] else { return false }
+      return repositoryMatchesSearch(repo, query: query)
+    }
+  }
+
+  private func worktreeMatchesSearch(_ worktree: Worktree, lowerQuery: String) -> Bool {
+    if worktree.name.lowercased().contains(lowerQuery) { return true }
+    if worktree.detail.lowercased().contains(lowerQuery) { return true }
+    return worktree.workingDirectory.lastPathComponent.lowercased().contains(lowerQuery)
+  }
+
   func repositoryID(for worktreeID: Worktree.ID?) -> Repository.ID? {
     selectedRow(for: worktreeID)?.repositoryID
   }
@@ -4747,11 +4870,13 @@ private func reconcileSidebarState(
   // identical rebuild would still trigger the SharedKey save path
   // and re-encode + re-atomic-write `sidebar.json` needlessly.
   guard rebuilt != state.sidebar.sections else {
+    reconcileFolderRootOrder(availableRepoIDs: availableRepoIDs, state: &state)
     return
   }
   state.$sidebar.withLock { sidebar in
     sidebar.sections = rebuilt
   }
+  reconcileFolderRootOrder(availableRepoIDs: availableRepoIDs, state: &state)
 }
 
 /// Preserve user-curated `.archived` and `.pinned` buckets and
@@ -4790,6 +4915,72 @@ private func preserveOrphanSections(
       title: section.title,
       color: section.color,
     )
+  }
+}
+
+private func reconcileFolderRootOrder(
+  availableRepoIDs: Set<Repository.ID>,
+  state: inout RepositoriesFeature.State
+) {
+  let sidebar = state.sidebar
+  guard !sidebar.rootOrder.isEmpty || !sidebar.folders.isEmpty else { return }
+
+  var orderedRepos: Set<Repository.ID> = []
+  var orderedFolders: Set<UUID> = []
+  var filteredRoot: [SidebarRootItemID] = []
+  var didChange = false
+
+  for item in sidebar.rootOrder {
+    switch item {
+    case .folder(let id):
+      guard sidebar.folders[id: id] != nil, orderedFolders.insert(id).inserted else {
+        didChange = true
+        continue
+      }
+      filteredRoot.append(item)
+    case .repository(let repoID):
+      guard availableRepoIDs.contains(repoID), orderedRepos.insert(repoID).inserted else {
+        didChange = true
+        continue
+      }
+      filteredRoot.append(item)
+    }
+  }
+
+  var reposInFolders: Set<Repository.ID> = []
+  var folderUpdates: [(UUID, [Repository.ID])] = []
+  for folder in sidebar.folders {
+    var pruned: [Repository.ID] = []
+    for repoID in folder.repositoryIDs
+    where availableRepoIDs.contains(repoID) && !reposInFolders.contains(repoID) {
+      pruned.append(repoID)
+      reposInFolders.insert(repoID)
+    }
+    if pruned != folder.repositoryIDs {
+      folderUpdates.append((folder.id, pruned))
+      didChange = true
+    }
+  }
+
+  let placedRepos = orderedRepos.union(reposInFolders)
+  let missingRepos = state.repositories.map(\.id).filter { !placedRepos.contains($0) }
+  if !missingRepos.isEmpty {
+    filteredRoot.append(contentsOf: missingRepos.map(SidebarRootItemID.repository))
+    didChange = true
+  }
+
+  let missingFolderIDs = sidebar.folders.map(\.id).filter { !orderedFolders.contains($0) }
+  if !missingFolderIDs.isEmpty {
+    filteredRoot.append(contentsOf: missingFolderIDs.map(SidebarRootItemID.folder))
+    didChange = true
+  }
+
+  guard didChange else { return }
+  state.$sidebar.withLock { sidebar in
+    sidebar.rootOrder = filteredRoot
+    for (folderID, pruned) in folderUpdates {
+      sidebar.folders[id: folderID]?.repositoryIDs = pruned
+    }
   }
 }
 
@@ -4858,4 +5049,32 @@ extension String {
       .sorted { $0.count > $1.count }
       .first { hasPrefix("\($0)/") }
   }
+}
+
+// MARK: - Sidebar folder helpers
+
+private func moveRepository(
+  _ repositoryID: Repository.ID,
+  toFolder folderID: UUID?,
+  destinationIndex: Int,
+  sidebar: inout SidebarState
+) {
+  sidebar.rootOrder.removeAll { $0 == .repository(repositoryID) }
+  for folder in sidebar.folders {
+    guard folder.repositoryIDs.contains(repositoryID) else { continue }
+    sidebar.folders[id: folder.id]?.repositoryIDs.removeAll { $0 == repositoryID }
+  }
+  guard let folderID else {
+    let clamped = max(0, min(destinationIndex, sidebar.rootOrder.count))
+    sidebar.rootOrder.insert(.repository(repositoryID), at: clamped)
+    return
+  }
+  guard sidebar.folders[id: folderID] != nil else {
+    let clamped = max(0, min(destinationIndex, sidebar.rootOrder.count))
+    sidebar.rootOrder.insert(.repository(repositoryID), at: clamped)
+    return
+  }
+  let count = sidebar.folders[id: folderID]!.repositoryIDs.count
+  let clamped = max(0, min(destinationIndex, count))
+  sidebar.folders[id: folderID]!.repositoryIDs.insert(repositoryID, at: clamped)
 }
