@@ -418,7 +418,7 @@ private struct StatusIndicator: View {
       ZStack {
         if isWaitingForInput {
           PingDot(
-            style: isEmphasized ? AnyShapeStyle(.primary) : AnyShapeStyle(.yellow),
+            color: isEmphasized ? .primary : .yellow,
             size: 6,
             showsSolidCenter: !showsNotificationIndicator
           )

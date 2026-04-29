@@ -62,7 +62,6 @@ struct CommandPaletteOverlayView: View {
                 CommandPaletteBrowseView(store: store)
                   .zIndex(1)
               }
-              }
 
               Spacer(minLength: 0)
             }
