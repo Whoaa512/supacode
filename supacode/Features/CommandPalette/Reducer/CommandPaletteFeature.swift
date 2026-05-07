@@ -83,6 +83,7 @@ struct CommandPaletteFeature {
     case stopScript(UUID, name: String)
     case browseSelectRepository(URL)
     case browseOpenNativePanel
+    case toggleCollapseRepository(Repository.ID)
     #if DEBUG
       case debugTestToast(RepositoriesFeature.StatusToast)
     #endif
@@ -303,7 +304,7 @@ struct CommandPaletteFeature {
     items: [CommandPaletteItem],
     query: String,
     recencyByID: [CommandPaletteItem.ID: TimeInterval] = [:],
-    now: Date = .now
+    now: Date = .now,
   ) -> [CommandPaletteItem] {
     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
     let globalItems = items.filter(\.isGlobal)
@@ -343,36 +344,39 @@ struct CommandPaletteFeature {
         id: CommandPaletteItemID.globalOpenSettings,
         title: "Open Settings",
         subtitle: nil,
-        kind: .openSettings
+        kind: .openSettings,
       ),
       CommandPaletteItem(
         id: CommandPaletteItemID.globalOpenRepository,
         title: "Open Repository or Folder",
         subtitle: nil,
-        kind: .openRepository
+        kind: .openRepository,
       ),
       CommandPaletteItem(
         id: CommandPaletteItemID.globalNewWorktree,
         title: "New Worktree",
         subtitle: nil,
-        kind: .newWorktree
+        kind: .newWorktree,
       ),
       CommandPaletteItem(
         id: CommandPaletteItemID.globalRefreshWorktrees,
         title: "Refresh Worktrees",
         subtitle: nil,
-        kind: .refreshWorktrees
+        kind: .refreshWorktrees,
       ),
       CommandPaletteItem(
         id: CommandPaletteItemID.globalViewArchivedWorktrees,
         title: "View Archived Worktrees",
         subtitle: nil,
-        kind: .viewArchivedWorktrees
+        kind: .viewArchivedWorktrees,
       ),
     ]
     if repositories.selectedWorktreeID != nil {
       items.append(contentsOf: ghosttyCommandItems(ghosttyCommands))
       items.append(contentsOf: scriptItems(scripts: scripts, runningScriptIDs: runningScriptIDs))
+    }
+    if let item = collapseToggleItem(from: repositories) {
+      items.append(item)
     }
     if let selectedWorktreeID = repositories.selectedWorktreeID,
       let repositoryID = repositories.repositoryID(containing: selectedWorktreeID),
@@ -383,7 +387,7 @@ struct CommandPaletteFeature {
       let pullRequestActions = pullRequestItems(
         pullRequest: pullRequest,
         worktreeID: selectedWorktreeID,
-        repositoryID: repositoryID
+        repositoryID: repositoryID,
       )
       items.append(contentsOf: pullRequestActions)
     }
@@ -420,7 +424,7 @@ struct CommandPaletteFeature {
 
   static func recencyRetentionIDs(
     from repositories: IdentifiedArrayOf<Repository>,
-    scripts: [ScriptDefinition] = []
+    scripts: [ScriptDefinition] = [],
   ) -> [CommandPaletteItem.ID] {
     var ids = CommandPaletteItemID.globalIDs
     for repository in repositories {
@@ -440,7 +444,7 @@ struct CommandPaletteFeature {
 private func pullRequestItems(
   pullRequest: GithubPullRequest,
   worktreeID: Worktree.ID,
-  repositoryID: Repository.ID
+  repositoryID: Repository.ID,
 ) -> [CommandPaletteItem] {
   let state = pullRequest.state.uppercased()
   let isOpen = state == "OPEN"
@@ -458,7 +462,7 @@ private func pullRequestItems(
       title: "Mark PR Ready for Review",
       subtitle: pullRequest.title,
       kind: .markPullRequestReady(worktreeID),
-      priorityTier: 0
+      priorityTier: 0,
     )
   }
 
@@ -475,7 +479,7 @@ private func pullRequestItems(
           title: "Copy failing job URL",
           subtitle: pullRequest.title,
           kind: .copyFailingJobURL(worktreeID),
-          priorityTier: leadingTier
+          priorityTier: leadingTier,
         )
       )
     }
@@ -485,7 +489,7 @@ private func pullRequestItems(
         title: "Copy CI Failure Logs",
         subtitle: pullRequest.title,
         kind: .copyCiFailureLogs(worktreeID),
-        priorityTier: hasFailingCheckWithDetails ? followupTier : leadingTier
+        priorityTier: hasFailingCheckWithDetails ? followupTier : leadingTier,
       )
     )
     failingItems.append(
@@ -494,7 +498,7 @@ private func pullRequestItems(
         title: "Re-run Failed Jobs",
         subtitle: pullRequest.title,
         kind: .rerunFailedJobs(worktreeID),
-        priorityTier: followupTier
+        priorityTier: followupTier,
       )
     )
     if hasFailingCheckWithDetails {
@@ -504,7 +508,7 @@ private func pullRequestItems(
           title: "Open Failing Check Details",
           subtitle: pullRequest.title,
           kind: .openFailingCheckDetails(worktreeID),
-          priorityTier: followupTier
+          priorityTier: followupTier,
         )
       )
     }
@@ -517,8 +521,8 @@ private func pullRequestItems(
       title: "Open PR on GitHub",
       subtitle: pullRequest.title,
       kind: .openPullRequest(worktreeID),
-      priorityTier: 2
-    ),
+      priorityTier: 2,
+    )
   ]
 
   if let readyItem = makeReadyItem() {
@@ -531,7 +535,7 @@ private func pullRequestItems(
     canMerge: canMerge,
     breakdown: breakdown,
     repositoryID: repositoryID,
-    worktreeID: worktreeID
+    worktreeID: worktreeID,
   ) {
     items.append(mergeItem)
   }
@@ -540,7 +544,7 @@ private func pullRequestItems(
     isOpen: isOpen,
     repositoryID: repositoryID,
     worktreeID: worktreeID,
-    pullRequestTitle: pullRequest.title
+    pullRequestTitle: pullRequest.title,
   ) {
     items.append(closeItem)
   }
@@ -552,7 +556,7 @@ private func makeMergePullRequestItem(
   canMerge: Bool,
   breakdown: PullRequestCheckBreakdown,
   repositoryID: Repository.ID,
-  worktreeID: Worktree.ID
+  worktreeID: Worktree.ID,
 ) -> CommandPaletteItem? {
   guard canMerge else { return nil }
   let successfulChecks = breakdown.passed
@@ -565,7 +569,7 @@ private func makeMergePullRequestItem(
     title: "Merge PR",
     subtitle: "Merge Ready - \(successfulChecksLabel)",
     kind: .mergePullRequest(worktreeID),
-    priorityTier: 0
+    priorityTier: 0,
   )
 }
 
@@ -573,7 +577,7 @@ private func makeClosePullRequestItem(
   isOpen: Bool,
   repositoryID: Repository.ID,
   worktreeID: Worktree.ID,
-  pullRequestTitle: String
+  pullRequestTitle: String,
 ) -> CommandPaletteItem? {
   guard isOpen else { return nil }
   return CommandPaletteItem(
@@ -581,7 +585,7 @@ private func makeClosePullRequestItem(
     title: "Close PR",
     subtitle: pullRequestTitle,
     kind: .closePullRequest(worktreeID),
-    priorityTier: 1
+    priorityTier: 1,
   )
 }
 
@@ -592,13 +596,13 @@ private func makeClosePullRequestItem(
         id: "debug.toast.inProgress",
         title: "[Debug] Toast: In Progress",
         subtitle: "Simulates an in-progress toast",
-        kind: .debugTestToast(.inProgress("Merging pull request…"))
+        kind: .debugTestToast(.inProgress("Merging pull request…")),
       ),
       CommandPaletteItem(
         id: "debug.toast.success",
         title: "[Debug] Toast: Success",
         subtitle: "Simulates a success toast",
-        kind: .debugTestToast(.success("Pull request merged"))
+        kind: .debugTestToast(.success("Pull request merged")),
       ),
     ]
   }
@@ -693,7 +697,7 @@ private enum CommandPaletteItemID {
 private func prioritizeItems(
   items: [CommandPaletteItem],
   recencyByID: [CommandPaletteItem.ID: TimeInterval],
-  now: Date
+  now: Date,
 ) -> [CommandPaletteItem] {
   let scored = items.enumerated().map { index, item in
     (item: item, index: index, recency: commandPaletteRecencyScore(item, recencyByID: recencyByID, now: now))
@@ -713,7 +717,7 @@ private func prioritizeItems(
 private func commandPaletteRecencyScore(
   _ item: CommandPaletteItem,
   recencyByID: [CommandPaletteItem.ID: TimeInterval],
-  now: Date
+  now: Date,
 ) -> Double {
   guard let lastActivated = recencyByID[item.id] else { return 0 }
   let ageSeconds = max(0, now.timeIntervalSince1970 - lastActivated)
@@ -722,6 +726,7 @@ private func commandPaletteRecencyScore(
   return pow(0.5, cappedAgeDays / 7)
 }
 
+// swiftlint:disable:next cyclomatic_complexity
 private func delegateAction(for kind: CommandPaletteItem.Kind) -> CommandPaletteFeature.Delegate {
   switch kind {
   case .worktreeSelect(let id):
@@ -730,20 +735,20 @@ private func delegateAction(for kind: CommandPaletteItem.Kind) -> CommandPalette
     return .checkForUpdates
   case .openSettings:
     return .openSettings
-  case .newWorktree:
-    return .newWorktree
-  case .forkWorktree(let worktreeID, let repositoryID):
-    return .forkWorktree(worktreeID, repositoryID)
   case .openRepository:
     return .openRepository
-  case .removeWorktree(let worktreeID, let repositoryID):
-    return .removeWorktree(worktreeID, repositoryID)
-  case .archiveWorktree(let worktreeID, let repositoryID):
-    return .archiveWorktree(worktreeID, repositoryID)
+  case .newWorktree:
+    return .newWorktree
   case .viewArchivedWorktrees:
     return .viewArchivedWorktrees
   case .refreshWorktrees:
     return .refreshWorktrees
+  case .forkWorktree(let worktreeID, let repositoryID):
+    return .forkWorktree(worktreeID, repositoryID)
+  case .removeWorktree(let worktreeID, let repositoryID):
+    return .removeWorktree(worktreeID, repositoryID)
+  case .archiveWorktree(let worktreeID, let repositoryID):
+    return .archiveWorktree(worktreeID, repositoryID)
   case .ghosttyCommand(let action):
     return .ghosttyCommand(action)
   case .openPullRequest,
@@ -759,6 +764,8 @@ private func delegateAction(for kind: CommandPaletteItem.Kind) -> CommandPalette
     return .runScript(definition)
   case .stopScript(let scriptID, let name):
     return .stopScript(scriptID, name: name)
+  case .toggleCollapseRepository(let repositoryID):
+    return .toggleCollapseRepository(repositoryID)
   #if DEBUG
     case .debugTestToast(let toast):
       return .debugTestToast(toast)
@@ -798,7 +805,8 @@ private func pullRequestDelegateAction(
     .refreshWorktrees,
     .ghosttyCommand,
     .runScript,
-    .stopScript:
+    .stopScript,
+    .toggleCollapseRepository:
     return nil
   #if DEBUG
     case .debugTestToast:
@@ -809,7 +817,7 @@ private func pullRequestDelegateAction(
 
 private func scriptItems(
   scripts: [ScriptDefinition],
-  runningScriptIDs: Set<UUID>
+  runningScriptIDs: Set<UUID>,
 ) -> [CommandPaletteItem] {
   var items: [CommandPaletteItem] = []
   for script in scripts {
@@ -822,7 +830,7 @@ private func scriptItems(
           title: "Stop: \(script.displayName)",
           subtitle: nil,
           kind: .stopScript(script.id, name: script.displayName),
-          priorityTier: 0
+          priorityTier: 0,
         )
       )
     } else {
@@ -831,7 +839,7 @@ private func scriptItems(
           id: CommandPaletteItemID.runScript(script.id),
           title: "Run: \(script.displayName)",
           subtitle: nil,
-          kind: .runScript(script)
+          kind: .runScript(script),
         )
       )
     }
@@ -847,9 +855,26 @@ private func ghosttyCommandItems(_ commands: [GhosttyCommand]) -> [CommandPalett
       title: command.title,
       subtitle: subtitle.isEmpty ? nil : subtitle,
       kind: .ghosttyCommand(command.action),
-      priorityTier: CommandPaletteItem.defaultPriorityTier + 100
+      priorityTier: CommandPaletteItem.defaultPriorityTier + 100,
     )
   }
+}
+
+private func collapseToggleItem(
+  from repositories: RepositoriesFeature.State
+) -> CommandPaletteItem? {
+  guard let selectedWorktreeID = repositories.selectedWorktreeID,
+    let repositoryID = repositories.repositoryID(containing: selectedWorktreeID)
+  else { return nil }
+  let isExpanded = repositories.isRepositoryExpanded(repositoryID)
+  let repoName = repositories.repositoryName(for: repositoryID) ?? "Repository"
+  let title = isExpanded ? "Collapse Section: \(repoName)" : "Expand Section: \(repoName)"
+  return CommandPaletteItem(
+    id: "repo.\(repositoryID).toggle-collapse",
+    title: title,
+    subtitle: nil,
+    kind: .toggleCollapseRepository(repositoryID),
+  )
 }
 
 private func loadRecency(into state: inout CommandPaletteFeature.State) {
@@ -906,7 +931,7 @@ private struct CommandPaletteFuzzyScorer {
     query: String,
     recencyByID: [CommandPaletteItem.ID: TimeInterval],
     now: Date,
-    allowNonContiguousMatches: Bool = true
+    allowNonContiguousMatches: Bool = true,
   ) {
     self.query = Self.prepareQuery(query)
     self.allowNonContiguousMatches = allowNonContiguousMatches
@@ -922,7 +947,7 @@ private struct CommandPaletteFuzzyScorer {
           item: item,
           score: score,
           recencyScore: recencyScore(for: item),
-          index: index
+          index: index,
         )
         : nil
     }
@@ -948,7 +973,7 @@ private struct CommandPaletteFuzzyScorer {
   private func scoreItemMultiple(
     label: String,
     description: String?,
-    query: [PreparedQueryPiece]
+    query: [PreparedQueryPiece],
   ) -> ItemScore {
     var totalScore = 0
     var totalLabelMatches: [Match] = []
@@ -971,19 +996,19 @@ private struct CommandPaletteFuzzyScorer {
     return ItemScore(
       score: totalScore,
       labelMatch: normalizeMatches(totalLabelMatches),
-      descriptionMatch: normalizeMatches(totalDescriptionMatches)
+      descriptionMatch: normalizeMatches(totalDescriptionMatches),
     )
   }
 
   private func scoreItemSingle(
     label: String,
     description: String?,
-    query: PreparedQueryPiece
+    query: PreparedQueryPiece,
   ) -> ItemScore {
     let (labelScore, labelPositions) = scoreFuzzy(
       target: label,
       query: query,
-      allowNonContiguousMatches: allowNonContiguousMatches && !query.expectContiguousMatch
+      allowNonContiguousMatches: allowNonContiguousMatches && !query.expectContiguousMatch,
     )
     if labelScore > 0 {
       let labelPrefixMatch = matchesPrefix(query: query.normalizedLowercase, target: label)
@@ -996,14 +1021,14 @@ private struct CommandPaletteFuzzyScorer {
         return ItemScore(
           score: baseScore + labelScore,
           labelMatch: labelPrefixMatch,
-          descriptionMatch: nil
+          descriptionMatch: nil,
         )
       }
       baseScore = Self.labelScoreThreshold
       return ItemScore(
         score: baseScore + labelScore,
         labelMatch: createMatches(labelPositions),
-        descriptionMatch: nil
+        descriptionMatch: nil,
       )
     }
 
@@ -1013,7 +1038,7 @@ private struct CommandPaletteFuzzyScorer {
       let (labelDescriptionScore, labelDescriptionPositions) = scoreFuzzy(
         target: descriptionAndLabel,
         query: query,
-        allowNonContiguousMatches: allowNonContiguousMatches && !query.expectContiguousMatch
+        allowNonContiguousMatches: allowNonContiguousMatches && !query.expectContiguousMatch,
       )
       if labelDescriptionScore > 0 {
         let labelDescriptionMatches = createMatches(labelDescriptionPositions)
@@ -1028,7 +1053,7 @@ private struct CommandPaletteFuzzyScorer {
             labelMatch.append(
               Match(
                 start: match.start - descriptionPrefixLength,
-                end: match.end - descriptionPrefixLength
+                end: match.end - descriptionPrefixLength,
               )
             )
           } else {
@@ -1039,7 +1064,7 @@ private struct CommandPaletteFuzzyScorer {
         return ItemScore(
           score: labelDescriptionScore,
           labelMatch: labelMatch,
-          descriptionMatch: descriptionMatch
+          descriptionMatch: descriptionMatch,
         )
       }
     }
@@ -1193,7 +1218,7 @@ private struct CommandPaletteFuzzyScorer {
   private func scoreFuzzy(
     target: String,
     query: PreparedQueryPiece,
-    allowNonContiguousMatches: Bool
+    allowNonContiguousMatches: Bool,
   ) -> (Int, [Int]) {
     if target.isEmpty || query.normalized.isEmpty {
       return (0, [])
@@ -1214,7 +1239,7 @@ private struct CommandPaletteFuzzyScorer {
       queryLower: queryLower,
       target: targetChars,
       targetLower: targetLower,
-      allowNonContiguousMatches: allowNonContiguousMatches
+      allowNonContiguousMatches: allowNonContiguousMatches,
     )
   }
 
@@ -1223,7 +1248,7 @@ private struct CommandPaletteFuzzyScorer {
     queryLower: [Character],
     target: [Character],
     targetLower: [Character],
-    allowNonContiguousMatches: Bool
+    allowNonContiguousMatches: Bool,
   ) -> (Int, [Int]) {
     let queryLength = query.count
     let targetLength = target.count
@@ -1260,7 +1285,7 @@ private struct CommandPaletteFuzzyScorer {
           target: target,
           targetLower: targetLower,
           targetIndex: targetIndex,
-          matchesSequenceLength: matchesSequenceLength
+          matchesSequenceLength: matchesSequenceLength,
         )
         if diagScore != 0 && queryIndexGtNull {
           score = computeCharScore(scoreContext)
@@ -1277,7 +1302,7 @@ private struct CommandPaletteFuzzyScorer {
             || startsWith(
               targetLower,
               queryLower,
-              at: targetIndex
+              at: targetIndex,
             ))
         {
           mutableMatches[currentIndex] = matchesSequenceLength + 1
@@ -1377,7 +1402,7 @@ private struct CommandPaletteFuzzyScorer {
   private func startsWith(
     _ target: [Character],
     _ query: [Character],
-    at index: Int
+    at index: Int,
   ) -> Bool {
     guard index + query.count <= target.count else { return false }
     for queryIndex in 0..<query.count where target[index + queryIndex] != query[queryIndex] {
@@ -1415,7 +1440,7 @@ private struct CommandPaletteFuzzyScorer {
       if let existing = currentMatch, matchOverlaps(existing, match) {
         let merged = Match(
           start: min(existing.start, match.start),
-          end: max(existing.end, match.end)
+          end: max(existing.end, match.end),
         )
         currentMatch = merged
         normalizedMatches[normalizedMatches.count - 1] = merged
@@ -1450,7 +1475,7 @@ private struct CommandPaletteFuzzyScorer {
     let piece = PreparedQueryPiece(
       normalized: normalized.normalized,
       normalizedLowercase: normalized.normalizedLowercase,
-      expectContiguousMatch: expectContiguousMatch
+      expectContiguousMatch: expectContiguousMatch,
     )
 
     let splitPieces = original.split(separator: " ")
@@ -1467,7 +1492,7 @@ private struct CommandPaletteFuzzyScorer {
           PreparedQueryPiece(
             normalized: normalizedPiece.normalized,
             normalizedLowercase: normalizedPiece.normalizedLowercase,
-            expectContiguousMatch: expectExactMatchPiece
+            expectContiguousMatch: expectExactMatchPiece,
           )
         )
       }
@@ -1475,7 +1500,7 @@ private struct CommandPaletteFuzzyScorer {
 
     return PreparedQuery(
       piece: piece,
-      values: values.isEmpty ? nil : values
+      values: values.isEmpty ? nil : values,
     )
   }
 

@@ -16,7 +16,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
     title: String,
     subtitle: String?,
     kind: Kind,
-    priorityTier: Int = defaultPriorityTier
+    priorityTier: Int = defaultPriorityTier,
   ) {
     self.id = id
     self.title = title
@@ -47,6 +47,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
     case openFailingCheckDetails(Worktree.ID)
     case runScript(ScriptDefinition)
     case stopScript(UUID, name: String)
+    case toggleCollapseRepository(Repository.ID)
     #if DEBUG
       case debugTestToast(RepositoriesFeature.StatusToast)
     #endif
@@ -68,7 +69,8 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .rerunFailedJobs,
       .openFailingCheckDetails:
       true
-    case .worktreeSelect, .removeWorktree, .archiveWorktree, .forkWorktree:
+    case .worktreeSelect, .removeWorktree, .archiveWorktree, .forkWorktree,
+      .toggleCollapseRepository:
       false
     case .runScript, .stopScript:
       true
@@ -97,7 +99,8 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .worktreeSelect,
       .removeWorktree,
       .archiveWorktree,
-      .forkWorktree:
+      .forkWorktree,
+      .toggleCollapseRepository:
       false
     case .runScript, .stopScript:
       false
@@ -129,6 +132,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .removeWorktree,
       .archiveWorktree,
       .forkWorktree,
+      .toggleCollapseRepository,
       .stopScript:
       nil
     case .runScript(let definition):
