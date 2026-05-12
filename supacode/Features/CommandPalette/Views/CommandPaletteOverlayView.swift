@@ -10,6 +10,7 @@ struct CommandPaletteOverlayView: View {
   @FocusState private var isQueryFocused: Bool
   @State private var hoveredID: CommandPaletteItem.ID?
   @State private var filteredItems: [CommandPaletteItem] = []
+  @State private var blurDismissTask: Task<Void, Never>?
 
   var body: some View {
     ZStack {
@@ -55,7 +56,8 @@ struct CommandPaletteOverlayView: View {
                 )
                 .zIndex(1)
                 .task {
-                  isQueryFocused = store.isPresented
+                  try? await Task.sleep(for: .milliseconds(50))
+                  isQueryFocused = true
                 }
 
               case .browse:
@@ -76,12 +78,30 @@ struct CommandPaletteOverlayView: View {
       }
     }
     .onChange(of: store.isPresented) { _, newValue in
-      isQueryFocused = newValue
-      if newValue, store.mode == .search {
-        let updatedItems = refreshFilteredItems(items: items)
-        updateSelection(rows: updatedItems)
-      } else if !newValue {
+      blurDismissTask?.cancel()
+      blurDismissTask = nil
+      if newValue {
+        Task { @MainActor in
+          try? await Task.sleep(for: .milliseconds(50))
+          guard store.isPresented else { return }
+          isQueryFocused = true
+        }
+        if store.mode == .search {
+          let updatedItems = refreshFilteredItems(items: items)
+          updateSelection(rows: updatedItems)
+        }
+      } else {
+        isQueryFocused = false
         hoveredID = nil
+      }
+    }
+    .onChange(of: isQueryFocused) { _, focused in
+      guard store.isPresented, store.mode == .search, !focused else { return }
+      blurDismissTask?.cancel()
+      blurDismissTask = Task { @MainActor in
+        try? await Task.sleep(for: .milliseconds(150))
+        guard !isQueryFocused, store.isPresented else { return }
+        store.send(.setPresented(false))
       }
     }
     .onChange(of: store.query) { _, _ in
@@ -280,11 +300,6 @@ private struct CommandPaletteQuery: View {
         .frame(height: Self.fieldHeight)
         .textFieldStyle(.plain)
         .focused($isTextFieldFocused)
-        .onChange(of: isTextFieldFocused) { _, focused in
-          if !focused {
-            onEvent?(.exit)
-          }
-        }
         .onExitCommand { onEvent?(.exit) }
         .onMoveCommand { onEvent?(.move($0)) }
         .onSubmit { onEvent?(.submit) }
