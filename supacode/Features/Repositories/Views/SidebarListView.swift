@@ -9,6 +9,7 @@ struct SidebarListView: View {
   @Bindable var store: StoreOf<RepositoriesFeature>
   let terminalManager: WorktreeTerminalManager
   @FocusState private var isSidebarFocused: Bool
+  @State private var isKeyboardNavigating = false
 
   var body: some View {
     let state = store.state
@@ -20,7 +21,7 @@ struct SidebarListView: View {
       get: { currentSelections },
       set: { newValue in
         guard newValue != currentSelections else { return }
-        store.send(.selectionChanged(newValue))
+        store.send(.selectionChanged(newValue, focusTerminal: !isKeyboardNavigating))
       }
     )
     let repositoriesByID = Dictionary(uniqueKeysWithValues: store.repositories.map { ($0.id, $0) })
@@ -102,7 +103,11 @@ struct SidebarListView: View {
           .upArrow, .downArrow, .leftArrow, .rightArrow,
           .home, .end, .pageUp, .pageDown,
         ]
-        guard !navigationKeys.contains(keyPress.key) else { return .ignored }
+        guard !navigationKeys.contains(keyPress.key) else {
+          isKeyboardNavigating = true
+          Task { @MainActor in isKeyboardNavigating = false }
+          return .ignored
+        }
         let hasCommandModifier = keyPress.modifiers.contains(.command)
         if hasCommandModifier { return .ignored }
         guard let worktreeID = store.selectedWorktreeID,
