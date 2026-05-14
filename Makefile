@@ -23,7 +23,7 @@ TUIST_CACHE_CONFIGURATION ?= Debug
 VERSION ?=
 BUILD ?=
 XCODEBUILD_FLAGS ?=
-LOCAL_XCODEBUILD_FLAGS ?= $(shell xcodebuild -version 2>/dev/null | awk '/^Xcode 26\.4$$/{print "SWIFT_VERSION=5"}')
+LOCAL_XCODEBUILD_FLAGS ?= $(shell xcodebuild -version 2>/dev/null | awk '/^Xcode 26\.4/{print "SWIFT_VERSION=5"}')
 
 .DEFAULT_GOAL := help
 .PHONY: build-ghostty-xcframework generate-project generate-project-sources inspect-dependencies warm-cache build-app run-app install-dev-build archive export-archive format lint check test bump-version bump-and-release log-stream
