@@ -368,7 +368,7 @@ private struct CommandPaletteRowView: View {
       .ghosttyCommand,
       .openPullRequest, .markPullRequestReady, .mergePullRequest, .closePullRequest, .copyFailingJobURL,
       .copyCiFailureLogs,
-      .rerunFailedJobs, .openFailingCheckDetails, .worktreeSelect:
+      .rerunFailedJobs, .openFailingCheckDetails, .worktreeSelect, .toggleCollapseRepository:
       return nil
     case .forkWorktree:
       return "Fork"
@@ -427,6 +427,8 @@ private struct CommandPaletteRowView: View {
       return "trash"
     case .archiveWorktree:
       return "archivebox"
+    case .toggleCollapseRepository:
+      return "chevron.right"
     case .runScript(let definition):
       return definition.resolvedSystemImage
     case .stopScript:
@@ -449,6 +451,8 @@ private struct CommandPaletteRowView: View {
       return true
     case .worktreeSelect, .removeWorktree, .archiveWorktree, .forkWorktree:
       return false
+    case .toggleCollapseRepository:
+      return true
     case .runScript, .stopScript:
       return true
     #if DEBUG
@@ -567,6 +571,8 @@ private struct CommandPaletteRowView: View {
       base = "Run \(definition.name)"
     case .stopScript(_, let name):
       base = "Stop \(name)"
+    case .toggleCollapseRepository:
+      base = row.title
     #if DEBUG
       case .debugTestToast:
         base = row.title
