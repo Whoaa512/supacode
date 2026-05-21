@@ -58,7 +58,7 @@ struct UpstreamUpdateFeature {
     }
   }
 
-  private func resolveSupacodeRepoPath() -> String? {
+  private nonisolated func resolveSupacodeRepoPath() -> String? {
     let compileTimePath = #filePath
     let url = URL(fileURLWithPath: compileTimePath)
     var current = url.deletingLastPathComponent()
@@ -78,7 +78,7 @@ struct UpstreamUpdateFeature {
     return nil
   }
 
-  private func currentBranch(repoPath: String) -> String? {
+  private nonisolated func currentBranch(repoPath: String) -> String? {
     let env = URL(fileURLWithPath: "/usr/bin/env")
     let process = Process()
     process.executableURL = env
