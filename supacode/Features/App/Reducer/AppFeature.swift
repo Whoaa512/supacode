@@ -1204,6 +1204,10 @@ struct AppFeature {
       case .commandPalette(.delegate(.refreshWorktrees)):
         return .send(.repositories(.refreshWorktrees))
 
+      case .commandPalette(.delegate(.toggleCollapseRepository(let repositoryID))):
+        let isExpanded = state.repositories.isRepositoryExpanded(repositoryID)
+        return .send(.repositories(.repositoryExpansionChanged(repositoryID, isExpanded: !isExpanded)))
+
       case .commandPalette(.delegate(.ghosttyCommand(let action))):
         guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) else {
           return .none
