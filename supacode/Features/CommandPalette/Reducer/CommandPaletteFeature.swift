@@ -1,5 +1,6 @@
 import ComposableArchitecture
 import Foundation
+import OrderedCollections
 import Sharing
 import SupacodeSettingsShared
 
@@ -71,6 +72,7 @@ struct CommandPaletteFeature {
     case viewArchivedWorktrees
     case refreshWorktrees
     case ghosttyCommand(String)
+    case toggleCollapseRepository(Repository.ID)
     case openPullRequest(Worktree.ID)
     case markPullRequestReady(Worktree.ID)
     case mergePullRequest(Worktree.ID)
@@ -388,6 +390,7 @@ struct CommandPaletteFeature {
     #if DEBUG
       items.append(contentsOf: debugToastItems())
     #endif
+    items.append(contentsOf: toggleCollapseRepositoryItems(from: repositories))
     for row in repositories.orderedSidebarItems() {
       guard row.status == .idle else { continue }
       let repositoryName = repositories.repositoryName(for: row.repositoryID) ?? "Repository"
@@ -424,6 +427,7 @@ struct CommandPaletteFeature {
   ) -> [CommandPaletteItem.ID] {
     var ids = CommandPaletteItemID.globalIDs
     for repository in repositories {
+      ids.append(CommandPaletteItemID.toggleCollapseRepository(repository.id))
       ids.append(contentsOf: CommandPaletteItemID.pullRequestIDs(repositoryID: repository.id))
       for worktree in repository.worktrees {
         ids.append(CommandPaletteItemID.worktreeSelect(worktree.id))
@@ -636,6 +640,10 @@ private enum CommandPaletteItemID {
     "\(ghosttyPrefix)\(command.action)|\(command.title)"
   }
 
+  static func toggleCollapseRepository(_ repositoryID: Repository.ID) -> CommandPaletteItem.ID {
+    "repository.\(repositoryID).toggle-collapse"
+  }
+
   static func pullRequestIDs(repositoryID: Repository.ID) -> [CommandPaletteItem.ID] {
     [
       pullRequestOpen(repositoryID),
@@ -746,6 +754,8 @@ private func delegateAction(for kind: CommandPaletteItem.Kind) -> CommandPalette
     return .refreshWorktrees
   case .ghosttyCommand(let action):
     return .ghosttyCommand(action)
+  case .toggleCollapseRepository(let repositoryID):
+    return .toggleCollapseRepository(repositoryID)
   case .openPullRequest,
     .markPullRequestReady,
     .mergePullRequest,
@@ -755,14 +765,25 @@ private func delegateAction(for kind: CommandPaletteItem.Kind) -> CommandPalette
     .rerunFailedJobs,
     .openFailingCheckDetails:
     return pullRequestDelegateAction(for: kind)!
-  case .runScript(let definition):
-    return .runScript(definition)
-  case .stopScript(let scriptID, let name):
-    return .stopScript(scriptID, name: name)
+  case .runScript, .stopScript:
+    return scriptDelegateAction(for: kind)!
   #if DEBUG
     case .debugTestToast(let toast):
       return .debugTestToast(toast)
   #endif
+  }
+}
+
+private func scriptDelegateAction(
+  for kind: CommandPaletteItem.Kind
+) -> CommandPaletteFeature.Delegate? {
+  switch kind {
+  case .runScript(let definition):
+    return .runScript(definition)
+  case .stopScript(let scriptID, let name):
+    return .stopScript(scriptID, name: name)
+  default:
+    return nil
   }
 }
 
@@ -797,6 +818,7 @@ private func pullRequestDelegateAction(
     .viewArchivedWorktrees,
     .refreshWorktrees,
     .ghosttyCommand,
+    .toggleCollapseRepository,
     .runScript,
     .stopScript:
     return nil
@@ -848,6 +870,22 @@ private func scriptItems(
     }
   }
   return items
+}
+
+private func toggleCollapseRepositoryItems(
+  from repositories: RepositoriesFeature.State
+) -> [CommandPaletteItem] {
+  repositories.repositories.compactMap { repository in
+    guard repository.isGitRepository else { return nil }
+    let isCollapsed = repositories.sidebar.sections[repository.id]?.collapsed ?? false
+    let actionTitle = isCollapsed ? "Expand" : "Collapse"
+    return CommandPaletteItem(
+      id: CommandPaletteItemID.toggleCollapseRepository(repository.id),
+      title: "\(actionTitle) \(repository.name)",
+      subtitle: "Toggle sidebar section",
+      kind: .toggleCollapseRepository(repository.id)
+    )
+  }
 }
 
 private func ghosttyCommandItems(_ commands: [GhosttyCommand]) -> [CommandPaletteItem] {
