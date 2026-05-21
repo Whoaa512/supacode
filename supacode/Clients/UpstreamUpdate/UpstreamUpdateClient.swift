@@ -93,7 +93,7 @@ private enum ShellProcess {
     let stderr: String
   }
 
-  static func run(
+  nonisolated static func run(
     _ executable: URL,
     _ arguments: [String],
   ) throws -> Output {
