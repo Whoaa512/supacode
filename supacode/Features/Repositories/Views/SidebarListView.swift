@@ -5,6 +5,18 @@ import Sharing
 import SupacodeSettingsShared
 import SwiftUI
 
+@MainActor
+private func isMouseDrivenSelection() -> Bool {
+  guard let event = NSApp.currentEvent else { return false }
+  switch event.type {
+  case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
+    .otherMouseDown, .otherMouseUp:
+    return true
+  default:
+    return false
+  }
+}
+
 struct SidebarListView: View {
   @Bindable var store: StoreOf<RepositoriesFeature>
   let terminalManager: WorktreeTerminalManager
@@ -20,7 +32,8 @@ struct SidebarListView: View {
       get: { currentSelections },
       set: { newValue in
         guard newValue != currentSelections else { return }
-        store.send(.selectionChanged(newValue))
+        let focusTerminal = isMouseDrivenSelection()
+        store.send(.selectionChanged(newValue, focusTerminal: focusTerminal))
       }
     )
     let repositoriesByID = Dictionary(uniqueKeysWithValues: store.repositories.map { ($0.id, $0) })
