@@ -286,6 +286,7 @@ private struct CommandPaletteRowView: View {
       .ghosttyCommand,
       .toggleWindowMode,
       .layoutCommand,
+      .toggleCollapseRepository,
       .openPullRequest, .markPullRequestReady, .mergePullRequest, .closePullRequest, .copyFailingJobURL,
       .copyCiFailureLogs,
       .rerunFailedJobs, .openFailingCheckDetails, .worktreeSelect,
@@ -332,6 +333,8 @@ private struct CommandPaletteRowView: View {
       return "macwindow.on.rectangle"
     case .layoutCommand(let command):
       return command.systemImage
+    case .toggleCollapseRepository:
+      return "chevron.right"
     case .openPullRequest:
       return "arrow.up.right.square"
     case .markPullRequestReady:
@@ -379,6 +382,7 @@ private struct CommandPaletteRowView: View {
       .ghosttyCommand,
       .toggleWindowMode,
       .layoutCommand,
+      .toggleCollapseRepository,
       .openPullRequest, .markPullRequestReady, .mergePullRequest, .closePullRequest, .copyFailingJobURL,
       .copyCiFailureLogs,
       .rerunFailedJobs, .openFailingCheckDetails:
@@ -519,7 +523,7 @@ private struct CommandPaletteRowView: View {
       base = row.title
     case .toggleWindowMode:
       base = "Move the focused pane to its own window, or back"
-    case .layoutCommand:
+    case .layoutCommand, .toggleCollapseRepository:
       base = row.title
     case .removeWorktree:
       base = "Remove \(row.title)"

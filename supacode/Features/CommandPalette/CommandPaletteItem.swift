@@ -88,6 +88,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
     case ghosttyCommand(String)
     case toggleWindowMode
     case layoutCommand(LayoutPaletteCommand)
+    case toggleCollapseRepository(Repository.ID)
     case openPullRequest(Worktree.ID)
     case markPullRequestReady(Worktree.ID)
     case mergePullRequest(Worktree.ID)
@@ -106,7 +107,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
   var isGlobal: Bool {
     switch kind {
     case .checkForUpdates, .openRepository, .addRemoteRepository, .openSettings, .newWorktree,
-      .viewArchivedWorktrees, .refreshWorktrees:
+      .viewArchivedWorktrees, .refreshWorktrees, .toggleCollapseRepository:
       true
     case .ghosttyCommand, .toggleWindowMode, .layoutCommand:
       false
@@ -137,7 +138,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
     case .checkForUpdates, .openRepository, .addRemoteRepository, .openSettings, .newWorktree,
       .viewArchivedWorktrees, .refreshWorktrees:
       true
-    case .ghosttyCommand, .toggleWindowMode, .layoutCommand:
+    case .ghosttyCommand, .toggleWindowMode, .layoutCommand, .toggleCollapseRepository:
       false
     case .openPullRequest,
       .markPullRequestReady,
@@ -175,6 +176,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
     case .ghosttyCommand: nil
     case .toggleWindowMode: AppShortcuts.toggleWindowMode
     case .layoutCommand(let command): command.appShortcut
+    case .toggleCollapseRepository: nil
     case .openPullRequest: AppShortcuts.openPullRequest
     case .addRemoteRepository,
       .markPullRequestReady,
