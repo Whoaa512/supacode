@@ -32,8 +32,7 @@ struct GhosttySurfaceSearchOverlay: View {
               navigateSearch(isShifted ? .previous : .next)
             },
             onEscape: {
-              isSearchFieldFocused = false
-              surfaceView.requestFocus()
+              closeSearch()
             }
           )
           .frame(width: 180)
