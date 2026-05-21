@@ -86,6 +86,45 @@ struct AppFeatureCommandPaletteTests {
     await store.receive(\.repositories.refreshWorktrees)
   }
 
+  @Test(.dependencies) func toggleCollapseRepositoryCollapsesExpandedSection() async {
+    let worktree = makeWorktree(id: "/tmp/repo/wt1", name: "wt1", repoRoot: "/tmp/repo")
+    let repository = makeRepository(id: "/tmp/repo", worktrees: [worktree])
+    var state = AppFeature.State()
+    state.repositories.repositories = [repository]
+    let store = TestStore(initialState: state) {
+      AppFeature()
+    }
+    store.exhaustivity = .off
+
+    await store.send(.commandPalette(.delegate(.toggleCollapseRepository(repository.id))))
+    await store.receive(\.repositories.repositoryExpansionChanged) {
+      $0.repositories.$sidebar.withLock {
+        $0.sections[repository.id, default: .init()].collapsed = true
+      }
+    }
+  }
+
+  @Test(.dependencies) func toggleCollapseRepositoryExpandsCollapsedSection() async {
+    let worktree = makeWorktree(id: "/tmp/repo/wt1", name: "wt1", repoRoot: "/tmp/repo")
+    let repository = makeRepository(id: "/tmp/repo", worktrees: [worktree])
+    var state = AppFeature.State()
+    state.repositories.repositories = [repository]
+    state.repositories.$sidebar.withLock {
+      $0.sections[repository.id, default: .init()].collapsed = true
+    }
+    let store = TestStore(initialState: state) {
+      AppFeature()
+    }
+    store.exhaustivity = .off
+
+    await store.send(.commandPalette(.delegate(.toggleCollapseRepository(repository.id))))
+    await store.receive(\.repositories.repositoryExpansionChanged) {
+      $0.repositories.$sidebar.withLock {
+        $0.sections[repository.id, default: .init()].collapsed = false
+      }
+    }
+  }
+
   @Test(.dependencies) func viewArchivedWorktreesDispatchesSelectArchived() async {
     let store = TestStore(initialState: AppFeature.State()) {
       AppFeature()

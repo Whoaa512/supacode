@@ -87,6 +87,7 @@ struct CommandPaletteFeature {
     case viewArchivedWorktrees
     case refreshWorktrees
     case ghosttyCommand(String)
+    case toggleCollapseRepository(Repository.ID)
     case openPullRequest(Worktree.ID)
     case markPullRequestReady(Worktree.ID)
     case mergePullRequest(Worktree.ID)
@@ -445,6 +446,7 @@ struct CommandPaletteFeature {
     if let renameBranchItem = renameBranchItem(from: repositories) {
       items.append(renameBranchItem)
     }
+    items.append(contentsOf: toggleCollapseRepositoryItems(from: repositories))
     // Worktree navigation is the ⌘P switcher's job (see `worktreeSwitcherItems`);
     // the ⌘⇧P command palette lists actions only, not worktree rows. Fork
     // worktree remains an action, so it stays here.
@@ -502,6 +504,7 @@ struct CommandPaletteFeature {
   ) -> [CommandPaletteItem.ID] {
     var ids = CommandPaletteItemID.globalIDs
     for repository in repositories {
+      ids.append(CommandPaletteItemID.toggleCollapseRepository(repository.id))
       ids.append(contentsOf: CommandPaletteItemID.pullRequestIDs(repositoryID: repository.id))
       for worktree in repository.worktrees {
         ids.append(CommandPaletteItemID.worktreeSelect(worktree.id))
@@ -833,6 +836,10 @@ private enum CommandPaletteItemID {
     "\(ghosttyPrefix)\(command.action)|\(command.title)"
   }
 
+  static func toggleCollapseRepository(_ repositoryID: Repository.ID) -> CommandPaletteItem.ID {
+    "repository.\(repositoryID).toggle-collapse"
+  }
+
   static func pullRequestIDs(repositoryID: Repository.ID) -> [CommandPaletteItem.ID] {
     [
       pullRequestOpen(repositoryID),
@@ -947,6 +954,8 @@ private func delegateAction(for kind: CommandPaletteItem.Kind) -> CommandPalette
     return .refreshWorktrees
   case .ghosttyCommand(let action):
     return .ghosttyCommand(action)
+  case .toggleCollapseRepository(let repositoryID):
+    return .toggleCollapseRepository(repositoryID)
   case .openPullRequest,
     .markPullRequestReady,
     .mergePullRequest,
@@ -1011,6 +1020,7 @@ private func pullRequestDelegateAction(
     .viewArchivedWorktrees,
     .refreshWorktrees,
     .ghosttyCommand,
+    .toggleCollapseRepository,
     .runScript,
     .stopScript:
     return nil
@@ -1062,6 +1072,22 @@ private func scriptItems(
     }
   }
   return items
+}
+
+private func toggleCollapseRepositoryItems(
+  from repositories: RepositoriesFeature.State
+) -> [CommandPaletteItem] {
+  repositories.repositories.compactMap { repository in
+    guard repository.isGitRepository else { return nil }
+    let isCollapsed = repositories.sidebar.sections[repository.id]?.collapsed ?? false
+    let actionTitle = isCollapsed ? "Expand" : "Collapse"
+    return CommandPaletteItem(
+      id: CommandPaletteItemID.toggleCollapseRepository(repository.id),
+      title: "\(actionTitle) \(repository.name)",
+      subtitle: "Toggle sidebar section",
+      kind: .toggleCollapseRepository(repository.id)
+    )
+  }
 }
 
 private func ghosttyCommandItems(_ commands: [GhosttyCommand]) -> [CommandPaletteItem] {
