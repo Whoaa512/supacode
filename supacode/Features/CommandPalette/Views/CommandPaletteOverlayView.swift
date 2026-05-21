@@ -25,7 +25,7 @@ struct CommandPaletteOverlayView: View {
           items: filteredItems,
           placeholder: queryPlaceholder,
           hoveredID: $hoveredID,
-          isQueryFocused: _isQueryFocused,
+          isQueryFocused: $isQueryFocused,
           onEvent: { event in
             switch event {
             case .exit:
@@ -151,7 +151,7 @@ private struct CommandPaletteCard: View {
   let items: [CommandPaletteItem]
   let placeholder: String
   @Binding var hoveredID: CommandPaletteItem.ID?
-  let isQueryFocused: FocusState<Bool>
+  var isQueryFocused: FocusState<Bool>.Binding
   let onEvent: (CommandPaletteKeyboardEvent) -> Void
   let activate: (CommandPaletteItem.ID) -> Void
 
@@ -188,19 +188,19 @@ private struct CommandPaletteQuery: View {
 
   @Binding var query: String
   let placeholder: String
+  var isTextFieldFocused: FocusState<Bool>.Binding
   var onEvent: ((CommandPaletteKeyboardEvent) -> Void)?
-  @FocusState private var isTextFieldFocused: Bool
 
   init(
     query: Binding<String>,
     placeholder: String,
-    isTextFieldFocused: FocusState<Bool>,
+    isTextFieldFocused: FocusState<Bool>.Binding,
     onEvent: ((CommandPaletteKeyboardEvent) -> Void)? = nil
   ) {
     _query = query
     self.placeholder = placeholder
+    self.isTextFieldFocused = isTextFieldFocused
     self.onEvent = onEvent
-    _isTextFieldFocused = isTextFieldFocused
   }
 
   // No hidden `.keyboardShortcut` buttons: they would stay registered app-wide
@@ -212,7 +212,12 @@ private struct CommandPaletteQuery: View {
       .appFont(.title3, weight: .light)
       .frame(height: Self.fieldHeight)
       .textFieldStyle(.plain)
-      .focused($isTextFieldFocused)
+      .focused(isTextFieldFocused)
+      .onChange(of: isTextFieldFocused.wrappedValue) { _, focused in
+        if !focused {
+          onEvent?(.exit)
+        }
+      }
       .onExitCommand { onEvent?(.exit) }
       .onMoveCommand { onEvent?(.move($0)) }
       .onSubmit { onEvent?(.submit) }

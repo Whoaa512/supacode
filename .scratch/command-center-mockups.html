@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Command Center — Layout Mockups</title>
+<style>
+  :root {
+    --bg: #1e1e1e;
+    --panel: #252526;
+    --panel-2: #2d2d30;
+    --card: #2a2a2c;
+    --card-hover: #323234;
+    --stroke: rgba(255,255,255,0.08);
+    --stroke-strong: rgba(255,255,255,0.14);
+    --text: #e8e8ea;
+    --text-2: #9a9a9e;
+    --text-3: #6e6e72;
+    --accent: #0a84ff;
+    --green: #30d158;
+    --orange: #ff9f0a;
+    --blue: #0a84ff;
+    --purple: #bf5af2;
+    --pink: #ff375f;
+    --radius: 10px;
+    --radius-sm: 7px;
+    --shadow: 0 8px 30px rgba(0,0,0,0.4);
+    font-family: -apple-system, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+  }
+  [data-theme="light"] {
+    --bg: #f2f2f4;
+    --panel: #ffffff;
+    --panel-2: #f7f7f9;
+    --card: #ffffff;
+    --card-hover: #f4f4f6;
+    --stroke: rgba(0,0,0,0.08);
+    --stroke-strong: rgba(0,0,0,0.14);
+    --text: #1d1d1f;
+    --text-2: #6e6e73;
+    --text-3: #98989d;
+    --shadow: 0 8px 30px rgba(0,0,0,0.12);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    -webkit-font-smoothing: antialiased; font-size: 13px; line-height: 1.4;
+  }
+
+  /* ---- top control bar ---- */
+  .toolbar {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; gap: 14px;
+    padding: 10px 16px; background: var(--panel);
+    border-bottom: 1px solid var(--stroke); backdrop-filter: blur(20px);
+  }
+  .toolbar h1 { font-size: 13px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .toolbar .spacer { flex: 1; }
+  .seg { display: inline-flex; background: var(--panel-2); border: 1px solid var(--stroke); border-radius: 8px; padding: 2px; gap: 2px; }
+  .seg button {
+    appearance: none; border: 0; background: transparent; color: var(--text-2);
+    font: inherit; font-size: 12px; font-weight: 500; padding: 5px 11px; border-radius: 6px; cursor: pointer;
+    white-space: nowrap; transition: all .12s ease;
+  }
+  .seg button:hover { color: var(--text); }
+  .seg button.active { background: var(--accent); color: #fff; }
+  .pill-toggle { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--text-2); cursor:pointer; user-select:none; }
+  .pill-toggle input { display:none; }
+  .pill-toggle .track { width:34px; height:20px; border-radius:10px; background:var(--panel-2); border:1px solid var(--stroke); position:relative; transition:.15s; }
+  .pill-toggle .track::after { content:""; position:absolute; top:1px; left:1px; width:16px; height:16px; border-radius:50%; background:var(--text-2); transition:.15s; }
+  .pill-toggle input:checked + .track { background:var(--accent); border-color:var(--accent); }
+  .pill-toggle input:checked + .track::after { left:15px; background:#fff; }
+
+  .stage-wrap { padding: 22px; display:flex; justify-content:center; }
+  .concept-label { max-width: 1100px; margin: 0 auto 14px; }
+  .concept-label .name { font-size: 17px; font-weight: 650; letter-spacing:-0.02em; }
+  .concept-label .desc { color: var(--text-2); margin-top: 3px; font-size:12.5px; max-width:680px; }
+
+  /* device frame to evoke a macOS panel */
+  .frame {
+    background: var(--panel); border: 1px solid var(--stroke-strong); border-radius: 12px;
+    box-shadow: var(--shadow); overflow: hidden; display:flex; flex-direction:column;
+  }
+  .frame-bar { display:flex; align-items:center; gap:8px; padding:9px 12px; border-bottom:1px solid var(--stroke); background:var(--panel-2); }
+  .traffic { display:flex; gap:7px; }
+  .traffic i { width:11px; height:11px; border-radius:50%; display:block; }
+  .traffic .r{background:#ff5f57}.traffic .y{background:#febc2e}.traffic .g{background:#28c840}
+  .frame-bar .title { font-size:12px; color:var(--text-2); font-weight:500; }
+
+  .inspector { width: 360px; }
+  .wide { width: min(1100px, 100%); }
+
+  /* ===== shared atoms ===== */
+  .wf-icon { width:22px;height:22px;border-radius:6px;display:grid;place-items:center;font-size:12px;flex:none; }
+  .wf-understand { background: rgba(191,90,242,.18); color: var(--purple); }
+  .wf-build { background: rgba(48,209,88,.16); color: var(--green); }
+  .wf-review { background: rgba(10,132,255,.16); color: var(--blue); }
+  .wf-ship { background: rgba(255,159,10,.16); color: var(--orange); }
+  .wf-package { background: rgba(255,55,95,.16); color: var(--pink); }
+
+  .dot { width:8px;height:8px;border-radius:50%;flex:none; }
+  .dot.active{background:var(--green); box-shadow:0 0 0 0 rgba(48,209,88,.5); animation:pulse 2s infinite;}
+  .dot.attention{background:var(--orange);}
+  .dot.idle{background:var(--text-3);}
+  .dot.complete{background:var(--blue);}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(48,209,88,.45)}70%{box-shadow:0 0 0 6px rgba(48,209,88,0)}100%{box-shadow:0 0 0 0 rgba(48,209,88,0)}}
+
+  .chip {
+    appearance:none; border:1px solid var(--stroke-strong); background:var(--panel-2); color:var(--text);
+    font:inherit; font-size:11px; padding:3px 9px; border-radius:6px; cursor:pointer; transition:.12s; white-space:nowrap;
+  }
+  .chip:hover{ background:var(--accent); border-color:var(--accent); color:#fff; transform:translateY(-1px); }
+  .chip.mini{ font-size:10.5px; padding:2px 7px; }
+
+  .btn-launch {
+    appearance:none; border:1px solid var(--stroke-strong); background:var(--card); color:var(--text);
+    font:inherit; font-size:12px; font-weight:500; padding:6px 10px; border-radius:7px; cursor:pointer;
+    display:inline-flex; align-items:center; gap:7px; transition:.12s;
+  }
+  .btn-launch:hover{ background:var(--card-hover); border-color:var(--accent); transform:translateY(-1px); }
+
+  .meta { color:var(--text-2); font-size:11px; }
+  .path { color:var(--text-3); font-size:11px; font-family:"SF Mono",ui-monospace,monospace; }
+  .divider { height:1px; background:var(--stroke); margin:2px 0; }
+  .badge { font-size:10.5px; font-weight:600; padding:2px 7px; border-radius:20px; display:inline-flex; align-items:center; gap:4px; }
+  .badge.green{ background:rgba(48,209,88,.15); color:var(--green);} 
+  .badge.orange{ background:rgba(255,159,10,.15); color:var(--orange);} 
+  .badge.blue{ background:rgba(10,132,255,.15); color:var(--blue);} 
+
+  .stage { display:none; }
+  .stage.show { display:block; }
+
+  /* small helper grid */
+  .row{display:flex;align-items:center;gap:8px;}
+  .col{display:flex;flex-direction:column;}
+  .grow{flex:1;}
+  .scroll{ overflow-y:auto; }
+
+  /* ============ CONCEPT 1: REFINED INSPECTOR CARDS ============ */
+  .c1 .body{ padding:12px; gap:12px; display:flex; flex-direction:column; max-height:620px; }
+  .c1 .launcher{ display:flex; flex-wrap:wrap; gap:6px; padding:10px; background:var(--panel-2); border:1px solid var(--stroke); border-radius:var(--radius); }
+  .c1 .launcher .lead{ width:100%; font-size:11px; color:var(--text-3); font-weight:600; text-transform:uppercase; letter-spacing:.04em; margin-bottom:2px; }
+  .c1 .proj{ background:var(--card); border:1px solid var(--stroke); border-radius:var(--radius); padding:11px; }
+  .c1 .proj h3{ margin:0; font-size:13px; font-weight:600; }
+  .c1 .run{ display:flex; flex-direction:column; gap:6px; padding:8px; border-radius:var(--radius-sm); background:var(--panel-2); border:1px solid var(--stroke); }
+  .c1 .run + .run{ margin-top:6px; }
+  .c1 .followups{ display:flex; gap:4px; flex-wrap:wrap; }
+
+  /* ============ CONCEPT 2: RUN-FIRST INSPECTOR ============ */
+  .c2 .body{ display:flex; flex-direction:column; max-height:620px; }
+  .c2 .quicklaunch{ display:flex; gap:6px; padding:10px 12px; overflow-x:auto; border-bottom:1px solid var(--stroke); background:var(--panel-2); }
+  .c2 .ql{ flex:none; display:flex; flex-direction:column; align-items:center; gap:5px; width:62px; cursor:pointer; padding:4px; border-radius:8px; transition:.12s; }
+  .c2 .ql:hover{ background:var(--card-hover); }
+  .c2 .ql .wf-icon{ width:34px;height:34px;font-size:16px;border-radius:9px; }
+  .c2 .ql span{ font-size:10px; color:var(--text-2); text-align:center; line-height:1.15; }
+  .c2 .runs{ padding:12px; display:flex; flex-direction:column; gap:9px; overflow-y:auto; }
+  .c2 .runcard{ background:var(--card); border:1px solid var(--stroke); border-left:3px solid var(--green); border-radius:var(--radius); padding:11px; }
+  .c2 .runcard.attention{ border-left-color:var(--orange); }
+  .c2 .runcard.complete{ border-left-color:var(--blue); opacity:.7; }
+  .c2 .runcard .followups{ display:flex; gap:4px; flex-wrap:wrap; margin-top:9px; }
+  .c2 .sect{ font-size:11px; color:var(--text-3); font-weight:600; text-transform:uppercase; letter-spacing:.04em; padding:4px 12px; }
+
+  /* ============ CONCEPT 3: BOARD / KANBAN (WIDE) ============ */
+  .c3 .body{ padding:16px; }
+  .c3 .cmdbar{ display:flex; align-items:center; gap:10px; margin-bottom:16px; background:var(--panel-2); border:1px solid var(--stroke); border-radius:10px; padding:9px 12px; }
+  .c3 .cmdbar .ico{ color:var(--text-3); }
+  .c3 .cmdbar input{ flex:1; background:transparent; border:0; color:var(--text); font:inherit; font-size:13px; outline:none; }
+  .c3 .cmdbar .wf-pills{ display:flex; gap:6px; }
+  .c3 .cols{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  .c3 .kcol h4{ margin:0 0 10px; font-size:12px; font-weight:600; display:flex; align-items:center; gap:7px; color:var(--text-2); }
+  .c3 .kcol h4 .count{ background:var(--panel-2); border:1px solid var(--stroke); padding:0 7px; border-radius:10px; font-size:11px; }
+  .c3 .kcard{ background:var(--card); border:1px solid var(--stroke); border-radius:var(--radius); padding:11px; margin-bottom:10px; transition:.12s; cursor:pointer; }
+  .c3 .kcard:hover{ background:var(--card-hover); transform:translateY(-1px); border-color:var(--stroke-strong); }
+  .c3 .kcard .followups{ display:flex; gap:4px; flex-wrap:wrap; margin-top:9px; }
+
+  /* ============ CONCEPT 4: LAUNCHPAD (WIDE) ============ */
+  .c4 .body{ display:grid; grid-template-columns:1fr 320px; min-height:560px; }
+  .c4 .main{ padding:22px; border-right:1px solid var(--stroke); }
+  .c4 .hero{ font-size:15px; font-weight:650; margin:0 0 4px; }
+  .c4 .sub{ color:var(--text-2); margin:0 0 18px; }
+  .c4 .grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+  .c4 .tile{ background:var(--card); border:1px solid var(--stroke); border-radius:12px; padding:16px; cursor:pointer; transition:.14s; display:flex; flex-direction:column; gap:10px; }
+  .c4 .tile:hover{ background:var(--card-hover); transform:translateY(-2px); border-color:var(--stroke-strong); box-shadow:var(--shadow); }
+  .c4 .tile .wf-icon{ width:38px;height:38px;font-size:18px;border-radius:11px; }
+  .c4 .tile .t-name{ font-size:13.5px; font-weight:600; }
+  .c4 .tile .t-cat{ font-size:11px; color:var(--text-3); text-transform:capitalize; }
+  .c4 .proj-select{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:18px; }
+  .c4 .proj-select .ps{ font-size:11.5px; padding:5px 10px; border-radius:7px; border:1px solid var(--stroke); background:var(--panel-2); cursor:pointer; color:var(--text-2); }
+  .c4 .proj-select .ps.active{ background:var(--accent); color:#fff; border-color:var(--accent); }
+  .c4 .rail{ padding:16px; display:flex; flex-direction:column; gap:10px; background:var(--panel-2); overflow-y:auto; }
+  .c4 .rail h4{ margin:0 0 2px; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-3); }
+  .c4 .railcard{ background:var(--card); border:1px solid var(--stroke); border-radius:9px; padding:9px; }
+  .c4 .railcard .followups{ display:flex;gap:4px;flex-wrap:wrap;margin-top:7px; }
+
+  /* ============ CONCEPT 5: ACTIVITY FEED (WIDE) ============ */
+  .c5 .body{ display:grid; grid-template-columns:1fr; max-width:720px; margin:0 auto; padding:18px; }
+  .c5 .composer{ display:flex; gap:8px; align-items:center; background:var(--panel-2); border:1px solid var(--stroke-strong); border-radius:12px; padding:8px 8px 8px 14px; margin-bottom:20px; position:sticky; top:0; }
+  .c5 .composer input{ flex:1; background:transparent;border:0;color:var(--text);font:inherit;font-size:13.5px;outline:none; }
+  .c5 .composer .wf-pills{ display:flex; gap:5px; }
+  .c5 .composer .send{ background:var(--accent); color:#fff; border:0; border-radius:8px; padding:7px 14px; font:inherit; font-weight:600; font-size:12px; cursor:pointer; }
+  .c5 .timeline{ position:relative; padding-left:26px; }
+  .c5 .timeline::before{ content:""; position:absolute; left:9px; top:6px; bottom:6px; width:2px; background:var(--stroke); }
+  .c5 .event{ position:relative; margin-bottom:16px; }
+  .c5 .event .node{ position:absolute; left:-22px; top:3px; width:14px;height:14px;border-radius:50%; border:3px solid var(--bg); }
+  .c5 .event .node.active{ background:var(--green);} .c5 .event .node.attention{background:var(--orange);} .c5 .event .node.complete{background:var(--blue);}
+  .c5 .evcard{ background:var(--card); border:1px solid var(--stroke); border-radius:var(--radius); padding:12px; }
+  .c5 .evcard .followups{ display:flex; gap:5px; flex-wrap:wrap; margin-top:10px; }
+  .c5 .ev-time{ font-size:11px; color:var(--text-3); margin-bottom:6px; }
+
+  /* toast */
+  #toast{ position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--accent); color:#fff;
+    padding:9px 16px; border-radius:9px; font-size:12.5px; font-weight:500; box-shadow:var(--shadow); opacity:0; pointer-events:none; transition:.25s; z-index:99; }
+  #toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+
+  .empty{ color:var(--text-3); font-size:12px; text-align:center; padding:30px 10px; }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <h1>⌘ Command Center</h1>
+    <div class="seg" id="conceptSeg">
+      <button data-c="1" class="active">1 · Refined Cards</button>
+      <button data-c="2">2 · Run-First</button>
+      <button data-c="3">3 · Board</button>
+      <button data-c="4">4 · Launchpad</button>
+      <button data-c="5">5 · Feed</button>
+    </div>
+    <div class="spacer"></div>
+    <label class="pill-toggle">
+      <input type="checkbox" id="themeToggle" checked>
+      <span class="track"></span> Dark
+    </label>
+  </div>
+
+  <div class="stage-wrap"><div style="width:100%;max-width:1140px">
+    <div class="concept-label">
+      <div class="name" id="cName"></div>
+      <div class="desc" id="cDesc"></div>
+    </div>
+    <div id="stages"></div>
+  </div></div>
+
+  <div id="toast"></div>
+
+<script>
+/* ---------- mock data ---------- */
+const WF = {
+  ship:    {key:'ship',  name:'Ship Check', cat:'review',     icon:'🛡', cls:'wf-review'},
+  dev:     {key:'dev',   name:'Dev Loop',   cat:'build',      icon:'🔁', cls:'wf-build'},
+  fixci:   {key:'fixci', name:'Fix CI',     cat:'ship',       icon:'🔧', cls:'wf-ship'},
+  invest:  {key:'invest',name:'Investigate',cat:'understand', icon:'🔍', cls:'wf-understand'},
+  handoff: {key:'handoff',name:'Handoff',   cat:'package',    icon:'↔️', cls:'wf-package'},
+};
+const WFLIST = Object.values(WF);
+const FOLLOWUPS = ['intme','verify','fix','cont','handoff'];
+
+const PROJECTS = [
+  { id:'supacode', name:'supacode', path:'~/code/supacode', runs:[
+      {wf:'dev',    status:'active',    elapsed:'4m', branch:'fable-5-cmd-center'},
+      {wf:'fixci',  status:'attention', elapsed:'12m', branch:'fix/egress-rbac'},
+  ]},
+  { id:'review-conductor', name:'review-conductor', path:'~/work/treehouse/review-conductor', runs:[
+      {wf:'ship',   status:'active',    elapsed:'2m', branch:'feat/batch-prs'},
+  ]},
+  { id:'repo-scout', name:'repo-scout', path:'~/work/treehouse/repo-scout', runs:[
+      {wf:'invest', status:'complete',  elapsed:'done', branch:'main'},
+  ]},
+  { id:'dotfiles', name:'dotfiles', path:'~/code/dotfiles', runs:[] },
+];
+
+const CLIPBOARD_HINT = { wf:'fixci', text:'Buildkite job #4821 failed: 3 specs red in egress-gateway' };
+
+/* ---------- concept meta ---------- */
+const CONCEPTS = {
+  1:{name:'Concept 1 — Refined Inspector Cards', width:'inspector',
+     desc:'The current model, tightened. A global launcher strip at top (favorites once, not repeated per repo), then compact project cards. Runs nest under their project with status + inline follow-ups. Best if it stays a narrow side panel.'},
+  2:{name:'Concept 2 — Run-First Inspector', width:'inspector',
+     desc:'Inverts the hierarchy: a horizontal quick-launch dock up top, then a flat, status-sorted stream of active runs (attention first). Optimized for monitoring many concurrent agents at a glance rather than browsing projects.'},
+  3:{name:'Concept 3 — Status Board (wide)', width:'wide',
+     desc:'A full-width kanban. A command bar launches workflows; runs flow across Needs Attention → Active → Done columns. Great when the Command Center becomes its own window/tab and you are juggling lots of parallel work.'},
+  4:{name:'Concept 4 — Launchpad (wide)', width:'wide',
+     desc:'Launching is the hero: big workflow tiles front-and-center with a project selector, active runs tucked into a right rail. Feels like an app launcher. Strong for discoverability of workflows; monitoring is secondary.'},
+  5:{name:'Concept 5 — Activity Feed (wide)', width:'wide',
+     desc:'A single chronological timeline. A composer at top (pick workflow + context, hit send) drops a new event; runs and follow-ups read like a conversation thread. Familiar, linear, good for narrating a session.'},
+};
+
+/* ---------- helpers ---------- */
+const el = (t,c,h)=>{const e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e;};
+function wfIcon(wf){ const w=WF[wf]; return `<span class="wf-icon ${w.cls}">${w.icon}</span>`; }
+function statusLabel(s){ return {active:'Active',attention:'Needs input',idle:'Idle',complete:'Done'}[s]; }
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),1600); }
+function followRow(extraClass=''){ const d=el('div','followups '+extraClass); FOLLOWUPS.forEach(f=>{ const b=el('button','chip mini',f); b.onclick=e=>{e.stopPropagation(); toast('Sent “'+f+'” to tab');}; d.appendChild(b); }); return d; }
+function launchPill(wf){ const w=WF[wf]; const b=el('button','chip',`${w.icon} ${w.name}`); b.onclick=()=>toast('Launching '+w.name+' →'); return b; }
+
+/* ---------- concept renderers ---------- */
+function renderC1(){
+  const f = frame('inspector','Command Center');
+  const body = el('div','body');
+  // launcher strip
+  const launcher = el('div','launcher');
+  launcher.appendChild(el('div','lead',null)).textContent='Launch workflow';
+  WFLIST.forEach(w=> launcher.appendChild(launchPill(w.key)));
+  body.appendChild(launcher);
+  // clipboard hint
+  const hint = el('div','run');
+  hint.style.borderColor='rgba(255,159,10,.35)'; hint.style.background='rgba(255,159,10,.08)';
+  hint.innerHTML=`<div class="row"><span>📋</span><div class="grow"><div style="font-weight:600;font-size:12px">Clipboard → suggest ${WF[CLIPBOARD_HINT.wf].name}</div><div class="meta" style="margin-top:2px">${CLIPBOARD_HINT.text}</div></div></div>`;
+  const hb=el('button','chip','Run'); hb.style.marginTop='8px'; hb.onclick=()=>toast('Launching Fix CI with clipboard context →'); hint.appendChild(hb);
+  body.appendChild(hint);
+  // projects
+  PROJECTS.forEach(p=>{
+    const card = el('div','proj');
+    const head = el('div','row');
+    head.innerHTML = `<h3 class="grow">${p.name}</h3>`;
+    if(p.runs.some(r=>r.status==='attention')) head.appendChild(el('span','badge orange','● input'));
+    else if(p.runs.some(r=>r.status==='active')) head.appendChild(el('span','badge green',`● ${p.runs.filter(r=>r.status==='active').length} active`));
+    card.appendChild(head);
+    card.appendChild(el('div','path',p.path));
+    if(p.runs.length){
+      card.appendChild(el('div','divider'));
+      p.runs.forEach(r=>{
+        const run=el('div','run');
+        run.innerHTML=`<div class="row"><span class="dot ${r.status}"></span><span style="font-weight:600;font-size:12px" class="grow">${wfInline(r.wf)} <span class="meta">· ${r.branch}</span></span><span class="meta">${r.elapsed}</span></div>`;
+        if(r.status==='active'||r.status==='attention') run.appendChild(followRow());
+        card.appendChild(run);
+      });
+    }
+    body.appendChild(card);
+  });
+  f.appendChild(body); return f;
+}
+function wfInline(wf){ const w=WF[wf]; return `${w.icon} ${w.name}`; }
+
+function renderC2(){
+  const f=frame('inspector','Command Center');
+  const body=el('div','body');
+  const dock=el('div','quicklaunch');
+  WFLIST.forEach(w=>{ const q=el('div','ql',`${wfIcon(w.key)}<span>${w.name}</span>`); q.onclick=()=>toast('Launching '+w.name+' →'); dock.appendChild(q); });
+  body.appendChild(dock);
+  // flat run stream, attention first
+  const all=[]; PROJECTS.forEach(p=>p.runs.forEach(r=>all.push({...r,proj:p.name})));
+  const order={attention:0,active:1,idle:2,complete:3};
+  all.sort((a,b)=>order[a.status]-order[b.status]);
+  body.appendChild(el('div','sect',null)).textContent='Active runs';
+  const runs=el('div','runs');
+  all.forEach(r=>{
+    const rc=el('div','runcard '+r.status);
+    rc.innerHTML=`<div class="row"><span class="dot ${r.status}"></span><span class="grow" style="font-weight:600">${wfInline(r.wf)}</span><span class="meta">${r.elapsed}</span></div>
+      <div class="meta" style="margin-top:3px">${r.proj} · ${r.branch} · <b style="color:var(--text-2)">${statusLabel(r.status)}</b></div>`;
+    if(r.status!=='complete') rc.appendChild(followRow());
+    runs.appendChild(rc);
+  });
+  body.appendChild(runs);
+  f.appendChild(body); return f;
+}
+
+function renderC3(){
+  const f=frame('wide','Command Center');
+  const body=el('div','body c3-inner');
+  const bar=el('div','cmdbar');
+  bar.innerHTML=`<span class="ico">⌘</span><input placeholder="Launch a workflow…  (try “fix ci on supacode”)">`;
+  const pills=el('div','wf-pills'); WFLIST.forEach(w=>pills.appendChild(launchPill(w.key))); bar.appendChild(pills);
+  body.appendChild(bar);
+  const cols=el('div','cols');
+  const buckets={attention:[],active:[],complete:[]};
+  PROJECTS.forEach(p=>p.runs.forEach(r=>buckets[r.status]?.push({...r,proj:p.name})));
+  const def=[['attention','⚠️ Needs Attention'],['active','🟢 Active'],['complete','✓ Done']];
+  def.forEach(([k,label])=>{
+    const c=el('div','kcol');
+    c.appendChild(el('h4',null,`${label} <span class="count">${buckets[k].length}</span>`));
+    if(!buckets[k].length) c.appendChild(el('div','empty','Nothing here'));
+    buckets[k].forEach(r=>{
+      const kc=el('div','kcard');
+      kc.innerHTML=`<div class="row">${wfIcon(r.wf)}<span class="grow" style="font-weight:600">${WF[r.wf].name}</span><span class="meta">${r.elapsed}</span></div>
+        <div class="meta" style="margin-top:6px">${r.proj} · ${r.branch}</div>`;
+      if(k!=='complete') kc.appendChild(followRow());
+      kc.onclick=()=>toast('Focus tab: '+r.proj+' / '+WF[r.wf].name);
+      c.appendChild(kc);
+    });
+    cols.appendChild(c);
+  });
+  body.appendChild(cols);
+  f.appendChild(body); return f;
+}
+
+function renderC4(){
+  const f=frame('wide','Command Center');
+  const body=el('div','body');
+  const main=el('div','main');
+  main.appendChild(el('h2','hero',null)).textContent='Launch a workflow';
+  main.appendChild(el('p','sub',null)).textContent='Pick a project, then choose what to run.';
+  const ps=el('div','proj-select');
+  PROJECTS.forEach((p,i)=>{ const b=el('div','ps'+(i===0?' active':''),p.name); b.onclick=()=>{ps.querySelectorAll('.ps').forEach(x=>x.classList.remove('active')); b.classList.add('active');}; ps.appendChild(b); });
+  main.appendChild(ps);
+  const grid=el('div','grid');
+  WFLIST.forEach(w=>{
+    const t=el('div','tile');
+    t.innerHTML=`${wfIcon(w.key)}<div><div class="t-name">${w.name}</div><div class="t-cat">${w.cat}</div></div>`;
+    t.onclick=()=>toast('Launching '+w.name+' →');
+    grid.appendChild(t);
+  });
+  // add a "new workflow" tile
+  const nt=el('div','tile'); nt.style.borderStyle='dashed'; nt.innerHTML=`<span class="wf-icon" style="background:var(--panel-2);color:var(--text-3)">＋</span><div><div class="t-name">New Workflow…</div><div class="t-cat">custom</div></div>`; nt.onclick=()=>toast('Open workflow editor'); grid.appendChild(nt);
+  main.appendChild(grid);
+  body.appendChild(main);
+  // rail
+  const rail=el('div','rail');
+  rail.appendChild(el('h4',null,'Active runs'));
+  const all=[]; PROJECTS.forEach(p=>p.runs.forEach(r=>all.push({...r,proj:p.name})));
+  all.filter(r=>r.status!=='complete').forEach(r=>{
+    const rc=el('div','railcard');
+    rc.innerHTML=`<div class="row"><span class="dot ${r.status}"></span><span class="grow" style="font-weight:600;font-size:12px">${WF[r.wf].name}</span><span class="meta">${r.elapsed}</span></div><div class="meta" style="margin-top:3px">${r.proj}</div>`;
+    rc.appendChild(followRow());
+    rail.appendChild(rc);
+  });
+  rail.appendChild(el('h4',null,'Recently done'));
+  all.filter(r=>r.status==='complete').forEach(r=>{
+    const rc=el('div','railcard'); rc.style.opacity='.65';
+    rc.innerHTML=`<div class="row"><span class="dot complete"></span><span class="grow" style="font-weight:600;font-size:12px">${WF[r.wf].name}</span></div><div class="meta" style="margin-top:3px">${r.proj}</div>`;
+    rail.appendChild(rc);
+  });
+  body.appendChild(rail);
+  f.appendChild(body); return f;
+}
+
+function renderC5(){
+  const f=frame('wide','Command Center');
+  const body=el('div','body');
+  const comp=el('div','composer');
+  comp.innerHTML=`<input placeholder="What should the agent do?  (optionally paste context)">`;
+  const pills=el('div','wf-pills'); WFLIST.slice(0,4).forEach(w=>{ const b=el('button','chip',w.icon); b.title=w.name; b.onclick=()=>toast('Selected '+w.name); pills.appendChild(b); }); comp.appendChild(pills);
+  const send=el('button','send','Launch'); send.onclick=()=>toast('Launching workflow →'); comp.appendChild(send);
+  body.appendChild(comp);
+  const tl=el('div','timeline');
+  const events=[
+    {wf:'fixci',status:'attention',proj:'supacode',branch:'fix/egress-rbac',time:'12 min ago',note:'Agent is asking: which otel exporter should I drop — datadog or both?'},
+    {wf:'dev',status:'active',proj:'supacode',branch:'fable-5-cmd-center',time:'4 min ago',note:'Implementing command center layout iteration; running build.'},
+    {wf:'ship',status:'active',proj:'review-conductor',branch:'feat/batch-prs',time:'2 min ago',note:'Reviewing branch readiness; tests green so far.'},
+    {wf:'invest',status:'complete',proj:'repo-scout',branch:'main',time:'25 min ago',note:'Found root cause: SQS visibility timeout too low. Report written.'},
+  ];
+  events.forEach(e=>{
+    const ev=el('div','event');
+    ev.innerHTML=`<span class="node ${e.status}"></span>`;
+    const card=el('div','evcard');
+    card.innerHTML=`<div class="ev-time">${e.time} · ${e.proj} · ${e.branch}</div>
+      <div class="row">${wfIcon(e.wf)}<span style="font-weight:600">${WF[e.wf].name}</span><span class="badge ${e.status==='attention'?'orange':e.status==='complete'?'blue':'green'}" style="margin-left:auto">${statusLabel(e.status)}</span></div>
+      <div class="meta" style="margin-top:7px;color:var(--text)">${e.note}</div>`;
+    if(e.status!=='complete') card.appendChild(followRow());
+    ev.appendChild(card); tl.appendChild(ev);
+  });
+  body.appendChild(tl);
+  f.appendChild(body); return f;
+}
+
+function frame(width,title){
+  const f=el('div','frame '+(width==='inspector'?'inspector':'wide'));
+  const bar=el('div','frame-bar');
+  bar.innerHTML=`<div class="traffic"><i class="r"></i><i class="y"></i><i class="g"></i></div><span class="title">${title}${width==='inspector'?' — inspector ▕':''}</span>`;
+  f.appendChild(bar);
+  return f;
+}
+
+const RENDER={1:renderC1,2:renderC2,3:renderC3,4:renderC4,5:renderC5};
+
+function show(c){
+  const meta=CONCEPTS[c];
+  document.getElementById('cName').textContent=meta.name;
+  document.getElementById('cDesc').textContent=meta.desc;
+  const stages=document.getElementById('stages');
+  stages.innerHTML='';
+  const wrap=el('div'); wrap.style.display='flex'; wrap.style.justifyContent=meta.width==='inspector'?'flex-end':'center';
+  wrap.appendChild(RENDER[c]());
+  stages.appendChild(wrap);
+  document.querySelectorAll('#conceptSeg button').forEach(b=>b.classList.toggle('active',b.dataset.c===String(c)));
+}
+
+document.getElementById('conceptSeg').addEventListener('click',e=>{ if(e.target.dataset.c) show(e.target.dataset.c); });
+document.getElementById('themeToggle').addEventListener('change',e=>{ document.documentElement.dataset.theme=e.target.checked?'dark':'light'; e.target.parentElement.lastChild.textContent=e.target.checked?' Dark':' Light'; });
+show('1');
+</script>
+</body>
+</html>
