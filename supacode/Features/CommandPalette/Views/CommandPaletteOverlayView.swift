@@ -280,6 +280,7 @@ private struct CommandPaletteRowView: View {
       .viewArchivedWorktrees,
       .refreshWorktrees,
       .ghosttyCommand,
+      .toggleCollapseRepository,
       .openPullRequest, .markPullRequestReady, .mergePullRequest, .closePullRequest, .copyFailingJobURL,
       .copyCiFailureLogs,
       .rerunFailedJobs, .openFailingCheckDetails, .worktreeSelect,
@@ -322,6 +323,8 @@ private struct CommandPaletteRowView: View {
       return "arrow.clockwise"
     case .ghosttyCommand:
       return "terminal"
+    case .toggleCollapseRepository:
+      return "chevron.right"
     case .openPullRequest:
       return "arrow.up.right.square"
     case .markPullRequestReady:
@@ -367,6 +370,7 @@ private struct CommandPaletteRowView: View {
       .viewArchivedWorktrees,
       .refreshWorktrees,
       .ghosttyCommand,
+      .toggleCollapseRepository,
       .openPullRequest, .markPullRequestReady, .mergePullRequest, .closePullRequest, .copyFailingJobURL,
       .copyCiFailureLogs,
       .rerunFailedJobs, .openFailingCheckDetails:
@@ -503,6 +507,8 @@ private struct CommandPaletteRowView: View {
     case .refreshWorktrees:
       base = "Refresh Worktrees"
     case .ghosttyCommand:
+      base = row.title
+    case .toggleCollapseRepository:
       base = row.title
     case .removeWorktree:
       base = "Remove \(row.title)"
