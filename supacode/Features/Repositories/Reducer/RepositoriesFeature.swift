@@ -2169,8 +2169,22 @@ struct RepositoriesFeature {
         return .none
 
       case .sidebarRootReordered(let offsets, let destination):
+        // `rootOrder` stays empty until the user touches folders, but the
+        // sidebar still renders from the implicit `sidebarDisplayItems()`
+        // order. Seed `rootOrder` from that display order so a drag on a
+        // folder-free sidebar actually moves something instead of mutating
+        // an empty array.
+        let seededRootOrder = state.sidebar.rootOrder.isEmpty
+          ? state.sidebarDisplayItems().map { item -> SidebarRootItemID in
+            switch item {
+            case .repository(let id): return .repository(id)
+            case .folder(let id, _): return .folder(id)
+            }
+          }
+          : state.sidebar.rootOrder
         withAnimation(.snappy(duration: 0.2)) {
           state.$sidebar.withLock { sidebar in
+            sidebar.rootOrder = seededRootOrder
             sidebar.rootOrder.move(fromOffsets: offsets, toOffset: destination)
           }
         }

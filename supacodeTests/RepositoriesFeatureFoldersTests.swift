@@ -208,4 +208,35 @@ struct RepositoriesFeatureFoldersTests {
       }
     }
   }
+
+  @Test func sidebarRootReorderedSeedsEmptyRootOrder() async {
+    var initial = RepositoriesFeature.State()
+    let repoA = Repository(
+      id: "/tmp/a",
+      rootURL: URL(fileURLWithPath: "/tmp/a"),
+      name: "a",
+      worktrees: [],
+    )
+    let repoB = Repository(
+      id: "/tmp/b",
+      rootURL: URL(fileURLWithPath: "/tmp/b"),
+      name: "b",
+      worktrees: [],
+    )
+    initial.repositories = IdentifiedArray(uniqueElements: [repoA, repoB])
+    initial.repositoryRoots = [repoA.rootURL, repoB.rootURL]
+    initial.$sidebar.withLock { sidebar in
+      sidebar.sections[repoA.id] = .init()
+      sidebar.sections[repoB.id] = .init()
+    }
+    let store = TestStore(initialState: initial) {
+      RepositoriesFeature()
+    }
+
+    await store.send(.sidebarRootReordered(IndexSet(integer: 1), 0)) {
+      $0.$sidebar.withLock { sidebar in
+        sidebar.rootOrder = [.repository("/tmp/b"), .repository("/tmp/a")]
+      }
+    }
+  }
 }
