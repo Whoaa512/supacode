@@ -28,7 +28,7 @@ struct CommandPaletteOverlayView: View {
               0,
               geometry.size.height * 0.3
                 - CommandPaletteQuery.fieldHeight / 2
-                - CommandPaletteCard.padding
+                - CommandPaletteCard.padding,
             )
             VStack {
               switch store.mode {
@@ -54,9 +54,6 @@ struct CommandPaletteOverlayView: View {
                   },
                 )
                 .zIndex(1)
-                .task {
-                  isQueryFocused = store.isPresented
-                }
 
               case .browse:
                 CommandPaletteBrowseView(store: store)
@@ -69,7 +66,7 @@ struct CommandPaletteOverlayView: View {
             .frame(
               width: geometry.size.width,
               height: geometry.size.height,
-              alignment: .top
+              alignment: .top,
             )
             .padding(.top, topOffset)
           }
@@ -149,7 +146,7 @@ struct CommandPaletteOverlayView: View {
       items: items,
       query: store.query,
       recencyByID: store.recencyByItemID,
-      now: now
+      now: now,
     )
     filteredItems = updatedItems
     return updatedItems
@@ -186,7 +183,7 @@ private struct CommandPaletteCard: View {
       CommandPaletteList(
         rows: items,
         selectedIndex: $selectedIndex,
-        hoveredID: $hoveredID
+        hoveredID: $hoveredID,
       ) { id in
         activate(id)
       }
@@ -227,7 +224,7 @@ private struct CommandPaletteQuery: View {
   init(
     query: Binding<String>,
     isTextFieldFocused: FocusState<Bool>.Binding,
-    onEvent: ((CommandPaletteKeyboardEvent) -> Void)? = nil
+    onEvent: ((CommandPaletteKeyboardEvent) -> Void)? = nil,
   ) {
     _query = query
     self.isTextFieldFocused = isTextFieldFocused
@@ -276,6 +273,11 @@ private struct CommandPaletteQuery: View {
         .frame(height: Self.fieldHeight)
         .textFieldStyle(.plain)
         .focused(isTextFieldFocused)
+        .onAppear {
+          DispatchQueue.main.async {
+            isTextFieldFocused.wrappedValue = true
+          }
+        }
         .onChange(of: isTextFieldFocused.wrappedValue) { _, focused in
           if !focused {
             onEvent?(.exit)
@@ -308,7 +310,7 @@ private struct CommandPaletteList: View {
                 row: row,
                 shortcutIndex: index < 5 ? index : nil,
                 isSelected: isRowSelected(index: index),
-                hoveredID: $hoveredID
+                hoveredID: $hoveredID,
               ) {
                 activate(row.id)
               }
