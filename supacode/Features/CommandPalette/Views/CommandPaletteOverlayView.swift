@@ -132,7 +132,7 @@ struct CommandPaletteOverlayView: View {
       query: store.query,
       mode: store.mode,
       recencyByID: store.recencyByItemID,
-      now: now
+      now: now,
     )
     filteredItems = updatedItems
     return updatedItems
@@ -164,7 +164,7 @@ private struct CommandPaletteCard: View {
       CommandPaletteList(
         rows: items,
         selectedIndex: $selectedIndex,
-        hoveredID: $hoveredID
+        hoveredID: $hoveredID,
       ) { id in
         activate(id)
       }
@@ -191,7 +191,7 @@ private struct CommandPaletteQuery: View {
     query: Binding<String>,
     placeholder: String,
     isTextFieldFocused: FocusState<Bool>.Binding,
-    onEvent: ((CommandPaletteKeyboardEvent) -> Void)? = nil
+    onEvent: ((CommandPaletteKeyboardEvent) -> Void)? = nil,
   ) {
     _query = query
     self.placeholder = placeholder
@@ -209,9 +209,9 @@ private struct CommandPaletteQuery: View {
       .frame(height: Self.fieldHeight)
       .textFieldStyle(.plain)
       .focused(isTextFieldFocused)
-      .onChange(of: isTextFieldFocused.wrappedValue) { _, focused in
-        if !focused {
-          onEvent?(.exit)
+      .onAppear {
+        DispatchQueue.main.async {
+          isTextFieldFocused.wrappedValue = true
         }
       }
       .onExitCommand { onEvent?(.exit) }
