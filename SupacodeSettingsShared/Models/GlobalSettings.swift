@@ -58,6 +58,9 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   public var shortcutOverrides: [AppShortcutID: AppShortcutOverride]
   /// Scripts shared across every repository. Always `.custom` kind.
   public var globalScripts: [ScriptDefinition]
+  /// User-defined workflows shared across every project. Built-in workflows are
+  /// never persisted here — they're computed from `WorkflowDefinition.builtIns`.
+  public var globalWorkflows: [WorkflowDefinition]
   public var richAgentNotificationsEnabled: Bool
   public var agentPresenceBadgesEnabled: Bool
   /// When true, an agent integration that reports `.outdated` at launch /
@@ -97,9 +100,10 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     autoSelectNewlyOpenedRepository: true,
     shortcutOverrides: [:],
     globalScripts: [],
+    globalWorkflows: [],
     richAgentNotificationsEnabled: true,
     agentPresenceBadgesEnabled: true,
-    autoUpdateAgentIntegrationsEnabled: true
+    autoUpdateAgentIntegrationsEnabled: true,
   )
 
   public init(
@@ -133,9 +137,10 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     autoSelectNewlyOpenedRepository: Bool = true,
     shortcutOverrides: [AppShortcutID: AppShortcutOverride] = [:],
     globalScripts: [ScriptDefinition] = [],
+    globalWorkflows: [WorkflowDefinition] = [],
     richAgentNotificationsEnabled: Bool = true,
     agentPresenceBadgesEnabled: Bool = true,
-    autoUpdateAgentIntegrationsEnabled: Bool = true
+    autoUpdateAgentIntegrationsEnabled: Bool = true,
   ) {
     self.appearanceMode = appearanceMode
     self.defaultEditorID = defaultEditorID
@@ -167,6 +172,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.autoSelectNewlyOpenedRepository = autoSelectNewlyOpenedRepository
     self.shortcutOverrides = shortcutOverrides
     self.globalScripts = globalScripts
+    self.globalWorkflows = globalWorkflows
     self.richAgentNotificationsEnabled = richAgentNotificationsEnabled
     self.agentPresenceBadgesEnabled = agentPresenceBadgesEnabled
     self.autoUpdateAgentIntegrationsEnabled = autoUpdateAgentIntegrationsEnabled
@@ -301,6 +307,16 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
       script.kind = .custom
       if script.name.isEmpty { script.name = ScriptKind.custom.defaultName }
       return script
+    }
+    // User-defined workflows only; built-ins are never persisted. Missing key
+    // and corrupt array both collapse to `[]` via the lossy decoder. Force
+    // `isBuiltIn = false` so a forged flag can't masquerade as a built-in in
+    // `merged` (mirrors the `.custom` kind invariant on globalScripts).
+    let decodedWorkflows: [WorkflowDefinition] = container.decodeLossyArrayIfPresent(forKey: .globalWorkflows) ?? []
+    globalWorkflows = decodedWorkflows.map {
+      var workflow = $0
+      workflow.isBuiltIn = false
+      return workflow
     }
     richAgentNotificationsEnabled =
       try container.decodeIfPresent(Bool.self, forKey: .richAgentNotificationsEnabled)
