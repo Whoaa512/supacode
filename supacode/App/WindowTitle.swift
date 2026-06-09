@@ -5,11 +5,25 @@ import OrderedCollections
 /// Computes the macOS main-window title for the navigation title.
 /// Format is `<repo> · <tab>` for a selected worktree (tab segment
 /// dropped if absent), `Archive` for the archived view, and `Supacode`
-/// when nothing is selected. The hosting `Window` scene's title and
-/// the ⌘0 menu item stay `Supacode` regardless.
+/// when nothing is selected. Compare launches append their worktree label
+/// to every window title.
 enum WindowTitle {
-  static let appName = "Supacode"
+  static var appName: String {
+    appendCompareLabel(to: "Supacode")
+  }
   static let archivedLabel = "Archive"
+
+  private static var compareLabel: String? {
+    let label = ProcessInfo.processInfo.environment["SUPACODE_COMPARE_LABEL"]?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let label, !label.isEmpty else { return nil }
+    return label
+  }
+
+  private static func appendCompareLabel(to title: String) -> String {
+    guard let label = compareLabel else { return title }
+    return "\(title) — \(label)"
+  }
 
   static func format(repo: String, tab: String?) -> String {
     guard let tab, !tab.isEmpty else { return repo }
@@ -19,27 +33,29 @@ enum WindowTitle {
   @MainActor
   static func compute(
     repositories: RepositoriesFeature.State,
-    terminalManager: WorktreeTerminalManager
+    terminalManager: WorktreeTerminalManager,
   ) -> String {
+    let title: String
     switch repositories.selection {
     case .archivedWorktrees:
-      return archivedLabel
+      title = archivedLabel
     case .worktree(let worktreeID):
-      return worktreeTitle(
+      title = worktreeTitle(
         worktreeID: worktreeID,
         repositories: repositories,
-        terminalManager: terminalManager
+        terminalManager: terminalManager,
       )
     case .none:
       return appName
     }
+    return appendCompareLabel(to: title)
   }
 
   @MainActor
   private static func worktreeTitle(
     worktreeID: Worktree.ID,
     repositories: RepositoriesFeature.State,
-    terminalManager: WorktreeTerminalManager
+    terminalManager: WorktreeTerminalManager,
   ) -> String {
     guard let repositoryID = repositories.repositoryID(containing: worktreeID),
       let repository = repositories.repositories[id: repositoryID]
