@@ -29,6 +29,7 @@ struct AppFeature {
       var upstreamUpdate = UpstreamUpdateFeature.State()
     #endif
     var commandPalette = CommandPaletteFeature.State()
+    var projectCommandCenter = ProjectCommandCenterFeature.State()
     var openActionSelection: OpenWorktreeAction = .finder
     var repoScripts: [ScriptDefinition] = []
     var globalScripts: [ScriptDefinition] = []
@@ -94,6 +95,7 @@ struct AppFeature {
       case upstreamUpdate(UpstreamUpdateFeature.Action)
     #endif
     case commandPalette(CommandPaletteFeature.Action)
+    case projectCommandCenter(ProjectCommandCenterFeature.Action)
     case openActionSelectionChanged(OpenWorktreeAction)
     case worktreeSettingsLoaded(RepositorySettings, worktreeID: Worktree.ID)
     case openSelectedWorktree
@@ -920,6 +922,9 @@ struct AppFeature {
       case .commandPalette:
         return .none
 
+      case .projectCommandCenter:
+        return .none
+
       case .terminalEvent(.notificationReceived(let worktreeID, let surfaceID, let title, let body)):
         var effects: [Effect<Action>] = [
           .send(.repositories(.worktreeNotificationReceived(worktreeID)))
@@ -1001,6 +1006,9 @@ struct AppFeature {
     #endif
     Scope(state: \.commandPalette, action: \.commandPalette) {
       CommandPaletteFeature()
+    }
+    Scope(state: \.projectCommandCenter, action: \.projectCommandCenter) {
+      ProjectCommandCenterFeature()
     }
     .ifLet(\.$deeplinkInputConfirmation, action: \.deeplinkInputConfirmation) {
       DeeplinkInputConfirmationFeature()

@@ -148,6 +148,14 @@ final class WorktreeTerminalManager {
       Task {
         createTabAsync(in: worktree, runSetupScriptIfNew: runSetupScriptIfNew, initialInput: input, tabID: id)
       }
+    case .sendTextToTab(let worktree, let tabID, let text):
+      let terminal = state(for: worktree)
+      guard terminal.tabManager.tabs.contains(where: { $0.id == tabID }) else {
+        terminalLogger.warning("sendTextToTab: tab \(tabID.rawValue) not found in worktree \(worktree.id).")
+        break
+      }
+      terminal.selectTab(tabID)
+      terminal.focusAndInsertText(text + "\r")
     case .ensureInitialTab(let worktree, let runSetupScriptIfNew, let focusing):
       let state = state(for: worktree) { runSetupScriptIfNew }
       state.ensureInitialTab(focusing: focusing)
@@ -227,7 +235,7 @@ final class WorktreeTerminalManager {
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .performBindingAction,
       .selectTab, .focusSurface, .splitSurface, .destroyTab, .destroySurface, .prune,
       .setNotificationsEnabled, .setSelectedWorktreeID, .refreshTabBarVisibility, .beginTabRename,
-      .saveSnapshots:
+      .saveSnapshots, .sendTextToTab:
       return false
     }
     return true
@@ -242,7 +250,7 @@ final class WorktreeTerminalManager {
       .navigateSearchNext, .navigateSearchPrevious, .endSearch, .selectTab, .focusSurface,
       .splitSurface, .destroyTab, .destroySurface, .prune, .setNotificationsEnabled,
       .setSelectedWorktreeID, .refreshTabBarVisibility, .beginTabRename,
-      .saveSnapshots:
+      .saveSnapshots, .sendTextToTab:
       return false
     }
     return true
@@ -271,7 +279,8 @@ final class WorktreeTerminalManager {
     case .createTab, .createTabWithInput, .ensureInitialTab, .stopRunScript, .stopScript,
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .performBindingAction,
       .startSearch, .searchSelection, .navigateSearchNext, .navigateSearchPrevious, .endSearch,
-      .selectTab, .focusSurface, .splitSurface, .destroyTab, .destroySurface, .beginTabRename:
+      .selectTab, .focusSurface, .splitSurface, .destroyTab, .destroySurface, .beginTabRename,
+      .sendTextToTab:
       assertionFailure("Unhandled terminal command reached management handler: \(command)")
     }
   }
