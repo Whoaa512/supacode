@@ -427,7 +427,7 @@ struct SupacodeApp: App {
   }
 
   var body: some Scene {
-    Window("Supacode", id: WindowID.main) {
+    Window(WindowTitle.appName, id: WindowID.main) {
       GhosttyColorSchemeSyncView(ghostty: ghostty) {
         ContentView(store: store, terminalManager: terminalManager)
           .environment(ghosttyShortcuts)
@@ -482,7 +482,7 @@ struct SupacodeApp: App {
         .help("Quit Supacode (⌘Q)")
       }
     }
-    Window("Settings", id: WindowID.settings) {
+    Window("\(WindowTitle.appName) Settings", id: WindowID.settings) {
       SettingsView(store: store)
         .environment(ghosttyShortcuts)
         .environment(commandKeyObserver)
