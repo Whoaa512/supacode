@@ -89,6 +89,37 @@ struct ProjectCommandCenterFeatureTests {
     #expect(input == "pi 'do the thing'")
   }
 
+  @Test(.dependencies) func launchSanitizesNewlinesInPrompt() async {
+    let worktree = makeWorktree()
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    let store = TestStore(initialState: ProjectCommandCenterFeature.State()) {
+      ProjectCommandCenterFeature()
+    } withDependencies: {
+      $0.uuid = .incrementing
+      $0.date.now = Date(timeIntervalSince1970: 0)
+      $0.terminalClient.send = { command in sent.withValue { $0.append(command) } }
+    }
+    store.exhaustivity = .off
+
+    let workflow = WorkflowDefinition(name: "ML", category: .build, promptTemplate: "line one\nline two")
+    let launcher = ProjectCommandCenterFeature.Launcher(
+      workflow: workflow,
+      worktree: worktree,
+      projectID: "/tmp/repo",
+      projectName: "repo"
+    )
+    await store.send(.presentLauncher(launcher))
+    await store.send(.confirmLaunch)
+    await store.finish()
+
+    guard case .createTabWithInput(_, let input, _, _) = sent.value.first else {
+      Issue.record("Expected createTabWithInput")
+      return
+    }
+    #expect(!input.contains("\n"))
+    #expect(input == "pi 'line one line two'")
+  }
+
   @Test(.dependencies) func followUpPromptTextSendsToTab() async {
     let worktree = makeWorktree()
     let tabID = UUID()

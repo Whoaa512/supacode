@@ -74,6 +74,10 @@ struct WorkflowRunCardView: View {
     if let text = action.promptText {
       return "Send \"\(text)\" into the run"
     }
-    return action.displayName
+    switch action {
+    case .copy: return "Copy the launch command"
+    case .stop: return "Mark this run as stopped"
+    default: return action.displayName
+    }
   }
 }

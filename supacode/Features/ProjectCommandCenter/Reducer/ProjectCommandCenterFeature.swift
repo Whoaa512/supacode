@@ -213,7 +213,10 @@ struct ProjectCommandCenterFeature {
   }
 
   private func launchCommand(harness: AgentHarnessDefinition, prompt: String) -> String {
-    harness.launchCommandTemplate.replacing("{{prompt}}", with: Self.shellQuoted(prompt))
+    // Collapse newlines so a multi-line (user-defined) template can't inject a
+    // carriage return that executes the command before the closing quote.
+    let singleLine = prompt.replacing("\n", with: " ")
+    return harness.launchCommandTemplate.replacing("{{prompt}}", with: Self.shellQuoted(singleLine))
   }
 
   /// Single-quote the prompt so it survives the shell as one argument. Embedded
@@ -242,12 +245,13 @@ struct ProjectCommandCenterFeature {
       }
     }
 
-    switch action {
-    case .stop:
+    // Only app-handled actions (no promptText) reach here.
+    if action == .stop {
       state.runs[id: runID]?.status = .stopped
       state.runs[id: runID]?.completedAt = now
       return .none
-    case .copy:
+    }
+    if action == .copy {
       let summary = run.contextSummary
       return .run { _ in
         await MainActor.run {
@@ -255,9 +259,8 @@ struct ProjectCommandCenterFeature {
           NSPasteboard.general.setString(summary, forType: .string)
         }
       }
-    case .addContext, .continueRun, .interviewMe, .fixFindings, .verify, .handoff:
-      return .none
     }
+    return .none
   }
 }
 
