@@ -36,6 +36,8 @@ TEST_PARALLEL ?= YES
 # The explicit workspace scheme carries every test bundle; the auto-generated
 # app scheme only tests supacodeTests.
 TEST_SCHEME := supacode-tests
+WORKTREES ?=
+RESET ?=
 
 # Export a Zig-linkable Xcode per build recipe (no global xcode-select -s). Plain
 # assignment so a missing Xcode aborts the recipe under -e.
@@ -46,7 +48,7 @@ SELECT_DEVELOPER_DIR = DEVELOPER_DIR="$$(./scripts/select-developer-dir.sh)"; ex
 LOCAL_XCODEBUILD_FLAGS ?= $(shell xcodebuild -version 2>/dev/null | awk '/^Xcode 26\.[45]/{print "SWIFT_VERSION=5"}')
 
 .DEFAULT_GOAL := help
-.PHONY: doctor preflight build-ghostty-xcframework build-zmx generate-project generate-project-sources inspect-dependencies warm-cache build-app run-app install-dev-build archive export-archive format lint check test bump-version bump-and-release log-stream
+.PHONY: doctor preflight build-ghostty-xcframework build-zmx generate-project generate-project-sources inspect-dependencies warm-cache build-app run-app compare-apps install-dev-build archive export-archive format lint check test bump-version bump-and-release log-stream
 
 ifdef CI
 TUIST_INSTALL_FLAGS := --force-resolved-versions
@@ -124,6 +126,42 @@ run-app: build-app # Build then launch (Debug) with log streaming
 	product="$$(echo "$$settings" | jq -r '.[0].buildSettings.FULL_PRODUCT_NAME')"; \
 	exec_name="$$(echo "$$settings" | jq -r '.[0].buildSettings.EXECUTABLE_NAME')"; \
 	"$$build_dir/$$product/Contents/MacOS/$$exec_name"
+
+compare-apps: # Launch isolated Debug builds from WORKTREES="/path/a /path/b"
+	@if [ -z "$(WORKTREES)" ]; then \
+		echo 'usage: make compare-apps WORKTREES="/path/a /path/b" [RESET=1]'; \
+		exit 1; \
+	fi; \
+	for worktree in $(WORKTREES); do \
+		if [ ! -d "$$worktree" ]; then \
+			echo "error: worktree not found: $$worktree"; \
+			exit 1; \
+		fi; \
+		label="$$(basename "$$worktree")"; \
+		state_root="$$HOME/.supacode-compare/$$label"; \
+		state_home="$$state_root/home"; \
+		derived_data="$$state_root/DerivedData"; \
+		if [ "$(RESET)" = "1" ]; then \
+			rm -rf "$$state_root"; \
+		fi; \
+		if [ ! -d "$$state_home/.supacode" ]; then \
+			mkdir -p "$$state_home/.supacode"; \
+			for state_file in settings.json sidebar.json layouts.json; do \
+				if [ -f "$$HOME/.supacode/$$state_file" ]; then \
+					cp "$$HOME/.supacode/$$state_file" "$$state_home/.supacode/$$state_file"; \
+				fi; \
+			done; \
+		fi; \
+		echo "launching $$label from $$worktree"; \
+		make -C "$$worktree" generate-project; \
+		cd "$$worktree"; \
+		xcodebuild -workspace "$$worktree/supacode.xcworkspace" -scheme supacode -configuration Debug -derivedDataPath "$$derived_data" build -skipMacroValidation "SUPACODE_DISPLAY_NAME=Supacode Dev — $$label" $(LOCAL_XCODEBUILD_FLAGS) 2>&1 | mise exec -- xcbeautify --disable-logging; \
+		settings="$$(CFFIXED_USER_HOME="$$state_home" xcodebuild -workspace "$$worktree/supacode.xcworkspace" -scheme supacode -configuration Debug -derivedDataPath "$$derived_data" -showBuildSettings -json 2>/dev/null)"; \
+		build_dir="$$(echo "$$settings" | jq -r '.[0].buildSettings.BUILT_PRODUCTS_DIR')"; \
+		product="$$(echo "$$settings" | jq -r '.[0].buildSettings.FULL_PRODUCT_NAME')"; \
+		exec_name="$$(echo "$$settings" | jq -r '.[0].buildSettings.EXECUTABLE_NAME')"; \
+		CFFIXED_USER_HOME="$$state_home" SUPACODE_COMPARE_LABEL="$$label" "$$build_dir/$$product/Contents/MacOS/$$exec_name" >"/tmp/supacode-compare-$$label.log" 2>&1 & \
+	done
 
 install-dev-build: build-app # install dev build to /Applications
 	@$(SELECT_DEVELOPER_DIR); \
