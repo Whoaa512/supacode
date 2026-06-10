@@ -53,7 +53,9 @@ struct WorkflowDefinitionTests {
 
   @Test func globalSettingsDecodesEmptyWorkflowsGracefully() throws {
     let json = """
-      {"appearanceMode": "dark", "updatesAutomaticallyCheckForUpdates": true, "updatesAutomaticallyDownloadUpdates": false, "inAppNotificationsEnabled": true, "moveNotifiedWorktreeToTop": true}
+      {"appearanceMode": "dark", "updatesAutomaticallyCheckForUpdates": true, \
+      "updatesAutomaticallyDownloadUpdates": false, "inAppNotificationsEnabled": true, \
+      "moveNotifiedWorktreeToTop": true}
       """
     let decoded = try JSONDecoder().decode(GlobalSettings.self, from: Data(json.utf8))
     let workflows = decoded.globalWorkflows

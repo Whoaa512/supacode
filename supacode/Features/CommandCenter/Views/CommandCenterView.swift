@@ -46,6 +46,7 @@ struct CommandCenterView: View {
     if let workflow {
       HStack {
         Image(systemName: "clipboard")
+          .accessibilityHidden(true)
         Text("Suggested: \(workflow.name)")
           .font(.caption)
         Spacer()

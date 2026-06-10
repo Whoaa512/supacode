@@ -768,10 +768,8 @@ private func delegateAction(for kind: CommandPaletteItem.Kind) -> CommandPalette
     .rerunFailedJobs,
     .openFailingCheckDetails:
     return pullRequestDelegateAction(for: kind)!
-  case .runScript, .stopScript:
+  case .runScript, .stopScript, .launchWorkflow:
     return scriptDelegateAction(for: kind)!
-  case .launchWorkflow(let workflow):
-    return .launchWorkflow(workflow)
   #if DEBUG
     case .debugTestToast(let toast):
       return .debugTestToast(toast)
@@ -787,6 +785,8 @@ private func scriptDelegateAction(
     return .runScript(definition)
   case .stopScript(let scriptID, let name):
     return .stopScript(scriptID, name: name)
+  case .launchWorkflow(let workflow):
+    return .launchWorkflow(workflow)
   default:
     return nil
   }
