@@ -51,7 +51,12 @@ struct CommandCenterFeatureTests {
     }
 
     await store.send(
-      .launchWorkflow(workflow, repositoryID: "/tmp/repo", worktreeID: "wt-1", context: "https://buildkite.com/org/pipeline/builds/123")
+      .launchWorkflow(
+        workflow,
+        repositoryID: "/tmp/repo",
+        worktreeID: "wt-1",
+        context: "https://buildkite.com/org/pipeline/builds/123"
+      )
     ) {
       $0.runs.append(WorkflowRun(
         id: testUUID,
