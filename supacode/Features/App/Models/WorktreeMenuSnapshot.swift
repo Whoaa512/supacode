@@ -113,7 +113,7 @@ extension AppFeature.Action {
     // change that DOES affect a snapshot input flows back through a separate
     // `.terminalEvent.notificationIndicatorChanged` (counted above) or a
     // `.repositories` cache invalidation (the cacheInvalidations gate above).
-    case .agentPresence, .terminals, .commandPalette, .updates:
+    case .agentPresence, .terminals, .commandPalette, .commandCenter, .updates:
       return false
     #if DEBUG
       // Dev-only upstream update checker; unrelated to worktree menu inputs.

@@ -365,6 +365,8 @@ private struct CommandPaletteRowView: View {
       return "Script"
     case .stopScript:
       return "Script"
+    case .launchWorkflow:
+      return "Workflow"
     #if DEBUG
       case .debugTestToast:
         return "Debug"
@@ -420,6 +422,8 @@ private struct CommandPaletteRowView: View {
       return definition.resolvedSystemImage
     case .stopScript:
       return "stop.fill"
+    case .launchWorkflow(let workflow):
+      return workflow.systemImage
     #if DEBUG
       case .debugTestToast:
         return "ladybug"
@@ -441,7 +445,7 @@ private struct CommandPaletteRowView: View {
       return false
     case .renameBranch:
       return true
-    case .runScript, .stopScript:
+    case .runScript, .stopScript, .launchWorkflow:
       return true
     #if DEBUG
       case .debugTestToast:
@@ -567,6 +571,8 @@ private struct CommandPaletteRowView: View {
       base = "Run \(definition.name)"
     case .stopScript(_, let name):
       base = "Stop \(name)"
+    case .launchWorkflow(let workflow):
+      base = "Launch \(workflow.name)"
     #if DEBUG
       case .debugTestToast:
         base = row.title

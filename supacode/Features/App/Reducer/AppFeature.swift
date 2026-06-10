@@ -37,6 +37,7 @@ struct AppFeature {
     /// tab-bar views scope through `\.terminals` (narrow) instead of the full
     /// app store. Mirrors sidebar's `RepositoriesFeature` ownership pattern.
     var terminals = TerminalsFeature.State()
+    var commandCenter = CommandCenterFeature.State()
     var openActionSelection: OpenWorktreeAction = .finder
     var repoScripts: [ScriptDefinition] = []
     var globalScripts: [ScriptDefinition] = []
@@ -116,6 +117,7 @@ struct AppFeature {
       case upstreamUpdate(UpstreamUpdateFeature.Action)
     #endif
     case commandPalette(CommandPaletteFeature.Action)
+    case commandCenter(CommandCenterFeature.Action)
     case openActionSelectionChanged(OpenWorktreeAction)
     case worktreeSettingsLoaded(RepositorySettings, worktreeID: Worktree.ID)
     case openSelectedWorktree
@@ -1035,14 +1037,23 @@ struct AppFeature {
         return .send(.runNamedScript(definition))
 
       case .commandPalette(.delegate(.stopScript(let scriptID, _))):
-        // If a script was removed from settings while still running,
-        // it won't appear here. That is intentional — the terminal
-        // tab stays open and cleans up on natural completion or when
-        // the user closes the tab manually.
         guard let definition = state.allScripts.first(where: { $0.id == scriptID }) else {
           return .none
         }
         return .send(.stopScript(definition))
+
+      case .commandPalette(.delegate(.launchWorkflow(let workflow))):
+        guard let worktreeID = state.repositories.selectedWorktreeID,
+          let repositoryID = state.repositories.repositoryID(containing: worktreeID)
+        else { return .none }
+        let context = state.commandCenter.clipboardText
+        return .send(.commandCenter(.launchWorkflow(
+          workflow,
+          repositoryID: repositoryID,
+          worktreeID: worktreeID,
+          context: context
+        )))
+
 
       #if DEBUG
         case .commandPalette(.delegate(.debugTestToast(let toast))):
@@ -1050,6 +1061,23 @@ struct AppFeature {
       #endif
 
       case .commandPalette:
+        return .none
+
+      case .commandCenter(.delegate(.createTabWithInput(let worktreeID, let input, let tabID))):
+        guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
+        let terminalClient = terminalClient
+        return .run { _ in
+          await terminalClient.send(.createTabWithInput(worktree, input: input, runSetupScriptIfNew: false, id: tabID))
+        }
+
+      case .commandCenter(.delegate(.sendInputToTab(let worktreeID, _, let surfaceID, let input))):
+        guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
+        let terminalClient = terminalClient
+        return .run { _ in
+          await terminalClient.send(.createTabWithInput(worktree, input: input, runSetupScriptIfNew: false))
+        }
+
+      case .commandCenter:
         return .none
 
       case .terminalEvent(.notificationReceived(let worktreeID, let surfaceID, let title, let body)):
@@ -1197,6 +1225,9 @@ struct AppFeature {
     #endif
     Scope(state: \.commandPalette, action: \.commandPalette) {
       CommandPaletteFeature()
+    }
+    Scope(state: \.commandCenter, action: \.commandCenter) {
+      CommandCenterFeature()
     }
     .ifLet(\.$deeplinkInputConfirmation, action: \.deeplinkInputConfirmation) {
       DeeplinkInputConfirmationFeature()

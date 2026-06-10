@@ -6,6 +6,7 @@
 //
 
 import ComposableArchitecture
+import SupacodeSettingsFeature
 import SupacodeSettingsShared
 import SwiftUI
 import UniformTypeIdentifiers
@@ -164,7 +165,8 @@ private struct CommandPaletteOverlayHost: View {
         from: repositoriesStore.state,
         ghosttyCommands: ghosttyShortcuts.commandPaletteEntries,
         scripts: store.allScripts,
-        runningScriptIDs: store.runningScriptIDs
+        runningScriptIDs: store.runningScriptIDs,
+        workflows: WorkflowDefinition.builtIns + store.settings.globalWorkflows
       )
     )
   }

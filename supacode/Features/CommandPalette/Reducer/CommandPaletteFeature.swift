@@ -84,6 +84,7 @@ struct CommandPaletteFeature {
     case openFailingCheckDetails(Worktree.ID)
     case runScript(ScriptDefinition)
     case stopScript(UUID, name: String)
+    case launchWorkflow(WorkflowDefinition)
     case browseSelectRepository(URL)
     case browseOpenNativePanel
     #if DEBUG
@@ -322,7 +323,8 @@ struct CommandPaletteFeature {
     from repositories: RepositoriesFeature.State,
     ghosttyCommands: [GhosttyCommand] = [],
     scripts: [ScriptDefinition] = [],
-    runningScriptIDs: Set<UUID> = []
+    runningScriptIDs: Set<UUID> = [],
+    workflows: [WorkflowDefinition] = []
   ) -> [CommandPaletteItem] {
     var items: [CommandPaletteItem] = [
       {
@@ -374,6 +376,7 @@ struct CommandPaletteFeature {
     if repositories.selectedWorktreeID != nil {
       items.append(contentsOf: ghosttyCommandItems(ghosttyCommands))
       items.append(contentsOf: scriptItems(scripts: scripts, runningScriptIDs: runningScriptIDs))
+      items.append(contentsOf: workflowItems(workflows))
     }
     if let selectedWorktreeID = repositories.selectedWorktreeID,
       let repositoryID = repositories.repositoryID(containing: selectedWorktreeID),
@@ -803,6 +806,8 @@ private func delegateAction(for kind: CommandPaletteItem.Kind) -> CommandPalette
     return pullRequestDelegateAction(for: kind)!
   case .runScript, .stopScript:
     return scriptDelegateAction(for: kind)!
+  case .launchWorkflow(let workflow):
+    return .launchWorkflow(workflow)
   #if DEBUG
     case .debugTestToast(let toast):
       return .debugTestToast(toast)
@@ -876,12 +881,24 @@ private func pullRequestDelegateAction(
     .ghosttyCommand,
     .toggleCollapseRepository,
     .runScript,
-    .stopScript:
+    .stopScript,
+    .launchWorkflow:
     return nil
   #if DEBUG
     case .debugTestToast:
       return nil
   #endif
+  }
+}
+
+private func workflowItems(_ workflows: [WorkflowDefinition]) -> [CommandPaletteItem] {
+  workflows.map { workflow in
+    CommandPaletteItem(
+      id: "workflow.\(workflow.id.uuidString).launch",
+      title: "Workflow: \(workflow.name)",
+      subtitle: workflow.category.rawValue.capitalized,
+      kind: .launchWorkflow(workflow)
+    )
   }
 }
 
