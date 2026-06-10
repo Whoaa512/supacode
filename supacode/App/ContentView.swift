@@ -22,6 +22,7 @@ struct ContentView: View {
   @Environment(\.scenePhase) private var scenePhase
   @Environment(GhosttyShortcutManager.self) private var ghosttyShortcuts
   @State private var leftSidebarVisibility: NavigationSplitViewVisibility = .all
+  @State private var isCommandCenterVisible = false
 
   init(store: StoreOf<AppFeature>, terminalManager: WorktreeTerminalManager) {
     self.store = store
@@ -48,6 +49,10 @@ struct ContentView: View {
         }
     } detail: {
       WorktreeDetailView(store: store, terminalManager: terminalManager)
+        .inspector(isPresented: $isCommandCenterVisible) {
+          CommandCenterView(store: store)
+            .inspectorColumnWidth(min: 280, ideal: 320, max: 400)
+        }
     }
     .navigationSplitViewStyle(.automatic)
     .disabled(!repositoriesStore.isInitialLoadComplete)
@@ -129,6 +134,7 @@ struct ContentView: View {
       }
       store.send(.repositories(.revealSelectedWorktreeInSidebar))
     }
+    .focusedSceneValue(\.toggleCommandCenterAction, toggleCommandCenter)
     .overlay {
       CommandPaletteOverlayHost(
         store: store,
@@ -144,6 +150,11 @@ struct ContentView: View {
         terminalManager: terminalManager
       )
     )
+  }
+  private func toggleCommandCenter() {
+    withAnimation(.easeOut(duration: 0.2)) {
+      isCommandCenterVisible.toggle()
+    }
   }
 }
 
