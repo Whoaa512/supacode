@@ -937,11 +937,20 @@ struct AppFeature {
           await terminalClient.send(.createTabWithInput(worktree, input: input, runSetupScriptIfNew: false, id: tabID))
         }
 
-      case .commandCenter(.delegate(.sendInputToTab(let worktreeID, _, let surfaceID, let input))):
+      case .commandCenter(.delegate(.sendInputToTab(let worktreeID, let tabID, let surfaceID, let input))):
         guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
         let terminalClient = terminalClient
+        let terminalTabID = TerminalTabID(rawValue: tabID)
+        guard terminalClient.tabExists(worktreeID, terminalTabID) else {
+          return .run { _ in
+            await terminalClient.send(.createTabWithInput(worktree, input: input, runSetupScriptIfNew: false))
+          }
+        }
+        let resolvedSurfaceID = surfaceID ?? tabID
         return .run { _ in
-          await terminalClient.send(.createTabWithInput(worktree, input: input, runSetupScriptIfNew: false))
+          await terminalClient.send(
+            .focusSurface(worktree, tabID: terminalTabID, surfaceID: resolvedSurfaceID, input: input)
+          )
         }
 
       case .commandCenter:

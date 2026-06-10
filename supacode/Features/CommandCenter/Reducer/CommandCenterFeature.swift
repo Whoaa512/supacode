@@ -74,7 +74,7 @@ struct CommandCenterFeature {
           worktreeID: run.worktreeID,
           tabID: run.tabID,
           surfaceID: nil,
-          input: text + "\n"
+          input: text
         )))
 
       case .clipboardChanged(let text):
