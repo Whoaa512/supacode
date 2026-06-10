@@ -58,6 +58,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   public var shortcutOverrides: [AppShortcutID: AppShortcutOverride]
   /// Scripts shared across every repository. Always `.custom` kind.
   public var globalScripts: [ScriptDefinition]
+  /// User-defined workflow templates shared across every repository.
+  public var globalWorkflows: [WorkflowDefinition]
   public var richAgentNotificationsEnabled: Bool
   public var agentPresenceBadgesEnabled: Bool
   /// When true, an agent integration that reports `.outdated` at launch /
@@ -97,6 +99,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     autoSelectNewlyOpenedRepository: true,
     shortcutOverrides: [:],
     globalScripts: [],
+    globalWorkflows: [],
     richAgentNotificationsEnabled: true,
     agentPresenceBadgesEnabled: true,
     autoUpdateAgentIntegrationsEnabled: true
@@ -133,6 +136,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     autoSelectNewlyOpenedRepository: Bool = true,
     shortcutOverrides: [AppShortcutID: AppShortcutOverride] = [:],
     globalScripts: [ScriptDefinition] = [],
+    globalWorkflows: [WorkflowDefinition] = [],
     richAgentNotificationsEnabled: Bool = true,
     agentPresenceBadgesEnabled: Bool = true,
     autoUpdateAgentIntegrationsEnabled: Bool = true
@@ -167,6 +171,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.autoSelectNewlyOpenedRepository = autoSelectNewlyOpenedRepository
     self.shortcutOverrides = shortcutOverrides
     self.globalScripts = globalScripts
+    self.globalWorkflows = globalWorkflows
     self.richAgentNotificationsEnabled = richAgentNotificationsEnabled
     self.agentPresenceBadgesEnabled = agentPresenceBadgesEnabled
     self.autoUpdateAgentIntegrationsEnabled = autoUpdateAgentIntegrationsEnabled
@@ -302,6 +307,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
       if script.name.isEmpty { script.name = ScriptKind.custom.defaultName }
       return script
     }
+    globalWorkflows = container.decodeLossyArrayIfPresent(forKey: .globalWorkflows) ?? []
     richAgentNotificationsEnabled =
       try container.decodeIfPresent(Bool.self, forKey: .richAgentNotificationsEnabled)
       ?? Self.default.richAgentNotificationsEnabled
