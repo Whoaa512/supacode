@@ -190,6 +190,9 @@ public struct SettingsFeature {
     case repositorySettings(RepositorySettingsFeature.Action)
     case addGlobalScript
     case removeGlobalScript(ScriptDefinition.ID)
+    case addGlobalWorkflow
+    case removeGlobalWorkflow(WorkflowDefinition.ID)
+    case toggleWorkflowFavorite(WorkflowDefinition.ID)
     case alert(PresentationAction<Alert>)
     case delegate(Delegate)
     case binding(BindingAction<State>)
@@ -552,6 +555,23 @@ public struct SettingsFeature {
       case .alert(.presented(.confirmRemoveGlobalScript(let id))):
         state.alert = nil
         state.globalScripts.removeAll { $0.id == id }
+        return persist(state)
+
+      case .addGlobalWorkflow:
+        state.globalWorkflows.append(WorkflowDefinition(
+          name: "New Workflow",
+          category: .build,
+          promptTemplate: ""
+        ))
+        return persist(state)
+
+      case .removeGlobalWorkflow(let id):
+        state.globalWorkflows.removeAll { $0.id == id }
+        return persist(state)
+
+      case .toggleWorkflowFavorite(let id):
+        guard let index = state.globalWorkflows.firstIndex(where: { $0.id == id }) else { return .none }
+        state.globalWorkflows[index].isFavorite.toggle()
         return persist(state)
 
       case .repositoriesChanged(let repositories):

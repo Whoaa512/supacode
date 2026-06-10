@@ -1,3 +1,4 @@
+import AppKit
 import ComposableArchitecture
 import SupacodeSettingsShared
 import SwiftUI
@@ -8,6 +9,9 @@ struct CommandCenterView: View {
   var body: some View {
     ScrollView {
       LazyVStack(spacing: 12) {
+        if let hint = store.commandCenter.clipboardHint {
+          clipboardHintBanner(hint)
+        }
         ForEach(store.repositories.repositories) { repository in
           ProjectCardView(
             repository: repository,
@@ -30,6 +34,26 @@ struct CommandCenterView: View {
       .padding()
     }
     .frame(minWidth: 280)
+    .onAppear {
+      let clipboard = NSPasteboard.general.string(forType: .string)
+      store.send(.commandCenter(.clipboardChanged(clipboard)))
+    }
+  }
+
+  @ViewBuilder
+  private func clipboardHintBanner(_ hint: ClipboardWorkflowHint) -> some View {
+    let workflow = WorkflowDefinition.builtIns.first { $0.id == hint.suggestedBuiltInID }
+    if let workflow {
+      HStack {
+        Image(systemName: "clipboard")
+        Text("Suggested: \(workflow.name)")
+          .font(.caption)
+        Spacer()
+      }
+      .padding(8)
+      .background(.blue.opacity(0.1))
+      .clipShape(.rect(cornerRadius: 6))
+    }
   }
 
   private func primaryWorktreeID(for repository: Repository) -> Worktree.ID? {
