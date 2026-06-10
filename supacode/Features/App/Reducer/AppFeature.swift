@@ -1198,6 +1198,15 @@ struct AppFeature {
       case .terminalEvent(.agentHookEventReceived(let event)):
         return .send(.agentPresence(.hookEventReceived(event)))
 
+      case .terminalEvent(.taskStatusChanged(let worktreeID, let status)):
+        for run in state.commandCenter.runs where run.worktreeID == worktreeID && run.status != .complete {
+          let newStatus: WorkflowRunStatus = status == .running ? .active : .idle
+          if state.commandCenter.runs[id: run.id]?.status != newStatus {
+            state.commandCenter.runs[id: run.id]?.status = newStatus
+          }
+        }
+        return .none
+
       case .terminalEvent:
         return .none
       }
