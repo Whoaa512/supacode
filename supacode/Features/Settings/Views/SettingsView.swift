@@ -94,6 +94,8 @@ private struct SettingsSidebarView: View {
         .tag(SettingsSection.shortcuts)
       Label("Global Scripts", systemImage: "terminal")
         .tag(SettingsSection.scripts)
+      Label("Workflows", systemImage: "arrow.trianglehead.2.clockwise")
+        .tag(SettingsSection.workflows)
       Label("Updates", systemImage: "arrow.down.circle")
         .tag(SettingsSection.updates)
 
@@ -170,6 +172,9 @@ private struct SettingsDetailView: View {
     case .scripts:
       GlobalScriptsSettingsView(store: settingsStore)
         .navigationTitle("Global Scripts")
+    case .workflows:
+      GlobalWorkflowsSettingsView(store: settingsStore)
+        .navigationTitle("Workflows")
     case .repository:
       if let repository = selectedRepositorySummary {
         if let repositorySettingsStore = settingsStore.scope(
