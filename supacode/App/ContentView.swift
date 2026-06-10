@@ -18,6 +18,7 @@ struct ContentView: View {
   @Environment(\.scenePhase) private var scenePhase
   @Environment(GhosttyShortcutManager.self) private var ghosttyShortcuts
   @State private var leftSidebarVisibility: NavigationSplitViewVisibility = .all
+  @State private var isCommandCenterVisible = false
 
   init(store: StoreOf<AppFeature>, terminalManager: WorktreeTerminalManager) {
     self.store = store
@@ -41,6 +42,10 @@ struct ContentView: View {
         }
     } detail: {
       WorktreeDetailView(store: store, terminalManager: terminalManager)
+        .inspector(isPresented: $isCommandCenterVisible) {
+          CommandCenterView(store: store)
+            .inspectorColumnWidth(min: 280, ideal: 320, max: 400)
+        }
     }
     .navigationSplitViewStyle(.automatic)
     .disabled(!store.repositories.isInitialLoadComplete)
@@ -88,6 +93,7 @@ struct ContentView: View {
     }
     .focusedSceneValue(\.toggleLeftSidebarAction, toggleLeftSidebar)
     .focusedSceneValue(\.revealInSidebarAction, revealInSidebarAction)
+    .focusedSceneValue(\.toggleCommandCenterAction, toggleCommandCenter)
     .overlay {
       CommandPaletteOverlayView(
         store: store.scope(state: \.commandPalette, action: \.commandPalette),
@@ -113,6 +119,12 @@ struct ContentView: View {
   private func toggleLeftSidebar() {
     withAnimation(.easeOut(duration: 0.2)) {
       leftSidebarVisibility = leftSidebarVisibility == .detailOnly ? .all : .detailOnly
+    }
+  }
+
+  private func toggleCommandCenter() {
+    withAnimation(.easeOut(duration: 0.2)) {
+      isCommandCenterVisible.toggle()
     }
   }
 
