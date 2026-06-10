@@ -71,6 +71,7 @@ public struct SettingsFeature {
     public var autoSelectNewlyOpenedRepository: Bool
     public var shortcutOverrides: [AppShortcutID: AppShortcutOverride]
     public var globalScripts: [ScriptDefinition]
+    public var globalWorkflows: [WorkflowDefinition]
     public var richAgentNotificationsEnabled: Bool
     public var agentPresenceBadgesEnabled: Bool
     public var autoUpdateAgentIntegrationsEnabled: Bool
@@ -114,6 +115,7 @@ public struct SettingsFeature {
       autoSelectNewlyOpenedRepository = settings.autoSelectNewlyOpenedRepository
       shortcutOverrides = settings.shortcutOverrides
       globalScripts = settings.globalScripts
+      globalWorkflows = settings.globalWorkflows
       richAgentNotificationsEnabled = settings.richAgentNotificationsEnabled
       agentPresenceBadgesEnabled = settings.agentPresenceBadgesEnabled
       autoUpdateAgentIntegrationsEnabled = settings.autoUpdateAgentIntegrationsEnabled
@@ -155,6 +157,7 @@ public struct SettingsFeature {
         autoSelectNewlyOpenedRepository: autoSelectNewlyOpenedRepository,
         shortcutOverrides: shortcutOverrides,
         globalScripts: globalScripts,
+        globalWorkflows: globalWorkflows,
         richAgentNotificationsEnabled: richAgentNotificationsEnabled,
         agentPresenceBadgesEnabled: agentPresenceBadgesEnabled,
         autoUpdateAgentIntegrationsEnabled: autoUpdateAgentIntegrationsEnabled
@@ -294,6 +297,7 @@ public struct SettingsFeature {
         state.autoSelectNewlyOpenedRepository = normalizedSettings.autoSelectNewlyOpenedRepository
         state.shortcutOverrides = normalizedSettings.shortcutOverrides
         state.globalScripts = normalizedSettings.globalScripts
+        state.globalWorkflows = normalizedSettings.globalWorkflows
         state.richAgentNotificationsEnabled = normalizedSettings.richAgentNotificationsEnabled
         state.agentPresenceBadgesEnabled = normalizedSettings.agentPresenceBadgesEnabled
         state.autoUpdateAgentIntegrationsEnabled = normalizedSettings.autoUpdateAgentIntegrationsEnabled

@@ -48,6 +48,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
     case openFailingCheckDetails(Worktree.ID)
     case runScript(ScriptDefinition)
     case stopScript(UUID, name: String)
+    case launchWorkflow(WorkflowDefinition)
     #if DEBUG
       case debugTestToast(RepositoriesFeature.StatusToast)
     #endif
@@ -71,7 +72,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
       true
     case .worktreeSelect, .removeWorktree, .archiveWorktree, .forkWorktree:
       false
-    case .runScript, .stopScript:
+    case .runScript, .stopScript, .launchWorkflow:
       true
     #if DEBUG
       case .debugTestToast:
@@ -100,7 +101,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .archiveWorktree,
       .forkWorktree:
       false
-    case .runScript, .stopScript:
+    case .runScript, .stopScript, .launchWorkflow:
       false
     #if DEBUG
       case .debugTestToast:
@@ -131,7 +132,8 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .removeWorktree,
       .archiveWorktree,
       .forkWorktree,
-      .stopScript:
+      .stopScript,
+      .launchWorkflow:
       nil
     case .runScript(let definition):
       definition.kind == .run ? AppShortcuts.runScript : nil
