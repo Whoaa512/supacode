@@ -17,6 +17,7 @@ struct ContentView: View {
   @Environment(\.scenePhase) private var scenePhase
   @Environment(GhosttyShortcutManager.self) private var ghosttyShortcuts
   @State private var leftSidebarVisibility: NavigationSplitViewVisibility = .all
+  @State private var isCommandCenterPresented = false
 
   init(store: StoreOf<AppFeature>, terminalManager: WorktreeTerminalManager) {
     self.store = store
@@ -42,6 +43,31 @@ struct ContentView: View {
       WorktreeDetailView(store: store, terminalManager: terminalManager)
     }
     .navigationSplitViewStyle(.automatic)
+    .toolbar {
+      ToolbarItem(placement: .navigation) {
+        Button {
+          isCommandCenterPresented = true
+        } label: {
+          Label("Command Center", systemImage: "square.grid.2x2")
+        }
+        .keyboardShortcut("j", modifiers: .command)
+        .help("Open the workflow command center (⌘J)")
+      }
+    }
+    .sheet(isPresented: $isCommandCenterPresented) {
+      NavigationStack {
+        ProjectCommandCenterView(
+          store: store.scope(state: \.projectCommandCenter, action: \.projectCommandCenter),
+          repositories: store.repositories.repositories
+        )
+        .toolbar {
+          ToolbarItem(placement: .confirmationAction) {
+            Button("Done") { isCommandCenterPresented = false }
+          }
+        }
+      }
+      .frame(minWidth: 720, minHeight: 540)
+    }
     .disabled(!store.repositories.isInitialLoadComplete)
     .onChange(of: scenePhase) { _, newValue in
       store.send(.scenePhaseChanged(newValue))

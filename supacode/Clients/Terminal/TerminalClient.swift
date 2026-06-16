@@ -15,6 +15,9 @@ struct TerminalClient {
   enum Command: Equatable {
     case createTab(Worktree, runSetupScriptIfNew: Bool, id: UUID? = nil)
     case createTabWithInput(Worktree, input: String, runSetupScriptIfNew: Bool, id: UUID? = nil)
+    /// Types `text` (plus a carriage return) into the focused surface of an
+    /// existing tab. Used by workflow follow-up steering (e.g. `cont`, `fix`).
+    case sendTextToTab(Worktree, tabID: TerminalTabID, text: String)
     case ensureInitialTab(Worktree, runSetupScriptIfNew: Bool, focusing: Bool)
     case stopRunScript(Worktree)
     case stopScript(Worktree, definitionID: UUID)
