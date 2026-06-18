@@ -145,9 +145,10 @@ compare-apps: # Launch isolated Debug builds from WORKTREES="/path/a /path/b"
 			done; \
 		fi; \
 		echo "launching $$label from $$worktree"; \
-		make -C "$$worktree" generate-project; \
+		make -C "$$worktree" build-ghostty-xcframework || exit 1; \
+		make -C "$$worktree" generate-project || exit 1; \
 		cd "$$worktree"; \
-		xcodebuild -workspace "$$worktree/supacode.xcworkspace" -scheme supacode -configuration Debug -derivedDataPath "$$derived_data" build -skipMacroValidation "SUPACODE_DISPLAY_NAME=Supacode Dev — $$label" $(LOCAL_XCODEBUILD_FLAGS) 2>&1 | mise exec -- xcbeautify --disable-logging; \
+		bash -o pipefail -c 'xcodebuild -workspace "'"$$worktree"'/supacode.xcworkspace" -scheme supacode -configuration Debug -derivedDataPath "'"$$derived_data"'" build -skipMacroValidation "SUPACODE_DISPLAY_NAME=Supacode Dev — '"$$label"'" $(LOCAL_XCODEBUILD_FLAGS) 2>&1 | mise exec -- xcbeautify --disable-logging' || { echo "error: build failed for $$label"; exit 1; }; \
 		settings="$$(CFFIXED_USER_HOME="$$state_home" xcodebuild -workspace "$$worktree/supacode.xcworkspace" -scheme supacode -configuration Debug -derivedDataPath "$$derived_data" -showBuildSettings -json 2>/dev/null)"; \
 		build_dir="$$(echo "$$settings" | jq -r '.[0].buildSettings.BUILT_PRODUCTS_DIR')"; \
 		product="$$(echo "$$settings" | jq -r '.[0].buildSettings.FULL_PRODUCT_NAME')"; \
