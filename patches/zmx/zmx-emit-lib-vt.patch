@@ -1,0 +1,31 @@
+diff --git a/build.zig b/build.zig
+index b4e32c0..3943dbd 100644
+--- a/build.zig
++++ b/build.zig
+@@ -31,6 +31,8 @@ pub fn build(b: *std.Build) void {
+     const dep = b.dependency("ghostty", .{
+         .target = target,
+         .optimize = optimize,
++        .@"emit-lib-vt" = true,
++        .@"emit-xcframework" = false,
+     });
+     exe_mod.addImport(
+         "ghostty-vt",
+@@ -63,6 +65,8 @@ pub fn build(b: *std.Build) void {
+         const test_dep = b.dependency("ghostty", .{
+             .target = target,
+             .optimize = optimize,
++            .@"emit-lib-vt" = true,
++            .@"emit-xcframework" = false,
+         });
+         test_module.addImport(
+             "ghostty-vt",
+@@ -118,6 +122,8 @@ pub fn build(b: *std.Build) void {
+             if (b.lazyDependency("ghostty", .{
+                 .target = resolved,
+                 .optimize = .ReleaseSafe,
++                .@"emit-lib-vt" = true,
++                .@"emit-xcframework" = false,
+             })) |release_dep| {
+                 release_mod.addImport("ghostty-vt", release_dep.module("ghostty-vt"));
+             }
