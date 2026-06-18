@@ -45,6 +45,10 @@ TEST_RESULT_BUNDLE := build/supacode-tests.xcresult
 # assignment so a missing Xcode aborts the recipe under -e.
 SELECT_DEVELOPER_DIR = DEVELOPER_DIR="$$(./scripts/select-developer-dir.sh)"; export DEVELOPER_DIR
 
+# Local-only: Xcode 26.4/26.5 + TCA strict concurrency surfaces a spurious error
+# in TCA itself; SWIFT_VERSION=5 mitigates. Kept out of release archive flags.
+LOCAL_XCODEBUILD_FLAGS ?= $(shell xcodebuild -version 2>/dev/null | awk '/^Xcode 26\.[45]/{print "SWIFT_VERSION=5"}')
+
 .DEFAULT_GOAL := help
 .PHONY: doctor preflight build-ghostty-xcframework build-zmx generate-project generate-project-sources inspect-dependencies warm-cache build-app run-app install-dev-build archive export-archive format lint check test bump-version bump-and-release log-stream
 
@@ -109,7 +113,7 @@ warm-cache: $(TUIST_INSTALL_STAMP) # Warm the full Tuist cacheable graph
 
 build-app: $(TUIST_DEVELOPMENT_GENERATION_STAMP) # Build the macOS app (Debug)
 	$(SELECT_DEVELOPER_DIR); \
-	bash -o pipefail -c 'xcodebuild -workspace "$(PROJECT_WORKSPACE)" -scheme "$(APP_SCHEME)" -configuration Debug -derivedDataPath "$(DERIVED_DATA_PATH)" build -skipMacroValidation $(XCODEBUILD_FLAGS) 2>&1 | { mise exec -- xcbeautify --disable-logging || cat; }'
+	bash -o pipefail -c 'xcodebuild -workspace "$(PROJECT_WORKSPACE)" -scheme "$(APP_SCHEME)" -configuration Debug -derivedDataPath "$(DERIVED_DATA_PATH)" build -skipMacroValidation $(XCODEBUILD_FLAGS) $(LOCAL_XCODEBUILD_FLAGS) 2>&1 | { mise exec -- xcbeautify --disable-logging || cat; }'
 
 run-app: build-app # Build then launch (Debug) with log streaming
 	@$(SELECT_DEVELOPER_DIR); \
@@ -149,9 +153,9 @@ test: $(TUIST_DEVELOPMENT_GENERATION_STAMP) # Run all tests
 	rm -rf "$(TEST_RESULT_BUNDLE)"; \
 	status=0; \
 	if [ -t 1 ]; then \
-		bash -o pipefail -c 'xcodebuild test -workspace "$(PROJECT_WORKSPACE)" -scheme "$(TEST_SCHEME)" -destination "platform=macOS" -derivedDataPath "$(DERIVED_DATA_PATH)" -resultBundlePath "$(TEST_RESULT_BUNDLE)" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -skipMacroValidation -parallel-testing-enabled $(TEST_PARALLEL) 2>&1 | { mise exec -- xcbeautify --disable-logging || cat; }' || status=$$?; \
+		bash -o pipefail -c 'xcodebuild test -workspace "$(PROJECT_WORKSPACE)" -scheme "$(TEST_SCHEME)" -destination "platform=macOS" -derivedDataPath "$(DERIVED_DATA_PATH)" -resultBundlePath "$(TEST_RESULT_BUNDLE)" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -skipMacroValidation -parallel-testing-enabled $(TEST_PARALLEL) $(LOCAL_XCODEBUILD_FLAGS) 2>&1 | { mise exec -- xcbeautify --disable-logging || cat; }' || status=$$?; \
 	else \
-		xcodebuild test -workspace "$(PROJECT_WORKSPACE)" -scheme "$(TEST_SCHEME)" -destination "platform=macOS" -derivedDataPath "$(DERIVED_DATA_PATH)" -resultBundlePath "$(TEST_RESULT_BUNDLE)" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -skipMacroValidation -parallel-testing-enabled $(TEST_PARALLEL) || status=$$?; \
+		xcodebuild test -workspace "$(PROJECT_WORKSPACE)" -scheme "$(TEST_SCHEME)" -destination "platform=macOS" -derivedDataPath "$(DERIVED_DATA_PATH)" -resultBundlePath "$(TEST_RESULT_BUNDLE)" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -skipMacroValidation -parallel-testing-enabled $(TEST_PARALLEL) $(LOCAL_XCODEBUILD_FLAGS) || status=$$?; \
 	fi; \
 	[ $$status -eq 0 ] || ./scripts/print-test-failures.sh "$(TEST_RESULT_BUNDLE)" || true; \
 	exit $$status
