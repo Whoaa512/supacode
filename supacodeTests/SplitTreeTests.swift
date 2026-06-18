@@ -1,7 +1,6 @@
 import AppKit
 import DependenciesTestSupport
 import Sharing
-import SupacodeSettingsShared
 import Testing
 
 @testable import SupacodeSettingsShared
@@ -262,7 +261,6 @@ struct SplitTreeTests {
     if case .split(let topSplit) = tree.root {
       #expect(abs(topSplit.ratio - 0.5) < 0.01)
     }
-  }
   }
 
   private func makeWorktreeFixture(preserveZoomOnNavigation: Bool) -> WorktreeFixture {
