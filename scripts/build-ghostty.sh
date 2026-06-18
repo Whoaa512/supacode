@@ -170,7 +170,23 @@ if [ -f "${ghostty_fingerprint_path}" ] &&
 fi
 
 cd "${ghostty_dir}"
-mise exec -- zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Dsentry=false --prefix "${ghostty_build_root}" --cache-dir "${ghostty_local_cache_dir}" --global-cache-dir "${ghostty_global_cache_dir}"
+# Xcode 26.4+ local-build workaround (zig#31272): zig 0.15.2 can't link the
+# 26.4+ macOS SDK (undefined libSystem symbols). When the active SDK is too new,
+# point zig at the Command Line Tools SDK (<= 26.3) so the build runner + libs
+# link, and build only the native macOS xcframework slice — CLT has no iOS SDK,
+# and patches/ghostty-xcode-26.4.patch makes the .native target skip iOS.
+# When the active SDK is <= 26.3 (CI, older Xcode) this is a no-op: normal
+# universal build, no DEVELOPER_DIR override.
+zig_env=()
+xcframework_target_flag=""
+active_sdk_ver="$(xcrun --show-sdk-version 2>/dev/null || true)"
+if [ -n "${active_sdk_ver}" ] &&
+  [ "$(printf '%s\n26.3\n' "${active_sdk_ver}" | sort -V | tail -1)" != "26.3" ] &&
+  [ -d /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk ]; then
+  zig_env=(env DEVELOPER_DIR=/Library/Developer/CommandLineTools)
+  xcframework_target_flag="-Dxcframework-target=native"
+fi
+"${zig_env[@]}" mise exec -- zig build -Doptimize=ReleaseFast -Demit-xcframework=true ${xcframework_target_flag} -Dsentry=false --prefix "${ghostty_build_root}" --cache-dir "${ghostty_local_cache_dir}" --global-cache-dir "${ghostty_global_cache_dir}"
 rsync -a --delete "${ghostty_dir}/macos/GhosttyKit.xcframework/" "${xcframework_path}/"
 prepare_xcframework
 printf '%s\n' "${fingerprint}" > "${ghostty_fingerprint_path}"
