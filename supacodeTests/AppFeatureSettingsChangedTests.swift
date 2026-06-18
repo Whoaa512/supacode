@@ -30,9 +30,16 @@ struct AppFeatureSettingsChangedTests {
       $0.repositories.moveNotifiedWorktreeToTop = false
     }
     await store.receive(\.repositories.setAutoDeleteArchivedWorktreesAfterDays)
-    await store.receive(\.updates.applySettings) {
-      $0.updates.didConfigureUpdates = true
-    }
+    // `applySettings` only configures Sparkle (and flips didConfigureUpdates)
+    // in release builds; in DEBUG it's a no-op so the action arrives without a
+    // state change.
+    #if DEBUG
+      await store.receive(\.updates.applySettings)
+    #else
+      await store.receive(\.updates.applySettings) {
+        $0.updates.didConfigureUpdates = true
+      }
+    #endif
     await store.finish()
   }
 

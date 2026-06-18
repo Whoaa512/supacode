@@ -48,6 +48,10 @@ struct AppFeatureCommandPaletteTests {
   @Test(.dependencies) func openRepositoryEntersBrowseMode() async {
     let store = TestStore(initialState: AppFeature.State()) {
       AppFeature()
+    } withDependencies: {
+      // enterBrowseMode lists the base directory; stub the client so the
+      // unimplemented test value doesn't record an issue.
+      $0.fileSystemBrowseClient.listDirectory = { _ in [] }
     }
     store.exhaustivity = .off
 
@@ -140,12 +144,25 @@ struct AppFeatureCommandPaletteTests {
   }
 
   @Test(.dependencies) func checkForUpdatesDispatchesUpdateAction() async {
-    let store = TestStore(initialState: AppFeature.State()) {
-      AppFeature()
-    }
+    // In DEBUG the command routes to the dev-only upstream update checker; in
+    // release it routes to Sparkle. The upstream checker's effect reads
+    // `@Dependency(\.date.now)` and launches a git probe, so pin the clock and
+    // run non-exhaustively to ignore the trailing `.checkCompleted`.
+    await withDependencies {
+      $0.date = .constant(Date(timeIntervalSince1970: 0))
+    } operation: {
+      let store = TestStore(initialState: AppFeature.State()) {
+        AppFeature()
+      }
+      store.exhaustivity = .off
 
-    await store.send(.commandPalette(.delegate(.checkForUpdates)))
-    await store.receive(\.updates.checkForUpdates)
+      await store.send(.commandPalette(.delegate(.checkForUpdates)))
+      #if DEBUG
+        await store.receive(\.upstreamUpdate.checkForUpdates)
+      #else
+        await store.receive(\.updates.checkForUpdates)
+      #endif
+    }
   }
 
   @Test(.dependencies) func ghosttyCommandDispatchesBindingActionToTerminalClient() async {
