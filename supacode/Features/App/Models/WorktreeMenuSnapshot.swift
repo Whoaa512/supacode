@@ -115,6 +115,11 @@ extension AppFeature.Action {
     // `.repositories` cache invalidation (the cacheInvalidations gate above).
     case .agentPresence, .terminals, .commandPalette, .updates:
       return false
+    #if DEBUG
+      // Dev-only upstream update checker; unrelated to worktree menu inputs.
+      case .upstreamUpdate:
+        return false
+    #endif
     // Lifecycle / UI / effect-dispatch actions never write snapshot inputs
     // directly; any downstream mutation flows back through a classified arm.
     case .appLaunched, .scenePhaseChanged, .openActionSelectionChanged,

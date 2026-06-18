@@ -399,7 +399,7 @@ extension RepositoriesFeature.Action {
       return []
 
     // Everything else is UI / effects / transient state, no cache touched.
-    case .task, .setOpenPanelPresented, .loadPersistedRepositories,
+    case .task, .setOpenPanelPresented, .requestOpenRepository, .loadPersistedRepositories,
       .refreshWorktrees, .reloadRepositories,
       .setSidebarSelectedWorktreeIDs,
       .openRepositories,
@@ -427,6 +427,7 @@ extension RepositoriesFeature.Action {
       .openRepositorySettings, .requestCustomizeRepository,
       .requestCustomizeWorktree,
       .requestRenameBranch,
+      .forkWorktree,
       .contextMenuOpenWorktree,
       .worktreeCreationPrompt,
       .alert,

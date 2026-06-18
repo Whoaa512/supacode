@@ -927,26 +927,30 @@ struct RepositoriesFeature {
         let sourceBranch = worktree.name
         let gitClient = gitClient
         let rootURL = repository.rootURL
+        // Fork = create a new worktree based on the source worktree's branch.
+        // Mirror the standard prompt loader (#350 base-ref menu) but pre-seed
+        // the source branch as both the automatic and selected base ref.
         return .run { send in
-          let automaticBaseRef = sourceBranch
-          let baseRefOptions: [String]
-          do {
-            var refs = try await gitClient.branchRefs(rootURL)
-            if !refs.contains(sourceBranch) {
-              refs.append(sourceBranch)
-            }
-            baseRefOptions = refs.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-          } catch {
-            baseRefOptions = [sourceBranch]
-          }
+          let remoteNames = (try? await gitClient.remoteNames(rootURL)) ?? []
+          let defaultBranch = GitReferenceQueries.localBranchName(
+            fromRemoteRef: sourceBranch,
+            remoteNames: remoteNames
+          )
           guard !Task.isCancelled else { return }
           await send(
             .promptedWorktreeCreationDataLoaded(
               repositoryID: repositoryID,
-              baseRefOptions: baseRefOptions,
-              automaticBaseRef: automaticBaseRef,
-              selectedBaseRef: sourceBranch,
+              automaticBaseRef: sourceBranch,
+              defaultBranch: defaultBranch,
+              remoteNames: remoteNames,
+              selectedBaseRef: sourceBranch
             )
+          )
+          let inventory =
+            (try? await gitClient.branchInventory(rootURL, remoteNames)) ?? GitBranchInventory()
+          guard !Task.isCancelled else { return }
+          await send(
+            .promptedWorktreeBranchesLoaded(repositoryID: repositoryID, inventory: inventory)
           )
         }
         .cancellable(id: CancelID.worktreePromptLoad, cancelInFlight: true)
