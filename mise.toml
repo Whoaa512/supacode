@@ -2,5 +2,6 @@
 tuist = "4.180.0"
 zig = "0.15.2"
 swiftlint = "latest"
+xcbeautify = "3.2.1"
 "github:ldomaradzki/xcsift" = "latest"
 "npm:create-dmg" = "latest"
