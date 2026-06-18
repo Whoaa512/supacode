@@ -13,6 +13,7 @@ export DEVELOPER_DIR
 repo_root="${srcroot}"
 zmx_dir="${srcroot}/ThirdParty/zmx"
 zmx_submodule_path="${zmx_dir#"${repo_root}/"}"
+zmx_patches_dir="${srcroot}/patches/zmx"
 zmx_build_root="${srcroot}/.build/zmx"
 zmx_global_cache_dir="${zmx_build_root}/.zig-global-cache"
 zmx_fingerprint_path="${zmx_build_root}/fingerprint"
@@ -164,12 +165,26 @@ fi
 
 cd "${zmx_dir}"
 
+# Xcode 26.4+ local-build workaround (zig#31272): zig 0.15.2 can't link the
+# 26.4+ macOS SDK (undefined libSystem symbols). When the active SDK is too new,
+# point zig at the Command Line Tools SDK (<= 26.3) so the build runner + slices
+# link. The ghostty package dep would otherwise also build its iOS xcframework
+# slice (no iOS SDK under CLT); patches/zmx-emit-lib-vt.patch makes zmx request
+# emit-lib-vt + emit-xcframework=false so only the native libghostty-vt is built.
+zig_env=()
+active_sdk_ver="$(xcrun --show-sdk-version 2>/dev/null || true)"
+if [ -n "${active_sdk_ver}" ] &&
+  [ "$(printf '%s\n26.3\n' "${active_sdk_ver}" | sort -V | tail -1)" != "26.3" ] &&
+  [ -d /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk ]; then
+  zig_env=(env DEVELOPER_DIR=/Library/Developer/CommandLineTools)
+fi
+
 slice_paths=()
 for target in "${zmx_targets[@]}"; do
   slice_prefix="${zmx_build_root}/slices/${target}"
   slice_cache="${slice_prefix}/.zig-cache"
   slice_binary="${slice_prefix}/bin/zmx"
-  mise exec -- zig build \
+  "${zig_env[@]}" mise exec -- zig build \
     -Doptimize=ReleaseSafe \
     -Dtarget="${target}" \
     --prefix "${slice_prefix}" \
