@@ -134,7 +134,9 @@ struct ContentView: View {
       }
       store.send(.repositories(.revealSelectedWorktreeInSidebar))
     }
-    .focusedSceneValue(\.toggleCommandCenterAction, toggleCommandCenter)
+    .focusedSceneAction(\.toggleCommandCenterAction, enabled: true) {
+      toggleCommandCenter()
+    }
     .overlay {
       CommandPaletteOverlayHost(
         store: store,

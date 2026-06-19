@@ -426,7 +426,10 @@ struct SupacodeApp: App {
     .environment(commandKeyObserver)
     .commands {
       WorktreeCommands(store: store)
-      SidebarCommands()
+      Group {
+        SidebarCommands()
+        CommandCenterCommands()
+      }
       TerminalCommands(ghosttyShortcuts: ghosttyShortcuts)
       WindowCommands(ghosttyShortcuts: ghosttyShortcuts)
       CommandGroup(after: .textEditing) {
