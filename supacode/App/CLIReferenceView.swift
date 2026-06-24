@@ -64,15 +64,15 @@ struct CLIReferenceView: View {
     .init(command: "supacode worktree focus [-w <id>]", description: "Focus a worktree."),
     .init(
       command: "supacode worktree run [-w <id>] [-c <uuid>]",
-      description: "Run a script. Defaults to the primary run-kind script; -c targets a specific one."
+      description: "Run a script. Defaults to the primary run-kind script; -c targets a specific one.",
     ),
     .init(
       command: "supacode worktree stop [-w <id>] [-c <uuid>]",
-      description: "Stop a script. Defaults to all run-kind scripts; -c targets a specific one."
+      description: "Stop a script. Defaults to all run-kind scripts; -c targets a specific one.",
     ),
     .init(
       command: "supacode worktree script list [-w <id>]",
-      description: "List configured scripts. Underlined rows are currently running."
+      description: "List configured scripts. Underlined rows are currently running.",
     ),
     .init(command: "supacode worktree archive [-w <id>]", description: "Archive the worktree."),
     .init(command: "supacode worktree unarchive [-w <id>]", description: "Unarchive the worktree."),
@@ -86,7 +86,7 @@ struct CLIReferenceView: View {
     .init(command: "supacode tab focus [-w <id>] [-t <id>]", description: "Focus a tab."),
     .init(
       command: "supacode tab new [-w <id>] [-i <cmd>] [-n <uuid>]",
-      description: "Create a new tab. Prints UUID to stdout."
+      description: "Create a new tab. Prints UUID to stdout.",
     ),
     .init(command: "supacode tab close [-w <id>] [-t <id>]", description: "Close a tab."),
   ]
@@ -94,19 +94,19 @@ struct CLIReferenceView: View {
   private static let surfaceRows: [CLIEntry] = [
     .init(
       command: "supacode surface list [-w <id>] [-t <id>] [-f]",
-      description: "List surface UUIDs. -f for focused only."
+      description: "List surface UUIDs. -f for focused only.",
     ),
     .init(
       command: "supacode surface focus [-w <id>] [-t <id>] [-s <id>] [-i <cmd>]",
-      description: "Focus a surface."
+      description: "Focus a surface.",
     ),
     .init(
       command: "supacode surface split [-w <id>] [-t <id>] [-s <id>] [-d h|v] [-i <cmd>] [-n <uuid>]",
-      description: "Split a surface. Prints UUID to stdout."
+      description: "Split a surface. Prints UUID to stdout.",
     ),
     .init(
       command: "supacode surface close [-w <id>] [-t <id>] [-s <id>]",
-      description: "Close a surface."
+      description: "Close a surface.",
     ),
   ]
 
@@ -117,7 +117,7 @@ struct CLIReferenceView: View {
       command:
         "supacode repo worktree-new [-r <id>] [--branch <name>] [--base <ref>] [--fetch] "
         + "[--name <folder>] [--location <dir>]",
-      description: "Create a worktree in a repository."
+      description: "Create a worktree in a repository.",
     ),
   ]
 

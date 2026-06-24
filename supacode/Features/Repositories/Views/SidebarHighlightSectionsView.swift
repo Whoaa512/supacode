@@ -26,7 +26,7 @@ struct SidebarHighlightSection: View {
           terminalManager: terminalManager,
           selectedWorktreeIDs: selectedWorktreeIDs,
           repositoryHighlightByID: repositoryHighlightByID,
-          shortcutHint: shortcutHintByID[rowID]
+          shortcutHint: shortcutHintByID[rowID],
         )
       }
     } header: {
@@ -85,7 +85,7 @@ private struct SidebarHighlightRow: View {
       hideSubtitle: false,
       moveMode: .alwaysDisabled,
       shortcutHint: shortcutHint,
-      highlightSubtitle: highlight
+      highlightSubtitle: highlight,
     )
   }
 }

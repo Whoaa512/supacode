@@ -19,10 +19,10 @@ struct LayoutsIncrementalWriterTests {
           layout: .leaf(
             TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: dir)
           ),
-          focusedLeafIndex: 0
+          focusedLeafIndex: 0,
         )
       ],
-      selectedTabIndex: 0
+      selectedTabIndex: 0,
     )
   }
 
@@ -88,7 +88,7 @@ struct LayoutsIncrementalWriterTests {
       save: { data, target in
         if target == url { saveCount.withValue { $0 += 1 } }
         try inner.save(data, target)
-      }
+      },
     )
     let writer = LayoutsIncrementalWriter(storage: storage, url: url)
 
@@ -111,7 +111,7 @@ struct LayoutsIncrementalWriterTests {
 
     let storage = SettingsFileStorage(
       load: { try Data(contentsOf: $0) },
-      save: { data, target in try data.write(to: target, options: .atomic) }
+      save: { data, target in try data.write(to: target, options: .atomic) },
     )
     let writer = LayoutsIncrementalWriter(storage: storage, url: url)
     await writer.flush(["w1": .snapshot(snapshot(dir: "/w1"))])

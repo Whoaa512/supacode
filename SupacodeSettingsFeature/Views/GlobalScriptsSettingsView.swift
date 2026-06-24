@@ -16,7 +16,7 @@ public struct GlobalScriptsSettingsView: View {
         ContentUnavailableView(
           "No Global Scripts",
           systemImage: "terminal",
-          description: Text("Add a script to make it available in every repository's toolbar and command palette.")
+          description: Text("Add a script to make it available in every repository's toolbar and command palette."),
         )
       } else {
         scriptsForm

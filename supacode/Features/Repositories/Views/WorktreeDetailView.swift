@@ -35,18 +35,18 @@ struct WorktreeDetailView: View {
     let selectedWorktreeSummaries = selectedWorktreeSummaries(from: repositories)
     let showsMultiSelectionSummary = shouldShowMultiSelectionSummary(
       repositories: repositories,
-      selectedWorktreeSummaries: selectedWorktreeSummaries
+      selectedWorktreeSummaries: selectedWorktreeSummaries,
     )
     let loadingInfo = loadingInfo(
       for: selectedRow,
       selectedWorktreeID: repositories.selectedWorktreeID,
-      repositories: repositories
+      repositories: repositories,
     )
     let showsToolbarPlaceholder = shouldShowToolbarPlaceholder(
       repositories: repositories,
       loadingInfo: loadingInfo,
       selectedWorktree: selectedWorktree,
-      selectedWorktreeSummaries: selectedWorktreeSummaries
+      selectedWorktreeSummaries: selectedWorktreeSummaries,
     )
     let hasActiveWorktree =
       selectedWorktree != nil
@@ -67,7 +67,7 @@ struct WorktreeDetailView: View {
       loadingInfo: loadingInfo,
       selectedWorktree: selectedWorktree,
       selectedSlice: selectedRow,
-      selectedWorktreeSummaries: selectedWorktreeSummaries
+      selectedWorktreeSummaries: selectedWorktreeSummaries,
     )
     .toolbar(removing: .title)
     .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
@@ -79,7 +79,7 @@ struct WorktreeDetailView: View {
           selectedWorktree: selectedWorktree,
           selectedRow: selectedRow,
           repositories: repositories,
-          hideSubtitleOnMatch: hideSubtitleOnMatch
+          hideSubtitleOnMatch: hideSubtitleOnMatch,
         )
         let toolbarState = WorktreeToolbarState(
           titleContent: titleContent,
@@ -115,7 +115,7 @@ struct WorktreeDetailView: View {
           },
           onManageGlobalScripts: {
             store.send(.settings(.setSelection(.scripts)))
-          }
+          },
         )
       }
     }
@@ -126,7 +126,7 @@ struct WorktreeDetailView: View {
       content: content,
       hasActiveWorktree: hasActiveWorktree,
       hasRunningRunScript: hasRunningRunScript,
-      resolvedSelection: resolvedSelection
+      resolvedSelection: resolvedSelection,
     )
   }
 
@@ -141,7 +141,7 @@ struct WorktreeDetailView: View {
             repositoryID: $0.repositoryID,
             kind: $0.kind,
             name: $0.name,
-            repositoryName: repositories.repositoryName(for: $0.repositoryID)
+            repositoryName: repositories.repositoryName(for: $0.repositoryID),
           )
         }
       }
@@ -157,7 +157,7 @@ struct WorktreeDetailView: View {
 
   private func shouldShowMultiSelectionSummary(
     repositories: RepositoriesFeature.State,
-    selectedWorktreeSummaries: [MultiSelectedWorktreeSummary]
+    selectedWorktreeSummaries: [MultiSelectedWorktreeSummary],
   ) -> Bool {
     !repositories.isShowingArchivedWorktrees
       && selectedWorktreeSummaries.count > 1
@@ -167,14 +167,14 @@ struct WorktreeDetailView: View {
     repositories: RepositoriesFeature.State,
     loadingInfo: WorktreeLoadingInfo?,
     selectedWorktree: Worktree?,
-    selectedWorktreeSummaries: [MultiSelectedWorktreeSummary]
+    selectedWorktreeSummaries: [MultiSelectedWorktreeSummary],
   ) -> Bool {
     if repositories.isShowingArchivedWorktrees {
       return false
     }
     if shouldShowMultiSelectionSummary(
       repositories: repositories,
-      selectedWorktreeSummaries: selectedWorktreeSummaries
+      selectedWorktreeSummaries: selectedWorktreeSummaries,
     ) {
       return false
     }
@@ -198,7 +198,7 @@ struct WorktreeDetailView: View {
     loadingInfo: WorktreeLoadingInfo?,
     selectedWorktree: Worktree?,
     selectedSlice: SelectedWorktreeSlice?,
-    selectedWorktreeSummaries: [MultiSelectedWorktreeSummary]
+    selectedWorktreeSummaries: [MultiSelectedWorktreeSummary],
   ) -> some View {
     Group {
       if repositories.isShowingArchivedWorktrees {
@@ -207,7 +207,7 @@ struct WorktreeDetailView: View {
         )
       } else if shouldShowMultiSelectionSummary(
         repositories: repositories,
-        selectedWorktreeSummaries: selectedWorktreeSummaries
+        selectedWorktreeSummaries: selectedWorktreeSummaries,
       ) {
         MultiSelectedWorktreesDetailView(rows: selectedWorktreeSummaries)
       } else if let loadingInfo {
@@ -215,7 +215,7 @@ struct WorktreeDetailView: View {
       } else if let failedRepositoryID = repositories.selectedFailedRepositoryID {
         FailedRepositoryDetailView(
           repositoryID: failedRepositoryID,
-          failureMessage: repositories.loadFailuresByID[failedRepositoryID]
+          failureMessage: repositories.loadFailuresByID[failedRepositoryID],
         ) {
           store.send(.repositories(.requestRemoveFailedRepository(failedRepositoryID)))
         }
@@ -225,7 +225,7 @@ struct WorktreeDetailView: View {
           else { return }
           let target = RepositoriesFeature.DeleteWorktreeTarget(
             worktreeID: selectedWorktree.id,
-            repositoryID: repositoryID
+            repositoryID: repositoryID,
           )
           store.send(.repositories(.requestDeleteSidebarItems([target])))
         }
@@ -238,7 +238,7 @@ struct WorktreeDetailView: View {
           terminalsStore: store.scope(state: \.terminals, action: \.terminals),
           shouldRunSetupScript: shouldRunSetupScript,
           forceAutoFocus: shouldFocusTerminal,
-          createTab: { store.send(.newTerminal) }
+          createTab: { store.send(.newTerminal) },
         )
         .id(selectedWorktree.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -261,7 +261,7 @@ struct WorktreeDetailView: View {
     content: Content,
     hasActiveWorktree: Bool,
     hasRunningRunScript: Bool,
-    resolvedSelection: OpenWorktreeAction?
+    resolvedSelection: OpenWorktreeAction?,
   ) -> some View {
     content
       .focusedSceneAction(\.openSelectedWorktreeAction, enabled: hasActiveWorktree) {
@@ -308,7 +308,7 @@ struct WorktreeDetailView: View {
 
   private func selectToolbarNotification(
     _ worktreeID: Worktree.ID,
-    _ notification: WorktreeTerminalNotification
+    _ notification: WorktreeTerminalNotification,
   ) {
     store.send(.repositories(.selectWorktree(worktreeID)))
     if let terminalState = terminalManager.stateIfExists(for: worktreeID) {
@@ -339,7 +339,7 @@ struct WorktreeDetailView: View {
                   terminalManager.stateIfExists(for: worktreeGroup.id)?.dismissAllNotifications()
                 }
               }
-            }
+            },
           )
         }
       }
@@ -457,7 +457,7 @@ struct WorktreeDetailView: View {
       ToolbarItem(placement: .navigation) {
         WorktreeToolbarTitleView(
           content: toolbarState.titleContent,
-          terminalManager: terminalManager
+          terminalManager: terminalManager,
         )
       }
       .sharedBackgroundVisibility(.hidden)
@@ -467,13 +467,13 @@ struct WorktreeDetailView: View {
       ToolbarItemGroup {
         ToolbarStatusView(
           toast: toolbarState.statusToast,
-          pullRequest: toolbarState.pullRequest
+          pullRequest: toolbarState.pullRequest,
         )
         .padding(.horizontal)
         ToolbarNotificationsPopoverButtonHost(
           repositoriesStore: repositoriesStore,
           terminalManager: terminalManager,
-          onSelectNotification: onSelectNotification
+          onSelectNotification: onSelectNotification,
         )
       }
 
@@ -492,7 +492,7 @@ struct WorktreeDetailView: View {
           onStopScript: onStopScript,
           onStopRunScripts: onStopRunScripts,
           onManageRepoScripts: onManageRepoScripts,
-          onManageGlobalScripts: onManageGlobalScripts
+          onManageGlobalScripts: onManageGlobalScripts,
         )
         // Rebuild the NSMenu when any field changes (#280) so renames propagate without a worktree switch.
         .id(toolbarState.scriptMenuIdentity)
@@ -544,7 +544,7 @@ struct WorktreeDetailView: View {
     selectedWorktree: Worktree,
     selectedRow: SelectedWorktreeSlice?,
     repositories: RepositoriesFeature.State,
-    hideSubtitleOnMatch: Bool
+    hideSubtitleOnMatch: Bool,
   ) -> WorktreeToolbarTitleContent {
     let repositoryID = selectedRow?.repositoryID
     let repository = repositoryID.flatMap { repositories.repositories[id: $0] }
@@ -584,7 +584,7 @@ struct WorktreeDetailView: View {
     let displayTitle =
       SidebarDisplayName.resolved(
         custom: selectedRow?.customTitle,
-        fallback: selectedWorktree.name
+        fallback: selectedWorktree.name,
       ) ?? selectedWorktree.name
 
     return .git(
@@ -596,14 +596,14 @@ struct WorktreeDetailView: View {
         worktreeSubtitle: worktreeSubtitle,
         worktreeTint: selectedRow?.customTint,
         accent: selectedRow?.accent ?? .default,
-        rootURL: selectedWorktree.repositoryRootURL
+        rootURL: selectedWorktree.repositoryRootURL,
       )
     )
   }
 
   private func toolbarKind(
     for selectedWorktree: Worktree,
-    selectedRow: SelectedWorktreeSlice?
+    selectedRow: SelectedWorktreeSlice?,
   ) -> WorktreeToolbarState.Kind {
     guard selectedRow?.isFolder != true else { return .folder }
     guard let pullRequest = selectedRow?.pullRequest else {
@@ -619,7 +619,7 @@ struct WorktreeDetailView: View {
   private func loadingInfo(
     for selectedRow: SelectedWorktreeSlice?,
     selectedWorktreeID: Worktree.ID?,
-    repositories: RepositoriesFeature.State
+    repositories: RepositoriesFeature.State,
   ) -> WorktreeLoadingInfo? {
     guard let selectedRow else { return nil }
     let repositoryName = repositories.repositoryName(for: selectedRow.repositoryID)
@@ -628,7 +628,7 @@ struct WorktreeDetailView: View {
       return WorktreeLoadingInfo(
         name: selectedRow.name,
         repositoryName: repositoryName,
-        kind: .removing(isFolder: selectedRow.isFolder)
+        kind: .removing(isFolder: selectedRow.isFolder),
       )
     case .archiving, .deletingScript:
       // The script runs in a terminal tab, so let the
@@ -651,9 +651,9 @@ struct WorktreeDetailView: View {
             statusTitle: progress?.titleText ?? selectedRow.name,
             statusDetail: progress?.detailText ?? (selectedRow.subtitle ?? ""),
             statusCommand: progress?.commandText,
-            statusLines: progress?.liveOutputLines ?? []
+            statusLines: progress?.liveOutputLines ?? [],
           )
-        )
+        ),
       )
     }
     return nil
@@ -693,7 +693,7 @@ private struct FailedRepositoryDetailView: View {
         "Remove Repository…",
         systemImage: "folder.badge.minus",
         role: .destructive,
-        action: requestRemove
+        action: requestRemove,
       )
       .help("Remove this repository from Supacode. Files on disk are untouched.")
     }
@@ -892,7 +892,7 @@ private struct MultiSelectedWorktreesDetailView: View {
               "Archive selected (\(archiveShortcut))",
               "Delete selected (\(deleteShortcut))",
               "Right-click any selected worktree to apply actions to all selected worktrees.",
-            ]
+            ],
         )
       }
 
@@ -905,7 +905,7 @@ private struct MultiSelectedWorktreesDetailView: View {
             : [
               "Remove selected from Supacode (\(deleteShortcut))",
               "Right-click any selected folder to remove them all from Supacode.",
-            ]
+            ],
         )
       }
 
@@ -932,7 +932,7 @@ private struct MultiSelectedWorktreesDetailView: View {
   private func selectionSection(
     title: String,
     rows: [MultiSelectedWorktreeSummary],
-    actions: [String]
+    actions: [String],
   ) -> some View {
     VStack(alignment: .leading, spacing: 8) {
       Text(title)
@@ -1097,7 +1097,7 @@ private struct WorktreeToolbarPreview: View {
           worktreeSubtitle: "toolbar-preview",
           worktreeTint: nil,
           accent: .pinned,
-          rootURL: URL(fileURLWithPath: "/tmp/preview")
+          rootURL: URL(fileURLWithPath: "/tmp/preview"),
         )
       ),
       rootURL: URL(fileURLWithPath: "/tmp/preview"),
@@ -1129,7 +1129,7 @@ private struct WorktreeToolbarPreview: View {
         onStopScript: { _ in },
         onStopRunScripts: {},
         onManageRepoScripts: {},
-        onManageGlobalScripts: {}
+        onManageGlobalScripts: {},
       )
     }
     .frame(width: 900, height: 160)

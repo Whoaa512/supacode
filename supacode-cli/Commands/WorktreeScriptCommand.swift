@@ -10,7 +10,7 @@ struct WorktreeScriptCommand: ParsableCommand {
     commandName: "script",
     abstract: "Inspect user-defined scripts for a worktree.",
     subcommands: [List.self],
-    defaultSubcommand: List.self
+    defaultSubcommand: List.self,
   )
 }
 

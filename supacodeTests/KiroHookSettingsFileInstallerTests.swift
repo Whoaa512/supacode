@@ -32,7 +32,7 @@ struct KiroHookSettingsFileInstallerTests {
         .object([
           "command": .string(
             AgentHookSettingsCommand.compositeCommand(
-              events: [.idle], forwardStdinAsNotification: false, agent: .kiro)),
+              events: [.idle], forwardStdinAsNotification: false, agent: .kiro,)),
           "timeout_ms": 10_000,
         ])
       ]

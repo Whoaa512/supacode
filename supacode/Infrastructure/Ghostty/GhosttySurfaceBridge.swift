@@ -29,7 +29,7 @@ struct GhosttyOpenURLRequest: Equatable {
 
 func ghosttyOpenURLRequest(
   urlString: String?,
-  kind: ghostty_action_open_url_kind_e
+  kind: ghostty_action_open_url_kind_e,
 ) -> GhosttyOpenURLRequest? {
   guard let urlString = urlString?.trimmingCharacters(in: .whitespacesAndNewlines),
     !urlString.isEmpty
@@ -89,7 +89,7 @@ final class GhosttySurfaceBridge {
     clock: any Clock<Duration> = ContinuousClock(),
     progressThrottleInterval: Duration = .milliseconds(50),
     progressIdleInterval: Duration = .seconds(1),
-    progressStaleTimeout: Duration = .seconds(15)
+    progressStaleTimeout: Duration = .seconds(15),
   ) {
     self.clock = clock
     self.progressThrottleInterval = progressThrottleInterval
@@ -312,7 +312,7 @@ final class GhosttySurfaceBridge {
       let report = action.action.progress_report
       ingestProgressReport(
         state: report.state,
-        value: report.progress == -1 ? nil : Int(report.progress)
+        value: report.progress == -1 ? nil : Int(report.progress),
       )
       return true
 
@@ -482,7 +482,7 @@ final class GhosttySurfaceBridge {
       surfaceView?.updateScrollbar(
         total: scroll.total,
         offset: scroll.offset,
-        length: scroll.len
+        length: scroll.len,
       )
       return true
 
@@ -556,7 +556,7 @@ final class GhosttySurfaceBridge {
       switch table.tag {
       case GHOSTTY_KEY_TABLE_ACTIVATE:
         state.keyTableName = string(
-          from: table.value.activate.name, length: table.value.activate.len)
+          from: table.value.activate.name, length: table.value.activate.len,)
         state.keyTableDepth += 1
       case GHOSTTY_KEY_TABLE_DEACTIVATE:
         state.keyTableName = nil

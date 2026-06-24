@@ -38,7 +38,7 @@ public nonisolated struct ScriptDefinition: Identifiable, Codable, Equatable, Ha
     name: String? = nil,
     systemImage: String? = nil,
     tintColor: RepositoryColor? = nil,
-    command: String = ""
+    command: String = "",
   ) {
     self.id = id
     self.kind = kind
@@ -81,7 +81,7 @@ extension [ScriptDefinition] {
   /// Repo scripts followed by globals; repo wins on ID collisions.
   public static func merged(
     repo: [ScriptDefinition],
-    global: [ScriptDefinition]
+    global: [ScriptDefinition],
   ) -> [ScriptDefinition] {
     let repoIDs = Set(repo.map(\.id))
     return repo + global.filter { !repoIDs.contains($0.id) }

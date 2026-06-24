@@ -148,9 +148,9 @@ struct SplitTreeTests {
         name: "wt-zoom",
         detail: "detail",
         workingDirectory: URL(fileURLWithPath: "/tmp/repo/wt-zoom"),
-        repositoryRootURL: URL(fileURLWithPath: "/tmp/repo")
+        repositoryRootURL: URL(fileURLWithPath: "/tmp/repo"),
       ),
-      splitPreserveZoomOnNavigation: { false }
+      splitPreserveZoomOnNavigation: { false },
     )
     let tabId = state.createTab()!
     let first = state.splitTree(for: tabId).root!.leftmostLeaf()

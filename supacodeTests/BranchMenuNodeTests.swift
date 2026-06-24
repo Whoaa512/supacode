@@ -7,7 +7,7 @@ struct BranchMenuNodeTests {
   @Test func splitsNestedBranchesIntoSubmenus() {
     let nodes = BranchMenuNode.build(
       branches: ["sbertix/feature", "sbertix/fix", "main"],
-      refPrefix: ""
+      refPrefix: "",
     )
 
     #expect(nodes.map(\.name) == ["main", "sbertix"])

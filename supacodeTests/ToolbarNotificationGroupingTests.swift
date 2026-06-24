@@ -42,21 +42,21 @@ struct ToolbarNotificationGroupingTests {
       &state, id: repoAOne.id,
       notifications: [
         WorktreeTerminalNotification(
-          surfaceID: UUID(), title: "A1", body: "done", createdAt: .distantPast, isRead: true
+          surfaceID: UUID(), title: "A1", body: "done", createdAt: .distantPast, isRead: true,
         )
-      ])
+      ],)
     setRowNotifications(
       &state, id: repoATwo.id,
       notifications: [
         WorktreeTerminalNotification(surfaceID: UUID(), title: "A2", body: "done", createdAt: .distantPast)
-      ])
+      ],)
     setRowNotifications(
       &state, id: repoBOne.id,
       notifications: [
         WorktreeTerminalNotification(
-          surfaceID: UUID(), title: "B1", body: "done", createdAt: .distantPast, isRead: true
+          surfaceID: UUID(), title: "B1", body: "done", createdAt: .distantPast, isRead: true,
         )
-      ])
+      ],)
 
     let groups = state.computeToolbarNotificationGroups()
 
@@ -85,7 +85,7 @@ struct ToolbarNotificationGroupingTests {
         worktree: repoAArchived.id,
         in: repoA.id,
         bucket: .archived,
-        item: .init(archivedAt: Date(timeIntervalSince1970: 1_000_000))
+        item: .init(archivedAt: Date(timeIntervalSince1970: 1_000_000)),
       )
     }
 
@@ -93,7 +93,7 @@ struct ToolbarNotificationGroupingTests {
       &state, id: repoAArchived.id,
       notifications: [
         WorktreeTerminalNotification(surfaceID: UUID(), title: "Archived", body: "hidden", createdAt: .distantPast)
-      ])
+      ],)
 
     let groups = state.computeToolbarNotificationGroups()
 
@@ -114,19 +114,19 @@ struct ToolbarNotificationGroupingTests {
       &state, id: readOnly.id,
       notifications: [
         WorktreeTerminalNotification(
-          surfaceID: UUID(), title: "Read 1", body: "done", createdAt: .distantPast, isRead: true
+          surfaceID: UUID(), title: "Read 1", body: "done", createdAt: .distantPast, isRead: true,
         )
-      ])
+      ],)
     setRowNotifications(
       &state, id: mixed.id,
       notifications: [
         WorktreeTerminalNotification(
-          surfaceID: UUID(), title: "Read 2", body: "done", createdAt: .distantPast, isRead: true
+          surfaceID: UUID(), title: "Read 2", body: "done", createdAt: .distantPast, isRead: true,
         ),
         WorktreeTerminalNotification(
-          surfaceID: UUID(), title: "Unread", body: "new", createdAt: .distantPast, isRead: false
+          surfaceID: UUID(), title: "Unread", body: "new", createdAt: .distantPast, isRead: false,
         ),
-      ])
+      ],)
 
     let groups = state.computeToolbarNotificationGroups()
 
@@ -148,9 +148,9 @@ struct ToolbarNotificationGroupingTests {
       &state, id: feature.id,
       notifications: [
         WorktreeTerminalNotification(
-          surfaceID: UUID(), title: "Read", body: "kept", createdAt: .distantPast, isRead: true
+          surfaceID: UUID(), title: "Read", body: "kept", createdAt: .distantPast, isRead: true,
         )
-      ])
+      ],)
 
     let groups = state.computeToolbarNotificationGroups()
 
@@ -178,7 +178,7 @@ struct ToolbarNotificationGroupingTests {
       &state, id: feature.id,
       notifications: [
         WorktreeTerminalNotification(surfaceID: UUID(), title: "T", body: "done", createdAt: .distantPast)
-      ])
+      ],)
 
     let groups = state.computeToolbarNotificationGroups()
 
@@ -188,7 +188,7 @@ struct ToolbarNotificationGroupingTests {
   private func setRowNotifications(
     _ state: inout RepositoriesFeature.State,
     id: SidebarItemID,
-    notifications: [WorktreeTerminalNotification]
+    notifications: [WorktreeTerminalNotification],
   ) {
     let hasUnseen = notifications.contains(where: { !$0.isRead })
     state.sidebarItems[id: id]?.notifications = IdentifiedArrayOf(uniqueElements: notifications)
@@ -198,27 +198,27 @@ struct ToolbarNotificationGroupingTests {
   private func makeWorktree(
     id: String,
     name: String,
-    repoRoot: String
+    repoRoot: String,
   ) -> Worktree {
     Worktree(
       id: id,
       name: name,
       detail: "detail",
       workingDirectory: URL(fileURLWithPath: id),
-      repositoryRootURL: URL(fileURLWithPath: repoRoot)
+      repositoryRootURL: URL(fileURLWithPath: repoRoot),
     )
   }
 
   private func makeRepository(
     id: String,
     name: String,
-    worktrees: [Worktree]
+    worktrees: [Worktree],
   ) -> Repository {
     Repository(
       id: id,
       rootURL: URL(fileURLWithPath: id),
       name: name,
-      worktrees: IdentifiedArray(uniqueElements: worktrees)
+      worktrees: IdentifiedArray(uniqueElements: worktrees),
     )
   }
 }

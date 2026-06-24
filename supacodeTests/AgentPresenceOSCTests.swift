@@ -87,7 +87,7 @@ struct AgentPresenceOSCTests {
   @Test func presenceEventThreadsLocalPid() {
     let metadata = AgentPresenceOSC.metadata(event: .busy, pidSuffix: ";pid=4242")
     let result = WorktreeTerminalState.presenceEvent(
-      id: "claude", metadata: metadata, surfaceID: UUID(), surfaceExists: true)
+      id: "claude", metadata: metadata, surfaceID: UUID(), surfaceExists: true,)
     #expect((try? result.get())?.pid == 4242)
   }
 
@@ -104,7 +104,7 @@ struct AgentPresenceOSCTests {
     let surfaceID = UUID()
     let metadata = AgentPresenceOSC.metadata(event: .busy)
     let result = WorktreeTerminalState.presenceEvent(
-      id: "claude", metadata: metadata, surfaceID: surfaceID, surfaceExists: true)
+      id: "claude", metadata: metadata, surfaceID: surfaceID, surfaceExists: true,)
     let event = try? result.get()
     #expect(event?.surfaceID == surfaceID)
     #expect(event?.agent == "claude")
@@ -115,13 +115,13 @@ struct AgentPresenceOSCTests {
   @Test func presenceEventDropsUnknownSurface() {
     let metadata = AgentPresenceOSC.metadata(event: .busy)
     let result = WorktreeTerminalState.presenceEvent(
-      id: "claude", metadata: metadata, surfaceID: UUID(), surfaceExists: false)
+      id: "claude", metadata: metadata, surfaceID: UUID(), surfaceExists: false,)
     #expect(result == .failure(.unknownSurface))
   }
 
   @Test func presenceEventDropsMalformedMetadata() {
     let result = WorktreeTerminalState.presenceEvent(
-      id: "claude", metadata: "event=nope", surfaceID: UUID(), surfaceExists: true)
+      id: "claude", metadata: "event=nope", surfaceID: UUID(), surfaceExists: true,)
     #expect(result == .failure(.parseFailed))
   }
 
@@ -160,14 +160,14 @@ struct AgentPresenceOSCTests {
 
   @Test func parsesNotifyWithTitleAndBody() {
     let signal = AgentPresenceOSC.parseNotify(
-      id: "claude", metadata: Self.notifyMeta(title: "Done", body: "all good"))
+      id: "claude", metadata: Self.notifyMeta(title: "Done", body: "all good"),)
     #expect(signal?.title == "Done")
     #expect(signal?.body == "all good")
   }
 
   @Test func decodesEscapedQuotesNewlinesAndUnicode() {
     let signal = AgentPresenceOSC.parseNotify(
-      id: "claude", metadata: Self.notifyMeta(body: "line \"one\"\nDONE ✓"))
+      id: "claude", metadata: Self.notifyMeta(body: "line \"one\"\nDONE ✓"),)
     #expect(signal?.body == "line \"one\"\nDONE ✓")
   }
 
@@ -198,7 +198,7 @@ struct AgentPresenceOSCTests {
     // path relies on this).
     let escaped = #"say \"#  // ends with a lone backslash (a cut `\"`)
     let signal = AgentPresenceOSC.parseNotify(
-      id: "claude", metadata: "kind=notify;body=\(Data(escaped.utf8).base64EncodedString())")
+      id: "claude", metadata: "kind=notify;body=\(Data(escaped.utf8).base64EncodedString())",)
     #expect(signal?.body == "say ")
   }
 
@@ -207,7 +207,7 @@ struct AgentPresenceOSCTests {
     // must shed back to the recoverable prefix, not drop the whole body to empty.
     let escaped = #"done \uD83D\uDE0"#
     let signal = AgentPresenceOSC.parseNotify(
-      id: "claude", metadata: "kind=notify;body=\(Data(escaped.utf8).base64EncodedString())")
+      id: "claude", metadata: "kind=notify;body=\(Data(escaped.utf8).base64EncodedString())",)
     // The recoverable prefix survives (not dropped to empty); exact trailing
     // depends on Foundation's lone-surrogate handling, so assert the prefix.
     #expect(signal?.body?.hasPrefix("done") == true)
@@ -219,7 +219,7 @@ struct AgentPresenceOSCTests {
     let valid = Data("hello world body".utf8).base64EncodedString()
     let cut = String(valid.dropLast())  // break base64 alignment
     let signal = AgentPresenceOSC.parseNotify(
-      id: "claude", metadata: "kind=notify;title=\(Self.field("Done"));body=\(cut)")
+      id: "claude", metadata: "kind=notify;title=\(Self.field("Done"));body=\(cut)",)
     #expect(signal?.title == "Done")
     #expect(signal?.body == nil)
   }
@@ -240,7 +240,7 @@ struct AgentPresenceOSCTests {
 
   @Test func notificationExtractsBody() {
     let resolved = WorktreeTerminalState.notification(
-      id: "claude", metadata: Self.notifyMeta(body: "all done"), surfaceExists: true)
+      id: "claude", metadata: Self.notifyMeta(body: "all done"), surfaceExists: true,)
     guard case .success(let value) = resolved else {
       Issue.record("expected success, got \(resolved)")
       return
@@ -250,7 +250,7 @@ struct AgentPresenceOSCTests {
 
   @Test func notificationDropsUnknownSurface() {
     let result = WorktreeTerminalState.notification(
-      id: "claude", metadata: Self.notifyMeta(body: "x"), surfaceExists: false)
+      id: "claude", metadata: Self.notifyMeta(body: "x"), surfaceExists: false,)
     if case .failure(.unknownSurface) = result {} else { Issue.record("expected unknownSurface, got \(result)") }
   }
 
@@ -260,7 +260,7 @@ struct AgentPresenceOSCTests {
     // failure case locks that mapping in since `parseFailed` is the only
     // warn-level branch.
     let result = WorktreeTerminalState.notification(
-      id: "claude", metadata: Self.notifyMeta(body: "x"), surfaceExists: false)
+      id: "claude", metadata: Self.notifyMeta(body: "x"), surfaceExists: false,)
     guard case .failure(let drop) = result else {
       Issue.record("expected failure, got \(result)")
       return
@@ -274,7 +274,7 @@ struct AgentPresenceOSCTests {
 
   @Test func notificationFallsBackToAgentTitleWhenAbsent() {
     let resolved = WorktreeTerminalState.notification(
-      id: "codex", metadata: Self.notifyMeta(body: "body only"), surfaceExists: true)
+      id: "codex", metadata: Self.notifyMeta(body: "body only"), surfaceExists: true,)
     guard case .success(let value) = resolved else {
       Issue.record("expected success, got \(resolved)")
       return
@@ -285,7 +285,7 @@ struct AgentPresenceOSCTests {
   @Test func notificationShowsTitleOnlyToastWhenBodyAbsent() {
     // A turn-complete notify with no body still fires, showing just the title.
     let resolved = WorktreeTerminalState.notification(
-      id: "claude", metadata: Self.notifyMeta(), surfaceExists: true)
+      id: "claude", metadata: Self.notifyMeta(), surfaceExists: true,)
     guard case .success(let value) = resolved else {
       Issue.record("expected success, got \(resolved)")
       return
@@ -298,7 +298,7 @@ struct AgentPresenceOSCTests {
     // Body of only control / whitespace and no usable title sanitizes to empty,
     // so the toast is suppressed rather than shown blank.
     let result = WorktreeTerminalState.notification(
-      id: " ", metadata: Self.notifyMeta(body: "\n"), surfaceExists: true)
+      id: " ", metadata: Self.notifyMeta(body: "\n"), surfaceExists: true,)
     if case .failure(.empty) = result {} else { Issue.record("expected empty, got \(result)") }
   }
 
@@ -322,7 +322,7 @@ struct AgentPresenceOSCTests {
     // toast sees them.
     let body = "before\u{1B}]3008;start=evil;event=busy\u{1B}\\after"
     let resolved = WorktreeTerminalState.notification(
-      id: "claude", metadata: Self.notifyMeta(body: body), surfaceExists: true)
+      id: "claude", metadata: Self.notifyMeta(body: body), surfaceExists: true,)
     guard case .success(let value) = resolved else {
       Issue.record("expected success, got \(resolved)")
       return
@@ -353,7 +353,7 @@ struct AgentPresenceOSCTests {
     #expect(signal?.body == bodyText)
 
     let resolved = WorktreeTerminalState.notification(
-      id: "codex", metadata: metadata, surfaceExists: true)
+      id: "codex", metadata: metadata, surfaceExists: true,)
     guard case .success(let value) = resolved else {
       Issue.record("expected success, got \(resolved)")
       return

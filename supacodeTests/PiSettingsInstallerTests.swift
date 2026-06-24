@@ -31,7 +31,7 @@ struct PiSettingsInstallerTests {
     let indexURL = extensionIndexURL(homeDirectoryURL: home)
     try FileManager.default.createDirectory(
       at: indexURL.deletingLastPathComponent(),
-      withIntermediateDirectories: true
+      withIntermediateDirectories: true,
     )
     try "// some other extension".write(to: indexURL, atomically: true, encoding: .utf8)
 
@@ -44,7 +44,7 @@ struct PiSettingsInstallerTests {
     let indexURL = extensionIndexURL(homeDirectoryURL: home)
     try FileManager.default.createDirectory(
       at: indexURL.deletingLastPathComponent(),
-      withIntermediateDirectories: true
+      withIntermediateDirectories: true,
     )
     // Partial marker must not match — full-string containment is the contract.
     try "/* supacode-managed".write(to: indexURL, atomically: true, encoding: .utf8)
@@ -58,7 +58,7 @@ struct PiSettingsInstallerTests {
     let indexURL = extensionIndexURL(homeDirectoryURL: home)
     try FileManager.default.createDirectory(
       at: indexURL.deletingLastPathComponent(),
-      withIntermediateDirectories: true
+      withIntermediateDirectories: true,
     )
     // Lead bytes that are invalid UTF-8 — read should fail, not be confused
     // with an installed/uninstalled state.
@@ -108,7 +108,7 @@ struct PiSettingsInstallerTests {
     let indexURL = extensionIndexURL(homeDirectoryURL: home)
     try FileManager.default.createDirectory(
       at: indexURL.deletingLastPathComponent(),
-      withIntermediateDirectories: true
+      withIntermediateDirectories: true,
     )
     try "// user's custom extension".write(to: indexURL, atomically: true, encoding: .utf8)
 
@@ -146,7 +146,7 @@ struct PiSettingsInstallerTests {
     let indexURL = extensionIndexURL(homeDirectoryURL: home)
     try FileManager.default.createDirectory(
       at: indexURL.deletingLastPathComponent(),
-      withIntermediateDirectories: true
+      withIntermediateDirectories: true,
     )
     // Seed a stale managed file — marker present but body drifted from
     // the current bundle. Install must rewrite the full canonical body.
@@ -165,7 +165,7 @@ struct PiSettingsInstallerTests {
     let indexURL = extensionIndexURL(homeDirectoryURL: home)
     try FileManager.default.createDirectory(
       at: indexURL.deletingLastPathComponent(),
-      withIntermediateDirectories: true
+      withIntermediateDirectories: true,
     )
     try "// user's custom extension".write(to: indexURL, atomically: true, encoding: .utf8)
 

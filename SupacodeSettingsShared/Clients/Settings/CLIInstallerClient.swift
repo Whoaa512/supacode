@@ -9,7 +9,7 @@ public nonisolated struct CLIInstallerClient: Sendable {
   public init(
     checkInstalled: @escaping @Sendable () async -> Bool,
     install: @escaping @Sendable () async throws -> Void,
-    uninstall: @escaping @Sendable () async throws -> Void
+    uninstall: @escaping @Sendable () async throws -> Void,
   ) {
     self.checkInstalled = checkInstalled
     self.install = install
@@ -27,12 +27,12 @@ extension CLIInstallerClient: DependencyKey {
     },
     uninstall: {
       try await MainActor.run { try CLIInstaller().uninstall() }
-    }
+    },
   )
   public static let testValue = Self(
     checkInstalled: { false },
     install: {},
-    uninstall: {}
+    uninstall: {},
   )
 }
 

@@ -30,7 +30,7 @@ struct TerminalTabsRowView: View {
           if let item = manager.tabs.first(where: { $0.id == id }),
             let tabStore = terminalsStore.scope(
               state: \.terminalTabs[id: id],
-              action: \.terminalTabs[id: id]
+              action: \.terminalTabs[id: id],
             )
           {
             TerminalTabView(
@@ -59,14 +59,14 @@ struct TerminalTabsRowView: View {
               onEndRename: {
                 guard manager.editingTabID == id else { return }
                 manager.endTabRename()
-              }
+              },
             )
             .background(
               TerminalTabMeasurementView(
                 tabId: id,
                 onFrameChange: { tabId, rect in
                   tabLocations[tabId] = rect
-                }
+                },
               )
             )
             .simultaneousGesture(makeTabDragGesture(id: id))
@@ -78,8 +78,8 @@ struct TerminalTabsRowView: View {
                 closeOthers: closeOthers,
                 closeToRight: closeToRight,
                 closeAll: closeAll,
-                renameTab: { manager.beginTabRename($0) }
-              )
+                renameTab: { manager.beginTabRename($0) },
+              ),
             )
             .id(id)
 
@@ -94,11 +94,11 @@ struct TerminalTabsRowView: View {
           .fill(TerminalTabBarColors.dropIndicator)
           .frame(
             width: TerminalTabBarMetrics.dropIndicatorWidth,
-            height: TerminalTabBarMetrics.dropIndicatorHeight
+            height: TerminalTabBarMetrics.dropIndicatorHeight,
           )
           .offset(
             x: offsetX - (TerminalTabBarMetrics.dropIndicatorWidth / 2),
-            y: (TerminalTabBarMetrics.tabHeight - TerminalTabBarMetrics.dropIndicatorHeight) / 2
+            y: (TerminalTabBarMetrics.tabHeight - TerminalTabBarMetrics.dropIndicatorHeight) / 2,
           )
           .animation(.easeInOut(duration: TerminalTabBarMetrics.hoverAnimationDuration), value: offsetX)
       }
@@ -185,7 +185,7 @@ struct TerminalTabsRowView: View {
         withAnimation(
           .spring(
             duration: TerminalTabBarMetrics.reorderAnimationDuration,
-            bounce: TerminalTabBarMetrics.reorderAnimationBounce
+            bounce: TerminalTabBarMetrics.reorderAnimationBounce,
           )
         ) {
           openedTabs = newOrder

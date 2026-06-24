@@ -19,7 +19,7 @@ private final class ForegroundSystemNotificationDelegate: NSObject, UNUserNotifi
   // matches the pattern used elsewhere for protocol-required async stubs.
   func userNotificationCenter(
     _ center: UNUserNotificationCenter,
-    willPresent notification: UNNotification
+    willPresent notification: UNNotification,
   ) async -> UNNotificationPresentationOptions {
     await Task.yield()
     return [.badge, .sound, .banner]
@@ -27,7 +27,7 @@ private final class ForegroundSystemNotificationDelegate: NSObject, UNUserNotifi
 
   func userNotificationCenter(
     _ center: UNUserNotificationCenter,
-    didReceive response: UNNotificationResponse
+    didReceive response: UNNotificationResponse,
   ) async {
     await Task.yield()
     let userInfo = response.notification.request.content.userInfo
@@ -86,7 +86,7 @@ public nonisolated struct SystemNotificationClient: Sendable {
     authorizationStatus: @escaping @MainActor @Sendable () async -> AuthorizationStatus,
     requestAuthorization: @escaping @MainActor @Sendable () async -> AuthorizationRequestResult,
     send: @escaping @MainActor @Sendable (_ title: String, _ body: String, _ deeplinkURL: URL?) async -> Void,
-    openSettings: @escaping @MainActor @Sendable () async -> Void
+    openSettings: @escaping @MainActor @Sendable () async -> Void,
   ) {
     self.authorizationStatus = authorizationStatus
     self.requestAuthorization = requestAuthorization
@@ -121,7 +121,7 @@ extension SystemNotificationClient: DependencyKey {
       } catch {
         return AuthorizationRequestResult(
           granted: false,
-          errorMessage: error.localizedDescription
+          errorMessage: error.localizedDescription,
         )
       }
     },
@@ -137,7 +137,7 @@ extension SystemNotificationClient: DependencyKey {
       let request = UNNotificationRequest(
         identifier: UUID().uuidString,
         content: content,
-        trigger: nil
+        trigger: nil,
       )
       try? await center.add(request)
     },
@@ -146,14 +146,14 @@ extension SystemNotificationClient: DependencyKey {
         return
       }
       _ = NSWorkspace.shared.open(url)
-    }
+    },
   )
 
   public static let testValue = SystemNotificationClient(
     authorizationStatus: { .notDetermined },
     requestAuthorization: { AuthorizationRequestResult(granted: false, errorMessage: nil) },
     send: { _, _, _ in },
-    openSettings: {}
+    openSettings: {},
   )
 }
 

@@ -11,7 +11,7 @@ struct AppShortcutOverrideTests {
   @Test func encodeDecode() throws {
     let override = AppShortcutOverride(
       keyCode: UInt16(kVK_ANSI_LeftBracket),
-      modifiers: [.command, .shift]
+      modifiers: [.command, .shift],
     )
     let data = try JSONEncoder().encode(override)
     let decoded = try JSONDecoder().decode(AppShortcutOverride.self, from: data)
@@ -83,7 +83,7 @@ struct AppShortcutOverrideTests {
   @Test func eventModifiersConversion() {
     let override = AppShortcutOverride(
       from: [.command, .shift],
-      keyCode: UInt16(kVK_ANSI_N)
+      keyCode: UInt16(kVK_ANSI_N),
     )
     #expect(override.modifiers.contains(.command))
     #expect(override.modifiers.contains(.shift))
@@ -95,7 +95,7 @@ struct AppShortcutOverrideTests {
   @Test func eventModifiersConversionWithOptionAndControl() {
     let override = AppShortcutOverride(
       from: [.option, .control],
-      keyCode: UInt16(kVK_ANSI_A)
+      keyCode: UInt16(kVK_ANSI_A),
     )
     #expect(override.modifiers.contains(.option))
     #expect(override.modifiers.contains(.control))
@@ -122,7 +122,7 @@ struct AppShortcutOverrideTests {
         case (20, 0x02): "\""
         default: nil
         }
-      }
+      },
     )
 
     #expect(resolved == 20)
@@ -140,7 +140,7 @@ struct AppShortcutOverrideTests {
         case (20, 0x02): "#"
         default: nil
         }
-      }
+      },
     )
 
     #expect(resolved == nil)
@@ -160,7 +160,7 @@ struct AppShortcutOverrideTests {
         case (21, 0x02): "\""
         default: nil
         }
-      }
+      },
     )
 
     #expect(resolved == 21)
@@ -180,7 +180,7 @@ struct AppShortcutOverrideTests {
         case (20, 0x02): "#"
         default: nil
         }
-      }
+      },
     )
 
     #expect(resolved == 19)
@@ -195,7 +195,7 @@ struct AppShortcutOverrideTests {
         case (0, 0): "a"
         default: nil
         }
-      }
+      },
     )
 
     #expect(resolved == 0)
@@ -216,7 +216,7 @@ struct AppShortcutOverrideTests {
     let override = AppShortcutOverride(
       keyCode: UInt16(kVK_ANSI_K),
       modifiers: [.command],
-      isEnabled: false
+      isEnabled: false,
     )
     let data = try JSONEncoder().encode(override)
     let decoded = try JSONDecoder().decode(AppShortcutOverride.self, from: data)

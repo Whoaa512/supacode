@@ -56,7 +56,7 @@ struct ContentView: View {
     .fileImporter(
       isPresented: $repositoriesStore.isOpenPanelPresented.sending(\.setOpenPanelPresented),
       allowedContentTypes: [.folder],
-      allowsMultipleSelection: true
+      allowsMultipleSelection: true,
     ) { result in
       switch result {
       case .success(let urls):
@@ -66,7 +66,7 @@ struct ContentView: View {
           .repositories(
             .presentAlert(
               title: "Unable to open folders",
-              message: "Supacode could not read the selected folders."
+              message: "Supacode could not read the selected folders.",
             )
           )
         )
@@ -87,7 +87,7 @@ struct ContentView: View {
     .sheet(
       item: $repositoriesStore.scope(
         state: \.repositoryCustomization,
-        action: \.repositoryCustomization
+        action: \.repositoryCustomization,
       )
     ) { customizationStore in
       RepositoryCustomizationView(store: customizationStore)
@@ -95,7 +95,7 @@ struct ContentView: View {
     .sheet(
       item: $repositoriesStore.scope(
         state: \.worktreeCustomization,
-        action: \.worktreeCustomization
+        action: \.worktreeCustomization,
       )
     ) { customizationStore in
       WorktreeCustomizationView(store: customizationStore)
@@ -103,7 +103,7 @@ struct ContentView: View {
     .sheet(
       item: $repositoriesStore.scope(
         state: \.renameBranchPrompt,
-        action: \.renameBranchPrompt
+        action: \.renameBranchPrompt,
       )
     ) { renameStore in
       RenameBranchView(store: renameStore)
@@ -115,13 +115,13 @@ struct ContentView: View {
     }
     .focusedSceneAction(
       \.terminateAllTerminalSessionsAction,
-      enabled: store.hasAnyTerminalSurface
+      enabled: store.hasAnyTerminalSurface,
     ) {
       store.send(.requestTerminateAllTerminalSessions)
     }
     .focusedSceneAction(
       \.revealInSidebarAction,
-      enabled: repositoriesStore.selectedWorktreeID != nil
+      enabled: repositoriesStore.selectedWorktreeID != nil,
     ) {
       withAnimation(.easeOut(duration: 0.2)) {
         leftSidebarVisibility = .all
@@ -132,7 +132,7 @@ struct ContentView: View {
       CommandPaletteOverlayHost(
         store: store,
         repositoriesStore: repositoriesStore,
-        ghosttyShortcuts: ghosttyShortcuts
+        ghosttyShortcuts: ghosttyShortcuts,
       )
     }
     .background(WindowTabbingDisabler())
@@ -140,7 +140,7 @@ struct ContentView: View {
     .background(
       WindowTitleHost(
         repositoriesStore: repositoriesStore,
-        terminalManager: terminalManager
+        terminalManager: terminalManager,
       )
     )
   }
@@ -164,8 +164,8 @@ private struct CommandPaletteOverlayHost: View {
         from: repositoriesStore.state,
         ghosttyCommands: ghosttyShortcuts.commandPaletteEntries,
         scripts: store.allScripts,
-        runningScriptIDs: store.runningScriptIDs
-      )
+        runningScriptIDs: store.runningScriptIDs,
+      ),
     )
   }
 }
@@ -186,7 +186,7 @@ private struct WindowTitleHost: View {
       .navigationTitle(
         WindowTitle.compute(
           repositories: repositoriesStore.state,
-          terminalManager: terminalManager
+          terminalManager: terminalManager,
         )
       )
   }

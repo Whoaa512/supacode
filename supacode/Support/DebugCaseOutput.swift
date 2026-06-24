@@ -38,7 +38,7 @@ struct LogActionsReducer<Base: Reducer>: Reducer where Base.State: Equatable {
 
 func debugCaseOutput(
   _ value: Any,
-  abbreviated: Bool = false
+  abbreviated: Bool = false,
 ) -> String {
   func debugCaseOutputHelp(_ value: Any) -> String {
     let mirror = Mirror(reflecting: value)
@@ -74,7 +74,7 @@ private func isUnlabeledArgument(_ label: String) -> Bool {
 private func typeName(
   _ type: Any.Type,
   qualified: Bool = true,
-  genericsAbbreviated: Bool = true
+  genericsAbbreviated: Bool = true,
 ) -> String {
   var name = _typeName(type, qualified: qualified)
     .replacing(#/\(unknown context at \$[0-9A-Fa-f]+\)\./#, with: "")

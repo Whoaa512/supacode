@@ -30,7 +30,7 @@ struct SidebarCommands: Commands {
           !NestedWorktreesOnboardingCardView.isDismissed(at: nestedOnboardingDismissedAt)
         else { return }
         $nestedOnboardingDismissedAt.withLock { $0 = .now }
-      }
+      },
     )
   }
 
@@ -45,7 +45,7 @@ struct SidebarCommands: Commands {
       set: { newValue in
         $groupPinnedRows.withLock { $0 = newValue }
         dismissHighlightOnboardingIfBothOff()
-      }
+      },
     )
   }
 
@@ -55,7 +55,7 @@ struct SidebarCommands: Commands {
       set: { newValue in
         $groupActiveRows.withLock { $0 = newValue }
         dismissHighlightOnboardingIfBothOff()
-      }
+      },
     )
   }
 

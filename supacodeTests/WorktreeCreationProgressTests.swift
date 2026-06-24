@@ -37,7 +37,7 @@ struct WorktreeCreationProgressTests {
   @Test func resolvingBaseReferenceUsesHeadFallback() {
     let progress = WorktreeCreationProgress(
       stage: .resolvingBaseReference,
-      worktreeName: "swift-otter"
+      worktreeName: "swift-otter",
     )
 
     #expect(progress.titleText == "Creating swift-otter")
@@ -52,7 +52,7 @@ struct WorktreeCreationProgressTests {
       copyIgnored: true,
       copyUntracked: false,
       ignoredFilesToCopyCount: 12,
-      untrackedFilesToCopyCount: 5
+      untrackedFilesToCopyCount: 5,
     )
 
     #expect(progress.titleText == "Creating swift-otter")
@@ -71,7 +71,7 @@ struct WorktreeCreationProgressTests {
       copyUntracked: true,
       ignoredFilesToCopyCount: 12,
       untrackedFilesToCopyCount: 5,
-      latestOutputLine: "[23/100] copy dist/bundle.js"
+      latestOutputLine: "[23/100] copy dist/bundle.js",
     )
 
     #expect(progress.detailText == "[23/100] copy dist/bundle.js")
@@ -90,7 +90,7 @@ struct WorktreeCreationProgressTests {
       outputLines: [
         "[22/100] copy src/app.js",
         "[23/100] copy dist/bundle.js",
-      ]
+      ],
     )
 
     #expect(progress.detailText == "[23/100] copy dist/bundle.js")
@@ -100,7 +100,7 @@ struct WorktreeCreationProgressTests {
   @Test func appendOutputLineKeepsLatestAndLimitsBuffer() {
     var progress = WorktreeCreationProgress(
       stage: .creatingWorktree,
-      worktreeName: "swift-otter"
+      worktreeName: "swift-otter",
     )
 
     progress.appendOutputLine("[1/5] copy .env", maxLines: 3)

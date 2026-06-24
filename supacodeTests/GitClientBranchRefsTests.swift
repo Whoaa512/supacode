@@ -25,7 +25,7 @@ struct GitClientBranchRefsTests {
         await store.record(arguments)
         return ShellOutput(stdout: output, stderr: "", exitCode: 0)
       },
-      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) }
+      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) },
     )
     let client = GitClient(shell: shell)
     let repoRoot = URL(fileURLWithPath: "/tmp/repo")
@@ -51,7 +51,7 @@ struct GitClientBranchRefsTests {
       """
     let shell = ShellClient(
       run: { _, _, _ in ShellOutput(stdout: output, stderr: "", exitCode: 0) },
-      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) }
+      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) },
     )
     let client = GitClient(shell: shell)
     let repoRoot = URL(fileURLWithPath: "/tmp/repo")
@@ -66,7 +66,7 @@ struct GitClientBranchRefsTests {
       run: { _, _, _ in
         ShellOutput(stdout: "refs/remotes/origin/develop\n", stderr: "", exitCode: 0)
       },
-      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) }
+      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) },
     )
     let client = GitClient(shell: shell)
 
@@ -80,7 +80,7 @@ struct GitClientBranchRefsTests {
       run: { _, _, _ in
         throw ShellClientError(command: "git", stdout: "", stderr: "boom", exitCode: 1)
       },
-      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) }
+      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) },
     )
     let client = GitClient(shell: shell)
 
@@ -100,7 +100,7 @@ struct GitClientBranchRefsTests {
         }
         return ShellOutput(stdout: "", stderr: "", exitCode: 0)
       },
-      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) }
+      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) },
     )
     let client = GitClient(shell: shell)
 
@@ -120,7 +120,7 @@ struct GitClientBranchRefsTests {
         }
         return ShellOutput(stdout: "", stderr: "", exitCode: 0)
       },
-      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) }
+      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) },
     )
     let client = GitClient(shell: shell)
 
@@ -137,7 +137,7 @@ struct GitClientBranchRefsTests {
         }
         return ShellOutput(stdout: "", stderr: "", exitCode: 0)
       },
-      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) }
+      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) },
     )
     let client = GitClient(shell: shell)
 
@@ -156,7 +156,7 @@ struct GitClientBranchRefsTests {
           return ShellOutput(
             stdout: "origin/HEAD\norigin/main\norigin/dev\nupstream/main\n",
             stderr: "",
-            exitCode: 0
+            exitCode: 0,
           )
         }
         if arguments.last == "remote" {
@@ -164,13 +164,13 @@ struct GitClientBranchRefsTests {
         }
         return ShellOutput(stdout: "", stderr: "", exitCode: 0)
       },
-      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) }
+      runLoginImpl: { _, _, _, _ in ShellOutput(stdout: "", stderr: "", exitCode: 0) },
     )
     let client = GitClient(shell: shell)
 
     let inventory = try await client.branchInventory(
       for: URL(fileURLWithPath: "/tmp/repo"),
-      remoteNames: ["origin", "upstream"]
+      remoteNames: ["origin", "upstream"],
     )
 
     #expect(inventory.localBranches == ["alpha", "feature", "main"])
@@ -182,7 +182,7 @@ struct GitClientBranchRefsTests {
   @Test func groupRemoteBranchesOrdersOriginFirstThenAlphabetical() {
     let groups = GitReferenceQueries.groupRemoteBranches(
       refs: ["upstream/main", "fork/feature", "origin/dev", "origin/main"],
-      remoteNames: ["upstream", "fork", "origin"]
+      remoteNames: ["upstream", "fork", "origin"],
     )
 
     #expect(groups.map(\.name) == ["origin", "fork", "upstream"])
@@ -197,7 +197,7 @@ struct GitClientBranchRefsTests {
     #expect(
       GitReferenceQueries.localBranchName(
         fromRemoteRef: "upstream/feature/x",
-        remoteNames: ["up", "upstream"]
+        remoteNames: ["up", "upstream"],
       ) == "feature/x"
     )
     #expect(

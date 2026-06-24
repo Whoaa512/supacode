@@ -69,12 +69,12 @@ struct TerminalLayoutSnapshotTests {
                   direction: .vertical,
                   ratio: 0.4,
                   left: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: "/tmp")),
-                  right: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: nil))
+                  right: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: nil)),
                 )
-              )
+              ),
             )
           ),
-          focusedLeafIndex: 1
+          focusedLeafIndex: 1,
         ),
         TerminalLayoutSnapshot.TabSnapshot(
           id: nil,
@@ -83,10 +83,10 @@ struct TerminalLayoutSnapshotTests {
           icon: nil,
           tintColor: nil,
           layout: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: "/Users/test")),
-          focusedLeafIndex: 0
+          focusedLeafIndex: 0,
         ),
       ],
-      selectedTabIndex: 0
+      selectedTabIndex: 0,
     )
 
     let encoder = JSONEncoder()
@@ -102,7 +102,7 @@ struct TerminalLayoutSnapshotTests {
         direction: .horizontal,
         ratio: 0.5,
         left: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: "/first")),
-        right: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: "/second"))
+        right: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: "/second")),
       )
     )
     #expect(node.firstLeaf.workingDirectory == "/first")
@@ -119,9 +119,9 @@ struct TerminalLayoutSnapshotTests {
             direction: .vertical,
             ratio: 0.5,
             left: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: nil)),
-            right: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: nil))
+            right: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: nil)),
           )
-        )
+        ),
       )
     )
     #expect(node.leafCount == 3)
@@ -135,7 +135,7 @@ struct TerminalLayoutSnapshotTests {
       icon: nil,
       tintColor: nil,
       layout: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: UUID(), workingDirectory: nil)),
-      focusedLeafIndex: 0
+      focusedLeafIndex: 0,
     )
     let snapshot = TerminalLayoutSnapshot(tabs: [tabSnapshot], selectedTabIndex: 0)
     let data = try JSONEncoder().encode(snapshot)
@@ -149,7 +149,7 @@ struct TerminalLayoutSnapshotTests {
     let json = #"{"tabs":[\#(tab)],"selectedTabIndex":0}"#
     let snapshot = try JSONDecoder().decode(
       TerminalLayoutSnapshot.self,
-      from: Data(json.utf8)
+      from: Data(json.utf8),
     )
     #expect(snapshot.tabs.first?.customTitle == nil)
   }
@@ -164,10 +164,10 @@ struct TerminalLayoutSnapshotTests {
           icon: nil,
           tintColor: nil,
           layout: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: "/home")),
-          focusedLeafIndex: 0
+          focusedLeafIndex: 0,
         )
       ],
-      selectedTabIndex: 0
+      selectedTabIndex: 0,
     )
 
     let data = try JSONEncoder().encode(snapshot)
@@ -194,10 +194,10 @@ struct TerminalLayoutSnapshotTests {
               direction: .horizontal,
               ratio: 0.5,
               left: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: leftSurface, workingDirectory: nil)),
-              right: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: rightSurface, workingDirectory: nil))
+              right: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: rightSurface, workingDirectory: nil)),
             )
           ),
-          focusedLeafIndex: 0
+          focusedLeafIndex: 0,
         ),
         TerminalLayoutSnapshot.TabSnapshot(
           id: UUID(),
@@ -206,10 +206,10 @@ struct TerminalLayoutSnapshotTests {
           icon: nil,
           tintColor: nil,
           layout: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: secondTabSurface, workingDirectory: nil)),
-          focusedLeafIndex: 0
+          focusedLeafIndex: 0,
         ),
       ],
-      selectedTabIndex: 0
+      selectedTabIndex: 0,
     )
 
     #expect(Set(snapshot.allSurfaceIDs) == [leftSurface, rightSurface, secondTabSurface])
@@ -236,20 +236,20 @@ struct TerminalLayoutSnapshotTests {
                 TerminalLayoutSnapshot.SurfaceAgentRecord(
                   agent: "claude",
                   pids: [12345, 67890],
-                  activity: "busy"
+                  activity: "busy",
                 ),
                 TerminalLayoutSnapshot.SurfaceAgentRecord(
                   agent: "codex",
                   pids: [42],
-                  activity: "idle"
+                  activity: "idle",
                 ),
-              ]
+              ],
             )
           ),
-          focusedLeafIndex: 0
+          focusedLeafIndex: 0,
         )
       ],
-      selectedTabIndex: 0
+      selectedTabIndex: 0,
     )
 
     let data = try JSONEncoder().encode(snapshot)
@@ -283,7 +283,7 @@ struct TerminalLayoutSnapshotTests {
       """
     let decoded = try JSONDecoder().decode(
       TerminalLayoutSnapshot.self,
-      from: Data(json.utf8)
+      from: Data(json.utf8),
     )
     let leaf = decoded.tabs[0].layout.firstLeaf
     #expect(leaf.agents == nil)
@@ -316,7 +316,7 @@ struct TerminalLayoutSnapshotTests {
       """
     let decoded = try JSONDecoder().decode(
       TerminalLayoutSnapshot.self,
-      from: Data(json.utf8)
+      from: Data(json.utf8),
     )
     let leaf = decoded.tabs[0].layout.firstLeaf
     #expect(leaf.agents == nil)
@@ -343,20 +343,20 @@ struct TerminalLayoutSnapshotTests {
                   workingDirectory: nil,
                   agents: [
                     TerminalLayoutSnapshot.SurfaceAgentRecord(
-                      agent: "claude", pids: [1], activity: "idle"
+                      agent: "claude", pids: [1], activity: "idle",
                     )
-                  ]
+                  ],
                 )
               ),
               right: .leaf(
                 TerminalLayoutSnapshot.SurfaceSnapshot(id: surfaceB, workingDirectory: nil, agents: nil)
-              )
+              ),
             )
           ),
-          focusedLeafIndex: 0
+          focusedLeafIndex: 0,
         )
       ],
-      selectedTabIndex: 0
+      selectedTabIndex: 0,
     )
 
     let records = layout.allAgentRecords()
@@ -382,13 +382,13 @@ struct TerminalLayoutSnapshotTests {
               direction: .horizontal,
               ratio: 0.5,
               left: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: nil)),
-              right: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: real, workingDirectory: nil))
+              right: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: real, workingDirectory: nil)),
             )
           ),
-          focusedLeafIndex: 0
+          focusedLeafIndex: 0,
         )
       ],
-      selectedTabIndex: 0
+      selectedTabIndex: 0,
     )
 
     #expect(snapshot.allSurfaceIDs == [real])

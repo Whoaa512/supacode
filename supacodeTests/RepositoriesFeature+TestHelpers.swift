@@ -20,15 +20,15 @@ extension RepositoriesFeature.State {
   @discardableResult
   mutating func seedRemovalBatch(
     pending: [Repository.ID: RepositoriesFeature.DeleteDisposition],
-    id: RepositoriesFeature.BatchID = UUID()
+    id: RepositoriesFeature.BatchID = UUID(),
   ) -> RepositoriesFeature.BatchID {
     for (repositoryID, disposition) in pending {
       removingRepositoryIDs[repositoryID] = RepositoriesFeature.RepositoryRemovalRecord(
-        disposition: disposition, batchID: id
+        disposition: disposition, batchID: id,
       )
     }
     activeRemovalBatches[id] = RepositoriesFeature.ActiveRemovalBatch(
-      id: id, pending: Set(pending.keys)
+      id: id, pending: Set(pending.keys),
     )
     return id
   }

@@ -14,7 +14,7 @@ struct WorktreeTerminalNotification: Identifiable, Equatable, Sendable {
     title: String,
     body: String,
     createdAt: Date,
-    isRead: Bool = false
+    isRead: Bool = false,
   ) {
     self.id = id
     self.surfaceID = surfaceID

@@ -36,7 +36,7 @@ struct AgentHookSettingsFileInstallerTests {
               "type": "command",
               "command": .string(
                 AgentHookSettingsCommand.compositeCommand(
-                  events: [.idle], forwardStdinAsNotification: false, agent: .claude)),
+                  events: [.idle], forwardStdinAsNotification: false, agent: .claude,)),
               "timeout": 10,
             ])
           ])
@@ -196,7 +196,7 @@ struct AgentHookSettingsFileInstallerTests {
     defer { try? fileManager.removeItem(at: url.deletingLastPathComponent()) }
     try fileManager.createDirectory(
       at: url.deletingLastPathComponent(),
-      withIntermediateDirectories: true
+      withIntermediateDirectories: true,
     )
     let corrupt: JSONValue = .object(["hooks": "not an object"])
     try JSONEncoder().encode(corrupt).write(to: url)
@@ -226,7 +226,7 @@ struct AgentHookSettingsFileInstallerTests {
     defer { try? fileManager.removeItem(at: url.deletingLastPathComponent()) }
     try fileManager.createDirectory(
       at: url.deletingLastPathComponent(),
-      withIntermediateDirectories: true
+      withIntermediateDirectories: true,
     )
 
     let sentinel = AgentHookSettingsCommand.ownershipMarker
@@ -283,7 +283,7 @@ struct AgentHookSettingsFileInstallerTests {
     defer { try? fileManager.removeItem(at: url.deletingLastPathComponent()) }
     try fileManager.createDirectory(
       at: url.deletingLastPathComponent(),
-      withIntermediateDirectories: true
+      withIntermediateDirectories: true,
     )
 
     let sentinel = AgentHookSettingsCommand.ownershipMarker
@@ -362,7 +362,7 @@ struct AgentHookSettingsFileInstallerTests {
       errors: makeErrors(),
       logWarning: { message in
         warnings.withValue { $0.append(message) }
-      }
+      },
     )
 
     #expect(installer.installState(settingsURL: url, hookGroupsByEvent: sampleHookGroups()) != .installed)
@@ -378,7 +378,7 @@ struct AgentHookSettingsFileInstallerTests {
       errors: makeErrors(),
       logWarning: { message in
         warnings.withValue { $0.append(message) }
-      }
+      },
     )
 
     #expect(installer.installState(settingsURL: url, hookGroupsByEvent: sampleHookGroups()) != .installed)

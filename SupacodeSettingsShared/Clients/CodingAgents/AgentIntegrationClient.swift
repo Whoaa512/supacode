@@ -12,7 +12,7 @@ public nonisolated struct AgentIntegrationClient: Sendable {
   public init(
     state: @escaping @Sendable (SkillAgent) async -> AgentIntegrationState,
     install: @escaping @Sendable (SkillAgent) async throws -> Void,
-    uninstall: @escaping @Sendable (SkillAgent) async throws -> Void
+    uninstall: @escaping @Sendable (SkillAgent) async throws -> Void,
   ) {
     self.state = state
     self.install = install
@@ -30,13 +30,13 @@ extension AgentIntegrationClient: DependencyKey {
     },
     uninstall: { agent in
       try AgentIntegrationFactory.make(for: agent).uninstall()
-    }
+    },
   )
 
   public static let testValue = Self(
     state: { _ in .notInstalled },
     install: { _ in },
-    uninstall: { _ in }
+    uninstall: { _ in },
   )
 }
 

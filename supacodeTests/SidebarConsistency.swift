@@ -25,7 +25,7 @@ func XCTAssertSidebarConsistent(
   fileID: StaticString = #fileID,
   filePath: StaticString = #filePath,
   line: UInt = #line,
-  column: UInt = #column
+  column: UInt = #column,
 ) {
   let itemIDs = Set(state.sidebarItems.ids)
   var groupedIDs: Set<SidebarItemID> = []
@@ -92,7 +92,7 @@ func XCTAssertSidebarConsistent(
     surfaceTargetsMissingFromItems: unknownSurfaceTargets.sorted(),
     surfaceForwardMismatches: surfaceForwardMismatches.sorted(),
     surfaceReverseMismatches: surfaceReverseMismatches.sorted(),
-    bucketOrderMismatches: bucketOrderMismatches
+    bucketOrderMismatches: bucketOrderMismatches,
   )
   var rendered = ""
   customDump(drift, to: &rendered)
@@ -102,8 +102,8 @@ func XCTAssertSidebarConsistent(
       fileID: String(describing: fileID),
       filePath: String(describing: filePath),
       line: Int(line),
-      column: Int(column)
-    )
+      column: Int(column),
+    ),
   )
 }
 
@@ -130,7 +130,7 @@ private struct SidebarConsistencyDrift: Equatable, CustomDumpReflectable {
         "surfaceReverseMismatches": surfaceReverseMismatches,
         "bucketOrderMismatches": bucketOrderMismatches,
       ],
-      displayStyle: .struct
+      displayStyle: .struct,
     )
   }
 }

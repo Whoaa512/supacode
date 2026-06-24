@@ -21,7 +21,7 @@ struct TerminalLayoutSnapshot: Codable, Equatable, Sendable {
       icon: String?,
       tintColor: RepositoryColor?,
       layout: LayoutNode,
-      focusedLeafIndex: Int
+      focusedLeafIndex: Int,
     ) {
       self.id = id
       self.title = title

@@ -117,7 +117,7 @@ struct AgentPresenceFeatureTests {
       .hookEventReceived(
         makeEvent(
           rawEventName: "future_event_we_dont_know",
-          agent: .claude, surfaceID: surfaceID)))
+          agent: .claude, surfaceID: surfaceID,)))
 
     #expect(harness.state.agents(forSurface: surfaceID, badgesEnabled: true).isEmpty)
   }
@@ -700,7 +700,7 @@ struct AgentPresenceFeatureTests {
         [
           record(agent: .claude, pids: [live], activity: "busy"),
           record(agent: .codex, pids: [live], activity: "idle"),
-        ]
+        ],
       )
     ])
 
@@ -722,7 +722,7 @@ struct AgentPresenceFeatureTests {
         [
           record(agent: .claude, pids: [live], activity: "busy"),
           record(agent: .codex, pids: [dead], activity: "idle"),
-        ]
+        ],
       )
     ])
 
@@ -786,10 +786,10 @@ struct AgentPresenceFeatureTests {
           TerminalLayoutSnapshot.SurfaceSnapshot(
             id: surface.id,
             workingDirectory: nil,
-            agents: surface.agents
+            agents: surface.agents,
           )
         ),
-        focusedLeafIndex: 0
+        focusedLeafIndex: 0,
       )
     }
     return TerminalLayoutSnapshot(tabs: tabs, selectedTabIndex: 0)
@@ -798,19 +798,19 @@ struct AgentPresenceFeatureTests {
   private func record(
     agent: SkillAgent,
     pids: [Int32],
-    activity: String = "idle"
+    activity: String = "idle",
   ) -> TerminalLayoutSnapshot.SurfaceAgentRecord {
     TerminalLayoutSnapshot.SurfaceAgentRecord(agent: agent.rawValue, pids: pids, activity: activity)
   }
 
   private func makeEvent(
-    _ name: AgentHookEvent.EventName, agent: SkillAgent, surfaceID: UUID, pid: pid_t? = nil
+    _ name: AgentHookEvent.EventName, agent: SkillAgent, surfaceID: UUID, pid: pid_t? = nil,
   ) -> AgentHookEvent {
     makeEvent(rawEventName: name.rawValue, agent: agent, surfaceID: surfaceID, pid: pid)
   }
 
   private func makeEvent(
-    rawEventName: String, agent: SkillAgent, surfaceID: UUID, pid: pid_t? = nil
+    rawEventName: String, agent: SkillAgent, surfaceID: UUID, pid: pid_t? = nil,
   ) -> AgentHookEvent {
     let pidLine = pid.map { ",\n        \"pid\": \($0)" } ?? ""
     let json = """

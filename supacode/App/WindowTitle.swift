@@ -50,7 +50,7 @@ enum WindowTitle {
       let name = repoDisplayName(
         repositoryID: repositoryID,
         fallback: Repository.name(for: url),
-        repositories: repositories
+        repositories: repositories,
       )
       return format(repo: name, tab: "Unavailable")
     case .none:
@@ -73,7 +73,7 @@ enum WindowTitle {
     let repoTitle = repoDisplayName(
       repositoryID: repositoryID,
       fallback: repository.name,
-      repositories: repositories
+      repositories: repositories,
     )
     let tabTitle = terminalManager.stateIfExists(for: worktreeID).flatMap { state in
       tabDisplayTitle(in: state)
@@ -85,11 +85,11 @@ enum WindowTitle {
   private static func repoDisplayName(
     repositoryID: Repository.ID,
     fallback: String,
-    repositories: RepositoriesFeature.State
+    repositories: RepositoriesFeature.State,
   ) -> String {
     Repository.sidebarDisplayName(
       custom: repositories.sidebar.sections[repositoryID]?.title,
-      fallback: fallback
+      fallback: fallback,
     )
   }
 

@@ -11,7 +11,7 @@ struct TerminalTabBarTrailingAccessories: View {
         title: "New Tab",
         systemImage: "plus",
         shortcutBinding: "new_tab",
-        action: createTab
+        action: createTab,
       )
       TerminalTabBarSplitMenu(primary: .right, secondary: .left, split: split)
         .disabled(!canSplit)

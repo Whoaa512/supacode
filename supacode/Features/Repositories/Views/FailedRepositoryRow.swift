@@ -32,7 +32,7 @@ struct FailedRepositoryRow: View {
         "Remove Repository…",
         systemImage: "folder.badge.minus",
         role: .destructive,
-        action: removeRepository
+        action: removeRepository,
       )
       .help("Remove this repository from Supacode. Files on disk are untouched.")
     }

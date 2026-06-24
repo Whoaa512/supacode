@@ -15,19 +15,19 @@ nonisolated struct CodexSettingsInstaller {
 
   init(
     homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
-    fileManager: FileManager = .default
+    fileManager: FileManager = .default,
   ) {
     self.init(
       homeDirectoryURL: homeDirectoryURL,
       fileManager: fileManager,
-      runEnableHooksCommand: Self.runEnableHooksCommand
+      runEnableHooksCommand: Self.runEnableHooksCommand,
     )
   }
 
   init(
     homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
     fileManager: FileManager = .default,
-    runEnableHooksCommand: @escaping @Sendable () async throws -> CommandResult
+    runEnableHooksCommand: @escaping @Sendable () async throws -> CommandResult,
   ) {
     self.homeDirectoryURL = homeDirectoryURL
     self.fileManager = fileManager
@@ -57,14 +57,14 @@ nonisolated struct CodexSettingsInstaller {
     try await enableHooksFeature()
     try fileInstaller.install(
       settingsURL: settingsURL,
-      hookGroupsByEvent: try CodexHookSettings.hooksByEvent()
+      hookGroupsByEvent: try CodexHookSettings.hooksByEvent(),
     )
   }
 
   func uninstallAllHooks() throws {
     try fileInstaller.uninstall(
       settingsURL: settingsURL,
-      hookGroupsByEvent: try CodexHookSettings.hooksByEvent()
+      hookGroupsByEvent: try CodexHookSettings.hooksByEvent(),
     )
     // Symmetric with `enableHooksFeature` in install — without this, a
     // partial-install rollback (or a plain uninstall) leaves
@@ -85,7 +85,7 @@ nonisolated struct CodexSettingsInstaller {
   /// can't false-positive as `.legacy`.
   private func featuresConfigState() -> FeaturesConfigState {
     let url = homeDirectoryURL.appending(
-      path: ".codex/config.toml", directoryHint: .notDirectory)
+      path: ".codex/config.toml", directoryHint: .notDirectory,)
     guard let contents = try? String(contentsOf: url, encoding: .utf8) else { return .absent }
     let flags = Self.featuresFlags(in: contents)
     if flags.legacy { return .legacy }
@@ -173,7 +173,7 @@ nonisolated struct CodexSettingsInstaller {
     transform: (Substring, _ inFeaturesSection: Bool) -> Substring?
   ) {
     let url = homeDirectoryURL.appending(
-      path: ".codex/config.toml", directoryHint: .notDirectory)
+      path: ".codex/config.toml", directoryHint: .notDirectory,)
     let original: String
     do {
       original = try String(contentsOf: url, encoding: .utf8)
@@ -244,7 +244,7 @@ nonisolated struct CodexSettingsInstaller {
 
   static func loginShellURL(
     environment: [String: String] = ProcessInfo.processInfo.environment,
-    currentUserShellPath: String? = currentUserShellPath()
+    currentUserShellPath: String? = currentUserShellPath(),
   ) -> URL {
     let shellPath =
       normalizedShellPath(currentUserShellPath)
@@ -278,8 +278,8 @@ nonisolated struct CodexSettingsInstaller {
         invalidEventHooks: { CodexSettingsInstallerError.invalidEventHooks($0) },
         invalidHooksObject: { CodexSettingsInstallerError.invalidHooksObject },
         invalidJSON: { CodexSettingsInstallerError.invalidJSON($0) },
-        invalidRootObject: { CodexSettingsInstallerError.invalidRootObject }
-      )
+        invalidRootObject: { CodexSettingsInstallerError.invalidRootObject },
+      ),
     )
   }
 }

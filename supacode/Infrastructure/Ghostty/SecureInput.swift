@@ -25,13 +25,13 @@ final class SecureInput: Observable {
       self,
       selector: #selector(onDidResignActive(notification:)),
       name: NSApplication.didResignActiveNotification,
-      object: nil
+      object: nil,
     )
     center.addObserver(
       self,
       selector: #selector(onDidBecomeActive(notification:)),
       name: NSApplication.didBecomeActiveNotification,
-      object: nil
+      object: nil,
     )
   }
 

@@ -4,13 +4,13 @@ extension View {
   func terminalTabContextMenu(
     tabId: TerminalTabID,
     tabs: [TerminalTabItem],
-    actions: TerminalTabContextMenuActions
+    actions: TerminalTabContextMenuActions,
   ) -> some View {
     modifier(
       TerminalTabContextMenu(
         tabId: tabId,
         tabs: tabs,
-        actions: actions
+        actions: actions,
       )
     )
   }

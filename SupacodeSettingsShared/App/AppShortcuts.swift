@@ -299,31 +299,31 @@ public enum AppShortcuts {
   public static let archivedWorktrees = AppShortcut(id: .archivedWorktrees, key: "a", modifiers: [.command, .control])
   public static let archiveWorktree = AppShortcut(
     id: .archiveWorktree,
-    keyEquivalent: .delete, ghosttyKeyName: "backspace", modifiers: .command
+    keyEquivalent: .delete, ghosttyKeyName: "backspace", modifiers: .command,
   )
   public static let deleteWorktree = AppShortcut(
     id: .deleteWorktree,
-    keyEquivalent: .delete, ghosttyKeyName: "backspace", modifiers: [.command, .shift]
+    keyEquivalent: .delete, ghosttyKeyName: "backspace", modifiers: [.command, .shift],
   )
   public static let confirmWorktreeAction = AppShortcut(
     id: .confirmWorktreeAction,
-    keyEquivalent: .return, ghosttyKeyName: "return", modifiers: .command
+    keyEquivalent: .return, ghosttyKeyName: "return", modifiers: .command,
   )
   public static let selectNextWorktree = AppShortcut(
     id: .selectNextWorktree,
-    keyEquivalent: .downArrow, ghosttyKeyName: "arrow_down", modifiers: [.command, .control]
+    keyEquivalent: .downArrow, ghosttyKeyName: "arrow_down", modifiers: [.command, .control],
   )
   public static let selectPreviousWorktree = AppShortcut(
     id: .selectPreviousWorktree,
-    keyEquivalent: .upArrow, ghosttyKeyName: "arrow_up", modifiers: [.command, .control]
+    keyEquivalent: .upArrow, ghosttyKeyName: "arrow_up", modifiers: [.command, .control],
   )
   public static let worktreeHistoryBack = AppShortcut(
     id: .worktreeHistoryBack,
-    keyEquivalent: .leftArrow, ghosttyKeyName: "arrow_left", modifiers: [.command, .control]
+    keyEquivalent: .leftArrow, ghosttyKeyName: "arrow_left", modifiers: [.command, .control],
   )
   public static let worktreeHistoryForward = AppShortcut(
     id: .worktreeHistoryForward,
-    keyEquivalent: .rightArrow, ghosttyKeyName: "arrow_right", modifiers: [.command, .control]
+    keyEquivalent: .rightArrow, ghosttyKeyName: "arrow_right", modifiers: [.command, .control],
   )
 
   public static let selectWorktree1 = AppShortcut(id: .selectWorktree(1), key: "1", modifiers: [.control])
@@ -345,7 +345,7 @@ public enum AppShortcuts {
   public static let runScript = AppShortcut(id: .runScript, key: "r", modifiers: .command)
   public static let stopRunScript = AppShortcut(id: .stopRunScript, key: ".", modifiers: .command)
   public static let jumpToLatestUnread = AppShortcut(
-    id: .jumpToLatestUnread, key: "u", modifiers: [.command, .shift]
+    id: .jumpToLatestUnread, key: "u", modifiers: [.command, .shift],
   )
 
   public static let worktreeSelection: [AppShortcut] = [
@@ -355,7 +355,7 @@ public enum AppShortcuts {
 
   public static func worktreeSelectionShortcutDisplay(
     atSlot index: Int,
-    overrides: [AppShortcutID: AppShortcutOverride]
+    overrides: [AppShortcutID: AppShortcutOverride],
   ) -> String? {
     guard worktreeSelection.indices.contains(index) else { return nil }
     return worktreeSelection[index].effective(from: overrides)?.display
@@ -364,7 +364,7 @@ public enum AppShortcuts {
   // Drops disabled bindings and out-of-range slots so neither leaves a stale NSMenuItem keyEquivalent.
   public static func activeWorktreeSelectionSlots(
     overrides: [AppShortcutID: AppShortcutOverride],
-    orderedRowsCount: Int
+    orderedRowsCount: Int,
   ) -> [(index: Int, shortcut: AppShortcut)] {
     worktreeSelection.enumerated().compactMap { index, shortcut in
       guard index < orderedRowsCount else { return nil }
@@ -378,7 +378,7 @@ public enum AppShortcuts {
   public static let groups: [AppShortcutGroup] = [
     AppShortcutGroup(
       category: .general,
-      shortcuts: [commandPalette, openSettings, checkForUpdates, showMainWindow]
+      shortcuts: [commandPalette, openSettings, checkForUpdates, showMainWindow],
     ),
     AppShortcutGroup(category: .sidebar, shortcuts: [toggleLeftSidebar, revealInSidebar]),
     AppShortcutGroup(
@@ -387,7 +387,7 @@ public enum AppShortcuts {
         newWorktree, refreshWorktrees, archivedWorktrees, archiveWorktree,
         deleteWorktree, confirmWorktreeAction, selectNextWorktree, selectPreviousWorktree,
         worktreeHistoryBack, worktreeHistoryForward,
-      ]
+      ],
     ),
     AppShortcutGroup(category: .worktreeSelection, shortcuts: worktreeSelection),
     AppShortcutGroup(
@@ -395,7 +395,7 @@ public enum AppShortcuts {
       shortcuts: [
         openWorktree, revealInFinder, openRepository, openPullRequest, copyPath, runScript, stopRunScript,
         jumpToLatestUnread,
-      ]
+      ],
     ),
   ]
 

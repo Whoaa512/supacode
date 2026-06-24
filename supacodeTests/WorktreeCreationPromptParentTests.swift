@@ -12,7 +12,7 @@ struct WorktreeCreationPromptParentTests {
   private let repoID = "/tmp/create-wt-repo"
 
   private func makeStateWithPrompt(
-    pendingFor branchNames: [String: PendingWorktree.Customization] = [:],
+    pendingFor branchNames: [String: PendingWorktree.Customization] = [:]
   ) -> RepositoriesFeature.State {
     let mainWorktree = Worktree(
       id: "\(repoID)/main",
@@ -181,7 +181,7 @@ struct WorktreeCreationPromptParentTests {
     )
     initial.removingRepositoryIDs[repoID] = RepositoriesFeature.RepositoryRemovalRecord(
       disposition: .gitWorktreeDelete,
-      batchID: UUID()
+      batchID: UUID(),
     )
     let store = makeStore(initialState: initial)
 
@@ -220,9 +220,9 @@ struct WorktreeCreationPromptParentTests {
           repositoryID: self.repoID,
           progress: WorktreeCreationProgress(
             stage: .loadingLocalBranches,
-            worktreeName: "feature/x"
+            worktreeName: "feature/x",
           ),
-          customization: .init(title: "Fresh", color: .red)
+          customization: .init(title: "Fresh", color: .red),
         )
       ]
     }
@@ -236,7 +236,7 @@ struct WorktreeCreationPromptParentTests {
         id: pendingID,
         repositoryID: repoID,
         progress: WorktreeCreationProgress(stage: .creatingWorktree, worktreeName: "feature/x"),
-        customization: .init(title: "Fresh", color: .red)
+        customization: .init(title: "Fresh", color: .red),
       )
     ]
     let createdWorktreeID = "\(repoID)/feature-x"
@@ -264,7 +264,7 @@ struct WorktreeCreationPromptParentTests {
         [reloadedRepository],
         failures: [],
         roots: [existingRepository.rootURL],
-        animated: false
+        animated: false,
       )
     ) {
       $0.repositories = [reloadedRepository]
@@ -365,7 +365,7 @@ struct WorktreeCreationPromptParentTests {
         id: pendingID,
         repositoryID: repoID,
         progress: WorktreeCreationProgress(stage: .creatingWorktree, worktreeName: "feature/x"),
-        customization: .init(title: "Fresh", color: .red)
+        customization: .init(title: "Fresh", color: .red),
       )
     ]
     let createdWorktreeID = "\(repoID)/feature-x"

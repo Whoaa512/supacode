@@ -29,7 +29,7 @@ struct TerminalTabItem: Identifiable, Equatable, Sendable {
     isTitleLocked: Bool = false,
     tintColor: RepositoryColor? = nil,
     isBlockingScript: Bool = false,
-    isBlockingScriptCompleted: Bool = false
+    isBlockingScriptCompleted: Bool = false,
   ) {
     self.id = id
     self.title = title

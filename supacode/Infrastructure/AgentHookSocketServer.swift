@@ -34,7 +34,7 @@ final class AgentHookSocketServer {
       try FileManager.default.createDirectory(
         atPath: directory,
         withIntermediateDirectories: true,
-        attributes: [.posixPermissions: 0o700]
+        attributes: [.posixPermissions: 0o700],
       )
     } catch {
       socketLogger.warning("Failed to create socket directory: \(error)")
@@ -136,7 +136,7 @@ final class AgentHookSocketServer {
       var totalWritten = 0
       while totalWritten < data.count {
         let written = write(
-          fileDescriptor, base.advanced(by: totalWritten), data.count - totalWritten)
+          fileDescriptor, base.advanced(by: totalWritten), data.count - totalWritten,)
         if written < 0 {
           guard errno == EINTR else {
             socketLogger.warning("write() failed: \(String(cString: strerror(errno)))")
@@ -212,7 +212,7 @@ final class AgentHookSocketServer {
     guard let encoded = try? JSONSerialization.data(withJSONObject: json) else {
       socketLogger.warning("Failed to encode query response")
       writeAll(
-        to: clientFD, data: Data("{\"ok\":false,\"error\":\"Internal encoding error.\"}".utf8))
+        to: clientFD, data: Data("{\"ok\":false,\"error\":\"Internal encoding error.\"}".utf8),)
       close(clientFD)
       return
     }
@@ -222,14 +222,14 @@ final class AgentHookSocketServer {
 
   /// Writes a JSON response to a command client and closes the FD.
   nonisolated static func sendCommandResponse(
-    clientFD: Int32, ok succeeded: Bool, error: String? = nil
+    clientFD: Int32, ok succeeded: Bool, error: String? = nil,
   ) {
     var json: [String: Any] = ["ok": succeeded]
     if let error { json["error"] = error }
     guard let data = try? JSONSerialization.data(withJSONObject: json) else {
       socketLogger.warning("Failed to encode command response")
       writeAll(
-        to: clientFD, data: Data("{\"ok\":false,\"error\":\"Internal encoding error.\"}".utf8))
+        to: clientFD, data: Data("{\"ok\":false,\"error\":\"Internal encoding error.\"}".utf8),)
       close(clientFD)
       return
     }
@@ -290,7 +290,7 @@ final class AgentHookSocketServer {
     readChunk: (Int32, UnsafeMutableBufferPointer<UInt8>) -> Int = { fileDescriptor, buffer in
       guard let baseAddress = buffer.baseAddress else { return 0 }
       return Darwin.read(fileDescriptor, baseAddress, buffer.count)
-    }
+    },
   ) -> Data? {
     var data = Data()
     var buffer = [UInt8](repeating: 0, count: 4096)
@@ -422,7 +422,7 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
     let event = try container.decode(String.self, forKey: .event)
     guard !event.isEmpty else {
       throw DecodingError.dataCorruptedError(
-        forKey: .event, in: container, debugDescription: "`event` must be non-empty.")
+        forKey: .event, in: container, debugDescription: "`event` must be non-empty.",)
     }
     self.event = event
     self.surfaceID = try Self.decodeUUID(from: container, forKey: .surfaceID)
@@ -436,7 +436,7 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
       guard let bounded = pid_t(exactly: rawPid), bounded > 0 else {
         throw DecodingError.dataCorruptedError(
           forKey: .pid, in: container,
-          debugDescription: "`pid` \(rawPid) is not a positive pid_t value.")
+          debugDescription: "`pid` \(rawPid) is not a positive pid_t value.",)
       }
       self.pid = bounded
     } else {
@@ -460,7 +460,7 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
     surfaceID: UUID,
     pid: pid_t? = nil,
     timestamp: Date? = nil,
-    data: JSONValue? = nil
+    data: JSONValue? = nil,
   ) {
     self.version = version
     self.agent = agent
@@ -480,13 +480,13 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
 
   private static func decodeUUID(
     from container: KeyedDecodingContainer<CodingKeys>,
-    forKey key: CodingKeys
+    forKey key: CodingKeys,
   ) throws -> UUID {
     let raw = try container.decode(String.self, forKey: key)
     guard let uuid = UUID(uuidString: raw) else {
       throw DecodingError.dataCorruptedError(
         forKey: key, in: container,
-        debugDescription: "`\(key.stringValue)` is not a valid UUID: \(raw).")
+        debugDescription: "`\(key.stringValue)` is not a valid UUID: \(raw).",)
     }
     return uuid
   }

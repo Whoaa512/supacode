@@ -80,7 +80,7 @@ struct TerminalTabManagerTests {
       icon: "play.fill",
       isTitleLocked: true,
       tintColor: .green,
-      isBlockingScript: true
+      isBlockingScript: true,
     )
     manager.updateDirty(tabId, isDirty: true)
 
@@ -102,7 +102,7 @@ struct TerminalTabManagerTests {
       title: "Run Script",
       icon: "play.fill",
       isTitleLocked: true,
-      isBlockingScript: true
+      isBlockingScript: true,
     )
 
     manager.markBlockingScriptCompleted(tabId)

@@ -15,7 +15,7 @@ struct ResolvedRowDisplayTests {
       isMainWorktree: true,
       isPinned: false,
       hideSubtitle: false,
-      hideSubtitleOnMatch: true
+      hideSubtitleOnMatch: true,
     )
     #expect(resolved.name == "Documents")
     #expect(resolved.subtitle == .none)
@@ -30,7 +30,7 @@ struct ResolvedRowDisplayTests {
       isPinned: true,
       hideSubtitle: false,
       hideSubtitleOnMatch: false,
-      highlightSubtitle: SidebarHighlightRepoTag(repoName: "Notes", repoColor: nil)
+      highlightSubtitle: SidebarHighlightRepoTag(repoName: "Notes", repoColor: nil),
     )
     #expect(resolved.subtitle == .none)
   }
@@ -45,7 +45,7 @@ struct ResolvedRowDisplayTests {
       isMainWorktree: false,
       isPinned: false,
       hideSubtitle: false,
-      hideSubtitleOnMatch: true
+      hideSubtitleOnMatch: true,
     )
     #expect(resolved.subtitle == .plain("scratch"))
   }
@@ -58,7 +58,7 @@ struct ResolvedRowDisplayTests {
       isMainWorktree: false,
       isPinned: false,
       hideSubtitle: false,
-      hideSubtitleOnMatch: true
+      hideSubtitleOnMatch: true,
     )
     #expect(resolved.subtitle == .none)
   }
@@ -71,7 +71,7 @@ struct ResolvedRowDisplayTests {
       isMainWorktree: false,
       isPinned: false,
       hideSubtitle: false,
-      hideSubtitleOnMatch: false
+      hideSubtitleOnMatch: false,
     )
     #expect(resolved.subtitle == .plain("foo"))
   }
@@ -84,7 +84,7 @@ struct ResolvedRowDisplayTests {
       isMainWorktree: false,
       isPinned: false,
       hideSubtitle: true,
-      hideSubtitleOnMatch: false
+      hideSubtitleOnMatch: false,
     )
     #expect(resolved.subtitle == .none)
   }
@@ -100,7 +100,7 @@ struct ResolvedRowDisplayTests {
       isPinned: false,
       hideSubtitle: false,
       hideSubtitleOnMatch: true,
-      highlightSubtitle: SidebarHighlightRepoTag(repoName: "supacode", repoColor: .blue)
+      highlightSubtitle: SidebarHighlightRepoTag(repoName: "supacode", repoColor: .blue),
     )
     guard case .highlight(let repo, let color, let trail) = resolved.subtitle else {
       Issue.record("Expected .highlight subtitle for main worktree")
@@ -120,7 +120,7 @@ struct ResolvedRowDisplayTests {
       isPinned: true,
       hideSubtitle: false,
       hideSubtitleOnMatch: true,
-      highlightSubtitle: SidebarHighlightRepoTag(repoName: "supacode", repoColor: nil)
+      highlightSubtitle: SidebarHighlightRepoTag(repoName: "supacode", repoColor: nil),
     )
     guard case .highlight(_, _, let trail) = resolved.subtitle else {
       Issue.record("Expected .highlight subtitle")
@@ -138,7 +138,7 @@ struct ResolvedRowDisplayTests {
       isPinned: true,
       hideSubtitle: false,
       hideSubtitleOnMatch: false,
-      highlightSubtitle: SidebarHighlightRepoTag(repoName: "supacode", repoColor: nil)
+      highlightSubtitle: SidebarHighlightRepoTag(repoName: "supacode", repoColor: nil),
     )
     guard case .highlight(_, _, let trail) = resolved.subtitle else {
       Issue.record("Expected .highlight subtitle")
@@ -156,7 +156,7 @@ struct ResolvedRowDisplayTests {
       isPinned: false,
       hideSubtitle: false,
       hideSubtitleOnMatch: true,
-      highlightSubtitle: SidebarHighlightRepoTag(repoName: "supacode", repoColor: nil)
+      highlightSubtitle: SidebarHighlightRepoTag(repoName: "supacode", repoColor: nil),
     )
     guard case .highlight(_, _, let trail) = resolved.subtitle else {
       Issue.record("Expected .highlight subtitle")
@@ -174,7 +174,7 @@ struct ResolvedRowDisplayTests {
       isPinned: false,
       hideSubtitle: false,
       hideSubtitleOnMatch: true,
-      highlightSubtitle: SidebarHighlightRepoTag(repoName: "supacode", repoColor: nil)
+      highlightSubtitle: SidebarHighlightRepoTag(repoName: "supacode", repoColor: nil),
     )
     guard case .highlight(_, _, let trail) = resolved.subtitle else {
       Issue.record("Expected .highlight subtitle")
@@ -193,7 +193,7 @@ struct ResolvedRowDisplayTests {
       isMainWorktree: false,
       isPinned: false,
       hideSubtitle: false,
-      hideSubtitleOnMatch: true
+      hideSubtitleOnMatch: true,
     )
     let highlight = ResolvedRowDisplay(
       kind: .gitWorktree,
@@ -203,7 +203,7 @@ struct ResolvedRowDisplayTests {
       isPinned: true,
       hideSubtitle: false,
       hideSubtitleOnMatch: true,
-      highlightSubtitle: SidebarHighlightRepoTag(repoName: "supacode", repoColor: nil)
+      highlightSubtitle: SidebarHighlightRepoTag(repoName: "supacode", repoColor: nil),
     )
     #expect(plain.subtitle == .none)
     if case .highlight(_, _, let trail) = highlight.subtitle {
@@ -223,7 +223,7 @@ struct ResolvedRowDisplayTests {
       isMainWorktree: true,
       isPinned: true,
       hideSubtitle: false,
-      hideSubtitleOnMatch: true
+      hideSubtitleOnMatch: true,
     )
     #expect(resolved.accent == .main)
   }
@@ -236,7 +236,7 @@ struct ResolvedRowDisplayTests {
       isMainWorktree: false,
       isPinned: true,
       hideSubtitle: false,
-      hideSubtitleOnMatch: true
+      hideSubtitleOnMatch: true,
     )
     #expect(resolved.accent == .pinned)
   }
@@ -249,7 +249,7 @@ struct ResolvedRowDisplayTests {
       isMainWorktree: false,
       isPinned: false,
       hideSubtitle: false,
-      hideSubtitleOnMatch: true
+      hideSubtitleOnMatch: true,
     )
     #expect(resolved.accent == .default)
   }

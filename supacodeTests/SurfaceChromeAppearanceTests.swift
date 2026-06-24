@@ -39,13 +39,13 @@ struct WindowAppearanceStateTests {
       opacity: 0.7,
       appearance: .aqua,
       isFullScreen: false,
-      isOpaqueOverride: false
+      isOpaqueOverride: false,
     )
     let rhs = WindowAppearanceState(
       opacity: 0.7,
       appearance: .aqua,
       isFullScreen: false,
-      isOpaqueOverride: false
+      isOpaqueOverride: false,
     )
     #expect(lhs == rhs)
   }

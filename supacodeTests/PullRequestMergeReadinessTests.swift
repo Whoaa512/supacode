@@ -8,7 +8,7 @@ struct PullRequestMergeReadinessTests {
     let pullRequest = makePullRequest(
       reviewDecision: "CHANGES_REQUESTED",
       mergeable: "CONFLICTING",
-      mergeStateStatus: "DIRTY"
+      mergeStateStatus: "DIRTY",
     )
 
     let readiness = PullRequestMergeReadiness(pullRequest: pullRequest)
@@ -23,7 +23,7 @@ struct PullRequestMergeReadinessTests {
     let pullRequest = makePullRequest(
       reviewDecision: "CHANGES_REQUESTED",
       mergeable: "MERGEABLE",
-      mergeStateStatus: "CLEAN"
+      mergeStateStatus: "CLEAN",
     )
 
     let readiness = PullRequestMergeReadiness(pullRequest: pullRequest)
@@ -39,7 +39,7 @@ struct PullRequestMergeReadinessTests {
       checks: [
         GithubPullRequestStatusCheck(status: "COMPLETED", conclusion: "FAILURE", state: nil),
         GithubPullRequestStatusCheck(status: "COMPLETED", conclusion: "FAILURE", state: nil),
-      ]
+      ],
     )
 
     let readiness = PullRequestMergeReadiness(pullRequest: pullRequest)
@@ -51,7 +51,7 @@ struct PullRequestMergeReadinessTests {
   @Test func mergeReadinessIsMergeableWhenMergeable() {
     let pullRequest = makePullRequest(
       mergeable: "MERGEABLE",
-      mergeStateStatus: "BEHIND"
+      mergeStateStatus: "BEHIND",
     )
 
     let readiness = PullRequestMergeReadiness(pullRequest: pullRequest)
@@ -64,7 +64,7 @@ struct PullRequestMergeReadinessTests {
   @Test func mergeReadinessFallsBackToBlockedForOtherStates() {
     let pullRequest = makePullRequest(
       mergeable: "UNKNOWN",
-      mergeStateStatus: "BEHIND"
+      mergeStateStatus: "BEHIND",
     )
 
     let readiness = PullRequestMergeReadiness(pullRequest: pullRequest)
@@ -79,7 +79,7 @@ private func makePullRequest(
   mergeable: String? = nil,
   mergeStateStatus: String? = nil,
   checks: [GithubPullRequestStatusCheck] = [],
-  mergeQueueEntry: GithubMergeQueueEntry? = nil
+  mergeQueueEntry: GithubMergeQueueEntry? = nil,
 ) -> GithubPullRequest {
   GithubPullRequest(
     number: 1,
@@ -98,6 +98,6 @@ private func makePullRequest(
     commitsCount: 1,
     authorLogin: "khoi",
     statusCheckRollup: checks.isEmpty ? nil : GithubPullRequestStatusCheckRollup(checks: checks),
-    mergeQueueEntry: mergeQueueEntry
+    mergeQueueEntry: mergeQueueEntry,
   )
 }

@@ -7,7 +7,7 @@ enum GitWorktreeHeadResolver {
     guard
       fileManager.fileExists(
         atPath: gitURL.path(percentEncoded: false),
-        isDirectory: &isDirectory
+        isDirectory: &isDirectory,
       )
     else {
       return nil

@@ -354,7 +354,7 @@ struct WorktreeTerminalManagerTests {
         title: "Unread",
         body: "body",
         createdAt: .distantPast,
-        isRead: false
+        isRead: false,
       )
     ])
     state.onNotificationIndicatorChanged?()
@@ -364,7 +364,7 @@ struct WorktreeTerminalManagerTests {
         title: "Read",
         body: "body",
         createdAt: .distantPast,
-        isRead: true
+        isRead: true,
       )
     ])
 
@@ -699,13 +699,13 @@ struct WorktreeTerminalManagerTests {
           layout: .leaf(
             TerminalLayoutSnapshot.SurfaceSnapshot(
               id: knownSurfaceID,
-              workingDirectory: "/tmp/repo/wt-1"
+              workingDirectory: "/tmp/repo/wt-1",
             )
           ),
-          focusedLeafIndex: 0
+          focusedLeafIndex: 0,
         )
       ],
-      selectedTabIndex: 0
+      selectedTabIndex: 0,
     )
     manager.loadLayoutSnapshot = { _ in snapshot }
     let state = manager.state(for: worktree)
@@ -747,7 +747,7 @@ struct WorktreeTerminalManagerTests {
   @discardableResult
   private func installSurfaceState(
     on state: WorktreeTerminalState,
-    forSurfaceID surfaceID: UUID
+    forSurfaceID surfaceID: UUID,
   ) -> WorktreeSurfaceState {
     let surfaceState = WorktreeSurfaceState()
     state.installSurfaceStateForTesting(surfaceState, forSurfaceID: surfaceID)
@@ -935,7 +935,8 @@ struct WorktreeTerminalManagerTests {
       return false
     }
 
-    #expect(event == .blockingScriptCompleted(worktreeID: worktree.id, kind: .archive, exitCode: 0, tabId: secondTabId))
+    #expect(
+      event == .blockingScriptCompleted(worktreeID: worktree.id, kind: .archive, exitCode: 0, tabId: secondTabId))
   }
 
   @Test func blockingScriptTabClosedManuallyReportsCancellation() async {
@@ -1412,13 +1413,17 @@ struct WorktreeTerminalManagerTests {
     #expect(state.hasUnseenNotification(forTabID: tab) == false)
 
     // Notification on the first leaf lights up the tab.
-    state.setNotificationsForTesting([makeNotification(surfaceID: leaves[0].id, isRead: false, createdAt: .distantPast)]
+    state.setNotificationsForTesting([
+      makeNotification(surfaceID: leaves[0].id, isRead: false, createdAt: .distantPast)
+    ]
     )
     #expect(state.hasUnseenNotification(forTabID: tab) == true)
     state.markAllNotificationsRead()
 
     // Notification on the second leaf also lights up the tab.
-    state.setNotificationsForTesting([makeNotification(surfaceID: leaves[1].id, isRead: false, createdAt: .distantPast)]
+    state.setNotificationsForTesting([
+      makeNotification(surfaceID: leaves[1].id, isRead: false, createdAt: .distantPast)
+    ]
     )
     #expect(state.hasUnseenNotification(forTabID: tab) == true)
 
@@ -1449,7 +1454,7 @@ struct WorktreeTerminalManagerTests {
     _ name: AgentHookEvent.EventName,
     agent: SkillAgent = .claude,
     surfaceID: UUID,
-    pid: pid_t? = nil
+    pid: pid_t? = nil,
   ) -> AgentHookEvent {
     let pidLine = pid.map { ",\n        \"pid\": \($0)" } ?? ""
     let json = """
@@ -1546,7 +1551,7 @@ struct WorktreeTerminalManagerTests {
       tabID: tabID,
       surfaceIDs: [UUID()],
       activeSurfaceID: nil,
-      unseenNotificationCount: 0
+      unseenNotificationCount: 0,
     )
 
     state.onTabProjectionChanged?(projection)
@@ -1660,13 +1665,13 @@ struct WorktreeTerminalManagerTests {
       name: name,
       detail: "detail",
       workingDirectory: URL(fileURLWithPath: id),
-      repositoryRootURL: URL(fileURLWithPath: "/tmp/repo")
+      repositoryRootURL: URL(fileURLWithPath: "/tmp/repo"),
     )
   }
 
   private func nextEvent(
     _ stream: AsyncStream<TerminalClient.Event>,
-    matching predicate: (TerminalClient.Event) -> Bool
+    matching predicate: (TerminalClient.Event) -> Bool,
   ) async -> TerminalClient.Event? {
     for await event in stream where predicate(event) {
       return event
@@ -1677,14 +1682,14 @@ struct WorktreeTerminalManagerTests {
   private func makeNotification(
     surfaceID: UUID = UUID(),
     isRead: Bool,
-    createdAt: Date = .distantPast
+    createdAt: Date = .distantPast,
   ) -> WorktreeTerminalNotification {
     WorktreeTerminalNotification(
       surfaceID: surfaceID,
       title: "Title",
       body: "Body",
       createdAt: createdAt,
-      isRead: isRead
+      isRead: isRead,
     )
   }
 
@@ -1881,10 +1886,10 @@ struct WorktreeTerminalManagerTests {
           icon: nil,
           tintColor: nil,
           layout: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: "/tmp/repo/wt-1")),
-          focusedLeafIndex: 0
+          focusedLeafIndex: 0,
         )
       ],
-      selectedTabIndex: 0
+      selectedTabIndex: 0,
     )
     state.pendingLayoutSnapshot = snapshot
     state.ensureInitialTab(focusing: false)
@@ -1908,10 +1913,10 @@ struct WorktreeTerminalManagerTests {
           icon: nil,
           tintColor: nil,
           layout: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: "/tmp/repo/wt-1")),
-          focusedLeafIndex: 0
+          focusedLeafIndex: 0,
         )
       ],
-      selectedTabIndex: 0
+      selectedTabIndex: 0,
     )
     state.pendingLayoutSnapshot = snapshot
     state.ensureInitialTab(focusing: false)
@@ -1931,13 +1936,13 @@ struct WorktreeTerminalManagerTests {
           layout: .leaf(
             TerminalLayoutSnapshot.SurfaceSnapshot(
               id: nil,
-              workingDirectory: "/tmp/repo/wt-1"
+              workingDirectory: "/tmp/repo/wt-1",
             )
           ),
-          focusedLeafIndex: 0
+          focusedLeafIndex: 0,
         )
       ],
-      selectedTabIndex: 0
+      selectedTabIndex: 0,
     )
   }
 

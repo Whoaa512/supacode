@@ -19,8 +19,8 @@ struct TerminalsFeatureTests {
           tabID: tabID,
           surfaceIDs: [surface],
           activeSurfaceID: surface,
-          unseenNotificationCount: 0
-        )
+          unseenNotificationCount: 0,
+        ),
       )
     ) {
       $0.terminalTabs.append(
@@ -69,8 +69,8 @@ struct TerminalsFeatureTests {
           tabID: tabID,
           surfaceIDs: [],
           activeSurfaceID: nil,
-          unseenNotificationCount: 0
-        )
+          unseenNotificationCount: 0,
+        ),
       )
     )
 
@@ -113,9 +113,9 @@ struct TerminalsFeatureTests {
     initial.terminalTabs.append(TerminalTabFeature.State(id: tabB1, worktreeID: "/tmp/repoB"))
     initial.recentlyRemovedTabIDs = [
       TerminalsFeature.RecentlyRemovedTab(
-        worktreeID: "/tmp/repoA", tabID: TerminalTabID(rawValue: UUID())),
+        worktreeID: "/tmp/repoA", tabID: TerminalTabID(rawValue: UUID()),),
       TerminalsFeature.RecentlyRemovedTab(
-        worktreeID: "/tmp/repoB", tabID: TerminalTabID(rawValue: UUID())),
+        worktreeID: "/tmp/repoB", tabID: TerminalTabID(rawValue: UUID()),),
     ]
     let repoBRecord = initial.recentlyRemovedTabIDs[1]
     let store = TestStore(initialState: initial) { TerminalsFeature() }
@@ -156,8 +156,8 @@ struct TerminalsFeatureTests {
           tabID: tabID,
           surfaceIDs: [surface],
           activeSurfaceID: surface,
-          unseenNotificationCount: 0
-        )
+          unseenNotificationCount: 0,
+        ),
       )
     ) {
       $0.terminalTabs.append(TerminalTabFeature.State(id: tabID, worktreeID: "/tmp/repoA"))

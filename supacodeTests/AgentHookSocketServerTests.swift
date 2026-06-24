@@ -186,7 +186,7 @@ struct AgentHookSocketServerTests {
         """
       #expect(
         (try? JSONDecoder().decode(AgentHookEvent.self, from: Data(json.utf8))) == nil,
-        "Expected nil for pid=\(badPid)")
+        "Expected nil for pid=\(badPid)",)
     }
   }
 }

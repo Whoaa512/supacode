@@ -46,7 +46,7 @@ extension RepositoriesFeature.State {
     id: Worktree.ID,
     addedLines: Int? = nil,
     removedLines: Int? = nil,
-    pullRequest: GithubPullRequest? = nil
+    pullRequest: GithubPullRequest? = nil,
   ) {
     sidebarItems[id: id]?.addedLines = addedLines
     sidebarItems[id: id]?.removedLines = removedLines

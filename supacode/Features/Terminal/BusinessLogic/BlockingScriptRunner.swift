@@ -20,7 +20,7 @@ enum BlockingScriptRunner {
   static func makeLaunch(
     script: String,
     shellPath: String,
-    baseDirectoryURL: URL = FileManager.default.temporaryDirectory
+    baseDirectoryURL: URL = FileManager.default.temporaryDirectory,
   ) throws -> LaunchArtifacts? {
     let trimmed = script.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
@@ -28,7 +28,7 @@ enum BlockingScriptRunner {
     let fileManager = FileManager.default
     let directoryURL = baseDirectoryURL.appending(
       path: "supacode-blocking-script-\(UUID().uuidString.lowercased())",
-      directoryHint: .isDirectory
+      directoryHint: .isDirectory,
     )
     let runnerURL = directoryURL.appending(path: "run", directoryHint: .notDirectory)
     let scriptURL = directoryURL.appending(path: "script", directoryHint: .notDirectory)
@@ -39,24 +39,24 @@ enum BlockingScriptRunner {
       // Restrict to owner-only: the user's script may contain secrets.
       try fileManager.setAttributes(
         [.posixPermissions: 0o700],
-        ofItemAtPath: directoryURL.path(percentEncoded: false)
+        ofItemAtPath: directoryURL.path(percentEncoded: false),
       )
       try Data((trimmed + "\n").utf8).write(to: scriptURL, options: [.atomic])
       try fileManager.setAttributes(
         [.posixPermissions: 0o600],
-        ofItemAtPath: scriptURL.path(percentEncoded: false)
+        ofItemAtPath: scriptURL.path(percentEncoded: false),
       )
       try Data((shellPath + "\n").utf8).write(to: shellPathURL, options: [.atomic])
       try fileManager.setAttributes(
         [.posixPermissions: 0o600],
-        ofItemAtPath: shellPathURL.path(percentEncoded: false)
+        ofItemAtPath: shellPathURL.path(percentEncoded: false),
       )
       try Data(
         runnerScript(scriptURL: scriptURL, shellPathURL: shellPathURL).utf8
       ).write(to: runnerURL, options: [.atomic])
       try fileManager.setAttributes(
         [.posixPermissions: 0o700],
-        ofItemAtPath: runnerURL.path(percentEncoded: false)
+        ofItemAtPath: runnerURL.path(percentEncoded: false),
       )
     } catch {
       try? fileManager.removeItem(at: directoryURL)
@@ -68,7 +68,7 @@ enum BlockingScriptRunner {
       runnerURL: runnerURL,
       scriptURL: scriptURL,
       shellPathURL: shellPathURL,
-      commandInput: shellSingleQuoted(runnerURL.path(percentEncoded: false)) + "\n"
+      commandInput: shellSingleQuoted(runnerURL.path(percentEncoded: false)) + "\n",
     )
   }
 

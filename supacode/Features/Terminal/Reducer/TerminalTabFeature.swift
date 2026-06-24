@@ -103,7 +103,7 @@ extension TerminalTabProgressDisplay {
   /// Returns nil for the REMOVE state and for nil input (no progress in flight).
   static func make(
     progressState: ghostty_action_progress_report_state_e?,
-    progressValue: Int?
+    progressValue: Int?,
   ) -> TerminalTabProgressDisplay? {
     guard let progressState, progressState != GHOSTTY_PROGRESS_STATE_REMOVE else { return nil }
     let style: Style

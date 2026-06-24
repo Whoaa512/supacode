@@ -46,7 +46,7 @@ struct WorktreeToolbarTitleView: View {
     let tintScheme = terminalManager.surfaceBackgroundColorScheme()
     let appearance = SurfaceChromeAppearance(
       colorScheme: tintScheme,
-      systemColorScheme: systemColorScheme
+      systemColorScheme: systemColorScheme,
     )
     return WorktreeToolbarTitleBody(content: content)
       .environment(\.surfaceChromeAppearance, appearance)
@@ -180,7 +180,7 @@ enum GitHubOwnerAvatar {
             worktreeSubtitle: "319-toolbar-details",
             worktreeTint: nil,
             accent: .pinned,
-            rootURL: supacodeRepoRoot
+            rootURL: supacodeRepoRoot,
           )
         )
       )
@@ -201,7 +201,7 @@ enum GitHubOwnerAvatar {
             worktreeSubtitle: "Default",
             worktreeTint: nil,
             accent: .main,
-            rootURL: URL(fileURLWithPath: "/tmp/preview")
+            rootURL: URL(fileURLWithPath: "/tmp/preview"),
           )
         )
       )

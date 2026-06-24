@@ -28,7 +28,7 @@ struct SidebarListView: View {
       set: { newValue in
         guard newValue != currentSelections else { return }
         store.send(.selectionChanged(newValue, focusTerminal: true))
-      }
+      },
     )
     let pendingSidebarReveal = state.pendingSidebarReveal
 
@@ -54,14 +54,14 @@ struct SidebarListView: View {
             shortcutHintByID: shortcutHintByID,
             selectedWorktreeIDs: selectedWorktreeIDs,
             store: store,
-            terminalManager: terminalManager
+            terminalManager: terminalManager,
           )
         }
         .onMove { offsets, destination in
           handleRepositoryMove(
             offsets: offsets,
             destination: destination,
-            structure: structure
+            structure: structure,
           )
         }
       }
@@ -126,7 +126,7 @@ struct SidebarListView: View {
   private func handleRepositoryMove(
     offsets: IndexSet,
     destination: Int,
-    structure: SidebarStructure
+    structure: SidebarStructure,
   ) {
     let repoIDs = structure.reorderableRepositoryIDs
     guard !repoIDs.isEmpty else { return }
@@ -171,7 +171,7 @@ struct SidebarListView: View {
   @MainActor
   private func revealPendingSidebarWorktree(
     _ pendingSidebarReveal: RepositoriesFeature.PendingSidebarReveal?,
-    with scrollProxy: ScrollViewProxy
+    with scrollProxy: ScrollViewProxy,
   ) async {
     guard let pendingSidebarReveal else { return }
     // Give SwiftUI time to materialize newly expanded section rows before scrolling.
@@ -209,7 +209,7 @@ private struct SidebarSectionDispatcher: View {
         terminalManager: terminalManager,
         selectedWorktreeIDs: selectedWorktreeIDs,
         repositoryHighlightByID: structure.repositoryHighlightByID,
-        shortcutHintByID: shortcutHintByID
+        shortcutHintByID: shortcutHintByID,
       )
       .moveDisabled(true)
     case .failedRepository(let repositoryID, let rootURL, let customTitle, let color):
@@ -218,7 +218,7 @@ private struct SidebarSectionDispatcher: View {
         rootURL: rootURL,
         customTitle: customTitle,
         color: color,
-        store: store
+        store: store,
       )
     case .folder(let repositoryID, let rowID):
       if let repository = store.state.repositories[id: repositoryID] {
@@ -231,7 +231,7 @@ private struct SidebarSectionDispatcher: View {
             shortcutHint: shortcutHintByID[rowID],
             selectedWorktreeIDs: selectedWorktreeIDs,
             store: store,
-            terminalManager: terminalManager
+            terminalManager: terminalManager,
           )
         } header: {
           EmptyView()
@@ -245,7 +245,7 @@ private struct SidebarSectionDispatcher: View {
           shortcutHintByID: shortcutHintByID,
           selectedWorktreeIDs: selectedWorktreeIDs,
           store: store,
-          terminalManager: terminalManager
+          terminalManager: terminalManager,
         )
       }
     }
@@ -269,21 +269,21 @@ private struct SidebarGitRepositorySection: View {
         shortcutHintByID: shortcutHintByID,
         selectedWorktreeIDs: selectedWorktreeIDs,
         store: store,
-        terminalManager: terminalManager
+        terminalManager: terminalManager,
       )
     } header: {
       RepoSectionHeaderView(
         name: repository.name,
         customTitle: section?.title,
         color: section?.color,
-        isRemoving: isRemovingRepository
+        isRemoving: isRemovingRepository,
       )
     }
     .sectionActions {
       SidebarSectionActionsView(
         repositoryID: repository.id,
         isRemovingRepository: isRemovingRepository,
-        store: store
+        store: store,
       )
     }
   }
@@ -293,7 +293,7 @@ private struct SidebarGitRepositorySection: View {
       get: { store.state.isRepositoryExpanded(repository.id) },
       set: { isExpanded in
         store.send(.repositoryExpansionChanged(repository.id, isExpanded: isExpanded))
-      }
+      },
     )
   }
 }
@@ -360,7 +360,7 @@ private struct SidebarFailedRepositorySection: View {
       FailedRepositoryRow(
         name: displayName,
         path: path,
-        removeRepository: { store.send(.requestRemoveFailedRepository(repositoryID)) }
+        removeRepository: { store.send(.requestRemoveFailedRepository(repositoryID)) },
       )
       .tag(SidebarSelection.failedRepository(repositoryID))
       .moveDisabled(true)
@@ -369,7 +369,7 @@ private struct SidebarFailedRepositorySection: View {
         name: fallbackName,
         customTitle: customTitle,
         color: color,
-        isRemoving: false
+        isRemoving: false,
       )
     }
     .sectionActions {

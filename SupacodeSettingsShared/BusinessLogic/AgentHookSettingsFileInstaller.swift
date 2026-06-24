@@ -12,7 +12,7 @@ nonisolated struct AgentHookSettingsFileInstaller {
   init(
     fileManager: FileManager,
     errors: Errors,
-    logWarning: @escaping @Sendable (String) -> Void = { settingsInstallerLogger.warning($0) }
+    logWarning: @escaping @Sendable (String) -> Void = { settingsInstallerLogger.warning($0) },
   ) {
     self.fileManager = fileManager
     self.errors = errors
@@ -31,7 +31,7 @@ nonisolated struct AgentHookSettingsFileInstaller {
   ///                      or stale variants from older Supacode versions)
   func installState(
     settingsURL: URL,
-    hookGroupsByEvent: [String: [JSONValue]]
+    hookGroupsByEvent: [String: [JSONValue]],
   ) -> ComponentInstallState {
     do {
       let settingsObject = try loadSettingsObject(at: settingsURL)
@@ -100,7 +100,7 @@ nonisolated struct AgentHookSettingsFileInstaller {
   /// ownership (see `AgentHookCommandOwnership`).
   func uninstall(
     settingsURL: URL,
-    hookGroupsByEvent: @autoclosure () throws -> [String: [JSONValue]]
+    hookGroupsByEvent: @autoclosure () throws -> [String: [JSONValue]],
   ) throws {
     _ = try hookGroupsByEvent()  // Eval for parity with `install` errors; we don't use the value.
     var settingsObject = try loadSettingsObject(at: settingsURL)
@@ -121,7 +121,7 @@ nonisolated struct AgentHookSettingsFileInstaller {
   /// a crash mid-update can't leave the file half-pruned.
   func install(
     settingsURL: URL,
-    hookGroupsByEvent: @autoclosure () throws -> [String: [JSONValue]]
+    hookGroupsByEvent: @autoclosure () throws -> [String: [JSONValue]],
   ) throws {
     let canonicalGroups = try hookGroupsByEvent()
     var settingsObject = try loadSettingsObject(at: settingsURL)

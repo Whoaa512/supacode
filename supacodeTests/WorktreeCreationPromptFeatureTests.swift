@@ -16,7 +16,7 @@ struct WorktreeCreationPromptFeatureTests {
     selectedBaseRef: String? = nil,
     defaultWorktreeBaseDirectory: String = "/tmp/repo/.worktrees",
     title: String = "",
-    color: RepositoryColor? = nil
+    color: RepositoryColor? = nil,
   ) -> WorktreeCreationPromptFeature.State {
     var state = WorktreeCreationPromptFeature.State(
       repositoryID: "/tmp/repo/",
@@ -30,7 +30,7 @@ struct WorktreeCreationPromptFeatureTests {
       selectedBaseRef: selectedBaseRef,
       fetchOrigin: true,
       defaultWorktreeBaseDirectory: defaultWorktreeBaseDirectory,
-      validationMessage: nil
+      validationMessage: nil,
     )
     state.title = title
     state.color = color
@@ -91,7 +91,7 @@ struct WorktreeCreationPromptFeatureTests {
           fetchOrigin: true,
           placement: WorktreePlacementOverride(name: nil, path: nil),
           title: nil,
-          color: nil
+          color: nil,
         )
       )
     )
@@ -117,7 +117,7 @@ struct WorktreeCreationPromptFeatureTests {
           fetchOrigin: false,
           placement: WorktreePlacementOverride(name: nil, path: nil),
           title: nil,
-          color: nil
+          color: nil,
         )
       )
     )
@@ -147,10 +147,10 @@ struct WorktreeCreationPromptFeatureTests {
           fetchOrigin: true,
           placement: WorktreePlacementOverride(
             name: "feature_new",
-            path: "~/Repos"
+            path: "~/Repos",
           ),
           title: nil,
-          color: nil
+          color: nil,
         )
       )
     )
@@ -253,7 +253,7 @@ struct WorktreeCreationPromptFeatureTests {
           fetchOrigin: true,
           placement: WorktreePlacementOverride(name: nil, path: nil),
           title: "Spicy",
-          color: .blue
+          color: .blue,
         )
       )
     )
@@ -276,7 +276,7 @@ struct WorktreeCreationPromptFeatureTests {
           fetchOrigin: true,
           placement: WorktreePlacementOverride(name: nil, path: nil),
           title: "feature/x",
-          color: nil
+          color: nil,
         )
       )
     )
@@ -299,7 +299,7 @@ struct WorktreeCreationPromptFeatureTests {
           fetchOrigin: true,
           placement: WorktreePlacementOverride(name: nil, path: nil),
           title: nil,
-          color: nil
+          color: nil,
         )
       )
     )

@@ -50,13 +50,13 @@ struct AppFeatureSettingsChangedTests {
       name: "feature",
       detail: "",
       workingDirectory: URL(fileURLWithPath: "/tmp/repo/wt-feature"),
-      repositoryRootURL: rootURL
+      repositoryRootURL: rootURL,
     )
     let repository = Repository(
       id: rootURL.path(percentEncoded: false),
       rootURL: rootURL,
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [worktree])
+      worktrees: IdentifiedArray(uniqueElements: [worktree]),
     )
     var repositoriesState = RepositoriesFeature.State(reconciledRepositories: [repository])
     let surfaceID = UUID()
@@ -66,7 +66,7 @@ struct AppFeatureSettingsChangedTests {
     repositoriesState.sidebarItems[id: worktree.id]?.hasAgentActivity = true
     var appState = AppFeature.State(
       repositories: repositoriesState,
-      settings: SettingsFeature.State()
+      settings: SettingsFeature.State(),
     )
     appState.agentPresence.bySurface[surfaceID] = [.claude]
     appState.agentPresence.records[

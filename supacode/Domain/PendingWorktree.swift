@@ -21,7 +21,7 @@ struct PendingWorktree: Identifiable, Hashable {
     id: String,
     repositoryID: Repository.ID,
     progress: WorktreeCreationProgress,
-    customization: Customization? = nil
+    customization: Customization? = nil,
   ) {
     self.id = id
     self.repositoryID = repositoryID

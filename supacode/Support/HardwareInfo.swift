@@ -4,7 +4,7 @@ nonisolated enum HardwareInfo {
   static var uuid: String? {
     let platformExpert = IOServiceGetMatchingService(
       kIOMainPortDefault,
-      IOServiceMatching("IOPlatformExpertDevice")
+      IOServiceMatching("IOPlatformExpertDevice"),
     )
 
     guard platformExpert != 0 else { return nil }
@@ -14,7 +14,7 @@ nonisolated enum HardwareInfo {
       platformExpert,
       kIOPlatformUUIDKey as CFString,
       kCFAllocatorDefault,
-      0
+      0,
     )
 
     return uuid?.takeRetainedValue() as? String

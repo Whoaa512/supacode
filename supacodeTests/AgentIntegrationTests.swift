@@ -10,7 +10,7 @@ struct AgentIntegrationTests {
       components: [
         component(kind: .unifiedHooks, installed: true),
         component(kind: .cliSkill, installed: true),
-      ]
+      ],
     )
     #expect(integration.state() == .installed)
   }
@@ -21,7 +21,7 @@ struct AgentIntegrationTests {
       components: [
         component(kind: .unifiedHooks, installed: false),
         component(kind: .cliSkill, installed: false),
-      ]
+      ],
     )
     #expect(integration.state() == .notInstalled)
   }
@@ -32,7 +32,7 @@ struct AgentIntegrationTests {
       components: [
         component(kind: .unifiedHooks, state: .installed),
         component(kind: .cliSkill, state: .notInstalled),
-      ]
+      ],
     )
     #expect(integration.state() == .outdated)
   }
@@ -43,7 +43,7 @@ struct AgentIntegrationTests {
       components: [
         component(kind: .unifiedHooks, state: .outdated),
         component(kind: .cliSkill, state: .installed),
-      ]
+      ],
     )
     #expect(integration.state() == .outdated)
   }
@@ -56,7 +56,7 @@ struct AgentIntegrationTests {
         recordingComponent(label: "first", recorder: order),
         recordingComponent(label: "second", recorder: order),
         recordingComponent(label: "third", recorder: order),
-      ]
+      ],
     )
     try await integration.install()
     #expect(await order.installs == ["first", "second", "third"])
@@ -70,7 +70,7 @@ struct AgentIntegrationTests {
         recordingComponent(label: "first", recorder: order),
         recordingComponent(label: "second", recorder: order),
         recordingComponent(label: "third", recorder: order),
-      ]
+      ],
     )
     try integration.uninstall()
     #expect(order.uninstallsSync == ["third", "second", "first"])
@@ -89,9 +89,9 @@ struct AgentIntegrationTests {
           install: { throw TestError.boom },
           // Should never run during rollback — the throwing component
           // didn't complete, so there's nothing to undo.
-          uninstall: {}
+          uninstall: {},
         ),
-      ]
+      ],
     )
     do {
       try await integration.install()
@@ -113,10 +113,10 @@ struct AgentIntegrationTests {
           kind: .cliSkill,
           state: { .notInstalled },
           install: {},
-          uninstall: { throw TestError.boom }
+          uninstall: { throw TestError.boom },
         ),
         recordingComponent(label: "third", recorder: order),
-      ]
+      ],
     )
     do {
       try integration.uninstall()
@@ -130,30 +130,30 @@ struct AgentIntegrationTests {
   // MARK: - Helpers.
 
   private func component(
-    kind: AgentIntegration.Component.Kind, installed: Bool
+    kind: AgentIntegration.Component.Kind, installed: Bool,
   ) -> AgentIntegration.Component {
     component(kind: kind, state: installed ? .installed : .notInstalled)
   }
 
   private func component(
-    kind: AgentIntegration.Component.Kind, state: ComponentInstallState
+    kind: AgentIntegration.Component.Kind, state: ComponentInstallState,
   ) -> AgentIntegration.Component {
     AgentIntegration.Component(
       kind: kind,
       state: { state },
       install: {},
-      uninstall: {}
+      uninstall: {},
     )
   }
 
   private func recordingComponent(
-    label: String, recorder: OrderRecorder
+    label: String, recorder: OrderRecorder,
   ) -> AgentIntegration.Component {
     AgentIntegration.Component(
       kind: .unifiedHooks,
       state: { .notInstalled },
       install: { await recorder.recordInstall(label) },
-      uninstall: { recorder.recordUninstallSync(label) }
+      uninstall: { recorder.recordUninstallSync(label) },
     )
   }
 }

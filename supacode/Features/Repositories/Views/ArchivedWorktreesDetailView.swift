@@ -24,7 +24,7 @@ struct ArchivedWorktreesDetailView: View {
         guard let repositoryID = repositoryByWorktreeID[worktreeID] else { return nil }
         return RepositoriesFeature.DeleteWorktreeTarget(
           worktreeID: worktreeID,
-          repositoryID: repositoryID
+          repositoryID: repositoryID,
         )
       }
     let confirmAlert = store.state.confirmWorktreeAlert
@@ -32,7 +32,7 @@ struct ArchivedWorktreesDetailView: View {
       ContentUnavailableView(
         "Archived Worktrees",
         systemImage: "archivebox",
-        description: Text("Archive worktrees to keep them out of the main list.")
+        description: Text("Archive worktrees to keep them out of the main list."),
       )
     } else {
       List(selection: $selectedArchivedWorktreeIDs) {
@@ -53,11 +53,11 @@ struct ArchivedWorktreesDetailView: View {
                       .requestDeleteSidebarItems([
                         RepositoriesFeature.DeleteWorktreeTarget(
                           worktreeID: worktree.id,
-                          repositoryID: group.repository.id
+                          repositoryID: group.repository.id,
                         )
                       ])
                     )
-                  }
+                  },
                 )
                 .tag(worktree.id)
                 .typeSelectEquivalent("")
@@ -71,7 +71,7 @@ struct ArchivedWorktreesDetailView: View {
               worktreeCount: group.worktrees.count,
               isCollapsed: collapsedRepositoryIDs.contains(group.repository.id),
               showsTopSeparator: index > 0,
-              onToggle: { toggleSection(group.repository.id) }
+              onToggle: { toggleSection(group.repository.id) },
             )
           }
         }
@@ -88,14 +88,14 @@ struct ArchivedWorktreesDetailView: View {
       .focusedAction(
         \.deleteWorktreeAction,
         enabled: !selectedTargets.isEmpty,
-        token: selectedTargets
+        token: selectedTargets,
       ) {
         store.send(.requestDeleteSidebarItems(selectedTargets))
       }
       .focusedSceneAction(
         \.confirmWorktreeAction,
         enabled: confirmAlert != nil,
-        token: confirmAlert
+        token: confirmAlert,
       ) {
         if let alert = confirmAlert {
           store.send(.alert(.presented(alert)))

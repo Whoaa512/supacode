@@ -24,7 +24,7 @@ struct SidebarStructureTests {
       name: name,
       detail: "",
       workingDirectory: URL(fileURLWithPath: id),
-      repositoryRootURL: repoRoot
+      repositoryRootURL: repoRoot,
     )
   }
 
@@ -34,7 +34,7 @@ struct SidebarStructureTests {
       name: "main",
       detail: "",
       workingDirectory: repoRoot,
-      repositoryRootURL: repoRoot
+      repositoryRootURL: repoRoot,
     )
   }
 
@@ -71,7 +71,7 @@ struct SidebarStructureTests {
       id: repoRoot.path(percentEncoded: false),
       rootURL: repoRoot,
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [main, feature])
+      worktrees: IdentifiedArray(uniqueElements: [main, feature]),
     )
     let state = makeState(repositories: [repository])
 
@@ -94,7 +94,7 @@ struct SidebarStructureTests {
       id: repoRoot.path(percentEncoded: false),
       rootURL: repoRoot,
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [main])
+      worktrees: IdentifiedArray(uniqueElements: [main]),
     )
     var state = makeState(repositories: [repository])
     // Even if some pre-state has the main in `.pinned`, the helper must skip it.
@@ -127,7 +127,7 @@ struct SidebarStructureTests {
       id: repoRoot.path(percentEncoded: false),
       rootURL: repoRoot,
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [main, pinned, extra])
+      worktrees: IdentifiedArray(uniqueElements: [main, pinned, extra]),
     )
     var state = makeState(repositories: [repository])
     // Pin `pinned` so it qualifies for the Pinned highlight section.
@@ -160,7 +160,7 @@ struct SidebarStructureTests {
       id: repoRoot.path(percentEncoded: false),
       rootURL: repoRoot,
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [main, duplicate])
+      worktrees: IdentifiedArray(uniqueElements: [main, duplicate]),
     )
     var state = makeState(repositories: [repository])
     // Hand-edit pre-state so `duplicate` lives in BOTH .pinned and .unpinned.
@@ -180,7 +180,7 @@ struct SidebarStructureTests {
       repositoryID: repository.id,
       pendingIDs: [],
       hoistedRowIDs: [],
-      nestWorktreesByBranch: false
+      nestWorktreesByBranch: false,
     )
     let allRowIDs = groups.flatMap { $0.rowIDs }
     #expect(allRowIDs.filter { $0 == duplicate.id }.count == 1)
@@ -196,7 +196,7 @@ struct SidebarStructureTests {
       id: repoRoot.path(percentEncoded: false),
       rootURL: repoRoot,
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [main, archived])
+      worktrees: IdentifiedArray(uniqueElements: [main, archived]),
     )
     var state = makeState(repositories: [repository])
     state.$sidebar.withLock { sidebar in
@@ -215,7 +215,7 @@ struct SidebarStructureTests {
         repositoryID: repository.id,
         pendingIDs: [],
         hoistedRowIDs: [],
-        nestWorktreesByBranch: false
+        nestWorktreesByBranch: false,
       ).first { $0.slot == .unpinnedTail }?.rowIDs ?? []
     }
 
@@ -246,7 +246,7 @@ struct SidebarStructureTests {
       id: repoRoot.path(percentEncoded: false),
       rootURL: repoRoot,
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [main, charlie, alpha, bravo, unpinB, unpinX])
+      worktrees: IdentifiedArray(uniqueElements: [main, charlie, alpha, bravo, unpinB, unpinX]),
     )
     var state = makeState(repositories: [repository])
     // Pin charlie, alpha, bravo in bucket order DIFFERENT from alphabetical.
@@ -275,7 +275,7 @@ struct SidebarStructureTests {
       repositoryID: repository.id,
       pendingIDs: [],
       hoistedRowIDs: [],
-      nestWorktreesByBranch: true
+      nestWorktreesByBranch: true,
     )
 
     let pinnedTail = groups.first { $0.slot == .pinnedTail }?.rowIDs ?? []
@@ -293,7 +293,7 @@ struct SidebarStructureTests {
       id: repoRoot.path(percentEncoded: false),
       rootURL: repoRoot,
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [main, charlie, alpha])
+      worktrees: IdentifiedArray(uniqueElements: [main, charlie, alpha]),
     )
     var state = makeState(repositories: [repository])
     state.$sidebar.withLock { sidebar in
@@ -315,7 +315,7 @@ struct SidebarStructureTests {
       repositoryID: repository.id,
       pendingIDs: [],
       hoistedRowIDs: [],
-      nestWorktreesByBranch: false
+      nestWorktreesByBranch: false,
     )
     let pinnedTail = groups.first { $0.slot == .pinnedTail }?.rowIDs ?? []
     #expect(pinnedTail == [charlie.id, alpha.id])
@@ -331,7 +331,7 @@ struct SidebarStructureTests {
       id: repoRoot.path(percentEncoded: false),
       rootURL: repoRoot,
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [main, charlie, alpha, bravo])
+      worktrees: IdentifiedArray(uniqueElements: [main, charlie, alpha, bravo]),
     )
     var state = makeState(repositories: [repository])
     state.$sidebar.withLock { sidebar in
@@ -380,7 +380,7 @@ struct SidebarStructureTests {
       id: repoRoot.path(percentEncoded: false),
       rootURL: repoRoot,
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [main, busy, idle])
+      worktrees: IdentifiedArray(uniqueElements: [main, busy, idle]),
     )
     var state = makeState(repositories: [repository])
     // `runningScripts` non-empty is the simplest single flag that classifies
@@ -415,7 +415,7 @@ struct SidebarStructureTests {
       id: repoRoot.path(percentEncoded: false),
       rootURL: repoRoot,
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [main, archived])
+      worktrees: IdentifiedArray(uniqueElements: [main, archived]),
     )
     var state = makeState(repositories: [repository])
     state.sidebarItems[id: archived.id]?.hasUnseenNotifications = true
@@ -441,7 +441,7 @@ struct SidebarStructureTests {
       id: repoRoot.path(percentEncoded: false),
       rootURL: repoRoot,
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [main])
+      worktrees: IdentifiedArray(uniqueElements: [main]),
     )
     var state = makeState(repositories: [repository])
     let failedRoot = URL(fileURLWithPath: "/tmp/broken")
@@ -474,7 +474,7 @@ struct SidebarStructureTests {
       id: repoRoot.path(percentEncoded: false),
       rootURL: repoRoot,
       name: "raw-folder-name",
-      worktrees: IdentifiedArray(uniqueElements: [main, busy])
+      worktrees: IdentifiedArray(uniqueElements: [main, busy]),
     )
     var state = makeState(repositories: [repository])
     state.sidebarItems[id: busy.id]?.runningScripts.append(.init(id: UUID(), tint: .blue))
@@ -498,7 +498,7 @@ struct SidebarStructureTests {
       id: repoRoot.path(percentEncoded: false),
       rootURL: repoRoot,
       name: "fallback-name",
-      worktrees: IdentifiedArray(uniqueElements: [main, busy])
+      worktrees: IdentifiedArray(uniqueElements: [main, busy]),
     )
     var state = makeState(repositories: [repository])
     state.sidebarItems[id: busy.id]?.runningScripts.append(.init(id: UUID(), tint: .blue))
@@ -521,7 +521,7 @@ struct SidebarStructureTests {
       id: repoRoot.path(percentEncoded: false),
       rootURL: repoRoot,
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [main, archiving])
+      worktrees: IdentifiedArray(uniqueElements: [main, archiving]),
     )
     var state = makeState(repositories: [repository])
     state.sidebarItems[id: archiving.id]?.runningScripts.append(.init(id: UUID(), tint: .blue))
@@ -545,7 +545,7 @@ struct SidebarStructureTests {
       id: repoRoot.path(percentEncoded: false),
       rootURL: repoRoot,
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [main, deleting])
+      worktrees: IdentifiedArray(uniqueElements: [main, deleting]),
     )
     var state = makeState(repositories: [repository])
     state.sidebarItems[id: deleting.id]?.runningScripts.append(.init(id: UUID(), tint: .blue))
@@ -568,7 +568,7 @@ struct SidebarStructureTests {
       id: repoRoot.path(percentEncoded: false),
       rootURL: repoRoot,
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [main, pending])
+      worktrees: IdentifiedArray(uniqueElements: [main, pending]),
     )
     var state = makeState(repositories: [repository])
     state.sidebarItems[id: pending.id]?.runningScripts.append(.init(id: UUID(), tint: .blue))
@@ -593,7 +593,7 @@ struct SidebarStructureTests {
       id: repoRoot.path(percentEncoded: false),
       rootURL: repoRoot,
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [main, other])
+      worktrees: IdentifiedArray(uniqueElements: [main, other]),
     )
     var state = makeState(repositories: [repository])
     // Corrupted pre-state: main lives at index 1 of `.pinned`, not 0. We
@@ -610,7 +610,7 @@ struct SidebarStructureTests {
       repositoryID: repository.id,
       pendingIDs: [],
       hoistedRowIDs: [],
-      nestWorktreesByBranch: false
+      nestWorktreesByBranch: false,
     )
     let mainGroup = groups.first { if case .main = $0.slot { return true } else { return false } }
     let pinnedTail = groups.first { if case .pinnedTail = $0.slot { return true } else { return false } }
@@ -634,11 +634,11 @@ struct SidebarStructureTests {
             name: "folder",
             detail: "",
             workingDirectory: folderURL,
-            repositoryRootURL: folderURL
+            repositoryRootURL: folderURL,
           )
         ]
       ),
-      isGitRepository: false
+      isGitRepository: false,
     )
     var state = makeState(repositories: [folderRepo])
     state.$sidebar.withLock { sidebar in
@@ -676,7 +676,7 @@ struct SidebarStructureTests {
       offsets: IndexSet([2]),
       destination: 0,
       visibleIDs: visible,
-      fullIDs: full
+      fullIDs: full,
     )
     #expect(result?.offsets == IndexSet([3]))
     #expect(result?.destination == 0)
@@ -690,7 +690,7 @@ struct SidebarStructureTests {
       offsets: IndexSet([0]),
       destination: visible.count,
       visibleIDs: visible,
-      fullIDs: full
+      fullIDs: full,
     )
     #expect(result?.offsets == IndexSet([0]))
     #expect(result?.destination == full.count)
@@ -704,7 +704,7 @@ struct SidebarStructureTests {
       offsets: IndexSet([5]),
       destination: 0,
       visibleIDs: visible,
-      fullIDs: full
+      fullIDs: full,
     )
     #expect(result == nil)
   }
@@ -717,7 +717,7 @@ struct SidebarStructureTests {
       offsets: IndexSet([0]),
       destination: 99,
       visibleIDs: visible,
-      fullIDs: full
+      fullIDs: full,
     )
     #expect(result == nil)
   }
@@ -730,7 +730,7 @@ struct SidebarStructureTests {
       offsets: IndexSet([1]),
       destination: 0,
       visibleIDs: visible,
-      fullIDs: full
+      fullIDs: full,
     )
     #expect(result == nil)
   }
@@ -744,7 +744,7 @@ struct SidebarStructureTests {
       offsets: IndexSet([1]),
       destination: 3,
       visibleIDs: visible,
-      fullIDs: full
+      fullIDs: full,
     )
     #expect(translated != nil)
     guard let translated else { return }
@@ -763,7 +763,7 @@ struct SidebarStructureTests {
       offsets: IndexSet(),
       destination: 1,
       visibleIDs: visible,
-      fullIDs: full
+      fullIDs: full,
     )
     #expect(result?.offsets == IndexSet())
     #expect(result?.destination == 1)
@@ -780,7 +780,7 @@ struct SidebarStructureTests {
       offsets: IndexSet([0]),
       destination: visible.count - 1,
       visibleIDs: visible,
-      fullIDs: full
+      fullIDs: full,
     )
     #expect(translated != nil)
     guard let translated else { return }

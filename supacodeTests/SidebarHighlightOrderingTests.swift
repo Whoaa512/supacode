@@ -7,7 +7,7 @@ struct SidebarHighlightOrderingTests {
   private func candidate(
     _ id: String,
     branch: String,
-    classification: SidebarActiveClassification? = nil
+    classification: SidebarActiveClassification? = nil,
   ) -> SidebarHighlightOrdering.Candidate {
     .init(id: id, branchName: branch, classification: classification)
   }
@@ -18,7 +18,7 @@ struct SidebarHighlightOrderingTests {
       candidates: [
         candidate("a", branch: "alpha"),
         candidate("b", branch: "beta", classification: .running),
-      ]
+      ],
     )
     #expect(ids == ["b"])
   }
@@ -30,7 +30,7 @@ struct SidebarHighlightOrderingTests {
         candidate("c", branch: "charlie"),
         candidate("a", branch: "alpha"),
         candidate("b", branch: "bravo", classification: .running),
-      ]
+      ],
     )
     // Classified row first (priority 10), then unclassified rows alphabetically.
     #expect(ids == ["b", "a", "c"])
@@ -44,7 +44,7 @@ struct SidebarHighlightOrderingTests {
         candidate("unreadAwaiting", branch: "unread-awaiting", classification: .unreadAwaiting),
         candidate("agent", branch: "agent", classification: .agent),
         candidate("unreadAwaitingRunning", branch: "top", classification: .unreadAwaitingRunning),
-      ]
+      ],
     )
     #expect(ids == ["unreadAwaitingRunning", "unreadAwaiting", "agent", "running"])
   }
@@ -59,7 +59,7 @@ struct SidebarHighlightOrderingTests {
         candidate("z", branch: "Zulu", classification: .running),
         candidate("a", branch: "alpha", classification: .running),
         candidate("b", branch: "Bravo", classification: .running),
-      ]
+      ],
     )
     #expect(ids == ["a", "b", "z"])
   }
@@ -75,7 +75,7 @@ struct SidebarHighlightOrderingTests {
     ]
     let activeIDs = SidebarHighlightOrdering.orderedRowIDs(
       forPinned: false,
-      candidates: candidates.filter { $0.id != "shared" }
+      candidates: candidates.filter { $0.id != "shared" },
     )
     #expect(activeIDs == ["active-only"])
   }

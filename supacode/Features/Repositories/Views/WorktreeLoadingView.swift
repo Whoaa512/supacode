@@ -60,9 +60,9 @@ struct WorktreeLoadingView: View {
           statusTitle: "Creating worktree",
           statusDetail: nil,
           statusCommand: "git worktree add",
-          statusLines: statusLines
+          statusLines: statusLines,
         )
-      )
+      ),
     )
   )
   .frame(width: 600, height: 400)

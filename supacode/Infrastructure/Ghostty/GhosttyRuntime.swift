@@ -67,7 +67,7 @@ final class GhosttyRuntime {
       },
       close_surface_cb: { @Sendable userdata, processAlive in
         GhosttyRuntime.closeSurfaceCallback(userdata, processAlive)
-      }
+      },
     )
 
     guard let app = ghostty_app_new(&runtimeConfig, config) else {
@@ -80,7 +80,7 @@ final class GhosttyRuntime {
       center.addObserver(
         forName: NSApplication.didBecomeActiveNotification,
         object: nil,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         MainActor.assumeIsolated {
           self?.setAppFocus(true)
@@ -90,7 +90,7 @@ final class GhosttyRuntime {
       center.addObserver(
         forName: NSApplication.didResignActiveNotification,
         object: nil,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         MainActor.assumeIsolated {
           self?.setAppFocus(false)
@@ -100,7 +100,7 @@ final class GhosttyRuntime {
       center.addObserver(
         forName: NSTextInputContext.keyboardSelectionDidChangeNotification,
         object: nil,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         MainActor.assumeIsolated {
           guard let app = self?.app else { return }
@@ -217,7 +217,7 @@ final class GhosttyRuntime {
   private func applyConfig(
     _ config: ghostty_config_t,
     target: ghostty_target_s,
-    app: ghostty_app_t
+    app: ghostty_app_t,
   ) {
     switch target.tag {
     case GHOSTTY_TARGET_APP:
@@ -278,7 +278,7 @@ final class GhosttyRuntime {
   private nonisolated static func actionCallback(
     _ app: ghostty_app_t?,
     _ target: ghostty_target_s,
-    _ action: ghostty_action_s
+    _ action: ghostty_action_s,
   ) -> Bool {
     guard let app else { return false }
     let appBits = UInt(bitPattern: app)
@@ -298,7 +298,7 @@ final class GhosttyRuntime {
   private nonisolated static func readClipboardCallback(
     _ userdata: UnsafeMutableRawPointer?,
     _ location: ghostty_clipboard_e,
-    _ state: UnsafeMutableRawPointer?
+    _ state: UnsafeMutableRawPointer?,
   ) -> Bool {
     let userdataBits = userdata.map { UInt(bitPattern: $0) }
     let stateBits = state.map { UInt(bitPattern: $0) }
@@ -318,7 +318,7 @@ final class GhosttyRuntime {
     _ userdata: UnsafeMutableRawPointer?,
     _ string: UnsafePointer<CChar>?,
     _ state: UnsafeMutableRawPointer?,
-    _ request: ghostty_clipboard_request_e
+    _ request: ghostty_clipboard_request_e,
   ) {
     guard let string else { return }
     let value = String(cString: string)
@@ -330,7 +330,7 @@ final class GhosttyRuntime {
           userdataBits: userdataBits,
           value: value,
           stateBits: stateBits,
-          request: request
+          request: request,
         )
       }
       return
@@ -341,7 +341,7 @@ final class GhosttyRuntime {
           userdataBits: userdataBits,
           value: value,
           stateBits: stateBits,
-          request: request
+          request: request,
         )
       }
     }
@@ -352,7 +352,7 @@ final class GhosttyRuntime {
     _ location: ghostty_clipboard_e,
     _ content: UnsafePointer<ghostty_clipboard_content_s>?,
     _ len: Int,
-    _ confirm: Bool
+    _ confirm: Bool,
   ) {
     _ = userdata
     guard let content, len > 0 else { return }
@@ -367,7 +367,7 @@ final class GhosttyRuntime {
         writeClipboard(
           location: location,
           items: items,
-          confirm: confirm
+          confirm: confirm,
         )
       }
       return
@@ -377,7 +377,7 @@ final class GhosttyRuntime {
         writeClipboard(
           location: location,
           items: items,
-          confirm: confirm
+          confirm: confirm,
         )
       }
     }
@@ -385,7 +385,7 @@ final class GhosttyRuntime {
 
   private nonisolated static func closeSurfaceCallback(
     _ userdata: UnsafeMutableRawPointer?,
-    _ processAlive: Bool
+    _ processAlive: Bool,
   ) {
     let userdataBits = userdata.map { UInt(bitPattern: $0) }
     if Thread.isMainThread {
@@ -410,7 +410,7 @@ final class GhosttyRuntime {
   private static func handleAction(
     appBits: UInt,
     target: ghostty_target_s,
-    action: ghostty_action_s
+    action: ghostty_action_s,
   ) -> Bool {
     guard let app = ghostty_app_t(bitPattern: appBits) else { return false }
     if let runtime = runtime(fromApp: app) {
@@ -442,7 +442,7 @@ final class GhosttyRuntime {
   private static func readClipboard(
     userdataBits: UInt?,
     location: ghostty_clipboard_e,
-    stateBits: UInt?
+    stateBits: UInt?,
   ) -> Bool {
     let userdata = userdataBits.flatMap { UnsafeMutableRawPointer(bitPattern: $0) }
     let state = stateBits.flatMap { UnsafeMutableRawPointer(bitPattern: $0) }
@@ -462,7 +462,7 @@ final class GhosttyRuntime {
     userdataBits: UInt?,
     value: String,
     stateBits: UInt?,
-    request: ghostty_clipboard_request_e
+    request: ghostty_clipboard_request_e,
   ) {
     _ = request
     let userdata = userdataBits.flatMap { UnsafeMutableRawPointer(bitPattern: $0) }
@@ -478,7 +478,7 @@ final class GhosttyRuntime {
   private static func writeClipboard(
     location: ghostty_clipboard_e,
     items: [(mime: String, data: String)],
-    confirm: Bool
+    confirm: Bool,
   ) {
     _ = confirm
 

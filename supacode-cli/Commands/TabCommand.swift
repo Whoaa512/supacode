@@ -11,7 +11,7 @@ struct TabCommand: ParsableCommand {
       New.self,
       Close.self,
     ],
-    defaultSubcommand: Focus.self
+    defaultSubcommand: Focus.self,
   )
 }
 

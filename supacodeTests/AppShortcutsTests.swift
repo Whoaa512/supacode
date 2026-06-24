@@ -31,7 +31,7 @@ struct AppShortcutsTests {
   @Test func worktreeSelectionUsesControlNumberShortcuts() {
     expectNoDifference(
       AppShortcuts.worktreeSelection.map(\.display),
-      ["⌃1", "⌃2", "⌃3", "⌃4", "⌃5", "⌃6", "⌃7", "⌃8", "⌃9", "⌃0"]
+      ["⌃1", "⌃2", "⌃3", "⌃4", "⌃5", "⌃6", "⌃7", "⌃8", "⌃9", "⌃0"],
     )
 
     for shortcut in AppShortcuts.worktreeSelection {
@@ -63,7 +63,7 @@ struct AppShortcutsTests {
         "--keybind=ctrl+digit_9=goto_tab:9",
         "--keybind=ctrl+0=goto_tab:10",
         "--keybind=ctrl+digit_0=goto_tab:10",
-      ]
+      ],
     )
   }
 
@@ -108,7 +108,7 @@ struct AppShortcutsTests {
   @Test func effectiveReturnsOverrideWhenPresent() {
     let override = AppShortcutOverride(
       keyCode: UInt16(kVK_ANSI_R),
-      modifiers: [.command, .shift]
+      modifiers: [.command, .shift],
     )
     let result = AppShortcuts.newWorktree.effective(from: [.newWorktree: override])
     #expect(result?.display == "⌘⇧R")
@@ -117,7 +117,7 @@ struct AppShortcutsTests {
   @Test func ghosttyCLIArgumentsWithOverrides() {
     let override = AppShortcutOverride(
       keyCode: UInt16(kVK_ANSI_K),
-      modifiers: [.command]
+      modifiers: [.command],
     )
     let args = AppShortcuts.ghosttyCLIKeybindArguments(from: [.newWorktree: override])
     // The override should produce an unbind for super+k instead of super+n.
@@ -144,7 +144,7 @@ struct AppShortcutsTests {
     let override = AppShortcutOverride(
       keyCode: UInt16(kVK_ANSI_K),
       modifiers: [.command],
-      isEnabled: false
+      isEnabled: false,
     )
     let result = AppShortcuts.newWorktree.effective(from: [.newWorktree: override])
     #expect(result == nil)
@@ -161,7 +161,7 @@ struct AppShortcutsTests {
   @Test func activeSlotsDropDisabledOverridePreservingOtherIndices() {
     let slots = AppShortcuts.activeWorktreeSelectionSlots(
       overrides: [.selectWorktree(6): .disabled],
-      orderedRowsCount: 10
+      orderedRowsCount: 10,
     )
     #expect(slots.map(\.index) == [0, 1, 2, 3, 4, 6, 7, 8, 9])
     #expect(slots.allSatisfy { $0.index != 5 })
@@ -175,7 +175,7 @@ struct AppShortcutsTests {
   @Test func activeSlotsDropBothDisabledAndOutOfRangeSlots() {
     let slots = AppShortcuts.activeWorktreeSelectionSlots(
       overrides: [.selectWorktree(3): .disabled],
-      orderedRowsCount: 5
+      orderedRowsCount: 5,
     )
     #expect(slots.map(\.index) == [0, 1, 3, 4])
   }
@@ -191,7 +191,7 @@ struct AppShortcutsTests {
     #expect(
       AppShortcuts.worktreeSelectionShortcutDisplay(
         atSlot: 2,
-        overrides: [.selectWorktree(3): .disabled]
+        overrides: [.selectWorktree(3): .disabled],
       ) == nil
     )
   }
@@ -224,7 +224,7 @@ struct AppShortcutsTests {
   @Test func categoryDisplayNames() {
     expectNoDifference(
       AppShortcutCategory.allCases.map(\.displayName),
-      ["General", "Sidebar", "Worktrees", "Worktree Selection", "Actions"]
+      ["General", "Sidebar", "Worktrees", "Worktree Selection", "Actions"],
     )
   }
 
@@ -254,7 +254,7 @@ struct AppShortcutsTests {
   @Test func effectiveOverrideGhosttyKeybindMatchesOverrideKeybind() {
     let override = AppShortcutOverride(
       keyCode: UInt16(kVK_ANSI_R),
-      modifiers: [.command, .shift]
+      modifiers: [.command, .shift],
     )
     let effective = AppShortcuts.newWorktree.effective(from: [.newWorktree: override])
     #expect(effective != nil)

@@ -38,7 +38,7 @@ extension RepositoriesFeature {
           repositoryID: repositoryID,
           defaultName: defaultName,
           title: storedItem?.title ?? "",
-          color: storedItem?.color
+          color: storedItem?.color,
         )
         return .none
 

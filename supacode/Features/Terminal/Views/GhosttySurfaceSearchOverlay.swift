@@ -33,7 +33,7 @@ struct GhosttySurfaceSearchOverlay: View {
             },
             onEscape: {
               closeSearch()
-            }
+            },
           )
           .frame(width: 180)
           .padding(.leading, 8)
@@ -51,7 +51,7 @@ struct GhosttySurfaceSearchOverlay: View {
             SearchButtonLabel(
               title: "Next",
               shortcut: ghosttyShortcuts.display(for: "navigate_search:next"),
-              systemImage: "chevron.up"
+              systemImage: "chevron.up",
             )
           }
           .buttonStyle(GhosttySearchButtonStyle())
@@ -62,7 +62,7 @@ struct GhosttySurfaceSearchOverlay: View {
             SearchButtonLabel(
               title: "Previous",
               shortcut: ghosttyShortcuts.display(for: "navigate_search:previous"),
-              systemImage: "chevron.down"
+              systemImage: "chevron.down",
             )
           }
           .buttonStyle(GhosttySearchButtonStyle())
@@ -73,7 +73,7 @@ struct GhosttySurfaceSearchOverlay: View {
             SearchButtonLabel(
               title: "Close",
               shortcut: ghosttyShortcuts.display(for: "end_search"),
-              systemImage: "xmark"
+              systemImage: "xmark",
             )
           }
           .buttonStyle(GhosttySearchButtonStyle())
@@ -101,7 +101,7 @@ struct GhosttySurfaceSearchOverlay: View {
               let centerPos = centerPosition(for: corner, in: geo.size, barSize: barSize)
               let newCenter = CGPoint(
                 x: centerPos.x + value.translation.width,
-                y: centerPos.y + value.translation.height
+                y: centerPos.y + value.translation.height,
               )
               let newCorner = closestCorner(to: newCenter, in: geo.size)
               withAnimation(.easeOut(duration: 0.2)) {
@@ -202,7 +202,7 @@ struct GhosttySurfaceSearchOverlay: View {
   private func centerPosition(
     for corner: GhosttySearchCorner,
     in containerSize: CGSize,
-    barSize: CGSize
+    barSize: CGSize,
   ) -> CGPoint {
     let halfWidth = barSize.width / 2 + overlayPadding
     let halfHeight = barSize.height / 2 + overlayPadding

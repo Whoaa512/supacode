@@ -21,7 +21,7 @@ struct BaseRefBranchMenu: Equatable {
     remotes = inventory.remotes.map { remote in
       Remote(
         name: remote.name,
-        branches: BranchMenuNode.build(branches: remote.branches, refPrefix: "\(remote.name)/")
+        branches: BranchMenuNode.build(branches: remote.branches, refPrefix: "\(remote.name)/"),
       )
     }
   }
@@ -68,7 +68,7 @@ struct BranchMenuNode: Equatable, Identifiable {
             id: refPrefix + path,
             name: segment,
             ref: child.branch.map { refPrefix + $0 },
-            children: child.sortedChildren(pathPrefix: path, refPrefix: refPrefix)
+            children: child.sortedChildren(pathPrefix: path, refPrefix: refPrefix),
           )
         }
         .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }

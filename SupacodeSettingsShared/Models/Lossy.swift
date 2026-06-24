@@ -24,7 +24,7 @@ extension KeyedDecodingContainer {
   /// otherwise — element failures are logged and dropped.
   public nonisolated func decodeLossyArrayIfPresent<T: Decodable & Sendable>(
     _ type: [T].Type = [T].self,
-    forKey key: Key
+    forKey key: Key,
   ) -> [T]? {
     guard contains(key) else { return nil }
     guard let wrappers = try? decode([Lossy<T>].self, forKey: key) else {

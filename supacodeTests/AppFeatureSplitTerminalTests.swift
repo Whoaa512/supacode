@@ -27,7 +27,7 @@ struct AppFeatureSplitTerminalTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -46,7 +46,7 @@ struct AppFeatureSplitTerminalTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: RepositoriesFeature.State(),
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -66,7 +66,7 @@ struct AppFeatureSplitTerminalTests {
       name: "wt-1",
       detail: "detail",
       workingDirectory: URL(fileURLWithPath: "/tmp/repo/wt-1"),
-      repositoryRootURL: URL(fileURLWithPath: "/tmp/repo")
+      repositoryRootURL: URL(fileURLWithPath: "/tmp/repo"),
     )
   }
 
@@ -75,7 +75,7 @@ struct AppFeatureSplitTerminalTests {
       id: "/tmp/repo",
       rootURL: URL(fileURLWithPath: "/tmp/repo"),
       name: "repo",
-      worktrees: [worktree]
+      worktrees: [worktree],
     )
     var state = RepositoriesFeature.State()
     state.repositories = [repository]

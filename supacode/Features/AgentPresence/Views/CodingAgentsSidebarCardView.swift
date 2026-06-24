@@ -34,7 +34,7 @@ struct CodingAgentsSidebarCardView: View {
     Self.mode(
       for: store.settings.agentIntegrationStates,
       dismissed: Self.isDismissed(at: dismissedAt),
-      autoUpdateEnabled: store.settings.autoUpdateAgentIntegrationsEnabled
+      autoUpdateEnabled: store.settings.autoUpdateAgentIntegrationsEnabled,
     )
   }
 
@@ -46,7 +46,7 @@ struct CodingAgentsSidebarCardView: View {
         agents: agents,
         title: "Update agent integration",
         description: "Re-install to pick up the latest hooks for these agents.",
-        showsDismiss: false
+        showsDismiss: false,
       )
     case .promptInstall:
       CodingAgentsCardBody(
@@ -54,7 +54,7 @@ struct CodingAgentsSidebarCardView: View {
         agents: SkillAgent.allCases,
         title: "Advanced agent integration",
         description: "Install hooks and skills to enable rich notifications and presence badges.",
-        showsDismiss: true
+        showsDismiss: true,
       )
     case .hidden:
       EmptyView()
@@ -81,7 +81,7 @@ struct CodingAgentsSidebarCardView: View {
   static func mode(
     for states: [SkillAgent: AgentIntegrationRowState],
     dismissed: Bool,
-    autoUpdateEnabled: Bool
+    autoUpdateEnabled: Bool,
   ) -> Mode {
     let stillChecking = SkillAgent.allCases.contains { states[$0]?.isResolved != true }
     if stillChecking { return .hidden }

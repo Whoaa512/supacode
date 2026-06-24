@@ -26,7 +26,7 @@ enum SidebarBranchNesting {
       components: [String],
       depth: Int,
       isCollapsed: Bool,
-      leafDescendantIDs: [SidebarItemID]
+      leafDescendantIDs: [SidebarItemID],
     )
     /// `displayName` is the trailing branch components below the leaf's
     /// ancestor headers (e.g. branch `feature/tools/a` rendered under
@@ -61,7 +61,7 @@ enum SidebarBranchNesting {
     static let empty = GroupIndicators(
       hasNotification: false,
       runningScriptColors: [],
-      agents: []
+      agents: [],
     )
 
     var isEmpty: Bool {
@@ -90,7 +90,7 @@ enum SidebarBranchNesting {
   static func buildRows(
     itemIDs: [SidebarItemID],
     branchNames: [SidebarItemID: String],
-    collapsedPrefixes: Set<String>
+    collapsedPrefixes: Set<String>,
   ) -> [Row] {
     guard !itemIDs.isEmpty else { return [] }
 
@@ -117,7 +117,7 @@ enum SidebarBranchNesting {
       pathFromRoot: [],
       pathFromAncestorHeader: nil,
       collapsedPrefixes: collapsedPrefixes,
-      into: &rows
+      into: &rows,
     )
     return rows
   }
@@ -156,7 +156,7 @@ enum SidebarBranchNesting {
     return GroupIndicators(
       hasNotification: hasNotification,
       runningScriptColors: colors,
-      agents: agents
+      agents: agents,
     )
   }
 
@@ -219,7 +219,7 @@ private struct PathNode {
     pathFromRoot: [String],
     pathFromAncestorHeader: [String]?,
     collapsedPrefixes: Set<String>,
-    into rows: inout [SidebarBranchNesting.Row]
+    into rows: inout [SidebarBranchNesting.Row],
   ) {
     // Leaves that terminate at this exact node render first so a `feature`
     // branch precedes any `feature/tools` descendants when both exist.
@@ -260,7 +260,7 @@ private struct PathNode {
             components: addedComponents,
             depth: depth,
             isCollapsed: isCollapsed,
-            leafDescendantIDs: descendants
+            leafDescendantIDs: descendants,
           )
         )
         if !isCollapsed {
@@ -269,7 +269,7 @@ private struct PathNode {
             pathFromRoot: nextPathFromRoot,
             pathFromAncestorHeader: [],
             collapsedPrefixes: collapsedPrefixes,
-            into: &rows
+            into: &rows,
           )
         }
       } else {

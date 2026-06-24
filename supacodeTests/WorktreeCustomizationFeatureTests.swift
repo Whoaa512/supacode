@@ -29,7 +29,7 @@ struct WorktreeCustomizationFeatureTests {
     await store.send(.saveButtonTapped)
     await store.receive(
       .delegate(
-        .save(worktreeID: "wt-1", repositoryID: "/tmp/repo", title: "Spicy", color: .blue),
+        .save(worktreeID: "wt-1", repositoryID: "/tmp/repo", title: "Spicy", color: .blue)
       ))
   }
 
@@ -40,7 +40,7 @@ struct WorktreeCustomizationFeatureTests {
 
     await store.send(.saveButtonTapped)
     await store.receive(
-      .delegate(.save(worktreeID: "wt-1", repositoryID: "/tmp/repo", title: nil, color: nil)),
+      .delegate(.save(worktreeID: "wt-1", repositoryID: "/tmp/repo", title: nil, color: nil))
     )
   }
 
@@ -52,7 +52,7 @@ struct WorktreeCustomizationFeatureTests {
 
     await store.send(.saveButtonTapped)
     await store.receive(
-      .delegate(.save(worktreeID: "wt-1", repositoryID: "/tmp/repo", title: "feature/x", color: nil)),
+      .delegate(.save(worktreeID: "wt-1", repositoryID: "/tmp/repo", title: "feature/x", color: nil))
     )
   }
 

@@ -6,7 +6,7 @@ nonisolated enum ClaudeHookSettings {
   static func hooksByEvent() throws -> [String: [JSONValue]] {
     try AgentHookPayloadSupport.extractHookGroups(
       from: ClaudeHooksPayload(),
-      invalidConfiguration: ClaudeHookSettingsError.invalidConfiguration
+      invalidConfiguration: ClaudeHookSettingsError.invalidConfiguration,
     )
   }
 }
@@ -28,19 +28,19 @@ private nonisolated struct ClaudeHooksPayload: Encodable {
   static let awaitingInputToolMatcher = "AskUserQuestion|ExitPlanMode"
 
   private static let busy = AgentHookSettingsCommand.compositeCommand(
-    events: [.busy], forwardStdinAsNotification: false, agent: .claude)
+    events: [.busy], forwardStdinAsNotification: false, agent: .claude,)
   private static let idle = AgentHookSettingsCommand.compositeCommand(
-    events: [.idle], forwardStdinAsNotification: false, agent: .claude)
+    events: [.idle], forwardStdinAsNotification: false, agent: .claude,)
   private static let awaitingInputAndNotify = AgentHookSettingsCommand.compositeCommand(
-    events: [.awaitingInput], forwardStdinAsNotification: true, agent: .claude)
+    events: [.awaitingInput], forwardStdinAsNotification: true, agent: .claude,)
   private static let awaitingInput = AgentHookSettingsCommand.compositeCommand(
-    events: [.awaitingInput], forwardStdinAsNotification: false, agent: .claude)
+    events: [.awaitingInput], forwardStdinAsNotification: false, agent: .claude,)
   private static let idleAndNotify = AgentHookSettingsCommand.compositeCommand(
-    events: [.idle], forwardStdinAsNotification: true, agent: .claude)
+    events: [.idle], forwardStdinAsNotification: true, agent: .claude,)
   private static let sessionStart = AgentHookSettingsCommand.compositeCommand(
-    events: [.sessionStart], forwardStdinAsNotification: false, agent: .claude)
+    events: [.sessionStart], forwardStdinAsNotification: false, agent: .claude,)
   private static let sessionEndAndIdle = AgentHookSettingsCommand.compositeCommand(
-    events: [.sessionEnd, .idle], forwardStdinAsNotification: false, agent: .claude)
+    events: [.sessionEnd, .idle], forwardStdinAsNotification: false, agent: .claude,)
 
   let hooks: [String: [AgentHookGroup]] = [
     "SessionStart": [
@@ -54,7 +54,7 @@ private nonisolated struct ClaudeHooksPayload: Encodable {
       // Array-order: matched-by-name fires AFTER matcher-"", so awaiting wins.
       .init(
         matcher: Self.awaitingInputToolMatcher,
-        hooks: [.init(command: Self.awaitingInput, timeout: 5)]
+        hooks: [.init(command: Self.awaitingInput, timeout: 5)],
       ),
     ],
     "PostToolUse": [

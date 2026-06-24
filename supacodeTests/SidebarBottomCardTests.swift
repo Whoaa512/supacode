@@ -11,7 +11,7 @@ struct SidebarBottomCardTests {
       agentMode: .updatesAvailable([.claude]),
       terminalPersistenceMode: .visible,
       highlightMode: .visible,
-      onboardingMode: .visible
+      onboardingMode: .visible,
     )
     #expect(resolved == .agent(.updatesAvailable([.claude])))
   }
@@ -21,7 +21,7 @@ struct SidebarBottomCardTests {
       agentMode: .promptInstall,
       terminalPersistenceMode: .visible,
       highlightMode: .visible,
-      onboardingMode: .visible
+      onboardingMode: .visible,
     )
     #expect(resolved == .agent(.promptInstall))
   }
@@ -31,7 +31,7 @@ struct SidebarBottomCardTests {
       agentMode: .hidden,
       terminalPersistenceMode: .visible,
       highlightMode: .visible,
-      onboardingMode: .visible
+      onboardingMode: .visible,
     )
     #expect(resolved == .terminalPersistenceOnboarding)
   }
@@ -41,7 +41,7 @@ struct SidebarBottomCardTests {
       agentMode: .hidden,
       terminalPersistenceMode: .hidden,
       highlightMode: .visible,
-      onboardingMode: .visible
+      onboardingMode: .visible,
     )
     #expect(resolved == .highlightRelevantOnboarding)
   }
@@ -51,7 +51,7 @@ struct SidebarBottomCardTests {
       agentMode: .hidden,
       terminalPersistenceMode: .hidden,
       highlightMode: .hidden,
-      onboardingMode: .visible
+      onboardingMode: .visible,
     )
     #expect(resolved == .nestedWorktreesOnboarding)
   }
@@ -61,7 +61,7 @@ struct SidebarBottomCardTests {
       agentMode: .hidden,
       terminalPersistenceMode: .hidden,
       highlightMode: .hidden,
-      onboardingMode: .hidden
+      onboardingMode: .hidden,
     )
     #expect(resolved == SidebarBottomCardView.Slot.none)
   }
@@ -93,7 +93,7 @@ struct SidebarBottomCardTests {
       HighlightRelevantOnboardingCardView.resolveMode(
         groupPinnedRows: false,
         groupActiveRows: false,
-        dismissedAt: .distantPast
+        dismissedAt: .distantPast,
       ) == .hidden
     )
   }
@@ -103,7 +103,7 @@ struct SidebarBottomCardTests {
       HighlightRelevantOnboardingCardView.resolveMode(
         groupPinnedRows: true,
         groupActiveRows: false,
-        dismissedAt: .distantPast
+        dismissedAt: .distantPast,
       ) == .visible
     )
   }
@@ -113,7 +113,7 @@ struct SidebarBottomCardTests {
       HighlightRelevantOnboardingCardView.resolveMode(
         groupPinnedRows: false,
         groupActiveRows: true,
-        dismissedAt: .distantPast
+        dismissedAt: .distantPast,
       ) == .visible
     )
   }
@@ -124,7 +124,7 @@ struct SidebarBottomCardTests {
       HighlightRelevantOnboardingCardView.resolveMode(
         groupPinnedRows: true,
         groupActiveRows: true,
-        dismissedAt: afterRelevance
+        dismissedAt: afterRelevance,
       ) == .hidden
     )
   }
@@ -138,7 +138,7 @@ struct SidebarBottomCardTests {
       HighlightRelevantOnboardingCardView.resolveMode(
         groupPinnedRows: true,
         groupActiveRows: true,
-        dismissedAt: atBoundary
+        dismissedAt: atBoundary,
       ) == .hidden
     )
   }

@@ -34,7 +34,7 @@ struct DeveloperSettingsView: View {
             agent: agent,
             state: store.agentIntegrationStates[agent] ?? .checking,
             installAction: { store.send(.agentIntegrationInstallTapped(agent)) },
-            uninstallAction: { store.send(.agentIntegrationUninstallTapped(agent)) }
+            uninstallAction: { store.send(.agentIntegrationUninstallTapped(agent)) },
           )
         }
       }

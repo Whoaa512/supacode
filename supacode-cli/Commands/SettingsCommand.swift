@@ -14,7 +14,7 @@ struct SettingsCommand: ParsableCommand {
       Updates.self,
       Github.self,
       Repo.self,
-    ]
+    ],
   )
 
   func run() throws {
@@ -78,7 +78,7 @@ extension SettingsCommand {
   struct Repo: ParsableCommand {
     static let configuration = CommandConfiguration(
       abstract: "Open repository-specific settings.",
-      subcommands: [Scripts.self]
+      subcommands: [Scripts.self],
     )
 
     @OptionGroup var options: RepoIDOptions

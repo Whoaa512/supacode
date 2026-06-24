@@ -85,7 +85,7 @@ public nonisolated struct GitReferenceQueries: Sendable {
     let (local, remoteRefs) = try await (localTask, remoteRefsTask)
     return GitBranchInventory(
       localBranches: Self.sortedAlphabetically(local),
-      remotes: Self.groupRemoteBranches(refs: remoteRefs, remoteNames: remoteNames)
+      remotes: Self.groupRemoteBranches(refs: remoteRefs, remoteNames: remoteNames),
     )
   }
 

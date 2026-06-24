@@ -11,7 +11,7 @@ struct SurfaceCommand: ParsableCommand {
       Split.self,
       Close.self,
     ],
-    defaultSubcommand: Focus.self
+    defaultSubcommand: Focus.self,
   )
 }
 
@@ -98,7 +98,7 @@ extension SurfaceCommand {
           worktreeID: wID,
           tabID: tID,
           surfaceID: sID,
-          options: .init(direction: direction?.rawValue, input: input, id: resolvedID)
+          options: .init(direction: direction?.rawValue, input: input, id: resolvedID),
         )
       )
       print(resolvedID)

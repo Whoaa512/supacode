@@ -34,7 +34,7 @@ nonisolated struct SidebarState: Equatable, Sendable, Codable {
   init(
     schemaVersion: Int = 0,
     sections: OrderedDictionary<Repository.ID, Section> = [:],
-    focusedWorktreeID: Worktree.ID? = nil
+    focusedWorktreeID: Worktree.ID? = nil,
   ) {
     self.schemaVersion = schemaVersion
     self.sections = sections
@@ -56,7 +56,7 @@ nonisolated struct SidebarState: Equatable, Sendable, Codable {
     self.sections =
       try container.decodeIfPresent(
         OrderedDictionary<Repository.ID, Section>.self,
-        forKey: .sections
+        forKey: .sections,
       ) ?? [:]
     self.focusedWorktreeID = try container.decodeIfPresent(Worktree.ID.self, forKey: .focusedWorktreeID)
   }
@@ -92,7 +92,7 @@ nonisolated struct SidebarState: Equatable, Sendable, Codable {
       collapsed: Bool = false,
       buckets: OrderedDictionary<BucketID, Bucket> = [:],
       title: String? = nil,
-      color: RepositoryColor? = nil
+      color: RepositoryColor? = nil,
     ) {
       self.collapsed = collapsed
       self.buckets = buckets
@@ -116,7 +116,7 @@ nonisolated struct SidebarState: Equatable, Sendable, Codable {
       self.buckets =
         try container.decodeIfPresent(
           OrderedDictionary<BucketID, Bucket>.self,
-          forKey: .buckets
+          forKey: .buckets,
         ) ?? [:]
       self.title = try container.decodeIfPresent(String.self, forKey: .title)
       self.color = try container.decodeIfPresent(RepositoryColor.self, forKey: .color)
@@ -150,7 +150,7 @@ nonisolated struct SidebarState: Equatable, Sendable, Codable {
 
     init(
       items: OrderedDictionary<Worktree.ID, Item> = [:],
-      collapsedBranchPrefixes: Set<String> = []
+      collapsedBranchPrefixes: Set<String> = [],
     ) {
       self.items = items
       self.collapsedBranchPrefixes = collapsedBranchPrefixes
@@ -161,7 +161,7 @@ nonisolated struct SidebarState: Equatable, Sendable, Codable {
       self.items =
         try container.decodeIfPresent(
           OrderedDictionary<Worktree.ID, Item>.self,
-          forKey: .items
+          forKey: .items,
         ) ?? [:]
       // Use `try?` so a malformed value (number, string, object) drops just
       // this one field rather than killing the whole sidebar layout decode.
@@ -260,7 +260,7 @@ nonisolated extension SidebarState {
             ArchivedWorktreeRef(
               repositoryID: repoID,
               worktreeID: worktreeID,
-              archivedAt: archivedAt
+              archivedAt: archivedAt,
             )
           )
         }
@@ -298,7 +298,7 @@ nonisolated extension SidebarState {
     in repositoryID: Repository.ID,
     from: BucketID,
     to destination: BucketID,
-    position: Int? = 0
+    position: Int? = 0,
   ) {
     guard var section = sections[repositoryID] else {
       return
@@ -324,7 +324,7 @@ nonisolated extension SidebarState {
     in repositoryID: Repository.ID,
     bucket bucketID: BucketID,
     item: Item = .init(),
-    position: Int? = nil
+    position: Int? = nil,
   ) {
     var section = sections[repositoryID] ?? .init()
     var bucket = section.buckets[bucketID] ?? .init()
@@ -342,7 +342,7 @@ nonisolated extension SidebarState {
     title: String?,
     color: RepositoryColor?,
     worktree worktreeID: Worktree.ID,
-    in repositoryID: Repository.ID
+    in repositoryID: Repository.ID,
   ) {
     let destinationBucket = currentBucket(of: worktreeID, in: repositoryID) ?? .unpinned
     var section = sections[repositoryID] ?? .init()
@@ -362,7 +362,7 @@ nonisolated extension SidebarState {
     title: String?,
     color: RepositoryColor?,
     worktree worktreeID: Worktree.ID,
-    in repositoryID: Repository.ID
+    in repositoryID: Repository.ID,
   ) {
     let destinationBucket = currentBucket(of: worktreeID, in: repositoryID) ?? .unpinned
     var section = sections[repositoryID] ?? .init()
@@ -384,7 +384,7 @@ nonisolated extension SidebarState {
     worktree worktreeID: Worktree.ID,
     in repositoryID: Repository.ID,
     from: BucketID,
-    at timestamp: Date
+    at timestamp: Date,
   ) {
     var section = sections[repositoryID] ?? .init()
     // Carry the source-bucket Item forward so user-set title / color survive
@@ -410,7 +410,7 @@ nonisolated extension SidebarState {
   mutating func remove(
     worktree worktreeID: Worktree.ID,
     in repositoryID: Repository.ID,
-    from bucketID: BucketID
+    from bucketID: BucketID,
   ) {
     sections[repositoryID]?.buckets[bucketID]?.items.removeValue(forKey: worktreeID)
   }
@@ -431,7 +431,7 @@ nonisolated extension SidebarState {
   mutating func removeAnywhere(
     worktree worktreeID: Worktree.ID,
     in repositoryID: Repository.ID,
-    preferring: [BucketID] = [.unpinned, .pinned, .archived]
+    preferring: [BucketID] = [.unpinned, .pinned, .archived],
   ) -> Item? {
     guard sections[repositoryID] != nil else {
       return nil
@@ -461,7 +461,7 @@ nonisolated extension SidebarState {
   mutating func reorder(
     bucket bucketID: BucketID,
     in repositoryID: Repository.ID,
-    to reorderedIDs: [Worktree.ID]
+    to reorderedIDs: [Worktree.ID],
   ) {
     guard var section = sections[repositoryID], var bucket = section.buckets[bucketID] else {
       return
@@ -502,7 +502,7 @@ nonisolated extension SidebarState {
     item: Item,
     for worktreeID: Worktree.ID,
     into bucket: inout Bucket,
-    position: Int?
+    position: Int?,
   ) {
     if let position, position < bucket.items.count {
       bucket.items.updateValue(item, forKey: worktreeID, insertingAt: position)

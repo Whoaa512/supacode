@@ -13,7 +13,7 @@ struct SidebarCard<Header: View, Content: View>: View {
   init(
     onDismiss: (() -> Void)? = nil,
     @ViewBuilder content: @escaping () -> Content,
-    @ViewBuilder header: @escaping () -> Header = { EmptyView() }
+    @ViewBuilder header: @escaping () -> Header = { EmptyView() },
   ) {
     self.onDismiss = onDismiss
     self.content = content

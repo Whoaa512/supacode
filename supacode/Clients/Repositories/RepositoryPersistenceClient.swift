@@ -43,13 +43,13 @@ extension RepositoryPersistenceClient: DependencyKey {
             settings.repositories.removeValue(forKey: id)
           }
         }
-      }
+      },
     )
   }()
   static let testValue = RepositoryPersistenceClient(
     loadRoots: { [] },
     saveRoots: { _ in },
-    pruneRepositoryConfigs: { _ in }
+    pruneRepositoryConfigs: { _ in },
   )
 }
 

@@ -14,7 +14,7 @@ nonisolated struct KiroHookSettingsFileInstaller {
   init(
     fileManager: FileManager,
     errors: Errors,
-    logWarning: @escaping @Sendable (String) -> Void = { kiroInstallerLogger.warning($0) }
+    logWarning: @escaping @Sendable (String) -> Void = { kiroInstallerLogger.warning($0) },
   ) {
     self.fileManager = fileManager
     self.errors = errors
@@ -29,7 +29,7 @@ nonisolated struct KiroHookSettingsFileInstaller {
 
   func installState(
     settingsURL: URL,
-    hookEntriesByEvent: [String: [JSONValue]]
+    hookEntriesByEvent: [String: [JSONValue]],
   ) -> ComponentInstallState {
     do {
       let settingsObject = try loadSettingsObject(at: settingsURL)
@@ -71,7 +71,7 @@ nonisolated struct KiroHookSettingsFileInstaller {
   /// `AgentHookSettingsFileInstaller.install` for the rationale.
   func install(
     settingsURL: URL,
-    hookEntriesByEvent: @autoclosure () throws -> [String: [JSONValue]]
+    hookEntriesByEvent: @autoclosure () throws -> [String: [JSONValue]],
   ) throws {
     let canonicalEntries = try hookEntriesByEvent()
     var settingsObject = try loadSettingsObject(at: settingsURL)
@@ -89,7 +89,7 @@ nonisolated struct KiroHookSettingsFileInstaller {
 
   func uninstall(
     settingsURL: URL,
-    hookEntriesByEvent: @autoclosure () throws -> [String: [JSONValue]]
+    hookEntriesByEvent: @autoclosure () throws -> [String: [JSONValue]],
   ) throws {
     _ = try hookEntriesByEvent()  // Eval for parity with `install` errors.
     var settingsObject = try loadSettingsObject(at: settingsURL)

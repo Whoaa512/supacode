@@ -21,7 +21,7 @@ struct TerminalTabLabelView: View {
           .foregroundStyle(tab.tintColor?.color ?? TerminalTabBarColors.activeText)
           .frame(
             width: TerminalTabBarMetrics.closeButtonSize,
-            height: TerminalTabBarMetrics.closeButtonSize
+            height: TerminalTabBarMetrics.closeButtonSize,
           )
           .accessibilityHidden(true)
       }

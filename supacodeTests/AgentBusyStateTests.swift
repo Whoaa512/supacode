@@ -281,14 +281,14 @@ struct AgentBusyStateTests {
     func startSession(agent: SkillAgent = .claude, pid: pid_t = getpid()) {
       presence.send(
         .hookEventReceived(
-          AgentBusyStateTests.makeHookEvent(.sessionStart, agent: agent, surfaceID: surface.id, pid: pid)),
+          AgentBusyStateTests.makeHookEvent(.sessionStart, agent: agent, surfaceID: surface.id, pid: pid))
       )
     }
 
     func emit(_ name: AgentHookEvent.EventName, agent: SkillAgent = .claude) {
       presence.send(
         .hookEventReceived(
-          AgentBusyStateTests.makeHookEvent(name, agent: agent, surfaceID: surface.id)),
+          AgentBusyStateTests.makeHookEvent(name, agent: agent, surfaceID: surface.id))
       )
     }
 
@@ -299,7 +299,7 @@ struct AgentBusyStateTests {
     _ name: AgentHookEvent.EventName,
     agent: SkillAgent = .claude,
     surfaceID: UUID,
-    pid: pid_t? = nil
+    pid: pid_t? = nil,
   ) -> AgentHookEvent {
     let pidLine = pid.map { ",\n        \"pid\": \($0)" } ?? ""
     let json = """
@@ -319,7 +319,7 @@ struct AgentBusyStateTests {
     _ name: AgentHookEvent.EventName,
     agent: SkillAgent = .claude,
     surfaceID: UUID,
-    pid: pid_t? = nil
+    pid: pid_t? = nil,
   ) -> AgentHookEvent {
     Self.makeHookEvent(name, agent: agent, surfaceID: surfaceID, pid: pid)
   }
@@ -336,7 +336,7 @@ struct AgentBusyStateTests {
 
   private func nextEvent(
     _ stream: AsyncStream<TerminalClient.Event>,
-    matching predicate: (TerminalClient.Event) -> Bool
+    matching predicate: (TerminalClient.Event) -> Bool,
   ) async -> TerminalClient.Event? {
     for await event in stream where predicate(event) {
       return event

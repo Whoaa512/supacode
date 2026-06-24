@@ -21,7 +21,7 @@ struct AppFeatureRunScriptTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositories,
-        settings: settingsState
+        settings: settingsState,
       )
     ) {
       AppFeature()
@@ -40,7 +40,7 @@ struct AppFeatureRunScriptTests {
     let sent = LockIsolated<[TerminalClient.Command]>([])
     var initialState = AppFeature.State(
       repositories: repositories,
-      settings: SettingsFeature.State()
+      settings: SettingsFeature.State(),
     )
     initialState.repoScripts = [definition]
     let store = TestStore(initialState: initialState) {
@@ -81,7 +81,7 @@ struct AppFeatureRunScriptTests {
     let definition = ScriptDefinition(kind: .test, name: "Test", command: "npm test")
     var initialState = AppFeature.State(
       repositories: repositories,
-      settings: SettingsFeature.State()
+      settings: SettingsFeature.State(),
     )
     initialState.repoScripts = [definition]
     let store = TestStore(initialState: initialState) {
@@ -105,7 +105,7 @@ struct AppFeatureRunScriptTests {
     let definition = ScriptDefinition(kind: .run, name: "Dev", command: "npm run dev")
     var initialState = AppFeature.State(
       repositories: repositories,
-      settings: SettingsFeature.State()
+      settings: SettingsFeature.State(),
     )
     initialState.repoScripts = [definition]
     // Pre-populate running state to simulate an already-running script.
@@ -141,7 +141,7 @@ struct AppFeatureRunScriptTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -154,7 +154,7 @@ struct AppFeatureRunScriptTests {
           scriptID: definition.id,
           kind: .script(definition),
           exitCode: 0,
-          tabId: nil
+          tabId: nil,
         )
       )
     )
@@ -171,7 +171,7 @@ struct AppFeatureRunScriptTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositories,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -201,7 +201,7 @@ struct AppFeatureRunScriptTests {
       initialState: AppFeature.State(
         repositories: repositories,
         settings: SettingsFeature.State(),
-      ),
+      )
     ) {
       AppFeature()
     } withDependencies: {
@@ -231,7 +231,7 @@ struct AppFeatureRunScriptTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositories,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -256,7 +256,7 @@ struct AppFeatureRunScriptTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -271,7 +271,7 @@ struct AppFeatureRunScriptTests {
           scriptID: definition.id,
           kind: .script(definition),
           exitCode: 0,
-          tabId: nil
+          tabId: nil,
         )
       )
     )
@@ -288,7 +288,7 @@ struct AppFeatureRunScriptTests {
     let globalScript = ScriptDefinition(kind: .custom, name: "Lint Repo", command: "make lint")
     var initialState = AppFeature.State(
       repositories: repositories,
-      settings: SettingsFeature.State()
+      settings: SettingsFeature.State(),
     )
     initialState.repoScripts = [repoScript]
     initialState.globalScripts = [globalScript]
@@ -304,7 +304,7 @@ struct AppFeatureRunScriptTests {
     let sent = LockIsolated<[TerminalClient.Command]>([])
     var initialState = AppFeature.State(
       repositories: repositories,
-      settings: SettingsFeature.State()
+      settings: SettingsFeature.State(),
     )
     initialState.globalScripts = [globalScript]
     let store = TestStore(initialState: initialState) {
@@ -346,7 +346,7 @@ struct AppFeatureRunScriptTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositories,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -365,7 +365,7 @@ struct AppFeatureRunScriptTests {
     let worktree = makeWorktree()
     var initialState = AppFeature.State(
       repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State()
+      settings: SettingsFeature.State(),
     )
     initialState.repoScripts = [repoScript]
     initialState.globalScripts = [globalScript]
@@ -492,7 +492,7 @@ struct AppFeatureRunScriptTests {
     let worktree = makeWorktree()
     var initialState = AppFeature.State(
       repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State()
+      settings: SettingsFeature.State(),
     )
     initialState.repoScripts = [repoScript]
     initialState.globalScripts = [injected]
@@ -506,7 +506,7 @@ struct AppFeatureRunScriptTests {
       name: "wt-1",
       detail: "detail",
       workingDirectory: URL(fileURLWithPath: "/tmp/repo/wt-1"),
-      repositoryRootURL: URL(fileURLWithPath: "/tmp/repo")
+      repositoryRootURL: URL(fileURLWithPath: "/tmp/repo"),
     )
   }
 
@@ -515,7 +515,7 @@ struct AppFeatureRunScriptTests {
       id: "/tmp/repo",
       rootURL: URL(fileURLWithPath: "/tmp/repo"),
       name: "repo",
-      worktrees: [worktree]
+      worktrees: [worktree],
     )
     var repositoriesState = RepositoriesFeature.State()
     repositoriesState.repositories = [repository]

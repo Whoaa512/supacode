@@ -17,7 +17,7 @@ struct RepositoriesFeatureRenameBranchTests {
     worktreeName: String = "feature/old",
     isGitRepository: Bool = true,
     isMissing: Bool = false,
-    isAttached: Bool = true
+    isAttached: Bool = true,
   ) -> RepositoriesFeature.State {
     let mainWorktree = Worktree(
       id: "\(repoID)/main",
@@ -25,7 +25,7 @@ struct RepositoriesFeatureRenameBranchTests {
       detail: "main",
       workingDirectory: URL(fileURLWithPath: repoID),
       repositoryRootURL: URL(fileURLWithPath: repoID),
-      isMissing: false
+      isMissing: false,
     )
     let worktree = Worktree(
       id: "\(repoID)/feature-old",
@@ -34,14 +34,14 @@ struct RepositoriesFeatureRenameBranchTests {
       workingDirectory: URL(fileURLWithPath: "\(repoID)/feature-old"),
       repositoryRootURL: URL(fileURLWithPath: repoID),
       isMissing: isMissing,
-      isAttached: isAttached
+      isAttached: isAttached,
     )
     let repository = Repository(
       id: repoID,
       rootURL: URL(fileURLWithPath: repoID),
       name: "rename-repo",
       worktrees: IdentifiedArray(uniqueElements: [mainWorktree, worktree]),
-      isGitRepository: isGitRepository
+      isGitRepository: isGitRepository,
     )
     var state = RepositoriesFeature.State()
     state.repositories = IdentifiedArray(uniqueElements: [repository])
@@ -60,7 +60,7 @@ struct RepositoriesFeatureRenameBranchTests {
         worktreeID: "\(self.repoID)/feature-old",
         repositoryID: self.repoID,
         repositoryRootURL: URL(fileURLWithPath: self.repoID),
-        currentName: "feature/old"
+        currentName: "feature/old",
       )
     }
   }
@@ -88,7 +88,7 @@ struct RepositoriesFeatureRenameBranchTests {
         worktreeID: "\(self.repoID)/main",
         repositoryID: self.repoID,
         repositoryRootURL: URL(fileURLWithPath: self.repoID),
-        currentName: "main"
+        currentName: "main",
       )
     }
   }
@@ -99,7 +99,7 @@ struct RepositoriesFeatureRenameBranchTests {
       worktreeID: "\(repoID)/feature-old",
       repositoryID: repoID,
       repositoryRootURL: URL(fileURLWithPath: repoID),
-      currentName: "feature/old"
+      currentName: "feature/old",
     )
     let store = TestStore(initialState: initial) {
       RepositoriesFeature()
@@ -113,7 +113,7 @@ struct RepositoriesFeatureRenameBranchTests {
             .renamed(
               worktreeID: "\(repoID)/feature-old",
               repositoryID: repoID,
-              newName: "feature/new"
+              newName: "feature/new",
             )
           )
         )
@@ -141,7 +141,7 @@ struct RepositoriesFeatureRenameBranchTests {
       worktreeID: "\(repoID)/feature-old",
       repositoryID: repoID,
       repositoryRootURL: URL(fileURLWithPath: repoID),
-      currentName: "feature/old"
+      currentName: "feature/old",
     )
     let store = TestStore(initialState: initial) {
       RepositoriesFeature()
@@ -185,7 +185,7 @@ struct RepositoriesFeatureRenameBranchTests {
       worktreeID: "\(repoID)/feature-old",
       repositoryID: repoID,
       repositoryRootURL: URL(fileURLWithPath: repoID),
-      currentName: "feature/old"
+      currentName: "feature/old",
     )
     let store = TestStore(initialState: initial) {
       RepositoriesFeature()
@@ -207,7 +207,7 @@ struct RepositoriesFeatureRenameBranchTests {
       worktreeID: "\(repoID)/feature-old",
       repositoryID: repoID,
       repositoryRootURL: URL(fileURLWithPath: repoID),
-      currentName: "feature/old"
+      currentName: "feature/old",
     )
     let store = TestStore(initialState: initial) {
       RepositoriesFeature()

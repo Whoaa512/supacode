@@ -63,7 +63,7 @@ struct WorktreeTerminalTabsView: View {
             tabId: tabId,
             terminalState: state,
             terminalsStore: terminalsStore,
-            unfocusedSplitOverlay: unfocusedSplitOverlay
+            unfocusedSplitOverlay: unfocusedSplitOverlay,
           )
         }
       } else {
@@ -105,7 +105,7 @@ struct WorktreeTerminalTabsView: View {
     if let keyWindow = NSApp.keyWindow {
       return WindowActivityState(
         isKeyWindow: keyWindow.isKeyWindow,
-        isVisible: keyWindow.occlusionState.contains(.visible)
+        isVisible: keyWindow.occlusionState.contains(.visible),
       )
     }
     return windowActivity
@@ -133,7 +133,7 @@ private struct TerminalSplitTreePane: View {
       unfocusedSplitOverlay: unfocusedSplitOverlay,
       action: { operation in
         terminalState.performSplitOperation(operation, in: tabId)
-      }
+      },
     )
   }
 }

@@ -116,13 +116,13 @@ struct WindowTitleTests {
       name: "main",
       detail: "",
       workingDirectory: URL(fileURLWithPath: "/tmp/\(repoName)/main"),
-      repositoryRootURL: rootURL
+      repositoryRootURL: rootURL,
     )
     let repository = Repository(
       id: rootURL.path(percentEncoded: false),
       rootURL: rootURL,
       name: repoName,
-      worktrees: IdentifiedArray(uniqueElements: [worktree])
+      worktrees: IdentifiedArray(uniqueElements: [worktree]),
     )
     var state = RepositoriesFeature.State(reconciledRepositories: [repository])
     state.selection = .worktree(worktree.id)

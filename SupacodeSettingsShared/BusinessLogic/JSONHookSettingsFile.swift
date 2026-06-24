@@ -39,7 +39,7 @@ nonisolated struct JSONHookSettingsFile {
   func write(_ object: [String: JSONValue], to url: URL) throws {
     try fileManager.createDirectory(
       at: url.deletingLastPathComponent(),
-      withIntermediateDirectories: true
+      withIntermediateDirectories: true,
     )
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

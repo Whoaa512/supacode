@@ -21,7 +21,7 @@ public nonisolated enum SidebarFileURLKey: DependencyKey {
     FileManager.default.temporaryDirectory
       .appending(
         path: "supacode-sidebar-test-\(UUID().uuidString).json",
-        directoryHint: .notDirectory
+        directoryHint: .notDirectory,
       )
   }
 }
@@ -44,7 +44,7 @@ nonisolated struct SidebarKey: SharedKey {
 
   func load(
     context _: LoadContext<SidebarState>,
-    continuation: LoadContinuation<SidebarState>
+    continuation: LoadContinuation<SidebarState>,
   ) {
     @Dependency(\.settingsFileStorage) var storage
     @Dependency(\.sidebarFileURL) var url
@@ -99,7 +99,7 @@ nonisolated struct SidebarKey: SharedKey {
     let destination = url.deletingLastPathComponent()
       .appending(
         path: "\(url.lastPathComponent).corrupt-\(timestamp)",
-        directoryHint: .notDirectory
+        directoryHint: .notDirectory,
       )
     do {
       try fileManager.moveItem(at: url, to: destination)
@@ -115,7 +115,7 @@ nonisolated struct SidebarKey: SharedKey {
 
   func subscribe(
     context _: LoadContext<SidebarState>,
-    subscriber _: SharedSubscriber<SidebarState>
+    subscriber _: SharedSubscriber<SidebarState>,
   ) -> SharedSubscription {
     SharedSubscription {}
   }
@@ -123,7 +123,7 @@ nonisolated struct SidebarKey: SharedKey {
   func save(
     _ value: SidebarState,
     context _: SaveContext,
-    continuation: SaveContinuation
+    continuation: SaveContinuation,
   ) {
     @Dependency(\.settingsFileStorage) var storage
     @Dependency(\.sidebarFileURL) var url

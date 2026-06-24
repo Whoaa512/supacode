@@ -43,7 +43,7 @@ extension RepositoriesFeature {
             isMainWorktree: isMain,
             isPinned: isPinned,
             hasMergedBadge: false,
-            isMissing: worktree.isMissing
+            isMissing: worktree.isMissing,
           )
         // Seed (or re-seed) only until the row's first live projection lands.
         // The `!hasTerminalProjection` half lets a layout that wasn't present
@@ -101,7 +101,7 @@ extension RepositoriesFeature {
             repositoryAccent: nil,
             isMainWorktree: false,
             isPinned: false,
-            hasMergedBadge: false
+            hasMergedBadge: false,
           )
         item.name = pendingName
         item.branchName = pendingName
@@ -140,7 +140,7 @@ extension RepositoriesFeature {
   private static func storedCustomization(
     for worktreeID: Worktree.ID,
     in repositoryID: Repository.ID,
-    sidebar: SidebarState
+    sidebar: SidebarState,
   ) -> (title: String?, color: RepositoryColor?) {
     guard let bucketID = sidebar.currentBucket(of: worktreeID, in: repositoryID),
       let storedItem = sidebar.sections[repositoryID]?.buckets[bucketID]?.items[worktreeID]

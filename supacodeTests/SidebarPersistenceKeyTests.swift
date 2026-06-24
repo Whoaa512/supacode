@@ -49,7 +49,7 @@ struct SidebarPersistenceKeyTests {
 
     #expect(!fileManager.fileExists(atPath: sidebarURL.path(percentEncoded: false)))
     let entries = try fileManager.contentsOfDirectory(
-      at: sandbox, includingPropertiesForKeys: nil
+      at: sandbox, includingPropertiesForKeys: nil,
     )
     let renamed = entries.first { $0.lastPathComponent.hasPrefix("sidebar.json.corrupt-") }
     #expect(renamed != nil)

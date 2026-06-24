@@ -61,7 +61,7 @@ extension GitClientDependency: DependencyKey {
       var isDirectory: ObjCBool = false
       let exists = FileManager.default.fileExists(
         atPath: url.standardizedFileURL.path(percentEncoded: false),
-        isDirectory: &isDirectory
+        isDirectory: &isDirectory,
       )
       return exists && isDirectory.boolValue
     },
@@ -85,7 +85,7 @@ extension GitClientDependency: DependencyKey {
         in: repoRoot,
         baseDirectory: baseDirectory,
         copyFiles: (ignored: copyIgnored, untracked: copyUntracked),
-        baseRef: baseRef
+        baseRef: baseRef,
       )
     },
     createWorktreeStream: { name, repoRoot, baseDirectory, copyIgnored, copyUntracked, baseRef, directoryOverride in
@@ -95,7 +95,7 @@ extension GitClientDependency: DependencyKey {
         baseDirectory: baseDirectory,
         copyFiles: (ignored: copyIgnored, untracked: copyUntracked),
         baseRef: baseRef,
-        directoryOverride: directoryOverride
+        directoryOverride: directoryOverride,
       )
     },
     removeWorktree: { worktree, deleteBranch in
@@ -110,7 +110,7 @@ extension GitClientDependency: DependencyKey {
     fetchRemote: { remote, repoRoot in try await GitClient().fetchRemote(remote, for: repoRoot) },
     remoteInfo: { repositoryRoot in
       await GitClient().remoteInfo(for: repositoryRoot)
-    }
+    },
   )
   // Tests default to "git repository" classification so existing
   // fixtures that mock `gitClient.worktrees` without creating real

@@ -25,7 +25,7 @@ public struct RepositoryScriptsSettingsView: View {
             subtitle: "Runs once after worktree creation.",
             icon: "truck.box.badge.clock",
             iconColor: .blue,
-            footerExample: "pnpm install"
+            footerExample: "pnpm install",
           )
           LifecycleScriptSection(
             text: $store.settings.archiveScript,
@@ -33,7 +33,7 @@ public struct RepositoryScriptsSettingsView: View {
             subtitle: "Runs before a worktree is archived.",
             icon: "archivebox",
             iconColor: .orange,
-            footerExample: "docker compose down"
+            footerExample: "docker compose down",
           )
         }
         LifecycleScriptSection(
@@ -44,7 +44,7 @@ public struct RepositoryScriptsSettingsView: View {
             : "Runs before this folder is removed from Supacode.",
           icon: "trash",
           iconColor: .red,
-          footerExample: "docker compose down"
+          footerExample: "docker compose down",
         )
 
         // User-defined scripts, each in its own section.

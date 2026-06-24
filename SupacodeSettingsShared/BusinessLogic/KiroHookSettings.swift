@@ -9,7 +9,7 @@ nonisolated enum KiroHookSettings {
   static func hooksByEvent() throws -> [String: [JSONValue]] {
     try AgentHookPayloadSupport.extractHookGroups(
       from: KiroHooksPayload(),
-      invalidConfiguration: KiroHookSettingsError.invalidConfiguration
+      invalidConfiguration: KiroHookSettingsError.invalidConfiguration,
     )
   }
 }
@@ -51,11 +51,11 @@ nonisolated struct KiroHookEntry: Encodable {
 // clears via the pid liveness sweep when the agent process exits.
 private nonisolated struct KiroHooksPayload: Encodable {
   private static let busy = AgentHookSettingsCommand.compositeCommand(
-    events: [.busy], forwardStdinAsNotification: false, agent: .kiro)
+    events: [.busy], forwardStdinAsNotification: false, agent: .kiro,)
   private static let idleAndNotify = AgentHookSettingsCommand.compositeCommand(
-    events: [.idle], forwardStdinAsNotification: true, agent: .kiro)
+    events: [.idle], forwardStdinAsNotification: true, agent: .kiro,)
   private static let sessionStart = AgentHookSettingsCommand.compositeCommand(
-    events: [.sessionStart], forwardStdinAsNotification: false, agent: .kiro)
+    events: [.sessionStart], forwardStdinAsNotification: false, agent: .kiro,)
 
   let hooks: [String: [KiroHookEntry]] = [
     "agentSpawn": [

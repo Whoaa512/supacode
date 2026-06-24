@@ -50,7 +50,7 @@ struct ToolbarNotificationsPopoverButton: View {
         onDismissAll: {
           onDismissAll()
           closePopover()
-        }
+        },
       )
       .onHover { hovering in
         isHoveringPopover = hovering

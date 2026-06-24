@@ -35,7 +35,7 @@ struct TerminalTabBarView: View {
       TerminalTabBarTrailingAccessories(
         createTab: createTab,
         split: split,
-        canSplit: canSplit
+        canSplit: canSplit,
       )
     }
     .frame(height: TerminalTabBarMetrics.barHeight)

@@ -169,7 +169,7 @@ struct AppFeatureCommandPaletteTests {
     let worktree = makeWorktree(
       id: "/tmp/repo-ghostty/wt-1",
       name: "wt-1",
-      repoRoot: "/tmp/repo-ghostty"
+      repoRoot: "/tmp/repo-ghostty",
     )
     let repository = makeRepository(id: "/tmp/repo-ghostty", worktrees: [worktree])
     var repositoriesState = RepositoriesFeature.State()
@@ -180,7 +180,7 @@ struct AppFeatureCommandPaletteTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -205,7 +205,7 @@ struct AppFeatureCommandPaletteTests {
     let worktree = makeWorktree(
       id: "/tmp/repo-ghostty/wt-1",
       name: "wt-1",
-      repoRoot: "/tmp/repo-ghostty"
+      repoRoot: "/tmp/repo-ghostty",
     )
     let repository = makeRepository(id: "/tmp/repo-ghostty", worktrees: [worktree])
     var repositoriesState = RepositoriesFeature.State()
@@ -215,7 +215,7 @@ struct AppFeatureCommandPaletteTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -236,7 +236,7 @@ struct AppFeatureCommandPaletteTests {
     let worktree = makeWorktree(
       id: "/tmp/repo-ghostty/wt-1",
       name: "wt-1",
-      repoRoot: "/tmp/repo-ghostty"
+      repoRoot: "/tmp/repo-ghostty",
     )
     let repository = makeRepository(id: "/tmp/repo-ghostty", worktrees: [worktree])
     var repositoriesState = RepositoriesFeature.State()
@@ -249,7 +249,7 @@ struct AppFeatureCommandPaletteTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -277,7 +277,7 @@ struct AppFeatureCommandPaletteTests {
     let worktree = makeWorktree(
       id: "/tmp/repo-ghostty/wt-1",
       name: "wt-1",
-      repoRoot: "/tmp/repo-ghostty"
+      repoRoot: "/tmp/repo-ghostty",
     )
     let repository = makeRepository(id: "/tmp/repo-ghostty", worktrees: [worktree])
     var repositoriesState = RepositoriesFeature.State()
@@ -288,7 +288,7 @@ struct AppFeatureCommandPaletteTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -309,7 +309,7 @@ struct AppFeatureCommandPaletteTests {
     let worktree = makeWorktree(
       id: "/tmp/repo-ghostty/wt-1",
       name: "wt-1",
-      repoRoot: "/tmp/repo-ghostty"
+      repoRoot: "/tmp/repo-ghostty",
     )
     let repository = makeRepository(id: "/tmp/repo-ghostty", worktrees: [worktree])
     var repositoriesState = RepositoriesFeature.State()
@@ -320,7 +320,7 @@ struct AppFeatureCommandPaletteTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -341,7 +341,7 @@ struct AppFeatureCommandPaletteTests {
     let worktree = makeWorktree(
       id: "/tmp/repo-ghostty/wt-1",
       name: "wt-1",
-      repoRoot: "/tmp/repo-ghostty"
+      repoRoot: "/tmp/repo-ghostty",
     )
     let repository = makeRepository(id: "/tmp/repo-ghostty", worktrees: [worktree])
     var repositoriesState = RepositoriesFeature.State()
@@ -354,7 +354,7 @@ struct AppFeatureCommandPaletteTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -378,7 +378,7 @@ struct AppFeatureCommandPaletteTests {
     let worktree = makeWorktree(
       id: "/tmp/repo-ghostty/wt-1",
       name: "wt-1",
-      repoRoot: "/tmp/repo-ghostty"
+      repoRoot: "/tmp/repo-ghostty",
     )
     let repository = makeRepository(id: "/tmp/repo-ghostty", worktrees: [worktree])
     var repositoriesState = RepositoriesFeature.State()
@@ -388,7 +388,7 @@ struct AppFeatureCommandPaletteTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -409,7 +409,7 @@ struct AppFeatureCommandPaletteTests {
     let worktree = makeWorktree(
       id: "/tmp/repo-ghostty/wt-1",
       name: "wt-1",
-      repoRoot: "/tmp/repo-ghostty"
+      repoRoot: "/tmp/repo-ghostty",
     )
     let repository = makeRepository(id: "/tmp/repo-ghostty", worktrees: [worktree])
     var repositoriesState = RepositoriesFeature.State()
@@ -419,7 +419,7 @@ struct AppFeatureCommandPaletteTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -450,7 +450,7 @@ struct AppFeatureCommandPaletteTests {
     let worktree = makeWorktree(
       id: "/tmp/repo-run/wt-1",
       name: "wt-1",
-      repoRoot: "/tmp/repo-run"
+      repoRoot: "/tmp/repo-run",
     )
     let repository = makeRepository(id: "/tmp/repo-run", worktrees: [worktree])
     var repositoriesState = RepositoriesFeature.State()
@@ -458,20 +458,20 @@ struct AppFeatureCommandPaletteTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
     }
 
     let target = RepositoriesFeature.DeleteWorktreeTarget(
-      worktreeID: worktree.id, repositoryID: repository.id)
+      worktreeID: worktree.id, repositoryID: repository.id,)
     let expectedAlert = AlertState<RepositoriesFeature.Alert> {
       TextState("Delete worktree?")
     } actions: {
       ButtonState(
         role: .destructive,
-        action: .confirmDeleteSidebarItems([target], disposition: .gitWorktreeDelete)
+        action: .confirmDeleteSidebarItems([target], disposition: .gitWorktreeDelete),
       ) {
         TextState("Delete worktree")
       }
@@ -492,7 +492,7 @@ struct AppFeatureCommandPaletteTests {
     let worktree = makeWorktree(
       id: "/tmp/repo-archive/wt-1",
       name: "wt-1",
-      repoRoot: "/tmp/repo-archive"
+      repoRoot: "/tmp/repo-archive",
     )
     let repository = makeRepository(id: "/tmp/repo-archive", worktrees: [worktree])
     var repositoriesState = RepositoriesFeature.State()
@@ -500,7 +500,7 @@ struct AppFeatureCommandPaletteTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -532,16 +532,16 @@ struct AppFeatureCommandPaletteTests {
     let mainWorktree = makeWorktree(
       id: "/tmp/repo-rename/main",
       name: "main",
-      repoRoot: "/tmp/repo-rename"
+      repoRoot: "/tmp/repo-rename",
     )
     let worktree = makeWorktree(
       id: "/tmp/repo-rename/wt-1",
       name: "feature/old",
-      repoRoot: "/tmp/repo-rename"
+      repoRoot: "/tmp/repo-rename",
     )
     let repository = makeRepository(
       id: "/tmp/repo-rename",
-      worktrees: [mainWorktree, worktree]
+      worktrees: [mainWorktree, worktree],
     )
     var repositoriesState = RepositoriesFeature.State()
     repositoriesState.repositories = [repository]
@@ -550,7 +550,7 @@ struct AppFeatureCommandPaletteTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -562,7 +562,7 @@ struct AppFeatureCommandPaletteTests {
         worktreeID: worktree.id,
         repositoryID: repository.id,
         repositoryRootURL: repository.rootURL,
-        currentName: "feature/old"
+        currentName: "feature/old",
       )
     }
   }
@@ -575,7 +575,7 @@ private func makeWorktree(id: String, name: String, repoRoot: String = "/tmp/rep
     name: name,
     detail: "detail",
     workingDirectory: URL(fileURLWithPath: id),
-    repositoryRootURL: URL(fileURLWithPath: repoRoot)
+    repositoryRootURL: URL(fileURLWithPath: repoRoot),
   )
 }
 
@@ -584,6 +584,6 @@ private func makeRepository(id: String, worktrees: [Worktree]) -> Repository {
     id: id,
     rootURL: URL(fileURLWithPath: id),
     name: "repo",
-    worktrees: IdentifiedArray(uniqueElements: worktrees)
+    worktrees: IdentifiedArray(uniqueElements: worktrees),
   )
 }

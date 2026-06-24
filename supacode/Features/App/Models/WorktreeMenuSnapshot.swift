@@ -35,7 +35,7 @@ extension AppFeature.State {
       canNavigateForward: repositories.canNavigateWorktreeHistoryForward,
       isInitialLoadComplete: repositories.isInitialLoadComplete,
       selectedPullRequestURL: pullRequestURL,
-      notificationIndicatorCount: notificationIndicatorCount
+      notificationIndicatorCount: notificationIndicatorCount,
     )
   }
 

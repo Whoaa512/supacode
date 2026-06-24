@@ -25,7 +25,7 @@ public nonisolated struct RepositorySettingsKey: SharedKey {
 
   public func load(
     context: LoadContext<RepositorySettings>,
-    continuation: LoadContinuation<RepositorySettings>
+    continuation: LoadContinuation<RepositorySettings>,
   ) {
     @Dependency(\.repositoryLocalSettingsStorage) var repositoryLocalSettingsStorage
     let repositorySettingsURL = SupacodePaths.repositorySettingsURL(for: rootURL)
@@ -55,7 +55,7 @@ public nonisolated struct RepositorySettingsKey: SharedKey {
 
   public func subscribe(
     context _: LoadContext<RepositorySettings>,
-    subscriber _: SharedSubscriber<RepositorySettings>
+    subscriber _: SharedSubscriber<RepositorySettings>,
   ) -> SharedSubscription {
     SharedSubscription {}
   }
@@ -63,7 +63,7 @@ public nonisolated struct RepositorySettingsKey: SharedKey {
   public func save(
     _ value: RepositorySettings,
     context _: SaveContext,
-    continuation: SaveContinuation
+    continuation: SaveContinuation,
   ) {
     @Dependency(\.repositoryLocalSettingsStorage) var repositoryLocalSettingsStorage
     let repositorySettingsURL = SupacodePaths.repositorySettingsURL(for: rootURL)

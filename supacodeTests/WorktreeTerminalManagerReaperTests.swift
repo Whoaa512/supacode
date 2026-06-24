@@ -10,14 +10,14 @@ struct WorktreeTerminalManagerReaperTests {
   /// the supplied `ls` listing (nil = probe failed).
   private func makeManager(
     listing: [ZmxSessionListParser.Entry]?,
-    killed: LockIsolated<[String]>
+    killed: LockIsolated<[String]>,
   ) -> WorktreeTerminalManager {
     withDependencies {
       $0.zmxClient = ZmxClient(
         executableURL: { nil },
         isBundled: { true },
         killSession: { id in killed.withValue { $0.append(id) } },
-        listSessionsWithClients: { listing }
+        listSessionsWithClients: { listing },
       )
     } operation: {
       WorktreeTerminalManager(runtime: GhosttyRuntime())
@@ -37,7 +37,7 @@ struct WorktreeTerminalManagerReaperTests {
         .init(name: session(for: attached), clients: 1),
         .init(name: session(for: idle), clients: 0),
       ],
-      killed: killed
+      killed: killed,
     )
 
     await manager.reapOrphanSessions(knownSurfaceIDs: [])
@@ -50,7 +50,7 @@ struct WorktreeTerminalManagerReaperTests {
     let killed = LockIsolated<[String]>([])
     let manager = makeManager(
       listing: [.init(name: session(for: unreachable), clients: nil)],
-      killed: killed
+      killed: killed,
     )
 
     await manager.reapOrphanSessions(knownSurfaceIDs: [])
@@ -76,7 +76,7 @@ struct WorktreeTerminalManagerReaperTests {
         executableURL: { nil },
         isBundled: { true },
         killSession: { id in killed.withValue { $0.append(id) } },
-        listSessionsWithClients: { listing.value }
+        listSessionsWithClients: { listing.value },
       )
     } operation: {
       WorktreeTerminalManager(runtime: GhosttyRuntime())
@@ -112,7 +112,7 @@ struct WorktreeTerminalManagerReaperTests {
       name: name,
       detail: "detail",
       workingDirectory: URL(fileURLWithPath: id),
-      repositoryRootURL: URL(fileURLWithPath: "/tmp/repo")
+      repositoryRootURL: URL(fileURLWithPath: "/tmp/repo"),
     )
   }
 }

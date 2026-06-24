@@ -27,7 +27,7 @@ nonisolated struct AgentIntegration: @unchecked Sendable {
       kind: Kind,
       state: @escaping () -> ComponentInstallState,
       install: @escaping () async throws -> Void,
-      uninstall: @escaping () throws -> Void
+      uninstall: @escaping () throws -> Void,
     ) {
       self.kind = kind
       self.state = state

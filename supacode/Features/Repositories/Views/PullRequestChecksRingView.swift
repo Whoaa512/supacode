@@ -45,7 +45,7 @@ struct PullRequestChecksRingView: View {
           id: id,
           start: start,
           end: end,
-          color: color
+          color: color,
         )
       )
       start = end

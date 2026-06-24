@@ -18,7 +18,7 @@ struct SidebarView: View {
       .map {
         RepositoriesFeature.ArchiveWorktreeTarget(
           worktreeID: $0.id,
-          repositoryID: $0.repositoryID
+          repositoryID: $0.repositoryID,
         )
       }
     let deleteTargets =
@@ -27,14 +27,14 @@ struct SidebarView: View {
       .map {
         RepositoriesFeature.DeleteWorktreeTarget(
           worktreeID: $0.id,
-          repositoryID: $0.repositoryID
+          repositoryID: $0.repositoryID,
         )
       }
     let openRepo = AppShortcuts.openRepository.effective(from: settingsFile.global.shortcutOverrides)
 
     return SidebarListView(
       store: store,
-      terminalManager: terminalManager
+      terminalManager: terminalManager,
     )
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
@@ -56,7 +56,7 @@ struct SidebarView: View {
     .focusedSceneAction(
       \.confirmWorktreeAction,
       enabled: confirmAlert != nil,
-      token: confirmAlert
+      token: confirmAlert,
     ) {
       if let alert = confirmAlert {
         store.send(.alert(.presented(alert)))
@@ -65,7 +65,7 @@ struct SidebarView: View {
     .focusedAction(
       \.archiveWorktreeAction,
       enabled: !archiveTargets.isEmpty,
-      token: archiveTargets
+      token: archiveTargets,
     ) {
       if archiveTargets.count == 1, let target = archiveTargets.first {
         store.send(.requestArchiveWorktree(target.worktreeID, target.repositoryID))
@@ -76,7 +76,7 @@ struct SidebarView: View {
     .focusedAction(
       \.deleteWorktreeAction,
       enabled: !deleteTargets.isEmpty,
-      token: deleteTargets
+      token: deleteTargets,
     ) {
       store.send(.requestDeleteSidebarItems(deleteTargets))
     }

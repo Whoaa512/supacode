@@ -24,7 +24,7 @@ struct TerminalTabProgressStripe: View {
       color: color,
       progressDisplay: progressDisplay,
       opacity: stripeOpacity(progressDisplay: progressDisplay),
-      pixelLength: pixelLength
+      pixelLength: pixelLength,
     )
   }
 

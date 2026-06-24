@@ -58,7 +58,8 @@ struct CodingAgentsSidebarCardModeTests {
       .kiro: .ready(.notInstalled),
       .pi: .ready(.notInstalled),
     ]
-    #expect(CodingAgentsSidebarCardView.mode(for: states, dismissed: false, autoUpdateEnabled: false) == .promptInstall)
+    #expect(
+      CodingAgentsSidebarCardView.mode(for: states, dismissed: false, autoUpdateEnabled: false) == .promptInstall)
   }
 
   @Test func stillCheckingSuppressesPromptInstallToAvoidLaunchFlash() {
@@ -105,7 +106,8 @@ struct CodingAgentsSidebarCardModeTests {
       .kiro: .ready(.notInstalled),
       .pi: .ready(.notInstalled),
     ]
-    #expect(CodingAgentsSidebarCardView.mode(for: states, dismissed: false, autoUpdateEnabled: false) == .promptInstall)
+    #expect(
+      CodingAgentsSidebarCardView.mode(for: states, dismissed: false, autoUpdateEnabled: false) == .promptInstall)
   }
 
   @Test func autoUpdateEnabledSuppressesUpdatesAvailableCard() {

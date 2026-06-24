@@ -38,6 +38,6 @@ struct AgentBadgeView: View {
   }
 
   private static let dropShadow: ShadowStyle = .drop(
-    color: Color.black.opacity(0.05), radius: 1, x: 0, y: 1
+    color: Color.black.opacity(0.05), radius: 1, x: 0, y: 1,
   )
 }

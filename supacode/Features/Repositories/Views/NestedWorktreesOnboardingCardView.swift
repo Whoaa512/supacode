@@ -58,7 +58,7 @@ private struct NestedWorktreesOnboardingCardBody: View {
           .font(.title2)
           .foregroundStyle(.tint)
           .accessibilityHidden(true)
-      }
+      },
     )
   }
 

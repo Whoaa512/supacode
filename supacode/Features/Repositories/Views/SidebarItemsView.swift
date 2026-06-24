@@ -31,7 +31,7 @@ struct SidebarItemsView: View {
       terminalManager: terminalManager,
       isRepositoryRemoving: isRepositoryRemoving,
       shortcutHintByID: shortcutHintByID,
-      nestWorktreesByBranch: nestWorktreesByBranch && repository.isGitRepository
+      nestWorktreesByBranch: nestWorktreesByBranch && repository.isGitRepository,
     )
   }
 }
@@ -60,7 +60,7 @@ private struct SidebarItemsDragOverlay: View {
         hideSubtitle: group.hideSubtitle,
         moveBehavior: group.moveBehavior,
         shortcutHintByID: shortcutHintByID,
-        nestWorktreesByBranch: nestWorktreesByBranch && group.supportsBranchNesting
+        nestWorktreesByBranch: nestWorktreesByBranch && group.supportsBranchNesting,
       )
     }
   }
@@ -87,7 +87,7 @@ private struct SidebarItemGroupView: View {
           itemIDs: rowIDs,
           branchNames: branchNames(for: rowIDs),
           collapsedPrefixes: store.state.sidebar.sections[repository.id]?.buckets[bucketID]?
-            .collapsedBranchPrefixes ?? []
+            .collapsedBranchPrefixes ?? [],
         )
       } else {
         rowIDs.map { .leaf(id: $0, depth: 0, displayName: nil) }
@@ -113,7 +113,7 @@ private struct SidebarItemGroupView: View {
           isRepositoryRemoving: isRepositoryRemoving,
           hideSubtitle: hideSubtitle,
           moveMode: .alwaysDisabled,
-          shortcutHint: shortcutHintBuilder
+          shortcutHint: shortcutHintBuilder,
         )
       }
     case .pinned, .unpinned:
@@ -129,7 +129,7 @@ private struct SidebarItemGroupView: View {
             isRepositoryRemoving: isRepositoryRemoving,
             hideSubtitle: hideSubtitle,
             moveMode: .alwaysDisabled,
-            shortcutHint: shortcutHintBuilder
+            shortcutHint: shortcutHintBuilder,
           )
         }
       } else {
@@ -144,7 +144,7 @@ private struct SidebarItemGroupView: View {
             isRepositoryRemoving: isRepositoryRemoving,
             hideSubtitle: hideSubtitle,
             moveMode: .conditional,
-            shortcutHint: shortcutHintBuilder
+            shortcutHint: shortcutHintBuilder,
           )
         }
         .onMove(perform: moveRows)
@@ -162,7 +162,7 @@ private struct SidebarItemGroupView: View {
     for id in ids {
       guard
         let leafStore = store.scope(
-          state: \.sidebarItems[id: id], action: \.sidebarItems[id: id]
+          state: \.sidebarItems[id: id], action: \.sidebarItems[id: id],
         )
       else { continue }
       result[id] = leafStore.state.branchName
@@ -189,7 +189,7 @@ private struct SidebarItemGroupView: View {
         offsets: offsets,
         destination: destination,
         visibleIDs: rowIDs,
-        fullIDs: Array(fullKeys)
+        fullIDs: Array(fullKeys),
       )
     else { return }
     switch moveBehavior {
@@ -237,7 +237,7 @@ private struct SidebarBranchNestingRowView: View {
         moveMode: moveMode,
         shortcutHint: shortcutHint(id),
         displayNameOverride: displayName,
-        nestDepth: depth
+        nestDepth: depth,
       )
     case .groupHeader(let prefix, let components, let depth, let isCollapsed, let leafDescendantIDs):
       if let bucketID {
@@ -249,7 +249,7 @@ private struct SidebarBranchNestingRowView: View {
           depth: depth,
           isCollapsed: isCollapsed,
           leafDescendantIDs: leafDescendantIDs,
-          store: store
+          store: store,
         )
       }
     }
@@ -279,7 +279,7 @@ private struct SidebarPathGroupHeaderRow: View {
             repositoryID: repositoryID,
             bucketID: bucketID,
             prefix: prefix,
-            isExpanded: isCollapsed
+            isExpanded: isCollapsed,
           )
         )
       }
@@ -331,13 +331,13 @@ private struct SidebarPathGroupAggregatedIndicators: View {
     leafIDs.compactMap { id in
       guard
         let leafStore = parentStore.scope(
-          state: \.sidebarItems[id: id], action: \.sidebarItems[id: id]
+          state: \.sidebarItems[id: id], action: \.sidebarItems[id: id],
         )
       else { return nil }
       return SidebarBranchNesting.LeafIndicatorSnapshot(
         hasUnseenNotifications: leafStore.state.hasUnseenNotifications,
         runningScriptColors: leafStore.state.runningScripts.map(\.tint),
-        agents: leafStore.state.agents
+        agents: leafStore.state.agents,
       )
     }
   }
@@ -359,7 +359,7 @@ private struct SidebarPathGroupIndicatorsView: View, Equatable {
         if !indicators.runningScriptColors.isEmpty || indicators.hasNotification {
           SidebarPathGroupStatusDotView(
             runningScriptColors: indicators.runningScriptColors,
-            hasNotification: indicators.hasNotification
+            hasNotification: indicators.hasNotification,
           )
         }
       }
@@ -386,7 +386,7 @@ private struct SidebarPathGroupStatusDotView: View, Equatable {
           colors: runningScriptColors,
           isEmphasized: backgroundProminence == .increased,
           size: 6,
-          showsSolidCenter: !hasNotification
+          showsSolidCenter: !hasNotification,
         )
       }
       if hasNotification {
@@ -433,7 +433,7 @@ struct SidebarItemRow: View {
         shortcutHint: shortcutHint,
         displayNameOverride: displayNameOverride,
         nestDepth: nestDepth,
-        highlightSubtitle: highlightSubtitle
+        highlightSubtitle: highlightSubtitle,
       )
     }
   }
@@ -466,7 +466,7 @@ private struct SidebarItemContainer: View {
       displayNameOverride: displayNameOverride,
       nestDepth: nestDepth,
       highlightSubtitle: highlightSubtitle,
-      hideSubtitleOnMatch: hideSubtitleOnMatch
+      hideSubtitleOnMatch: hideSubtitleOnMatch,
     )
   }
 }
@@ -503,7 +503,7 @@ private struct SidebarItemBody: View {
       shortcutHint: shortcutHint,
       displayNameOverride: displayNameOverride,
       nestDepth: nestDepth,
-      highlightSubtitle: highlightSubtitle
+      highlightSubtitle: highlightSubtitle,
     )
     .environment(\.focusNotificationAction) { notification in
       guard let terminalState = terminalManager.stateIfExists(for: rowID) else {
@@ -528,7 +528,7 @@ private struct SidebarItemBody: View {
           rowKind: store.kind,
           repositoryID: store.repositoryID,
           store: parentStore,
-          selectedWorktreeIDs: selectedWorktreeIDs
+          selectedWorktreeIDs: selectedWorktreeIDs,
         )
       }
     }
@@ -572,7 +572,7 @@ struct SidebarFolderRow: View {
       isRepositoryRemoving: isRepositoryRemoving,
       hideSubtitle: true,
       moveMode: .alwaysEnabled,
-      shortcutHint: shortcutHint
+      shortcutHint: shortcutHint,
     )
   }
 }
@@ -609,7 +609,7 @@ private struct SidebarItemContextMenu: View {
     @Shared(.repositorySettings(worktree.repositoryRootURL)) var repositorySettings
     return OpenWorktreeAction.fromSettingsID(
       repositorySettings.openActionID,
-      defaultEditorID: settingsFile.global.defaultEditorID
+      defaultEditorID: settingsFile.global.defaultEditorID,
     )
   }
 
@@ -620,7 +620,7 @@ private struct SidebarItemContextMenu: View {
       menuContents(
         contextRows: contextRows,
         isBulkSelection: contextRows.count > 1,
-        overrides: settingsFile.global.shortcutOverrides
+        overrides: settingsFile.global.shortcutOverrides,
       )
     }
   }
@@ -629,7 +629,7 @@ private struct SidebarItemContextMenu: View {
   private func menuContents(
     contextRows: [SidebarItemFeature.State],
     isBulkSelection: Bool,
-    overrides: [AppShortcutID: AppShortcutOverride]
+    overrides: [AppShortcutID: AppShortcutOverride],
   ) -> some View {
     let archiveShortcut = AppShortcuts.archiveWorktree.effective(from: overrides)
     let deleteShortcut = AppShortcuts.deleteWorktree.effective(from: overrides)
@@ -704,13 +704,13 @@ private struct SidebarItemContextMenu: View {
       .map {
         RepositoriesFeature.ArchiveWorktreeTarget(
           worktreeID: $0.id,
-          repositoryID: $0.repositoryID
+          repositoryID: $0.repositoryID,
         )
       }
     let deleteTargets = contextRows.map {
       RepositoriesFeature.DeleteWorktreeTarget(
         worktreeID: $0.id,
-        repositoryID: $0.repositoryID
+        repositoryID: $0.repositoryID,
       )
     }
 

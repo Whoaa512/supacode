@@ -51,7 +51,7 @@ struct LayoutPersistenceManagerTests {
           active.semaphore.wait()
         }
         try inner.save(data, target)
-      }
+      },
     )
     let manager = withDependencies {
       $0.settingsFileStorage = storage
@@ -68,7 +68,7 @@ struct LayoutPersistenceManagerTests {
       storage: storage,
       url: url,
       gate: gate,
-      gateEngaged: gateEngaged
+      gateEngaged: gateEngaged,
     )
   }
 
@@ -101,7 +101,7 @@ struct LayoutPersistenceManagerTests {
       name: URL(fileURLWithPath: id).lastPathComponent,
       detail: "detail",
       workingDirectory: URL(fileURLWithPath: id),
-      repositoryRootURL: URL(fileURLWithPath: "/tmp/repo")
+      repositoryRootURL: URL(fileURLWithPath: "/tmp/repo"),
     )
   }
 
@@ -263,7 +263,7 @@ struct LayoutPersistenceManagerTests {
         }
         return try inner.load(target)
       },
-      save: { data, target in try inner.save(data, target) }
+      save: { data, target in try inner.save(data, target) },
     )
     let manager = withDependencies {
       $0.settingsFileStorage = storage

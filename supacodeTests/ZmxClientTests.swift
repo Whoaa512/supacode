@@ -38,7 +38,7 @@ struct ZmxAttachTests {
     let cmd = ZmxAttach.buildCommand(
       executablePath: "/path/to/zmx",
       sessionID: "supa-abc",
-      userCommand: nil
+      userCommand: nil,
     )
     #expect(cmd == "'/path/to/zmx' attach supa-abc")
   }
@@ -47,7 +47,7 @@ struct ZmxAttachTests {
     let blank = ZmxAttach.buildCommand(
       executablePath: "/zmx",
       sessionID: "s",
-      userCommand: "   \n"
+      userCommand: "   \n",
     )
     #expect(blank == "'/zmx' attach s")
   }
@@ -56,7 +56,7 @@ struct ZmxAttachTests {
     let cmd = ZmxAttach.buildCommand(
       executablePath: "/zmx",
       sessionID: "s",
-      userCommand: "echo hello && date"
+      userCommand: "echo hello && date",
     )
     #expect(cmd == "'/zmx' attach s /bin/sh -c 'echo hello && date'")
   }
@@ -65,7 +65,7 @@ struct ZmxAttachTests {
     let cmd = ZmxAttach.buildCommand(
       executablePath: "/Applications/Supacode.app/Contents/Resources/zmx/zmx",
       sessionID: "s",
-      userCommand: nil
+      userCommand: nil,
     )
     #expect(cmd.hasPrefix("'/Applications/Supacode.app/Contents/Resources/zmx/zmx'"))
   }
@@ -74,7 +74,7 @@ struct ZmxAttachTests {
     let cmd = ZmxAttach.buildCommand(
       executablePath: "/zmx",
       sessionID: "s",
-      userCommand: "echo 'hi'"
+      userCommand: "echo 'hi'",
     )
     #expect(cmd == "'/zmx' attach s /bin/sh -c 'echo '\\''hi'\\'''")
   }
@@ -91,7 +91,7 @@ struct ZmxAttachTests {
   @Test func buildWrapperArgvKeepsSpacedPathAsOneElement() {
     let argv = ZmxAttach.buildWrapperArgv(
       executablePath: "/Applications/Supacode Dev.app/Contents/Resources/zmx/zmx",
-      sessionID: "supa-1"
+      sessionID: "supa-1",
     )
     #expect(argv.count == 3)
     #expect(argv[0] == "/Applications/Supacode Dev.app/Contents/Resources/zmx/zmx")

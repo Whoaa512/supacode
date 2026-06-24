@@ -44,7 +44,7 @@ struct SurfaceChromeAppearance: Equatable {
 private struct SurfaceChromeAppearanceKey: EnvironmentKey {
   static let defaultValue = SurfaceChromeAppearance(
     colorScheme: .dark,
-    systemColorScheme: .dark
+    systemColorScheme: .dark,
   )
 }
 

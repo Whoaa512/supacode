@@ -18,7 +18,7 @@ struct SidebarStateTests {
       worktree: "wt-1",
       in: repoA,
       bucket: .unpinned,
-      item: .init(archivedAt: nil)
+      item: .init(archivedAt: nil),
     )
 
     state.move(worktree: "wt-1", in: repoA, from: .unpinned, to: .pinned, position: 0)
@@ -33,7 +33,7 @@ struct SidebarStateTests {
       worktree: "wt-1",
       in: repoA,
       bucket: .archived,
-      item: .init(archivedAt: Date(timeIntervalSince1970: 1_000_000))
+      item: .init(archivedAt: Date(timeIntervalSince1970: 1_000_000)),
     )
 
     state.move(worktree: "wt-1", in: repoA, from: .archived, to: .unpinned, position: 0)
@@ -85,7 +85,7 @@ struct SidebarStateTests {
       worktree: "wt-archived",
       in: repoA,
       bucket: .archived,
-      item: .init(archivedAt: Date(timeIntervalSince1970: 1_000_000))
+      item: .init(archivedAt: Date(timeIntervalSince1970: 1_000_000)),
     )
     state.insert(worktree: "wt-live", in: repoA, bucket: .unpinned)
 
@@ -154,10 +154,10 @@ struct SidebarStateTests {
     let earlierDate = Date(timeIntervalSince1970: 1_000_000)
     let laterDate = Date(timeIntervalSince1970: 2_000_000)
     state.insert(
-      worktree: "wt-a", in: repoA, bucket: .archived, item: .init(archivedAt: earlierDate)
+      worktree: "wt-a", in: repoA, bucket: .archived, item: .init(archivedAt: earlierDate),
     )
     state.insert(
-      worktree: "wt-b", in: repoB, bucket: .archived, item: .init(archivedAt: laterDate)
+      worktree: "wt-b", in: repoB, bucket: .archived, item: .init(archivedAt: laterDate),
     )
 
     let archived = state.archivedWorktrees
@@ -179,7 +179,7 @@ struct SidebarStateTests {
       worktree: "a-1",
       in: repoA,
       bucket: .archived,
-      item: .init(archivedAt: Date(timeIntervalSince1970: 1_000_000))
+      item: .init(archivedAt: Date(timeIntervalSince1970: 1_000_000)),
     )
     original.insert(worktree: "b-u-1", in: repoB, bucket: .unpinned)
 
@@ -213,7 +213,7 @@ struct SidebarStateTests {
       worktree: "wt-3",
       in: repoA,
       bucket: .archived,
-      item: .init(archivedAt: Date(timeIntervalSince1970: 1_000_000))
+      item: .init(archivedAt: Date(timeIntervalSince1970: 1_000_000)),
     )
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -272,7 +272,7 @@ struct SidebarStateTests {
       worktree: "a",
       in: repoA,
       bucket: .archived,
-      item: .init(archivedAt: Date(timeIntervalSince1970: 1))
+      item: .init(archivedAt: Date(timeIntervalSince1970: 1)),
     )
 
     #expect(state.currentBucket(of: "p", in: repoA) == .pinned)
@@ -290,7 +290,7 @@ struct SidebarStateTests {
       worktree: "wt",
       in: repoA,
       bucket: .archived,
-      item: .init(archivedAt: Date(timeIntervalSince1970: 1))
+      item: .init(archivedAt: Date(timeIntervalSince1970: 1)),
     )
 
     state.removeAnywhere(worktree: "wt", in: repoA)
@@ -348,7 +348,7 @@ struct SidebarStateTests {
   @Test func bucketRoundtripPreservesCollapsedBranchPrefixes() throws {
     let bucket = SidebarState.Bucket(
       items: ["wt-1": .init(), "wt-2": .init()],
-      collapsedBranchPrefixes: ["feature", "feature/tools"]
+      collapsedBranchPrefixes: ["feature", "feature/tools"],
     )
 
     let encoded = try JSONEncoder().encode(bucket)
@@ -423,7 +423,7 @@ struct SidebarStateTests {
       worktree: "wt-1",
       in: "repo",
       bucket: .pinned,
-      item: .init(title: "Spicy", color: .red)
+      item: .init(title: "Spicy", color: .red),
     )
 
     state.archive(worktree: "wt-1", in: "repo", from: .pinned, at: Date(timeIntervalSince1970: 1_000))
@@ -440,7 +440,7 @@ struct SidebarStateTests {
       worktree: "wt-1",
       in: "repo",
       bucket: .archived,
-      item: .init(archivedAt: Date(timeIntervalSince1970: 1_000), title: "Spicy", color: .red)
+      item: .init(archivedAt: Date(timeIntervalSince1970: 1_000), title: "Spicy", color: .red),
     )
 
     state.unarchive(worktree: "wt-1", in: "repo")
@@ -480,7 +480,7 @@ struct SidebarStateTests {
       worktree: "wt-1",
       in: "repo",
       bucket: .pinned,
-      item: .init(title: "Manual", color: .blue)
+      item: .init(title: "Manual", color: .blue),
     )
 
     state.mergeCustomization(title: "Stale", color: .red, worktree: "wt-1", in: "repo")
@@ -498,7 +498,7 @@ struct SidebarStateTests {
       worktree: "wt-1",
       in: "repo",
       bucket: .pinned,
-      item: .init(title: "Old", color: .blue)
+      item: .init(title: "Old", color: .blue),
     )
 
     state.setCustomization(title: "New", color: .red, worktree: "wt-1", in: "repo")
@@ -514,7 +514,7 @@ struct SidebarStateTests {
       worktree: "wt-1",
       in: "repo",
       bucket: .pinned,
-      item: .init(title: "Spicy", color: .red)
+      item: .init(title: "Spicy", color: .red),
     )
 
     state.setCustomization(title: nil, color: nil, worktree: "wt-1", in: "repo")
@@ -542,13 +542,13 @@ struct SidebarStateTests {
       worktree: "wt-1",
       in: "repo",
       bucket: .pinned,
-      item: .init(title: "Pinned-Payload", color: .red)
+      item: .init(title: "Pinned-Payload", color: .red),
     )
     state.insert(
       worktree: "wt-1",
       in: "repo",
       bucket: .unpinned,
-      item: .init(title: "Unpinned-Payload", color: .blue)
+      item: .init(title: "Unpinned-Payload", color: .blue),
     )
 
     let carried = state.removeAnywhere(worktree: "wt-1", in: "repo", preferring: [.pinned, .unpinned])
@@ -565,13 +565,13 @@ struct SidebarStateTests {
       worktree: "wt-1",
       in: "repo",
       bucket: .pinned,
-      item: .init(title: "Pinned-Payload", color: .red)
+      item: .init(title: "Pinned-Payload", color: .red),
     )
     state.insert(
       worktree: "wt-1",
       in: "repo",
       bucket: .unpinned,
-      item: .init(title: "Unpinned-Payload", color: .blue)
+      item: .init(title: "Unpinned-Payload", color: .blue),
     )
 
     let carried = state.removeAnywhere(worktree: "wt-1", in: "repo", preferring: [.unpinned, .pinned])

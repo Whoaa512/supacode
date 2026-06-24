@@ -123,7 +123,7 @@ private func makePullRequest(
   state: String = "OPEN",
   isDraft: Bool = false,
   mergeStateStatus: String? = nil,
-  mergeQueueEntry: GithubMergeQueueEntry? = nil
+  mergeQueueEntry: GithubMergeQueueEntry? = nil,
 ) -> GithubPullRequest {
   GithubPullRequest(
     number: 1,
@@ -142,6 +142,6 @@ private func makePullRequest(
     commitsCount: 1,
     authorLogin: "khoi",
     statusCheckRollup: nil,
-    mergeQueueEntry: mergeQueueEntry
+    mergeQueueEntry: mergeQueueEntry,
   )
 }

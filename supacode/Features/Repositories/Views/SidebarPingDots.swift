@@ -27,7 +27,7 @@ struct SidebarPingMultiColorDot: View {
       SidebarPingDot(
         color: resolved.first ?? .green,
         size: size,
-        showsSolidCenter: showsSolidCenter
+        showsSolidCenter: showsSolidCenter,
       )
     } else if reduceMotion {
       SidebarPingStaticDot(color: resolved[0], size: size, showsSolidCenter: showsSolidCenter)

@@ -6,7 +6,7 @@ nonisolated struct ClaudeSettingsInstaller {
 
   init(
     homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
-    fileManager: FileManager = .default
+    fileManager: FileManager = .default,
   ) {
     self.homeDirectoryURL = homeDirectoryURL
     self.fileManager = fileManager
@@ -29,14 +29,14 @@ nonisolated struct ClaudeSettingsInstaller {
   func installAllHooks() throws {
     try fileInstaller.install(
       settingsURL: settingsURL,
-      hookGroupsByEvent: try ClaudeHookSettings.hooksByEvent()
+      hookGroupsByEvent: try ClaudeHookSettings.hooksByEvent(),
     )
   }
 
   func uninstallAllHooks() throws {
     try fileInstaller.uninstall(
       settingsURL: settingsURL,
-      hookGroupsByEvent: try ClaudeHookSettings.hooksByEvent()
+      hookGroupsByEvent: try ClaudeHookSettings.hooksByEvent(),
     )
   }
 
@@ -63,8 +63,8 @@ nonisolated struct ClaudeSettingsInstaller {
         invalidEventHooks: { ClaudeSettingsInstallerError.invalidEventHooks($0) },
         invalidHooksObject: { ClaudeSettingsInstallerError.invalidHooksObject },
         invalidJSON: { ClaudeSettingsInstallerError.invalidJSON($0) },
-        invalidRootObject: { ClaudeSettingsInstallerError.invalidRootObject }
-      )
+        invalidRootObject: { ClaudeSettingsInstallerError.invalidRootObject },
+      ),
     )
   }
 }

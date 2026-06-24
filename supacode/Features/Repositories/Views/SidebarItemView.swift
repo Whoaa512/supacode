@@ -44,7 +44,7 @@ struct SidebarItemView: View {
       hideSubtitleOnMatch: hideSubtitleOnMatch,
       highlightSubtitle: highlightSubtitle,
       customTitle: store.customTitle,
-      customTint: store.customTint
+      customTint: store.customTint,
     )
 
     Label {
@@ -55,14 +55,14 @@ struct SidebarItemView: View {
           accent: resolved.accent,
           customTint: store.customTint,
           isLifecycleBusy: store.lifecycle.isBusy,
-          isTaskRunning: store.isTaskRunning
+          isTaskRunning: store.isTaskRunning,
         )
         .equatable()
         Spacer(minLength: 0)
         TrailingView(
           store: store,
           shortcutHint: shortcutHint,
-          showsPullRequestInfo: showsPullRequestInfo
+          showsPullRequestInfo: showsPullRequestInfo,
         )
       }
     } icon: {
@@ -72,7 +72,7 @@ struct SidebarItemView: View {
         branchName: store.branchName,
         pullRequest: store.pullRequest,
         showsPullRequestInfo: showsPullRequestInfo,
-        lifecycle: store.lifecycle
+        lifecycle: store.lifecycle,
       )
     }
     .labelStyle(.verticallyCentered)
@@ -107,7 +107,7 @@ struct ResolvedRowDisplay: Equatable {
     hideSubtitleOnMatch: Bool,
     highlightSubtitle: SidebarHighlightRepoTag? = nil,
     customTitle: String? = nil,
-    customTint: RepositoryColor? = nil
+    customTint: RepositoryColor? = nil,
   ) {
     self.accent =
       if isMainWorktree { .main } else if isPinned { .pinned } else { .default }
@@ -147,7 +147,7 @@ struct ResolvedRowDisplay: Equatable {
       self.subtitle = .highlight(
         repo: highlightSubtitle.repoName,
         repoColor: highlightSubtitle.repoColor,
-        trail: trail
+        trail: trail,
       )
       return
     }
@@ -574,7 +574,7 @@ private struct StatusIndicator: View, Equatable {
             colors: runningScriptColors,
             isEmphasized: isEmphasized,
             size: 6,
-            showsSolidCenter: !showsNotificationIndicator
+            showsSolidCenter: !showsNotificationIndicator,
           )
         }
         if showsNotificationIndicator {

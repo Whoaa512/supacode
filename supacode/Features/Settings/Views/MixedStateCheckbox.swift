@@ -14,7 +14,7 @@ struct MixedStateCheckbox: NSViewRepresentable {
 
   func makeNSView(context: Context) -> NSButton {
     let button = NSButton(
-      checkboxWithTitle: "", target: context.coordinator, action: #selector(Coordinator.toggled(_:)))
+      checkboxWithTitle: "", target: context.coordinator, action: #selector(Coordinator.toggled(_:)),)
     button.allowsMixedState = true
     button.setContentHuggingPriority(.required, for: .horizontal)
     button.setContentHuggingPriority(.required, for: .vertical)

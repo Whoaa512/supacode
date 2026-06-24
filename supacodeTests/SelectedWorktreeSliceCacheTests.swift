@@ -49,9 +49,9 @@ struct SelectedWorktreeSliceCacheTests {
               surfaceIDs: [surfaceID],
               isProgressBusy: false,
               hasUnseenNotifications: false,
-              notifications: []
+              notifications: [],
             )
-          )
+          ),
         )
       )
     ) {
@@ -91,7 +91,7 @@ struct SelectedWorktreeSliceCacheTests {
     await store.send(
       .sidebarItems(
         .element(
-          id: worktree.id, action: .runningScriptStarted(id: scriptID, tint: .blue)
+          id: worktree.id, action: .runningScriptStarted(id: scriptID, tint: .blue),
         )
       )
     ) {
@@ -110,7 +110,7 @@ struct SelectedWorktreeSliceCacheTests {
       name: "wt",
       detail: "detail",
       workingDirectory: URL(fileURLWithPath: id),
-      repositoryRootURL: URL(fileURLWithPath: repoRoot)
+      repositoryRootURL: URL(fileURLWithPath: repoRoot),
     )
   }
 
@@ -119,7 +119,7 @@ struct SelectedWorktreeSliceCacheTests {
       id: id,
       rootURL: URL(fileURLWithPath: id),
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: worktrees)
+      worktrees: IdentifiedArray(uniqueElements: worktrees),
     )
   }
 }

@@ -8,7 +8,7 @@ nonisolated struct PiSettingsInstaller {
 
   init(
     homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
-    fileManager: FileManager = .default
+    fileManager: FileManager = .default,
   ) {
     self.homeDirectoryURL = homeDirectoryURL
     self.fileManager = fileManager
@@ -65,7 +65,7 @@ nonisolated struct PiSettingsInstaller {
     try PiExtensionContent.indexTs.write(
       to: extensionIndexURL,
       atomically: true,
-      encoding: .utf8
+      encoding: .utf8,
     )
     piInstallerLogger.info("Installed Pi extension at \(extensionIndexURL.path(percentEncoded: false))")
   }

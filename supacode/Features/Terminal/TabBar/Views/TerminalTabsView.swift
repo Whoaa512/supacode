@@ -43,7 +43,7 @@ struct TerminalTabsView: View {
             closeAll: closeAll,
             dismissSplitZoom: dismissSplitZoom,
             renameTab: renameTab,
-            scrollReader: scrollReader
+            scrollReader: scrollReader,
           )
           .padding(.horizontal, TerminalTabBarMetrics.barPadding)
           .background(
@@ -88,24 +88,24 @@ struct TerminalTabsView: View {
           LinearGradient(
             colors: [canScrollLeft ? .clear : .white, .white],
             startPoint: .leading,
-            endPoint: .trailing
+            endPoint: .trailing,
           )
           .frame(width: TerminalTabBarMetrics.overflowShadowWidth)
           Color.white.frame(maxWidth: .infinity)
           LinearGradient(
             colors: [.white, canScrollRight ? .clear : .white],
             startPoint: .leading,
-            endPoint: .trailing
+            endPoint: .trailing,
           )
           .frame(width: TerminalTabBarMetrics.overflowShadowWidth)
         }
         .animation(
           reduceMotion ? nil : .easeInOut(duration: TerminalTabBarMetrics.fadeAnimationDuration),
-          value: canScrollLeft
+          value: canScrollLeft,
         )
         .animation(
           reduceMotion ? nil : .easeInOut(duration: TerminalTabBarMetrics.fadeAnimationDuration),
-          value: canScrollRight
+          value: canScrollRight,
         )
       )
     }
@@ -125,7 +125,7 @@ struct TerminalTabsView: View {
     let perTab = containerWidth / CGFloat(count)
     return min(
       TerminalTabBarMetrics.tabMaxWidth,
-      max(TerminalTabBarMetrics.tabMinWidth, perTab)
+      max(TerminalTabBarMetrics.tabMinWidth, perTab),
     )
   }
 }

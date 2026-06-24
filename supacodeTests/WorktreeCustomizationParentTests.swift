@@ -238,7 +238,7 @@ struct WorktreeCustomizationParentTests {
         worktree: self.worktreeID,
         in: self.repoID,
         bucket: .pinned,
-        item: .init(title: "Renamed", color: .red)
+        item: .init(title: "Renamed", color: .red),
       )
     }
     RepositoriesFeature.syncSidebar(&initial)
@@ -271,13 +271,13 @@ struct WorktreeCustomizationParentTests {
         worktree: self.worktreeID,
         in: self.repoID,
         bucket: .pinned,
-        item: .init(title: "Live", color: .red)
+        item: .init(title: "Live", color: .red),
       )
       sidebar.insert(
         worktree: self.worktreeID,
         in: self.repoID,
         bucket: .unpinned,
-        item: .init(title: "Stale", color: .blue)
+        item: .init(title: "Stale", color: .blue),
       )
     }
     RepositoriesFeature.syncSidebar(&initial)
@@ -305,13 +305,13 @@ struct WorktreeCustomizationParentTests {
         worktree: self.worktreeID,
         in: self.repoID,
         bucket: .unpinned,
-        item: .init(title: "Live", color: .red)
+        item: .init(title: "Live", color: .red),
       )
       sidebar.insert(
         worktree: self.worktreeID,
         in: self.repoID,
         bucket: .pinned,
-        item: .init(title: "Stale", color: .blue)
+        item: .init(title: "Stale", color: .blue),
       )
     }
     RepositoriesFeature.syncSidebar(&initial)

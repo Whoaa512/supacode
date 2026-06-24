@@ -83,7 +83,7 @@ enum SidebarPersistenceMigrator {
     },
     readFile: (URL) -> Data? = { url in
       try? Data(contentsOf: url)
-    }
+    },
   ) {
     let sidebarURL = SupacodePaths.sidebarURL
 
@@ -102,7 +102,7 @@ enum SidebarPersistenceMigrator {
     let skipMain = shouldSkipMigration(
       sidebarURL: sidebarURL,
       fileExists: fileExists,
-      readFile: readFile
+      readFile: readFile,
     )
 
     // Pre-#214 straggler path: the retired
@@ -116,7 +116,7 @@ enum SidebarPersistenceMigrator {
     if skipMain {
       foldLegacyArchivedIDsIntoDictionaryStorage(
         legacyArchivedIDs: $legacyArchivedIDs,
-        legacyArchived: $legacyArchived
+        legacyArchived: $legacyArchived,
       )
       return
     }
@@ -132,7 +132,7 @@ enum SidebarPersistenceMigrator {
     let mergedArchived = mergeLegacyArchivedIDs(
       legacyArchivedIDs: legacyArchivedIDs,
       legacyArchived: legacyArchived,
-      stampedAt: now
+      stampedAt: now,
     )
 
     var state = SidebarState()
@@ -147,7 +147,7 @@ enum SidebarPersistenceMigrator {
       legacyRoots: legacyRoots,
       legacyOrder: legacyOrder,
       legacyWorktreeOrder: legacyWorktreeOrder,
-      legacyPinnedSet: legacyPinnedSet
+      legacyPinnedSet: legacyPinnedSet,
     )
     // Build the candidate pool once so `rescueOrphanPinned` and
     // `foldArchived` share an identical view. Candidates cover every
@@ -160,7 +160,7 @@ enum SidebarPersistenceMigrator {
     rescueOrphanPinned(
       into: &state,
       legacyPinnedSet: legacyPinnedSet,
-      rootCandidates: candidates
+      rootCandidates: candidates,
     )
     applyCollapsedFlags(into: &state, legacyCollapsed: legacyCollapsed)
     foldArchived(into: &state, legacyArchived: mergedArchived, rootCandidates: candidates)
@@ -217,7 +217,7 @@ enum SidebarPersistenceMigrator {
   private static func shouldSkipMigration(
     sidebarURL: URL,
     fileExists: (URL) -> Bool,
-    readFile: (URL) -> Data?
+    readFile: (URL) -> Data?,
   ) -> Bool {
     guard fileExists(sidebarURL),
       let data = readFile(sidebarURL),
@@ -237,7 +237,7 @@ enum SidebarPersistenceMigrator {
   private static func mergeLegacyArchivedIDs(
     legacyArchivedIDs: [String],
     legacyArchived: [String: Date],
-    stampedAt: Date
+    stampedAt: Date,
   ) -> [String: Date] {
     var merged = legacyArchived
     for rawID in legacyArchivedIDs {
@@ -260,7 +260,7 @@ enum SidebarPersistenceMigrator {
   @MainActor
   private static func foldLegacyArchivedIDsIntoDictionaryStorage(
     legacyArchivedIDs: Shared<[String]>,
-    legacyArchived: Shared<[String: Date]>
+    legacyArchived: Shared<[String: Date]>,
   ) {
     let ids = legacyArchivedIDs.wrappedValue
     guard !ids.isEmpty else {
@@ -298,7 +298,7 @@ enum SidebarPersistenceMigrator {
     legacyRoots: [String],
     legacyOrder: [String],
     legacyWorktreeOrder: [String: [String]],
-    legacyPinnedSet: Set<Worktree.ID>
+    legacyPinnedSet: Set<Worktree.ID>,
   ) {
     // Canonical baseline: every known root, in settings order.
     for root in legacyRoots where state.sections[root] == nil {
@@ -348,7 +348,7 @@ enum SidebarPersistenceMigrator {
   private static func rescueOrphanPinned(
     into state: inout SidebarState,
     legacyPinnedSet: Set<Worktree.ID>,
-    rootCandidates: [(candidate: String, owningRoot: String)]
+    rootCandidates: [(candidate: String, owningRoot: String)],
   ) {
     var placedPinned: Set<Worktree.ID> = []
     for section in state.sections.values {
@@ -379,7 +379,7 @@ enum SidebarPersistenceMigrator {
   /// if the repo was collapsed but had no curated order.
   private static func applyCollapsedFlags(
     into state: inout SidebarState,
-    legacyCollapsed: [String]
+    legacyCollapsed: [String],
   ) {
     for raw in legacyCollapsed {
       guard let id = RepositoryPathNormalizer.normalize(raw) else {
@@ -399,7 +399,7 @@ enum SidebarPersistenceMigrator {
   private static func foldArchived(
     into state: inout SidebarState,
     legacyArchived: [String: Date],
-    rootCandidates: [(candidate: String, owningRoot: String)]
+    rootCandidates: [(candidate: String, owningRoot: String)],
   ) {
     var unplacedArchivedIDs: [Worktree.ID] = []
     for (rawArchivedID, archivedAt) in legacyArchived {
@@ -424,7 +424,7 @@ enum SidebarPersistenceMigrator {
         worktree: archivedWorktreeID,
         in: owningRepoID,
         bucket: .archived,
-        item: .init(archivedAt: archivedAt)
+        item: .init(archivedAt: archivedAt),
       )
     }
     guard !unplacedArchivedIDs.isEmpty else {
@@ -479,7 +479,7 @@ enum SidebarPersistenceMigrator {
   /// fallback still works.
   private static func rootCandidates(
     legacyRoots: [String],
-    settingsFile: SettingsFile
+    settingsFile: SettingsFile,
   ) -> [(candidate: String, owningRoot: String)] {
     @Dependency(\.repositoryLocalSettingsStorage) var repositoryLocalSettingsStorage
     let globalDefaultPath = settingsFile.global.defaultWorktreeBaseDirectoryPath
@@ -498,7 +498,7 @@ enum SidebarPersistenceMigrator {
       // 2. Per-repo override, read synchronously (no SharedKey).
       let perRepoOverride = loadRepositoryOverridePath(
         for: rootURL,
-        storage: repositoryLocalSettingsStorage
+        storage: repositoryLocalSettingsStorage,
       )
       // 3. Effective worktree-base for this root, applying all
       //    three layers of precedence. Emits the default
@@ -507,7 +507,7 @@ enum SidebarPersistenceMigrator {
       let worktreeBase = SupacodePaths.worktreeBaseDirectory(
         for: rootURL,
         globalDefaultPath: globalDefaultPath,
-        repositoryOverridePath: perRepoOverride
+        repositoryOverridePath: perRepoOverride,
       )
       let worktreeBasePath = worktreeBase.path(percentEncoded: false)
       if let normalisedBase = RepositoryPathNormalizer.normalize(worktreeBasePath),
@@ -528,7 +528,7 @@ enum SidebarPersistenceMigrator {
   /// one-shot migrator.
   private static func loadRepositoryOverridePath(
     for rootURL: URL,
-    storage: RepositoryLocalSettingsStorage
+    storage: RepositoryLocalSettingsStorage,
   ) -> String? {
     let url = SupacodePaths.repositorySettingsURL(for: rootURL)
     guard let data = try? storage.load(url) else {
@@ -553,7 +553,7 @@ enum SidebarPersistenceMigrator {
   /// via `RepositoryPathNormalizer.normalize`.
   static func repositoryID(
     owningWorktreeID worktreeID: Worktree.ID,
-    amongLegacyRoots candidates: [(candidate: String, owningRoot: String)]
+    amongLegacyRoots candidates: [(candidate: String, owningRoot: String)],
   ) -> Repository.ID? {
     var bestMatch: (owningRoot: String, length: Int)?
     for (candidate, owningRoot) in candidates {

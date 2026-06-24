@@ -14,13 +14,13 @@ struct AppFeatureTerminalSetupScriptTests {
     let repositoriesState = makeRepositoriesState(
       worktree: worktree,
       pendingSetupScript: true,
-      selected: true
+      selected: true,
     )
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -46,13 +46,13 @@ struct AppFeatureTerminalSetupScriptTests {
     let repositoriesState = makeRepositoriesState(
       worktree: worktree,
       pendingSetupScript: false,
-      selected: true
+      selected: true,
     )
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -72,12 +72,12 @@ struct AppFeatureTerminalSetupScriptTests {
     let repositoriesState = makeRepositoriesState(
       worktree: worktree,
       pendingSetupScript: true,
-      selected: true
+      selected: true,
     )
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -93,12 +93,12 @@ struct AppFeatureTerminalSetupScriptTests {
     let repositoriesState = makeRepositoriesState(
       worktree: worktree,
       pendingSetupScript: true,
-      selected: true
+      selected: true,
     )
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -118,13 +118,13 @@ struct AppFeatureTerminalSetupScriptTests {
     let repositoriesState = makeRepositoriesState(
       worktree: worktree,
       pendingSetupScript: true,
-      selected: false
+      selected: false,
     )
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -148,13 +148,13 @@ struct AppFeatureTerminalSetupScriptTests {
     let repositoriesState = makeRepositoriesState(
       worktree: worktree,
       pendingSetupScript: false,
-      selected: false
+      selected: false,
     )
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()
@@ -179,20 +179,20 @@ struct AppFeatureTerminalSetupScriptTests {
       name: "wt-1",
       detail: "detail",
       workingDirectory: URL(fileURLWithPath: "/tmp/repo/wt-1"),
-      repositoryRootURL: URL(fileURLWithPath: "/tmp/repo")
+      repositoryRootURL: URL(fileURLWithPath: "/tmp/repo"),
     )
   }
 
   private func makeRepositoriesState(
     worktree: Worktree,
     pendingSetupScript: Bool,
-    selected: Bool
+    selected: Bool,
   ) -> RepositoriesFeature.State {
     let repository = Repository(
       id: "/tmp/repo",
       rootURL: URL(fileURLWithPath: "/tmp/repo"),
       name: "repo",
-      worktrees: [worktree]
+      worktrees: [worktree],
     )
     var repositoriesState = RepositoriesFeature.State()
     repositoriesState.repositories = [repository]

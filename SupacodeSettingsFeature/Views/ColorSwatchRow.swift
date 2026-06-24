@@ -17,7 +17,7 @@ public struct ColorSwatchRow: View {
       set: { newValue in
         guard let custom = RepositoryColor.custom(from: newValue) else { return }
         color = custom
-      }
+      },
     )
   }
 
@@ -25,13 +25,13 @@ public struct ColorSwatchRow: View {
     HStack(spacing: 8) {
       DefaultSwatchButton(
         isSelected: color == nil,
-        action: { color = nil }
+        action: { color = nil },
       )
       ForEach(RepositoryColor.predefined, id: \.rawValue) { swatch in
         ColorSwatchButton(
           color: swatch,
           isSelected: color == swatch,
-          action: { color = swatch }
+          action: { color = swatch },
         )
       }
       Divider()

@@ -22,7 +22,7 @@ struct FocusedAction<Input>: Equatable {
   init(
     isEnabled: Bool,
     token: AnyHashable? = nil,
-    perform: @escaping (Input) -> Void
+    perform: @escaping (Input) -> Void,
   ) {
     self.isEnabled = isEnabled
     self.token = token
@@ -53,11 +53,11 @@ extension View {
     _ keyPath: WritableKeyPath<FocusedValues, FocusedAction<Input>?>,
     enabled: Bool,
     token: AnyHashable? = nil,
-    perform: @escaping (Input) -> Void
+    perform: @escaping (Input) -> Void,
   ) -> some View {
     focusedSceneValue(
       keyPath,
-      FocusedAction(isEnabled: enabled, token: token, perform: perform)
+      FocusedAction(isEnabled: enabled, token: token, perform: perform),
     )
   }
 
@@ -66,11 +66,11 @@ extension View {
     _ keyPath: WritableKeyPath<FocusedValues, FocusedAction<Input>?>,
     enabled: Bool,
     token: AnyHashable? = nil,
-    perform: @escaping (Input) -> Void
+    perform: @escaping (Input) -> Void,
   ) -> some View {
     focusedValue(
       keyPath,
-      FocusedAction(isEnabled: enabled, token: token, perform: perform)
+      FocusedAction(isEnabled: enabled, token: token, perform: perform),
     )
   }
 }

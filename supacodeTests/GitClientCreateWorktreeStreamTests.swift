@@ -29,7 +29,7 @@ nonisolated final class GitShellInvocationRecorder: @unchecked Sendable {
     let value = Snapshot(
       executableURL: executableURLValue,
       arguments: argumentsValue,
-      currentDirectoryURL: currentDirectoryURLValue
+      currentDirectoryURL: currentDirectoryURLValue,
     )
     lock.unlock()
     return value
@@ -52,14 +52,14 @@ struct GitClientCreateWorktreeStreamTests {
         recorder.record(
           executableURL: executableURL,
           arguments: arguments,
-          currentDirectoryURL: currentDirectoryURL
+          currentDirectoryURL: currentDirectoryURL,
         )
         return AsyncThrowingStream { continuation in
           continuation.yield(.line(ShellStreamLine(source: .stdout, text: "/tmp/repo/swift-otter")))
           continuation.yield(.finished(ShellOutput(stdout: "/tmp/repo/swift-otter", stderr: "", exitCode: 0)))
           continuation.finish()
         }
-      }
+      },
     )
     let client = GitClient(shell: shell)
     let repoRoot = URL(fileURLWithPath: "/tmp/repo")
@@ -69,7 +69,7 @@ struct GitClientCreateWorktreeStreamTests {
       in: repoRoot,
       baseDirectory: URL(fileURLWithPath: "/tmp/repo/.worktrees"),
       copyFiles: (ignored: true, untracked: false),
-      baseRef: "origin/main"
+      baseRef: "origin/main",
     ) {}
 
     let snapshot = recorder.snapshot()
@@ -103,7 +103,7 @@ struct GitClientCreateWorktreeStreamTests {
         recorder.record(
           executableURL: executableURL,
           arguments: arguments,
-          currentDirectoryURL: currentDirectoryURL
+          currentDirectoryURL: currentDirectoryURL,
         )
         return AsyncThrowingStream { continuation in
           continuation.yield(.line(ShellStreamLine(source: .stdout, text: "/tmp/elsewhere/feature_foo")))
@@ -112,7 +112,7 @@ struct GitClientCreateWorktreeStreamTests {
           )
           continuation.finish()
         }
-      }
+      },
     )
     let client = GitClient(shell: shell)
     let repoRoot = URL(fileURLWithPath: "/tmp/repo")
@@ -123,7 +123,7 @@ struct GitClientCreateWorktreeStreamTests {
       baseDirectory: URL(fileURLWithPath: "/tmp/repo/.worktrees"),
       copyFiles: (ignored: false, untracked: false),
       baseRef: "origin/main",
-      directoryOverride: URL(fileURLWithPath: "/tmp/elsewhere/feature_foo")
+      directoryOverride: URL(fileURLWithPath: "/tmp/elsewhere/feature_foo"),
     ) {}
 
     let snapshot = recorder.snapshot()
@@ -155,7 +155,7 @@ struct GitClientCreateWorktreeStreamTests {
           continuation.yield(.finished(ShellOutput(stdout: "", stderr: "", exitCode: 0)))
           continuation.finish()
         }
-      }
+      },
     )
     let client = GitClient(shell: shell)
     let repoRoot = URL(fileURLWithPath: "/tmp/repo")
@@ -166,7 +166,7 @@ struct GitClientCreateWorktreeStreamTests {
       in: repoRoot,
       baseDirectory: URL(fileURLWithPath: "/tmp/repo/.worktrees"),
       copyFiles: (ignored: true, untracked: true),
-      baseRef: ""
+      baseRef: "",
     ) {
       switch event {
       case .outputLine(let line):
@@ -201,7 +201,7 @@ struct GitClientCreateWorktreeStreamTests {
           continuation.yield(.finished(ShellOutput(stdout: "", stderr: "", exitCode: 0)))
           continuation.finish()
         }
-      }
+      },
     )
     let client = GitClient(shell: shell)
     let repoRoot = URL(fileURLWithPath: "/tmp/repo")
@@ -211,7 +211,7 @@ struct GitClientCreateWorktreeStreamTests {
       in: repoRoot,
       baseDirectory: URL(fileURLWithPath: "/tmp/repo/.worktrees"),
       copyFiles: (ignored: false, untracked: false),
-      baseRef: ""
+      baseRef: "",
     ) {
       if case .finished(let worktree) = event {
         finishedWorktree = worktree
@@ -229,9 +229,9 @@ struct GitClientCreateWorktreeStreamTests {
         ShellOutput(
           stdout: "creating worktree\n/tmp/repo/new-wt\n",
           stderr: "",
-          exitCode: 0
+          exitCode: 0,
         )
-      }
+      },
     )
     let client = GitClient(shell: shell)
     let repoRoot = URL(fileURLWithPath: "/tmp/repo")
@@ -242,7 +242,7 @@ struct GitClientCreateWorktreeStreamTests {
       in: repoRoot,
       baseDirectory: URL(fileURLWithPath: "/tmp/repo/.worktrees"),
       copyFiles: (ignored: false, untracked: false),
-      baseRef: ""
+      baseRef: "",
     ) {
       switch event {
       case .outputLine(let line):
@@ -273,7 +273,7 @@ struct GitClientCreateWorktreeStreamTests {
           continuation.yield(.finished(ShellOutput(stdout: "", stderr: "", exitCode: 0)))
           continuation.finish()
         }
-      }
+      },
     )
     let client = GitClient(shell: shell)
     let repoRoot = URL(fileURLWithPath: "/tmp/repo")
@@ -284,7 +284,7 @@ struct GitClientCreateWorktreeStreamTests {
         in: repoRoot,
         baseDirectory: URL(fileURLWithPath: "/tmp/repo/.worktrees"),
         copyFiles: (ignored: false, untracked: false),
-        baseRef: ""
+        baseRef: "",
       ) {}
       Issue.record("Expected createWorktreeStream to throw when stdout path is missing")
     } catch let error as GitClientError {
@@ -309,11 +309,11 @@ struct GitClientCreateWorktreeStreamTests {
               command: "wt sw",
               stdout: "out",
               stderr: "err",
-              exitCode: 1
+              exitCode: 1,
             )
           )
         }
-      }
+      },
     )
     let client = GitClient(shell: shell)
     let repoRoot = URL(fileURLWithPath: "/tmp/repo")
@@ -324,7 +324,7 @@ struct GitClientCreateWorktreeStreamTests {
         in: repoRoot,
         baseDirectory: URL(fileURLWithPath: "/tmp/repo/.worktrees"),
         copyFiles: (ignored: false, untracked: false),
-        baseRef: ""
+        baseRef: "",
       )
       Issue.record("Expected createWorktree to throw")
     } catch let error as GitClientError {
@@ -350,7 +350,7 @@ struct GitClientCreateWorktreeStreamTests {
           continuation.yield(.finished(ShellOutput(stdout: "/tmp/repo/new-wt", stderr: "", exitCode: 0)))
           continuation.finish()
         }
-      }
+      },
     )
     let client = GitClient(shell: shell)
     let repoRoot = URL(fileURLWithPath: "/tmp/repo")
@@ -360,7 +360,7 @@ struct GitClientCreateWorktreeStreamTests {
       in: repoRoot,
       baseDirectory: URL(fileURLWithPath: "/tmp/repo/.worktrees"),
       copyFiles: (ignored: false, untracked: false),
-      baseRef: ""
+      baseRef: "",
     )
 
     #expect(worktree.id == "/tmp/repo/new-wt")
@@ -375,9 +375,9 @@ struct GitClientCreateWorktreeStreamTests {
         ShellOutput(
           stdout: "preparing\n/tmp/repo/new-wt\n",
           stderr: "",
-          exitCode: 0
+          exitCode: 0,
         )
-      }
+      },
     )
     let client = GitClient(shell: shell)
     let repoRoot = URL(fileURLWithPath: "/tmp/repo")
@@ -387,7 +387,7 @@ struct GitClientCreateWorktreeStreamTests {
       in: repoRoot,
       baseDirectory: URL(fileURLWithPath: "/tmp/repo/.worktrees"),
       copyFiles: (ignored: false, untracked: false),
-      baseRef: ""
+      baseRef: "",
     )
 
     #expect(worktree.id == "/tmp/repo/new-wt")

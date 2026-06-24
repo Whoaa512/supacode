@@ -30,7 +30,7 @@ struct SplitView<L: View, R: View>: View {
           direction: direction,
           visibleSize: splitterVisibleSize,
           invisibleSize: splitterInvisibleSize,
-          color: dividerColor
+          color: dividerColor,
         )
         .position(splitterPoint)
         .gesture(dragGesture(geo.size))
@@ -48,7 +48,7 @@ struct SplitView<L: View, R: View>: View {
     resizeIncrements: CGSize = .init(width: 1, height: 1),
     @ViewBuilder left: (() -> L),
     @ViewBuilder right: (() -> R),
-    onEqualize: @escaping () -> Void
+    onEqualize: @escaping () -> Void,
   ) {
     self.direction = direction
     self._split = split

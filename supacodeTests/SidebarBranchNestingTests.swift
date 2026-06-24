@@ -18,7 +18,7 @@ struct SidebarBranchNestingTests {
     let rows = SidebarBranchNesting.buildRows(
       itemIDs: ["/wt/main"],
       branchNames: ["/wt/main": "main"],
-      collapsedPrefixes: []
+      collapsedPrefixes: [],
     )
     #expect(rows == [.leaf(id: "/wt/main", depth: 0, displayName: nil)])
   }
@@ -27,7 +27,7 @@ struct SidebarBranchNestingTests {
     let rows = SidebarBranchNesting.buildRows(
       itemIDs: ["/wt/main", "/wt/chore"],
       branchNames: ["/wt/main": "main", "/wt/chore": "chore/cleanup"],
-      collapsedPrefixes: []
+      collapsedPrefixes: [],
     )
     // No other branch shares the `chore` prefix, so the chain collapses and
     // the leaf renders flat with its full branch name. Sort is alphabetical.
@@ -43,7 +43,7 @@ struct SidebarBranchNestingTests {
     let rows = SidebarBranchNesting.buildRows(
       itemIDs: ["/wt/a", "/wt/b"],
       branchNames: ["/wt/a": "feature/a", "/wt/b": "feature/b"],
-      collapsedPrefixes: []
+      collapsedPrefixes: [],
     )
     #expect(
       rows == [
@@ -52,7 +52,7 @@ struct SidebarBranchNestingTests {
           components: ["feature"],
           depth: 0,
           isCollapsed: false,
-          leafDescendantIDs: ["/wt/a", "/wt/b"]
+          leafDescendantIDs: ["/wt/a", "/wt/b"],
         ),
         .leaf(id: "/wt/a", depth: 1, displayName: "a"),
         .leaf(id: "/wt/b", depth: 1, displayName: "b"),
@@ -64,7 +64,7 @@ struct SidebarBranchNestingTests {
     let rows = SidebarBranchNesting.buildRows(
       itemIDs: ["/wt/x"],
       branchNames: ["/wt/x": "feature/tools/x"],
-      collapsedPrefixes: []
+      collapsedPrefixes: [],
     )
     // No branching anywhere along the chain, so no header is emitted.
     #expect(rows == [.leaf(id: "/wt/x", depth: 0, displayName: nil)])
@@ -79,7 +79,7 @@ struct SidebarBranchNestingTests {
         "/wt/c": "feature/c",
         "/wt/d": "feature/d",
       ],
-      collapsedPrefixes: []
+      collapsedPrefixes: [],
     )
     // Alphabetical sort places `feature/c` and `feature/d` before
     // `feature/tools/...` because `c` < `d` < `tools` lexicographically.
@@ -92,7 +92,7 @@ struct SidebarBranchNestingTests {
           components: ["feature"],
           depth: 0,
           isCollapsed: false,
-          leafDescendantIDs: ["/wt/c", "/wt/d", "/wt/a", "/wt/b"]
+          leafDescendantIDs: ["/wt/c", "/wt/d", "/wt/a", "/wt/b"],
         ),
         .leaf(id: "/wt/c", depth: 1, displayName: "c"),
         .leaf(id: "/wt/d", depth: 1, displayName: "d"),
@@ -101,7 +101,7 @@ struct SidebarBranchNestingTests {
           components: ["tools"],
           depth: 1,
           isCollapsed: false,
-          leafDescendantIDs: ["/wt/a", "/wt/b"]
+          leafDescendantIDs: ["/wt/a", "/wt/b"],
         ),
         .leaf(id: "/wt/a", depth: 2, displayName: "a"),
         .leaf(id: "/wt/b", depth: 2, displayName: "b"),
@@ -113,7 +113,7 @@ struct SidebarBranchNestingTests {
     let rows = SidebarBranchNesting.buildRows(
       itemIDs: ["/wt/a", "/wt/b"],
       branchNames: ["/wt/a": "feature/a", "/wt/b": "feature/b"],
-      collapsedPrefixes: ["feature"]
+      collapsedPrefixes: ["feature"],
     )
     #expect(rows.count == 1)
     if case .groupHeader(_, _, _, let isCollapsed, let descendants) = rows[0] {
@@ -135,7 +135,7 @@ struct SidebarBranchNestingTests {
         "/wt/b": "feature/tools/b",
         "/wt/c": "feature/c",
       ],
-      collapsedPrefixes: ["feature/tools"]
+      collapsedPrefixes: ["feature/tools"],
     )
     #expect(
       rows == [
@@ -144,7 +144,7 @@ struct SidebarBranchNestingTests {
           components: ["feature"],
           depth: 0,
           isCollapsed: false,
-          leafDescendantIDs: ["/wt/c", "/wt/a", "/wt/b"]
+          leafDescendantIDs: ["/wt/c", "/wt/a", "/wt/b"],
         ),
         .leaf(id: "/wt/c", depth: 1, displayName: "c"),
         .groupHeader(
@@ -152,7 +152,7 @@ struct SidebarBranchNestingTests {
           components: ["tools"],
           depth: 1,
           isCollapsed: true,
-          leafDescendantIDs: ["/wt/a", "/wt/b"]
+          leafDescendantIDs: ["/wt/a", "/wt/b"],
         ),
       ]
     )
@@ -166,7 +166,7 @@ struct SidebarBranchNestingTests {
         "/wt/b": "feature/tools/b",
         "/wt/c": "feature/c",
       ],
-      collapsedPrefixes: ["feature"]
+      collapsedPrefixes: ["feature"],
     )
     #expect(rows.count == 1)
     if case .groupHeader(_, _, _, _, let descendants) = rows[0] {
@@ -183,7 +183,7 @@ struct SidebarBranchNestingTests {
     let rows = SidebarBranchNesting.buildRows(
       itemIDs: ["/wt/x"],
       branchNames: ["/wt/x": ""],
-      collapsedPrefixes: []
+      collapsedPrefixes: [],
     )
     #expect(rows == [.leaf(id: "/wt/x", depth: 0, displayName: nil)])
   }
@@ -192,7 +192,7 @@ struct SidebarBranchNestingTests {
     let rows = SidebarBranchNesting.buildRows(
       itemIDs: ["/wt/a", "/wt/b"],
       branchNames: ["/wt/a": "/feature/a", "/wt/b": "/feature/b"],
-      collapsedPrefixes: []
+      collapsedPrefixes: [],
     )
     #expect(rows.count == 3)
     if case .groupHeader(let prefix, _, _, _, _) = rows[0] {
@@ -208,7 +208,7 @@ struct SidebarBranchNestingTests {
     let rows = SidebarBranchNesting.buildRows(
       itemIDs: ["/wt/a", "/wt/b"],
       branchNames: ["/wt/a": "feature//a", "/wt/b": "feature//b"],
-      collapsedPrefixes: []
+      collapsedPrefixes: [],
     )
     #expect(rows.count == 3)
     if case .groupHeader(let prefix, _, _, _, _) = rows[0] {
@@ -224,7 +224,7 @@ struct SidebarBranchNestingTests {
     let rows = SidebarBranchNesting.buildRows(
       itemIDs: ["/wt/a"],
       branchNames: ["/wt/a": "feature/tools/"],
-      collapsedPrefixes: []
+      collapsedPrefixes: [],
     )
     // "feature/tools/" normalizes to ["feature", "tools"]. With only one
     // branch in the chain, no header is emitted and the leaf renders flat.
@@ -235,7 +235,7 @@ struct SidebarBranchNestingTests {
     let rows = SidebarBranchNesting.buildRows(
       itemIDs: ["/wt/a", "/wt/b"],
       branchNames: ["/wt/a": "main", "/wt/b": "main"],
-      collapsedPrefixes: []
+      collapsedPrefixes: [],
     )
     // Two worktrees sharing the same single-component branch name must both render.
     #expect(
@@ -255,7 +255,7 @@ struct SidebarBranchNestingTests {
         "/wt/b": "feature/b",
         "/wt/c": "chore/x",
       ],
-      collapsedPrefixes: []
+      collapsedPrefixes: [],
     )
     // Alphabetical sort: `chore/x` < `feature/a` < `feature/b` < `main`.
     // `chore/x` has no sibling under `chore`, so it stays flat. `feature/*`
@@ -284,7 +284,7 @@ struct SidebarBranchNestingTests {
         "/wt/b": "feature/tools/b",
         "/wt/b2": "b",
       ],
-      collapsedPrefixes: []
+      collapsedPrefixes: [],
     )
     #expect(
       rows == [
@@ -294,7 +294,7 @@ struct SidebarBranchNestingTests {
           components: ["feature", "tools"],
           depth: 0,
           isCollapsed: false,
-          leafDescendantIDs: ["/wt/a", "/wt/b"]
+          leafDescendantIDs: ["/wt/a", "/wt/b"],
         ),
         .leaf(id: "/wt/a", depth: 1, displayName: "a"),
         .leaf(id: "/wt/b", depth: 1, displayName: "b"),
@@ -306,7 +306,7 @@ struct SidebarBranchNestingTests {
     let rows = SidebarBranchNesting.buildRows(
       itemIDs: ["/wt/z", "/wt/a", "/wt/m"],
       branchNames: ["/wt/z": "zeta", "/wt/a": "alpha", "/wt/m": "mu"],
-      collapsedPrefixes: []
+      collapsedPrefixes: [],
     )
     #expect(
       rows == [
@@ -328,7 +328,7 @@ struct SidebarBranchNestingTests {
     let rows = SidebarBranchNesting.buildRows(
       itemIDs: ["/wt/a", "/wt/b"],
       branchNames: ["/wt/a": "Feature/a", "/wt/b": "feature/b"],
-      collapsedPrefixes: []
+      collapsedPrefixes: [],
     )
     #expect(
       rows == [
@@ -349,7 +349,7 @@ struct SidebarBranchNestingTests {
         "/wt/c": "feature/c",
         "/wt/d": "feature/d",
       ],
-      collapsedPrefixes: []
+      collapsedPrefixes: [],
     )
     // Case-insensitive sort puts the four branches in alphabetical order
     // (Feature/a, Feature/b, feature/c, feature/d), which means insertion
@@ -361,7 +361,7 @@ struct SidebarBranchNestingTests {
           components: ["Feature"],
           depth: 0,
           isCollapsed: false,
-          leafDescendantIDs: ["/wt/a", "/wt/b"]
+          leafDescendantIDs: ["/wt/a", "/wt/b"],
         ),
         .leaf(id: "/wt/a", depth: 1, displayName: "a"),
         .leaf(id: "/wt/b", depth: 1, displayName: "b"),
@@ -370,7 +370,7 @@ struct SidebarBranchNestingTests {
           components: ["feature"],
           depth: 0,
           isCollapsed: false,
-          leafDescendantIDs: ["/wt/c", "/wt/d"]
+          leafDescendantIDs: ["/wt/c", "/wt/d"],
         ),
         .leaf(id: "/wt/c", depth: 1, displayName: "c"),
         .leaf(id: "/wt/d", depth: 1, displayName: "d"),
@@ -408,7 +408,7 @@ struct SidebarBranchNestingTests {
       .init(
         hasUnseenNotifications: false,
         runningScriptColors: [.red, .blue, .green, .yellow],
-        agents: []
+        agents: [],
       )
     ]
     let indicators = SidebarBranchNesting.aggregateIndicators(from: snapshots)

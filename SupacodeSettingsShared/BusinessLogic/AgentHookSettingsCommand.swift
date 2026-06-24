@@ -51,7 +51,7 @@ nonisolated enum AgentHookSettingsCommand {
   static func compositeCommand(
     events: [HookEvent],
     forwardStdinAsNotification: Bool,
-    agent: SkillAgent
+    agent: SkillAgent,
   ) -> String {
     precondition(
       !events.isEmpty || forwardStdinAsNotification,

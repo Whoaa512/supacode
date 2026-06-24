@@ -59,7 +59,7 @@ private struct RepositoryDisclosureLabel: View {
     RepositoryLabel(
       name: repository.name,
       rootURL: repository.rootURL,
-      isGitRepository: repository.isGitRepository
+      isGitRepository: repository.isGitRepository,
     )
     .contentShape(Rectangle())
     .accessibilityAddTraits(.isButton)
@@ -108,7 +108,7 @@ private struct SettingsSidebarView: View {
                 } else {
                   expandedRepositories.remove(repository.id)
                 }
-              }
+              },
             )
             DisclosureGroup(isExpanded: isExpanded) {
               Label("General", systemImage: "gearshape")
@@ -119,7 +119,7 @@ private struct SettingsSidebarView: View {
               RepositoryDisclosureLabel(
                 repository: repository,
                 settingsStore: settingsStore,
-                isExpanded: isExpanded
+                isExpanded: isExpanded,
               )
             }
           } else {
@@ -130,7 +130,7 @@ private struct SettingsSidebarView: View {
             RepositoryLabel(
               name: repository.name,
               rootURL: repository.rootURL,
-              isGitRepository: false
+              isGitRepository: false,
             )
             .tag(SettingsSection.repositoryScripts(repository.id))
           }
@@ -174,7 +174,7 @@ private struct SettingsDetailView: View {
       if let repository = selectedRepositorySummary {
         if let repositorySettingsStore = settingsStore.scope(
           state: \.repositorySettings,
-          action: \.repositorySettings
+          action: \.repositorySettings,
         ) {
           RepositorySettingsView(store: repositorySettingsStore)
             .id(repository.id)
@@ -195,7 +195,7 @@ private struct SettingsDetailView: View {
       if let repository = selectedRepositorySummary {
         if let repositorySettingsStore = settingsStore.scope(
           state: \.repositorySettings,
-          action: \.repositorySettings
+          action: \.repositorySettings,
         ) {
           RepositoryScriptsSettingsView(store: repositorySettingsStore)
             .id("\(repository.id)-scripts")
@@ -241,7 +241,7 @@ struct SettingsView: View {
     NavigationSplitView(columnVisibility: .constant(.all)) {
       SettingsSidebarView(
         settingsStore: settingsStore,
-        expandedRepositories: $expandedRepositories
+        expandedRepositories: $expandedRepositories,
       )
       .onChange(of: selection, initial: true) { _, newSelection in
         guard let repositoryID = newSelection.repositoryID else { return }
@@ -252,7 +252,7 @@ struct SettingsView: View {
         selection: selection,
         selectedRepositorySummary: selectedRepositorySummary,
         settingsStore: settingsStore,
-        updatesStore: updatesStore
+        updatesStore: updatesStore,
       )
     }
     .toolbar {

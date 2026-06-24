@@ -216,7 +216,7 @@ struct AgentPresenceFeature {
   /// re-create the record. A pid-less idle re-seed would be skipped by the
   /// liveness sweep and pinned until surface close.
   private static func applyActivity(
-    _ activity: Activity, event: AgentHookEvent, key: PresenceKey, into state: inout State
+    _ activity: Activity, event: AgentHookEvent, key: PresenceKey, into state: inout State,
   ) -> Bool {
     if var record = state.records[key] {
       guard record.activity != activity else { return false }
@@ -253,7 +253,7 @@ struct AgentPresenceFeature {
   private static func applyLiveness(
     delta: [PresenceKey: Set<pid_t>],
     snapshot: [PresenceKey: Set<pid_t>],
-    into state: inout State
+    into state: inout State,
   ) -> Set<UUID> {
     var dirtySurfaces: Set<UUID> = []
     for (key, alive) in delta {
@@ -312,7 +312,7 @@ struct AgentPresenceFeature {
   /// A hook event that raced ahead of the restore takes precedence.
   private static func applyRestore(
     records: [PresenceKey: RestoredRecord],
-    into state: inout State
+    into state: inout State,
   ) -> Set<UUID> {
     var dirtySurfaces: Set<UUID> = []
     for (key, record) in records {
@@ -329,7 +329,7 @@ struct AgentPresenceFeature {
     let agents = Set(
       state.records.compactMap { entry in
         entry.key.surfaceID == surfaceID ? entry.key.agent : nil
-      },
+      }
     )
     if agents.isEmpty {
       state.bySurface.removeValue(forKey: surfaceID)
@@ -348,7 +348,7 @@ extension AgentPresenceFeature.State {
       let entry = TerminalLayoutSnapshot.SurfaceAgentRecord(
         agent: key.agent.rawValue,
         pids: record.pids.sorted(),
-        activity: record.activity.rawValue
+        activity: record.activity.rawValue,
       )
       result[key.surfaceID, default: []].append(entry)
     }

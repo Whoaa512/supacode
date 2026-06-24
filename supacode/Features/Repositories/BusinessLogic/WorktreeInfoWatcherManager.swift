@@ -64,7 +64,7 @@ final class WorktreeInfoWatcherManager {
     unfocusedInterval: Duration = .seconds(60),
     filesChangedDebounceInterval: Duration = .seconds(5),
     pullRequestSelectionRefreshCooldown: Duration = .seconds(5),
-    clock: C = ContinuousClock()
+    clock: C = ContinuousClock(),
   ) {
     refreshTiming = RefreshTiming(focused: focusedInterval, unfocused: unfocusedInterval)
     self.filesChangedDebounceInterval = filesChangedDebounceInterval
@@ -91,7 +91,7 @@ final class WorktreeInfoWatcherManager {
     eventContinuation?.finish()
     let (stream, continuation) = AsyncStream.makeStream(
       of: WorktreeInfoWatcherClient.Event.self,
-      bufferingPolicy: .bufferingNewest(Self.eventBufferCap)
+      bufferingPolicy: .bufferingNewest(Self.eventBufferCap),
     )
     eventContinuation = continuation
     return stream
@@ -118,7 +118,7 @@ final class WorktreeInfoWatcherManager {
       configureWatcher(for: worktree)
       updateLineChangeSchedule(
         worktreeID: worktree.id,
-        immediate: isInitialWorktreeLoad || !deferredLineChangeIDs.contains(worktree.id)
+        immediate: isInitialWorktreeLoad || !deferredLineChangeIDs.contains(worktree.id),
       )
     }
     if isInitialWorktreeLoad {
@@ -157,7 +157,7 @@ final class WorktreeInfoWatcherManager {
     if let previousRepository, previousRepository == nextRepository {
       updatePullRequestSchedule(
         repositoryRootURL: previousRepository,
-        immediate: shouldImmediatelyRefreshPullRequests(repositoryRootURL: previousRepository)
+        immediate: shouldImmediatelyRefreshPullRequests(repositoryRootURL: previousRepository),
       )
       return
     }
@@ -167,7 +167,7 @@ final class WorktreeInfoWatcherManager {
     if let nextRepository {
       updatePullRequestSchedule(
         repositoryRootURL: nextRepository,
-        immediate: shouldImmediatelyRefreshPullRequests(repositoryRootURL: nextRepository)
+        immediate: shouldImmediatelyRefreshPullRequests(repositoryRootURL: nextRepository),
       )
     }
   }
@@ -176,7 +176,7 @@ final class WorktreeInfoWatcherManager {
     guard
       let headURL = GitWorktreeHeadResolver.headURL(
         for: worktree.workingDirectory,
-        fileManager: .default
+        fileManager: .default,
       )
     else {
       stopWatcher(for: worktree.id)
@@ -199,7 +199,7 @@ final class WorktreeInfoWatcherManager {
     let source = DispatchSource.makeFileSystemObjectSource(
       fileDescriptor: fileDescriptor,
       eventMask: [.write, .rename, .delete, .attrib],
-      queue: queue
+      queue: queue,
     )
     source.setEventHandler { @Sendable [weak self, weak source] in
       guard let source else { return }
@@ -217,7 +217,7 @@ final class WorktreeInfoWatcherManager {
 
   private func handleEvent(
     worktreeID: Worktree.ID,
-    event: DispatchSource.FileSystemEvent
+    event: DispatchSource.FileSystemEvent,
   ) {
     if event.contains(.delete) || event.contains(.rename) {
       stopHeadWatcher(for: worktreeID)
@@ -254,7 +254,7 @@ final class WorktreeInfoWatcherManager {
           self.updateLineChangeSchedule(
             worktreeID: worktreeID,
             immediate: false,
-            forceReschedule: true
+            forceReschedule: true,
           )
         }
       }
@@ -412,7 +412,7 @@ final class WorktreeInfoWatcherManager {
   private func updateLineChangeSchedule(
     worktreeID: Worktree.ID,
     immediate: Bool,
-    forceReschedule: Bool = false
+    forceReschedule: Bool = false,
   ) {
     guard worktrees[worktreeID] != nil else {
       return
@@ -427,14 +427,14 @@ final class WorktreeInfoWatcherManager {
       makeEvent: { [weak self] worktreeID in
         self?.deferredLineChangeIDs.remove(worktreeID)
         return .filesChanged(worktreeID: worktreeID)
-      }
+      },
     )
     updateRepeatingTask(request, tasks: &lineChangeTasks)
   }
 
   private func updateRepeatingTask(
     _ request: RepeatingTaskRequest,
-    tasks: inout [Worktree.ID: RefreshTask]
+    tasks: inout [Worktree.ID: RefreshTask],
   ) {
     let worktreeID = request.worktreeID
     if let existing = tasks[worktreeID], existing.interval == request.interval, !request.forceReschedule {
@@ -530,7 +530,7 @@ final class WorktreeInfoWatcherManager {
     }
     pullRequestSelectionCooldownTasksByRepo[repositoryRootURL] = PullRequestSelectionCooldownTask(
       id: taskID,
-      task: task
+      task: task,
     )
     return true
   }

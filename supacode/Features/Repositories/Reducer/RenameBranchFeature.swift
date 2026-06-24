@@ -20,7 +20,7 @@ struct RenameBranchFeature {
       worktreeID: Worktree.ID,
       repositoryID: Repository.ID,
       repositoryRootURL: URL,
-      currentName: String
+      currentName: String,
     ) {
       self.worktreeID = worktreeID
       self.repositoryID = repositoryID

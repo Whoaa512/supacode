@@ -29,7 +29,7 @@ final class CommandKeyObserver {
     didBecomeActiveObserver = center.addObserver(
       forName: NSApplication.didBecomeActiveNotification,
       object: nil,
-      queue: .main
+      queue: .main,
     ) { [weak self] _ in
       MainActor.assumeIsolated {
         self?.handleCommandKeyChange(isDown: Self.shouldShowShortcuts(for: NSEvent.modifierFlags))
@@ -38,7 +38,7 @@ final class CommandKeyObserver {
     didResignActiveObserver = center.addObserver(
       forName: NSApplication.didResignActiveNotification,
       object: nil,
-      queue: .main
+      queue: .main,
     ) { [weak self] _ in
       MainActor.assumeIsolated {
         self?.handleCommandKeyChange(isDown: false)

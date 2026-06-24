@@ -22,12 +22,12 @@ struct WorktreeInfoWatcherClient {
 extension WorktreeInfoWatcherClient: DependencyKey {
   static let liveValue = WorktreeInfoWatcherClient(
     send: { _ in fatalError("WorktreeInfoWatcherClient.send not configured") },
-    events: { fatalError("WorktreeInfoWatcherClient.events not configured") }
+    events: { fatalError("WorktreeInfoWatcherClient.events not configured") },
   )
 
   static let testValue = WorktreeInfoWatcherClient(
     send: { _ in },
-    events: { AsyncStream { $0.finish() } }
+    events: { AsyncStream { $0.finish() } },
   )
 }
 

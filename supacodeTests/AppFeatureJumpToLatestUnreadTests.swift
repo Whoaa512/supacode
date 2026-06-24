@@ -58,7 +58,7 @@ struct AppFeatureJumpToLatestUnreadTests {
       worktree,
       tabID: TerminalTabID(rawValue: tabUUID),
       surfaceID: surfaceUUID,
-      input: nil
+      input: nil,
     )
     // Only the focus command should flow through `send`; the side-effect
     // setSelectedWorktreeID is produced by the `selectWorktree` delegate
@@ -102,7 +102,7 @@ struct AppFeatureJumpToLatestUnreadTests {
 
   private func makeWorktree(
     id: String = "/tmp/repo/wt-1",
-    name: String = "wt-1"
+    name: String = "wt-1",
   ) -> Worktree {
     Worktree(
       id: id,
@@ -115,7 +115,7 @@ struct AppFeatureJumpToLatestUnreadTests {
 
   private func makeStore(
     worktree: Worktree,
-    withAdditionalDependencies: (inout DependencyValues) -> Void
+    withAdditionalDependencies: (inout DependencyValues) -> Void,
   ) -> TestStoreOf<AppFeature> {
     var repositoriesState = RepositoriesFeature.State()
     let repository = Repository(
@@ -131,7 +131,7 @@ struct AppFeatureJumpToLatestUnreadTests {
     let store = TestStore(
       initialState: AppFeature.State(
         repositories: repositoriesState,
-        settings: SettingsFeature.State()
+        settings: SettingsFeature.State(),
       )
     ) {
       AppFeature()

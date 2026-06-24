@@ -51,7 +51,7 @@ private struct TerminalPersistenceOnboardingCardBody: View {
           .font(.title2)
           .foregroundStyle(.purple)
           .accessibilityHidden(true)
-      }
+      },
     )
   }
 

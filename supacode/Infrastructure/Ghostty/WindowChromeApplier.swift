@@ -15,7 +15,7 @@ enum WindowChromeApplier {
   static func apply(
     window: NSWindow,
     runtime: GhosttyRuntime,
-    lastApplied: inout WindowAppearanceState?
+    lastApplied: inout WindowAppearanceState?,
   ) {
     guard window.isVisible else { return }
     let opacity = runtime.backgroundOpacity()
@@ -23,7 +23,7 @@ enum WindowChromeApplier {
       opacity: opacity,
       appearance: window.effectiveAppearance.name,
       isFullScreen: window.styleMask.contains(.fullScreen),
-      isOpaqueOverride: runtime.isBackgroundOpaque
+      isOpaqueOverride: runtime.isBackgroundOpaque,
     )
     if next == lastApplied {
       return
@@ -38,7 +38,7 @@ enum WindowChromeApplier {
         if let app = runtime.app {
           ghostty_set_window_background_blur(
             app,
-            Unmanaged.passUnretained(window).toOpaque()
+            Unmanaged.passUnretained(window).toOpaque(),
           )
         }
         return
@@ -127,7 +127,7 @@ final class WindowChromeObserverNSView: NSView {
       center.addObserver(
         forName: .ghosttyRuntimeConfigDidChange,
         object: runtime,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         Task { @MainActor [weak self] in
           self?.lastApplied = nil

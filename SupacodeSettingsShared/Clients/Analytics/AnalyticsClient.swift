@@ -8,7 +8,7 @@ public nonisolated struct AnalyticsClient: Sendable {
 
   public init(
     capture: @escaping @Sendable (_ event: String, _ properties: [String: Any]?) -> Void,
-    identify: @escaping @Sendable (_ distinctId: String) -> Void
+    identify: @escaping @Sendable (_ distinctId: String) -> Void,
   ) {
     self.capture = capture
     self.identify = identify
@@ -30,12 +30,12 @@ extension AnalyticsClient: DependencyKey {
         guard settingsFile.global.analyticsEnabled else { return }
         PostHogSDK.shared.identify(distinctId)
       #endif
-    }
+    },
   )
 
   public static let testValue = AnalyticsClient(
     capture: { _, _ in },
-    identify: { _ in }
+    identify: { _ in },
   )
 }
 

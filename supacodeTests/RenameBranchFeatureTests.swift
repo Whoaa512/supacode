@@ -11,13 +11,13 @@ struct RenameBranchFeatureTests {
 
   private func makeState(
     newName: String? = nil,
-    currentName: String = "feature/old"
+    currentName: String = "feature/old",
   ) -> RenameBranchFeature.State {
     var state = RenameBranchFeature.State(
       worktreeID: "/tmp/rename-repo/feature-old",
       repositoryID: "/tmp/rename-repo",
       repositoryRootURL: repoRoot,
-      currentName: currentName
+      currentName: currentName,
     )
     if let newName {
       state.newName = newName
@@ -116,7 +116,7 @@ struct RenameBranchFeatureTests {
         .renamed(
           worktreeID: "/tmp/rename-repo/feature-old",
           repositoryID: "/tmp/rename-repo",
-          newName: "feature/new"
+          newName: "feature/new",
         )
       )
     )
@@ -182,7 +182,7 @@ struct RenameBranchFeatureTests {
         .renamed(
           worktreeID: "/tmp/rename-repo/feature-old",
           repositoryID: "/tmp/rename-repo",
-          newName: "Feature/Old"
+          newName: "Feature/Old",
         )
       )
     )
@@ -196,7 +196,7 @@ struct RenameBranchFeatureTests {
   @Test func friendlyErrorMaps_alreadyExists() {
     let err = GitClientError.commandFailed(
       command: "git branch -m",
-      message: "fatal: A branch named 'main' already exists."
+      message: "fatal: A branch named 'main' already exists.",
     )
     #expect(
       RenameBranchFeature.friendlyRenameError(from: err, target: "main")
@@ -207,7 +207,7 @@ struct RenameBranchFeatureTests {
   @Test func friendlyErrorMaps_checkedOutElsewhere() {
     let err = GitClientError.commandFailed(
       command: "git branch -m",
-      message: "fatal: Branches cannot be renamed: 'feature' is checked out at '/path/wt'."
+      message: "fatal: Branches cannot be renamed: 'feature' is checked out at '/path/wt'.",
     )
     let mapped = RenameBranchFeature.friendlyRenameError(from: err, target: "feature")
     #expect(mapped.contains("checked out in another worktree"))
@@ -216,7 +216,7 @@ struct RenameBranchFeatureTests {
   @Test func friendlyErrorMaps_invalidRefname() {
     let err = GitClientError.commandFailed(
       command: "git branch -m",
-      message: "fatal: 'bad name' is not a valid branch name."
+      message: "fatal: 'bad name' is not a valid branch name.",
     )
     let mapped = RenameBranchFeature.friendlyRenameError(from: err, target: "bad name")
     #expect(mapped == "Git rejected 'bad name' as an invalid branch name.")
@@ -225,7 +225,7 @@ struct RenameBranchFeatureTests {
   @Test func friendlyErrorMaps_fallbackReturnsTrimmedMessage() {
     let err = GitClientError.commandFailed(
       command: "git -C /private/var/users/me/repo branch -m old new",
-      message: "weird new failure"
+      message: "weird new failure",
     )
     let mapped = RenameBranchFeature.friendlyRenameError(from: err, target: "x")
     #expect(mapped == "weird new failure")

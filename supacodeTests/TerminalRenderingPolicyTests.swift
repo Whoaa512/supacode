@@ -13,7 +13,7 @@ struct TerminalRenderingPolicyTests {
       windowIsVisible: true,
       windowIsKey: true,
       focusedSurfaceID: focusedID,
-      surfaceID: focusedID
+      surfaceID: focusedID,
     )
     #expect(activity.isVisible)
     #expect(activity.isFocused)
@@ -26,7 +26,7 @@ struct TerminalRenderingPolicyTests {
       windowIsVisible: true,
       windowIsKey: true,
       focusedSurfaceID: UUID(),
-      surfaceID: UUID()
+      surfaceID: UUID(),
     )
     #expect(activity.isVisible)
     #expect(!activity.isFocused)
@@ -40,7 +40,7 @@ struct TerminalRenderingPolicyTests {
       windowIsVisible: true,
       windowIsKey: false,
       focusedSurfaceID: surfaceID,
-      surfaceID: surfaceID
+      surfaceID: surfaceID,
     )
     #expect(activity.isVisible)
     #expect(!activity.isFocused)
@@ -54,7 +54,7 @@ struct TerminalRenderingPolicyTests {
       windowIsVisible: false,
       windowIsKey: true,
       focusedSurfaceID: surfaceID,
-      surfaceID: surfaceID
+      surfaceID: surfaceID,
     )
     #expect(!activity.isVisible)
     #expect(!activity.isFocused)
@@ -68,7 +68,7 @@ struct TerminalRenderingPolicyTests {
       windowIsVisible: true,
       windowIsKey: true,
       focusedSurfaceID: surfaceID,
-      surfaceID: surfaceID
+      surfaceID: surfaceID,
     )
     #expect(!activity.isVisible)
     #expect(!activity.isFocused)
@@ -82,7 +82,7 @@ struct TerminalRenderingPolicyTests {
       windowIsVisible: true,
       windowIsKey: true,
       focusedSurfaceID: surfaceID,
-      surfaceID: surfaceID
+      surfaceID: surfaceID,
     )
     #expect(!activity.isVisible)
     #expect(!activity.isFocused)
@@ -96,7 +96,7 @@ struct TerminalRenderingPolicyTests {
     ]
     let selectedTab = TerminalTabContentStack<EmptyView>.selectedTabID(
       in: tabs,
-      selectedTabId: selected
+      selectedTabId: selected,
     )
     #expect(selectedTab == selected)
   }
@@ -109,7 +109,7 @@ struct TerminalRenderingPolicyTests {
     ]
     let selectedTab = TerminalTabContentStack<EmptyView>.selectedTabID(
       in: tabs,
-      selectedTabId: selected
+      selectedTabId: selected,
     )
     #expect(selectedTab == nil)
   }

@@ -24,7 +24,7 @@ struct CodexSettingsInstallerTests {
       runEnableHooksCommand: {
         runCount.setValue(runCount.value + 1)
         return .init(status: 0, standardError: "")
-      }
+      },
     )
 
     try await installer.installAllHooks()
@@ -40,7 +40,7 @@ struct CodexSettingsInstallerTests {
       fileManager: fileManager,
       runEnableHooksCommand: {
         throw CodexSettingsInstallerError.codexUnavailable
-      }
+      },
     )
 
     do {
@@ -60,7 +60,7 @@ struct CodexSettingsInstallerTests {
       fileManager: fileManager,
       runEnableHooksCommand: {
         .init(status: 1, standardError: "boom")
-      }
+      },
     )
 
     do {
@@ -81,13 +81,13 @@ struct CodexSettingsInstallerTests {
     defer { try? fileManager.removeItem(at: homeURL) }
     let configURL = homeURL.appendingPathComponent(".codex/config.toml", isDirectory: false)
     try fileManager.createDirectory(
-      at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+      at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true,)
     try "[features]\nhooks = true\n".write(to: configURL, atomically: true, encoding: .utf8)
 
     let installer = CodexSettingsInstaller(
       homeDirectoryURL: homeURL,
       fileManager: fileManager,
-      runEnableHooksCommand: { .init(status: 0, standardError: "") }
+      runEnableHooksCommand: { .init(status: 0, standardError: "") },
     )
     try await installer.installAllHooks()
     try installer.uninstallAllHooks()
@@ -105,14 +105,14 @@ struct CodexSettingsInstallerTests {
     defer { try? fileManager.removeItem(at: homeURL) }
     let configURL = homeURL.appendingPathComponent(".codex/config.toml", isDirectory: false)
     try fileManager.createDirectory(
-      at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+      at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true,)
     try "[features]\n# codex_hooks = true (deprecated, see docs)\nhooks = true\n"
       .write(to: configURL, atomically: true, encoding: .utf8)
 
     let installer = CodexSettingsInstaller(
       homeDirectoryURL: homeURL,
       fileManager: fileManager,
-      runEnableHooksCommand: { .init(status: 0, standardError: "") }
+      runEnableHooksCommand: { .init(status: 0, standardError: "") },
     )
     try await installer.installAllHooks()
     // After install, the state should be `.installed` — not `.outdated`
@@ -128,14 +128,14 @@ struct CodexSettingsInstallerTests {
     defer { try? fileManager.removeItem(at: homeURL) }
     let configURL = homeURL.appendingPathComponent(".codex/config.toml", isDirectory: false)
     try fileManager.createDirectory(
-      at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+      at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true,)
     try "[features]\nplugins = [\"a\", \"b\"]\nhooks = true\n"
       .write(to: configURL, atomically: true, encoding: .utf8)
 
     let installer = CodexSettingsInstaller(
       homeDirectoryURL: homeURL,
       fileManager: fileManager,
-      runEnableHooksCommand: { .init(status: 0, standardError: "") }
+      runEnableHooksCommand: { .init(status: 0, standardError: "") },
     )
     try await installer.installAllHooks()
     #expect(installer.installState() == .installed)

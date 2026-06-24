@@ -69,7 +69,7 @@ struct SidebarItemFeatureTests {
     }
     let instance = AgentPresenceFeature.AgentInstance(
       agent: .claude,
-      activity: .busy
+      activity: .busy,
     )
     await store.send(.agentSnapshotChanged([instance], hasActivity: true)) {
       $0.agents = [instance]
@@ -95,13 +95,13 @@ struct SidebarItemFeatureTests {
       surfaceID: surface1,
       title: "Notification",
       body: "hi",
-      createdAt: Date(timeIntervalSince1970: 0)
+      createdAt: Date(timeIntervalSince1970: 0),
     )
     let baseline = WorktreeRowProjection(
       surfaceIDs: [surface1],
       isProgressBusy: false,
       hasUnseenNotifications: false,
-      notifications: []
+      notifications: [],
     )
     await store.send(.terminalProjectionChanged(baseline)) {
       $0.hasTerminalProjection = true
@@ -116,7 +116,7 @@ struct SidebarItemFeatureTests {
           surfaceIDs: [surface1, surface2],
           isProgressBusy: false,
           hasUnseenNotifications: false,
-          notifications: []
+          notifications: [],
         )
       )
     ) {
@@ -129,7 +129,7 @@ struct SidebarItemFeatureTests {
           surfaceIDs: [surface1, surface2],
           isProgressBusy: true,
           hasUnseenNotifications: false,
-          notifications: []
+          notifications: [],
         )
       )
     ) {
@@ -142,7 +142,7 @@ struct SidebarItemFeatureTests {
           surfaceIDs: [surface1, surface2],
           isProgressBusy: true,
           hasUnseenNotifications: true,
-          notifications: []
+          notifications: [],
         )
       )
     ) {
@@ -155,7 +155,7 @@ struct SidebarItemFeatureTests {
           surfaceIDs: [surface1, surface2],
           isProgressBusy: true,
           hasUnseenNotifications: true,
-          notifications: [notif]
+          notifications: [notif],
         )
       )
     ) {
@@ -187,7 +187,7 @@ struct SidebarItemFeatureTests {
       commitsCount: 1,
       authorLogin: "tester",
       statusCheckRollup: nil,
-      mergeQueueEntry: nil
+      mergeQueueEntry: nil,
     )
     state.pullRequest = livePR
     let store = TestStore(initialState: state) {
@@ -210,7 +210,7 @@ struct SidebarItemFeatureTests {
       commitsCount: 1,
       authorLogin: "tester",
       statusCheckRollup: nil,
-      mergeQueueEntry: nil
+      mergeQueueEntry: nil,
     )
     // Late stale result must not replace the live PR.
     await store.send(.pullRequestChanged(stalePR, branchAtQueryTime: "feature/x"))
@@ -240,7 +240,7 @@ struct SidebarItemFeatureTests {
       commitsCount: 1,
       authorLogin: "tester",
       statusCheckRollup: nil,
-      mergeQueueEntry: nil
+      mergeQueueEntry: nil,
     )
     await store.send(.pullRequestQueryStarted(branch: "feature")) {
       $0.pullRequestBranchAtQueryTime = "feature"
@@ -299,7 +299,7 @@ struct SidebarItemFeatureTests {
       repositoryAccent: nil,
       isMainWorktree: false,
       isPinned: false,
-      hasMergedBadge: false
+      hasMergedBadge: false,
     )
   }
 }

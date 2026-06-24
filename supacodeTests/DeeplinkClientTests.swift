@@ -153,7 +153,7 @@ struct DeeplinkClientTests {
         == .worktree(
           id: "/tmp/repo/wt-1",
           action: .surfaceSplit(
-            tabID: tabUUID, surfaceID: surfaceUUID, direction: .horizontal, input: nil, id: nil
+            tabID: tabUUID, surfaceID: surfaceUUID, direction: .horizontal, input: nil, id: nil,
           ),
         )
     )
@@ -170,7 +170,7 @@ struct DeeplinkClientTests {
         == .worktree(
           id: "/tmp/repo/wt-1",
           action: .surfaceSplit(
-            tabID: tabUUID, surfaceID: surfaceUUID, direction: .vertical, input: "echo hi", id: nil),
+            tabID: tabUUID, surfaceID: surfaceUUID, direction: .vertical, input: "echo hi", id: nil,),
         )
     )
   }
@@ -226,7 +226,7 @@ struct DeeplinkClientTests {
           baseRef: "main",
           fetchOrigin: true,
           worktreeName: nil,
-          worktreePath: nil
+          worktreePath: nil,
         )
     )
   }
@@ -245,7 +245,7 @@ struct DeeplinkClientTests {
           baseRef: nil,
           fetchOrigin: false,
           worktreeName: "feature_foo",
-          worktreePath: "~/Repos"
+          worktreePath: "~/Repos",
         )
     )
   }
@@ -261,7 +261,7 @@ struct DeeplinkClientTests {
           baseRef: nil,
           fetchOrigin: false,
           worktreeName: nil,
-          worktreePath: nil
+          worktreePath: nil,
         )
     )
   }

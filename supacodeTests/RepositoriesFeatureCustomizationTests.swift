@@ -14,7 +14,7 @@ struct RepositoriesFeatureCustomizationTests {
   private let repoID = "/tmp/customize-repo"
 
   private func makeInitialState(
-    isGitRepository: Bool = true,
+    isGitRepository: Bool = true
   ) -> RepositoriesFeature.State {
     let worktree = Worktree(
       id: "\(repoID)/main",
@@ -87,8 +87,8 @@ struct RepositoriesFeatureCustomizationTests {
       .repositoryCustomization(
         .presented(
           .delegate(
-            .save(repositoryID: repoID, title: "Renamed", color: .red),
-          ))),
+            .save(repositoryID: repoID, title: "Renamed", color: .red)
+          )))
     ) {
       $0.repositoryCustomization = nil
       $0.$sidebar.withLock { sidebar in
@@ -140,7 +140,7 @@ struct RepositoriesFeatureCustomizationTests {
     }
 
     await store.send(
-      .repositoryCustomization(.presented(.delegate(.cancel))),
+      .repositoryCustomization(.presented(.delegate(.cancel)))
     ) {
       $0.repositoryCustomization = nil
     }

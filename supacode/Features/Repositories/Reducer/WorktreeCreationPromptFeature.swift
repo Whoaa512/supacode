@@ -59,7 +59,7 @@ struct WorktreeCreationPromptFeature {
         repositoryRootURL: repositoryRootURL,
         nameOverride: worktreeNameOverride,
         pathOverride: worktreePathOverride,
-        branchName: branchName
+        branchName: branchName,
       )
       .path(percentEncoded: false)
     }
@@ -108,7 +108,7 @@ struct WorktreeCreationPromptFeature {
       fetchOrigin: Bool,
       placement: WorktreePlacementOverride,
       title: String?,
-      color: RepositoryColor?
+      color: RepositoryColor?,
     )
   }
 
@@ -161,10 +161,10 @@ struct WorktreeCreationPromptFeature {
               fetchOrigin: state.isSelectedBaseRefLocal ? false : state.fetchOrigin,
               placement: WorktreePlacementOverride(
                 name: nameOverride.isEmpty ? nil : nameOverride,
-                path: pathOverride.isEmpty ? nil : pathOverride
+                path: pathOverride.isEmpty ? nil : pathOverride,
               ),
               title: resolvedTitle,
-              color: state.color
+              color: state.color,
             )
           )
         )

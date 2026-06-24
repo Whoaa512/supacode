@@ -16,7 +16,7 @@ struct ArchivedWorktreeRowView: View {
   var body: some View {
     let display = WorktreePullRequestDisplay(
       worktreeName: worktree.name,
-      pullRequest: pullRequest
+      pullRequest: pullRequest,
     )
     let deleteShortcut = KeyboardShortcut(.delete, modifiers: [.command, .shift]).display
     let bodyFontAscender = NSFont.preferredFont(forTextStyle: .body).ascender

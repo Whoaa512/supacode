@@ -6,7 +6,7 @@ nonisolated struct GithubGraphQLPullRequestResponse: Decodable {
   func pullRequestsByBranch(
     aliasMap: [String: String],
     owner: String,
-    repo: String
+    repo: String,
   ) -> [String: GithubPullRequest] {
     let normalizedOwner = owner.lowercased()
     let normalizedRepo = repo.lowercased()
@@ -140,7 +140,7 @@ nonisolated struct GithubGraphQLPullRequestResponse: Decodable {
         commitsCount: commits?.totalCount,
         authorLogin: author?.login,
         statusCheckRollup: statusCheckRollup,
-        mergeQueueEntry: mergeQueueEntry
+        mergeQueueEntry: mergeQueueEntry,
       )
     }
 

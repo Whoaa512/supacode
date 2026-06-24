@@ -21,7 +21,7 @@ struct WorktreePullRequestDisplay {
     self.pullRequestBadgeStyle = PullRequestBadgeStyle.style(
       state: pullRequestState,
       number: pullRequestNumber,
-      isQueued: isQueued
+      isQueued: isQueued,
     )
   }
 }

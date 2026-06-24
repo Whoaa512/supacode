@@ -19,14 +19,14 @@ struct RepositoriesFeatureSidebarTests {
       name: "feature",
       detail: "",
       workingDirectory: URL(fileURLWithPath: worktreeID),
-      repositoryRootURL: URL(fileURLWithPath: repoID)
+      repositoryRootURL: URL(fileURLWithPath: repoID),
     )
     var state = makeState(
       repository: Repository(
         id: repoID,
         rootURL: URL(fileURLWithPath: repoID),
         name: "repo",
-        worktrees: IdentifiedArray(uniqueElements: [original])
+        worktrees: IdentifiedArray(uniqueElements: [original]),
       ))
     RepositoriesFeature.syncSidebar(&state)
     state.sidebarItems[id: worktreeID]?.pullRequestBranchAtQueryTime = "feature"
@@ -36,13 +36,13 @@ struct RepositoriesFeatureSidebarTests {
       name: "feature-renamed",
       detail: "",
       workingDirectory: URL(fileURLWithPath: worktreeID),
-      repositoryRootURL: URL(fileURLWithPath: repoID)
+      repositoryRootURL: URL(fileURLWithPath: repoID),
     )
     state.repositories[id: repoID] = Repository(
       id: repoID,
       rootURL: URL(fileURLWithPath: repoID),
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [renamed])
+      worktrees: IdentifiedArray(uniqueElements: [renamed]),
     )
     RepositoriesFeature.syncSidebar(&state)
 
@@ -58,14 +58,14 @@ struct RepositoriesFeatureSidebarTests {
       name: "feature",
       detail: "",
       workingDirectory: URL(fileURLWithPath: worktreeID),
-      repositoryRootURL: URL(fileURLWithPath: repoID)
+      repositoryRootURL: URL(fileURLWithPath: repoID),
     )
     var state = makeState(
       repository: Repository(
         id: repoID,
         rootURL: URL(fileURLWithPath: repoID),
         name: "repo",
-        worktrees: IdentifiedArray(uniqueElements: [worktree])
+        worktrees: IdentifiedArray(uniqueElements: [worktree]),
       ))
     RepositoriesFeature.syncSidebar(&state)
     let scriptA = UUID()
@@ -96,14 +96,14 @@ struct RepositoriesFeatureSidebarTests {
       name: "feature",
       detail: "",
       workingDirectory: URL(fileURLWithPath: worktreeID),
-      repositoryRootURL: URL(fileURLWithPath: repoID)
+      repositoryRootURL: URL(fileURLWithPath: repoID),
     )
     var state = makeState(
       repository: Repository(
         id: repoID,
         rootURL: URL(fileURLWithPath: repoID),
         name: "repo",
-        worktrees: IdentifiedArray(uniqueElements: [worktree])
+        worktrees: IdentifiedArray(uniqueElements: [worktree]),
       ))
     RepositoriesFeature.syncSidebar(&state)
     state.sidebarItems[id: worktreeID]?.lifecycle = .archiving
@@ -115,7 +115,7 @@ struct RepositoriesFeatureSidebarTests {
       id: repoID,
       rootURL: URL(fileURLWithPath: repoID),
       name: "repo",
-      worktrees: []
+      worktrees: [],
     )
     RepositoriesFeature.syncSidebar(&state)
 
@@ -128,7 +128,7 @@ struct RepositoriesFeatureSidebarTests {
       id: repoID,
       rootURL: URL(fileURLWithPath: repoID),
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [worktree])
+      worktrees: IdentifiedArray(uniqueElements: [worktree]),
     )
     RepositoriesFeature.syncSidebar(&state)
 
@@ -145,13 +145,13 @@ struct RepositoriesFeatureSidebarTests {
       name: "feature",
       detail: "",
       workingDirectory: URL(fileURLWithPath: worktreeID),
-      repositoryRootURL: URL(fileURLWithPath: repoID)
+      repositoryRootURL: URL(fileURLWithPath: repoID),
     )
     let repository = Repository(
       id: repoID,
       rootURL: URL(fileURLWithPath: repoID),
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [worktree])
+      worktrees: IdentifiedArray(uniqueElements: [worktree]),
     )
     let pullRequest = GithubPullRequest(
       number: 7,
@@ -170,7 +170,7 @@ struct RepositoriesFeatureSidebarTests {
       commitsCount: 1,
       authorLogin: "tester",
       statusCheckRollup: nil,
-      mergeQueueEntry: nil
+      mergeQueueEntry: nil,
     )
     var state = RepositoriesFeature.State(reconciledRepositories: [repository])
     state.sidebarItems[id: worktreeID]?.pullRequest = pullRequest
@@ -184,7 +184,7 @@ struct RepositoriesFeatureSidebarTests {
     await store.send(
       .repositoryPullRequestsLoaded(
         repositoryID: repoID,
-        pullRequestsByWorktreeID: [worktreeID: pullRequest]
+        pullRequestsByWorktreeID: [worktreeID: pullRequest],
       )
     )
     await store.receive(\.sidebarItems[id: worktreeID].pullRequestChanged) {
@@ -205,13 +205,13 @@ struct RepositoriesFeatureSidebarTests {
       name: "feature",
       detail: "",
       workingDirectory: URL(fileURLWithPath: worktreeID),
-      repositoryRootURL: URL(fileURLWithPath: repoID)
+      repositoryRootURL: URL(fileURLWithPath: repoID),
     )
     let repository = Repository(
       id: repoID,
       rootURL: URL(fileURLWithPath: repoID),
       name: "repo",
-      worktrees: IdentifiedArray(uniqueElements: [worktree])
+      worktrees: IdentifiedArray(uniqueElements: [worktree]),
     )
     var state = RepositoriesFeature.State(reconciledRepositories: [repository])
     state.sidebarItems[id: worktreeID]?.pullRequestBranchAtQueryTime = "feature"
@@ -249,13 +249,13 @@ struct RepositoriesFeatureSidebarTests {
               direction: .horizontal,
               ratio: 0.5,
               left: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: surfaceA, workingDirectory: nil)),
-              right: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: surfaceB, workingDirectory: nil))
+              right: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: surfaceB, workingDirectory: nil)),
             )
           ),
-          focusedLeafIndex: 0
+          focusedLeafIndex: 0,
         )
       ],
-      selectedTabIndex: 0
+      selectedTabIndex: 0,
     )
     let storage = InMemorySettingsFileStorage()
     let payload = try JSONEncoder().encode([worktreeID: layout])
@@ -264,7 +264,7 @@ struct RepositoriesFeatureSidebarTests {
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
     } operation: {
@@ -273,7 +273,7 @@ struct RepositoriesFeatureSidebarTests {
         name: "feature",
         detail: "",
         workingDirectory: URL(fileURLWithPath: worktreeID),
-        repositoryRootURL: URL(fileURLWithPath: repoID)
+        repositoryRootURL: URL(fileURLWithPath: repoID),
       )
       var state = RepositoriesFeature.State()
       state.repositories = IdentifiedArray(
@@ -282,7 +282,7 @@ struct RepositoriesFeatureSidebarTests {
             id: repoID,
             rootURL: URL(fileURLWithPath: repoID),
             name: "repo",
-            worktrees: IdentifiedArray(uniqueElements: [worktree])
+            worktrees: IdentifiedArray(uniqueElements: [worktree]),
           )
         ]
       )
@@ -309,10 +309,10 @@ struct RepositoriesFeatureSidebarTests {
           icon: nil,
           tintColor: nil,
           layout: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: surfaceA, workingDirectory: nil)),
-          focusedLeafIndex: 0
+          focusedLeafIndex: 0,
         )
       ],
-      selectedTabIndex: 0
+      selectedTabIndex: 0,
     )
     let storage = InMemorySettingsFileStorage()
     let payload = try JSONEncoder().encode([folderID: layout])
@@ -321,7 +321,7 @@ struct RepositoriesFeatureSidebarTests {
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
     } operation: {
@@ -336,11 +336,11 @@ struct RepositoriesFeatureSidebarTests {
               name: "folder",
               detail: "",
               workingDirectory: rootURL,
-              repositoryRootURL: rootURL
+              repositoryRootURL: rootURL,
             )
           ]
         ),
-        isGitRepository: false
+        isGitRepository: false,
       )
       var state = RepositoriesFeature.State()
       state.repositories = IdentifiedArray(uniqueElements: [folderRepository])
@@ -365,10 +365,10 @@ struct RepositoriesFeatureSidebarTests {
           icon: nil,
           tintColor: nil,
           layout: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: staleSurface, workingDirectory: nil)),
-          focusedLeafIndex: 0
+          focusedLeafIndex: 0,
         )
       ],
-      selectedTabIndex: 0
+      selectedTabIndex: 0,
     )
     let storage = InMemorySettingsFileStorage()
     try storage.save(try JSONEncoder().encode([worktreeID: staleLayout]), SupacodePaths.layoutsURL)
@@ -376,7 +376,7 @@ struct RepositoriesFeatureSidebarTests {
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
     } operation: {
@@ -385,7 +385,7 @@ struct RepositoriesFeatureSidebarTests {
         name: "feature",
         detail: "",
         workingDirectory: URL(fileURLWithPath: worktreeID),
-        repositoryRootURL: URL(fileURLWithPath: repoID)
+        repositoryRootURL: URL(fileURLWithPath: repoID),
       )
       var state = RepositoriesFeature.State()
       state.repositories = IdentifiedArray(
@@ -394,7 +394,7 @@ struct RepositoriesFeatureSidebarTests {
             id: repoID,
             rootURL: URL(fileURLWithPath: repoID),
             name: "repo",
-            worktrees: IdentifiedArray(uniqueElements: [worktree])
+            worktrees: IdentifiedArray(uniqueElements: [worktree]),
           )
         ]
       )
@@ -424,10 +424,10 @@ struct RepositoriesFeatureSidebarTests {
           icon: nil,
           tintColor: nil,
           layout: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: staleSurface, workingDirectory: nil)),
-          focusedLeafIndex: 0
+          focusedLeafIndex: 0,
         )
       ],
-      selectedTabIndex: 0
+      selectedTabIndex: 0,
     )
     let storage = InMemorySettingsFileStorage()
     try storage.save(try JSONEncoder().encode([worktreeID: staleLayout]), SupacodePaths.layoutsURL)
@@ -435,7 +435,7 @@ struct RepositoriesFeatureSidebarTests {
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
     } operation: {
@@ -444,7 +444,7 @@ struct RepositoriesFeatureSidebarTests {
         name: "feature",
         detail: "",
         workingDirectory: URL(fileURLWithPath: worktreeID),
-        repositoryRootURL: URL(fileURLWithPath: repoID)
+        repositoryRootURL: URL(fileURLWithPath: repoID),
       )
       var state = RepositoriesFeature.State()
       state.repositories = IdentifiedArray(
@@ -453,7 +453,7 @@ struct RepositoriesFeatureSidebarTests {
             id: repoID,
             rootURL: URL(fileURLWithPath: repoID),
             name: "repo",
-            worktrees: IdentifiedArray(uniqueElements: [worktree])
+            worktrees: IdentifiedArray(uniqueElements: [worktree]),
           )
         ]
       )
@@ -494,10 +494,10 @@ struct RepositoriesFeatureSidebarTests {
           id: repoID,
           rootURL: URL(fileURLWithPath: repoID),
           name: "repo",
-          worktrees: []
+          worktrees: [],
         )
       ),
-      reducer: { RepositoriesFeature() }
+      reducer: { RepositoriesFeature() },
     )
     store.exhaustivity = .off
 
@@ -506,7 +506,7 @@ struct RepositoriesFeatureSidebarTests {
         repositoryID: repoID,
         bucketID: .unpinned,
         prefix: "feature",
-        isExpanded: false
+        isExpanded: false,
       )
     )
     #expect(
@@ -522,7 +522,7 @@ struct RepositoriesFeatureSidebarTests {
         id: repoID,
         rootURL: URL(fileURLWithPath: repoID),
         name: "repo",
-        worktrees: []
+        worktrees: [],
       )
     )
     initialState.$sidebar.withLock { sidebar in
@@ -539,7 +539,7 @@ struct RepositoriesFeatureSidebarTests {
         repositoryID: repoID,
         bucketID: .unpinned,
         prefix: "feature",
-        isExpanded: true
+        isExpanded: true,
       )
     )
     #expect(
@@ -559,7 +559,7 @@ struct RepositoriesFeatureSidebarTests {
         id: repoID,
         rootURL: URL(fileURLWithPath: repoID),
         name: "repo",
-        worktrees: []
+        worktrees: [],
       )
     )
     initialState.$sidebar.withLock { sidebar in
@@ -580,7 +580,7 @@ struct RepositoriesFeatureSidebarTests {
         repositoryID: repoID,
         bucketID: .pinned,
         prefix: "release",
-        isExpanded: false
+        isExpanded: false,
       )
     )
     #expect(
@@ -603,10 +603,10 @@ struct RepositoriesFeatureSidebarTests {
           id: repoID,
           rootURL: URL(fileURLWithPath: repoID),
           name: "repo",
-          worktrees: []
+          worktrees: [],
         )
       ),
-      reducer: { RepositoriesFeature() }
+      reducer: { RepositoriesFeature() },
     )
     store.exhaustivity = .off
 
@@ -615,7 +615,7 @@ struct RepositoriesFeatureSidebarTests {
         repositoryID: repoID,
         bucketID: .archived,
         prefix: "feature",
-        isExpanded: false
+        isExpanded: false,
       )
     )
     #expect(store.state.sidebar.sections[repoID]?.buckets[.archived] == nil)
@@ -634,10 +634,10 @@ struct RepositoriesFeatureSidebarTests {
           id: knownRepoID,
           rootURL: URL(fileURLWithPath: knownRepoID),
           name: "repo",
-          worktrees: []
+          worktrees: [],
         )
       ),
-      reducer: { RepositoriesFeature() }
+      reducer: { RepositoriesFeature() },
     )
     store.exhaustivity = .off
 
@@ -646,7 +646,7 @@ struct RepositoriesFeatureSidebarTests {
         repositoryID: unknownRepoID,
         bucketID: .unpinned,
         prefix: "feature",
-        isExpanded: false
+        isExpanded: false,
       )
     )
     #expect(store.state.sidebar.sections[unknownRepoID] == nil)
@@ -660,10 +660,10 @@ struct RepositoriesFeatureSidebarTests {
           id: repoID,
           rootURL: URL(fileURLWithPath: repoID),
           name: "repo",
-          worktrees: []
+          worktrees: [],
         )
       ),
-      reducer: { RepositoriesFeature() }
+      reducer: { RepositoriesFeature() },
     )
     store.exhaustivity = .off
 
@@ -672,7 +672,7 @@ struct RepositoriesFeatureSidebarTests {
         repositoryID: repoID,
         bucketID: .pinned,
         prefix: "feature",
-        isExpanded: false
+        isExpanded: false,
       )
     )
     #expect(

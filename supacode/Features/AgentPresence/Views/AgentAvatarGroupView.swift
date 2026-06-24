@@ -20,7 +20,7 @@ struct AgentAvatarGroupView: View {
   init(
     instances: [AgentPresenceFeature.AgentInstance],
     size: CGFloat = 14,
-    maxVisible: Int = 3
+    maxVisible: Int = 3,
   ) {
     self.instances = instances
     self.size = size
@@ -33,7 +33,7 @@ struct AgentAvatarGroupView: View {
     self.init(
       instances: agents.map { .init(agent: $0, activity: .idle) },
       size: size,
-      maxVisible: maxVisible
+      maxVisible: maxVisible,
     )
   }
 
@@ -53,7 +53,7 @@ struct AgentAvatarGroupView: View {
         occurrence: occurrence,
         awaitingInput: instance.awaitingInput,
         // Leftmost on top — stable regardless of `maxVisible`.
-        zIndex: Double(total - index)
+        zIndex: Double(total - index),
       )
     }
   }

@@ -27,7 +27,7 @@ struct WorktreeEnvironmentTests {
           docker compose down
           codex exec "test"
           """,
-        shellPath: "/opt/homebrew/bin/fish"
+        shellPath: "/opt/homebrew/bin/fish",
       )
     )
     defer {
@@ -90,7 +90,7 @@ struct WorktreeEnvironmentTests {
         script: """
 
           """,
-        shellPath: "/bin/zsh"
+        shellPath: "/bin/zsh",
       ) == nil
     )
   }
@@ -99,12 +99,12 @@ struct WorktreeEnvironmentTests {
     let launch = try #require(
       try BlockingScriptRunner.makeLaunch(
         script: "exit 1",
-        shellPath: "/bin/zsh"
+        shellPath: "/bin/zsh",
       )
     )
     let tempHome = URL(
       fileURLWithPath: "/tmp/supacode-zsh-home-\(UUID().uuidString.lowercased())",
-      isDirectory: true
+      isDirectory: true,
     )
     try FileManager.default.createDirectory(at: tempHome, withIntermediateDirectories: true)
     defer {
@@ -129,18 +129,18 @@ struct WorktreeEnvironmentTests {
     let fileManager = FileManager.default
     let baseDirectoryURL = fileManager.temporaryDirectory.appending(
       path: "supacode temporary path's with spaces \(UUID().uuidString.lowercased())",
-      directoryHint: .isDirectory
+      directoryHint: .isDirectory,
     )
     let launch = try #require(
       try BlockingScriptRunner.makeLaunch(
         script: "exit 1",
         shellPath: "/bin/zsh",
-        baseDirectoryURL: baseDirectoryURL
+        baseDirectoryURL: baseDirectoryURL,
       )
     )
     let tempHome = fileManager.temporaryDirectory.appending(
       path: "supacode-zsh-home-\(UUID().uuidString.lowercased())",
-      directoryHint: .isDirectory
+      directoryHint: .isDirectory,
     )
     try fileManager.createDirectory(at: tempHome, withIntermediateDirectories: true)
     defer {
@@ -168,7 +168,7 @@ struct WorktreeEnvironmentTests {
     let launch = try #require(
       try BlockingScriptRunner.makeLaunch(
         script: "true",
-        shellPath: "/bin/zsh"
+        shellPath: "/bin/zsh",
       )
     )
     defer {
@@ -191,7 +191,7 @@ struct WorktreeEnvironmentTests {
     let stdout =
       String(
         data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(),
-        encoding: .utf8
+        encoding: .utf8,
       ) ?? ""
     #expect(process.terminationStatus == 127)
     #expect(stdout.contains("\u{1B}]133;C\u{07}"))
@@ -204,7 +204,7 @@ struct WorktreeEnvironmentTests {
     )
     let tempHome = FileManager.default.temporaryDirectory.appending(
       path: "supacode-pty-home-\(UUID().uuidString.lowercased())",
-      directoryHint: .isDirectory
+      directoryHint: .isDirectory,
     )
     try FileManager.default.createDirectory(at: tempHome, withIntermediateDirectories: true)
     defer {
@@ -243,7 +243,7 @@ struct WorktreeEnvironmentTests {
     let observed =
       String(
         data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(),
-        encoding: .utf8
+        encoding: .utf8,
       ) ?? ""
     #expect(observed.contains("\u{1B}]133;C\u{07}"), "133;C missing from PTY stdout")
     #expect(observed.contains("\u{1B}]133;D;0\u{07}"), "133;D missing from PTY stdout")

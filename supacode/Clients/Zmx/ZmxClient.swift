@@ -58,7 +58,7 @@ extension ZmxClient {
     let cachedBundledURL: URL? = Bundle.main.url(
       forResource: "zmx",
       withExtension: nil,
-      subdirectory: "zmx"
+      subdirectory: "zmx",
     )
 
     @Sendable func resolveExecutable() -> URL? {
@@ -197,7 +197,7 @@ extension ZmxClient {
         // exit); preserve it so the reaper never kills against a failed probe.
         guard let stdout = await runZmx(["ls"], captureStdout: true) else { return nil }
         return ZmxSessionListParser.parse(stdout)
-      }
+      },
     )
   }()
 
@@ -205,7 +205,7 @@ extension ZmxClient {
     executableURL: { nil },
     isBundled: { false },
     killSession: { _ in },
-    listSessionsWithClients: { [] }
+    listSessionsWithClients: { [] },
   )
 }
 
@@ -353,7 +353,7 @@ nonisolated enum ZmxAttach {
   static func resolveLaunch(
     executablePath: String?,
     sessionID: String,
-    command: String?
+    command: String?,
   ) -> (command: String?, commandWrapper: [String]) {
     // A blank command is "no command" (interactive); normalize so an empty
     // string can't slip into the script path and launch a bare shell uninteg.

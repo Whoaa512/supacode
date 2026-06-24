@@ -48,7 +48,7 @@ struct TerminalTabView: View {
         minWidth: TerminalTabBarMetrics.tabMinWidth,
         maxWidth: TerminalTabBarMetrics.tabMaxWidth,
         minHeight: TerminalTabBarMetrics.tabHeight,
-        maxHeight: TerminalTabBarMetrics.tabHeight
+        maxHeight: TerminalTabBarMetrics.tabHeight,
       )
       .frame(width: fixedWidth)
       .contentShape(.rect)
@@ -70,7 +70,7 @@ struct TerminalTabView: View {
         } else {
           TerminalTabNotificationIndicator(
             tabStore: tabStore,
-            suppress: isHovering || isHoveringClose || isDragging || isShowingHint || isSplitZoomed
+            suppress: isHovering || isHoveringClose || isDragging || isShowingHint || isSplitZoomed,
           )
         }
         if let shortcutHint {
@@ -88,7 +88,7 @@ struct TerminalTabView: View {
             isDragging: isDragging,
             isShowingShortcutHint: isShowingHint,
             dismissAction: onDismissSplitZoom,
-            closeButtonGestureActive: $closeButtonGestureActive
+            closeButtonGestureActive: $closeButtonGestureActive,
           )
         } else {
           TerminalTabCloseButton(
@@ -97,7 +97,7 @@ struct TerminalTabView: View {
             isShowingShortcutHint: isShowingHint,
             closeAction: onClose,
             closeButtonGestureActive: $closeButtonGestureActive,
-            isHoveringClose: $isHoveringClose
+            isHoveringClose: $isHoveringClose,
           )
         }
       }
@@ -118,7 +118,7 @@ struct TerminalTabView: View {
           .padding(.horizontal, TerminalTabBarMetrics.tabHorizontalPadding)
           .padding(
             .trailing,
-            TerminalTabBarMetrics.trailingSlotWidth + TerminalTabBarMetrics.contentSpacing
+            TerminalTabBarMetrics.trailingSlotWidth + TerminalTabBarMetrics.contentSpacing,
           )
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
           .onSubmit { onEndRename() }
@@ -139,7 +139,7 @@ struct TerminalTabView: View {
         isActive: isActive,
         isHovering: isHovering,
         isPressing: isPressing,
-        isDragging: isDragging
+        isDragging: isDragging,
       )
     }
     // Below `.background` so the stripe's opacity animates in lockstep with
@@ -151,8 +151,8 @@ struct TerminalTabView: View {
         isHovering: isHovering,
         isActive: isActive,
         isPressing: isPressing,
-        isDragging: isDragging
-      )
+        isDragging: isDragging,
+      ),
     )
     .padding(.bottom, isActive ? TerminalTabBarMetrics.activeTabBottomPadding : 0)
     .offset(y: isActive ? TerminalTabBarMetrics.activeTabOffset : 0)
@@ -167,7 +167,7 @@ struct TerminalTabView: View {
         isPressing: isPressing,
         isDragging: isDragging,
         tintColor: tab.tintColor,
-        tabStore: tabStore
+        tabStore: tabStore,
       )
     }
     .contentShape(.rect)

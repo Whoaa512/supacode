@@ -35,7 +35,7 @@ struct SidebarBottomCardView: View {
 
   var body: some View {
     let agentMode = CodingAgentsSidebarCardView.resolveMode(
-      for: store, dismissedAt: agentDismissedAt
+      for: store, dismissedAt: agentDismissedAt,
     )
     let terminalPersistenceMode = TerminalPersistenceOnboardingCardView.resolveMode(
       dismissedAt: terminalPersistenceDismissedAt
@@ -43,17 +43,17 @@ struct SidebarBottomCardView: View {
     let highlightMode = HighlightRelevantOnboardingCardView.resolveMode(
       groupPinnedRows: groupPinnedRows,
       groupActiveRows: groupActiveRows,
-      dismissedAt: highlightDismissedAt
+      dismissedAt: highlightDismissedAt,
     )
     let onboardingMode = NestedWorktreesOnboardingCardView.resolveMode(
       nestWorktreesByBranch: nestWorktreesByBranch,
-      dismissedAt: onboardingDismissedAt
+      dismissedAt: onboardingDismissedAt,
     )
     let resolved = Slot.resolve(
       agentMode: agentMode,
       terminalPersistenceMode: terminalPersistenceMode,
       highlightMode: highlightMode,
-      onboardingMode: onboardingMode
+      onboardingMode: onboardingMode,
     )
     Group {
       switch resolved {
@@ -97,7 +97,7 @@ struct SidebarBottomCardView: View {
       agentMode: CodingAgentsSidebarCardView.Mode,
       terminalPersistenceMode: TerminalPersistenceOnboardingCardView.Mode,
       highlightMode: HighlightRelevantOnboardingCardView.Mode,
-      onboardingMode: NestedWorktreesOnboardingCardView.Mode
+      onboardingMode: NestedWorktreesOnboardingCardView.Mode,
     ) -> Slot {
       switch agentMode {
       case .updatesAvailable, .promptInstall: return .agent(agentMode)

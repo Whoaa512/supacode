@@ -15,7 +15,7 @@ struct TerminalTabFeatureTests {
       worktreeID: "/tmp/repo",
       surfaceIDs: [UUID(uuidString: "00000000-0000-0000-0000-000000000001")!],
       activeSurfaceID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
-      unseenNotificationCount: 0
+      unseenNotificationCount: 0,
     )
     let store = TestStore(initialState: initial) { TerminalTabFeature() }
 
@@ -26,7 +26,7 @@ struct TerminalTabFeatureTests {
           tabID: tabID,
           surfaceIDs: initial.surfaceIDs,
           activeSurfaceID: initial.activeSurfaceID,
-          unseenNotificationCount: 0
+          unseenNotificationCount: 0,
         )
       ))
   }
@@ -45,7 +45,7 @@ struct TerminalTabFeatureTests {
           surfaceIDs: [surface],
           activeSurfaceID: surface,
           unseenNotificationCount: 3,
-          isSplitZoomed: true
+          isSplitZoomed: true,
         )
       )
     ) {
@@ -66,7 +66,7 @@ struct TerminalTabFeatureTests {
         surfaceIDs: [surface],
         activeSurfaceID: surface,
         unseenNotificationCount: 0,
-        isSplitZoomed: true
+        isSplitZoomed: true,
       )
     ) { TerminalTabFeature() }
 
@@ -77,7 +77,7 @@ struct TerminalTabFeatureTests {
           surfaceIDs: [surface],
           activeSurfaceID: surface,
           unseenNotificationCount: 0,
-          isSplitZoomed: false
+          isSplitZoomed: false,
         )
       )
     ) {
@@ -116,7 +116,7 @@ struct TerminalTabFeatureTests {
     let display = TerminalTabProgressDisplay(style: .indeterminate)
     let store = TestStore(
       initialState: TerminalTabFeature.State(
-        id: tabID, worktreeID: "/tmp/repo", progressDisplay: display
+        id: tabID, worktreeID: "/tmp/repo", progressDisplay: display,
       )
     ) { TerminalTabFeature() }
 
@@ -128,7 +128,7 @@ struct TerminalTabFeatureTests {
     let store = TestStore(
       initialState: TerminalTabFeature.State(
         id: tabID, worktreeID: "/tmp/repo",
-        progressDisplay: TerminalTabProgressDisplay(style: .determinate(percent: 50))
+        progressDisplay: TerminalTabProgressDisplay(style: .determinate(percent: 50)),
       )
     ) { TerminalTabFeature() }
 
@@ -141,7 +141,7 @@ struct TerminalTabFeatureTests {
     func percent(_ value: Int) -> Int? {
       guard
         case .determinate(let bucket) = TerminalTabProgressDisplay.make(
-          progressState: GHOSTTY_PROGRESS_STATE_SET, progressValue: value
+          progressState: GHOSTTY_PROGRESS_STATE_SET, progressValue: value,
         )?.style
       else { return nil }
       return bucket

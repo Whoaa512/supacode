@@ -18,7 +18,7 @@ struct Repository: Identifiable, Hashable, Sendable {
     rootURL: URL,
     name: String,
     worktrees: IdentifiedArrayOf<Worktree>,
-    isGitRepository: Bool = true
+    isGitRepository: Bool = true,
   ) {
     self.id = id
     self.rootURL = rootURL

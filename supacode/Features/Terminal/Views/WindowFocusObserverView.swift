@@ -37,7 +37,7 @@ final class WindowFocusObserverNSView: NSView {
     guard let window else { return .inactive }
     return WindowActivityState(
       isKeyWindow: window.isKeyWindow,
-      isVisible: window.occlusionState.contains(.visible)
+      isVisible: window.occlusionState.contains(.visible),
     )
   }
 
@@ -57,7 +57,7 @@ final class WindowFocusObserverNSView: NSView {
       center.addObserver(
         forName: NSWindow.didBecomeKeyNotification,
         object: window,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         Task { @MainActor [weak self] in
           self?.emitActivityIfNeeded()
@@ -67,7 +67,7 @@ final class WindowFocusObserverNSView: NSView {
       center.addObserver(
         forName: NSWindow.didResignKeyNotification,
         object: window,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         Task { @MainActor [weak self] in
           self?.emitActivityIfNeeded()
@@ -77,7 +77,7 @@ final class WindowFocusObserverNSView: NSView {
       center.addObserver(
         forName: NSWindow.didChangeOcclusionStateNotification,
         object: window,
-        queue: .main
+        queue: .main,
       ) { [weak self] _ in
         Task { @MainActor [weak self] in
           self?.emitActivityIfNeeded()

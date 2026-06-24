@@ -15,14 +15,14 @@ public nonisolated struct SettingsFile: Codable, Equatable, Sendable {
     global: .default,
     repositories: [:],
     repositoryRoots: [],
-    pinnedWorktreeIDs: []
+    pinnedWorktreeIDs: [],
   )
 
   public init(
     global: GlobalSettings = .default,
     repositories: [String: RepositorySettings] = [:],
     repositoryRoots: [String] = [],
-    pinnedWorktreeIDs: [String] = []
+    pinnedWorktreeIDs: [String] = [],
   ) {
     self.global = global
     self.repositories = repositories

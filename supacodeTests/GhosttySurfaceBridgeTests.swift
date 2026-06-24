@@ -15,7 +15,7 @@ struct GhosttySurfaceBridgeTests {
   func openUrlRequestPreservesHTTPSURL() {
     let request = ghosttyOpenURLRequest(
       urlString: "https://supacode.dev/changelog",
-      kind: GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN
+      kind: GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN,
     )
 
     #expect(request?.kind == .unknown)
@@ -27,7 +27,7 @@ struct GhosttySurfaceBridgeTests {
   func openUrlRequestTreatsTildePathAsFileURL() {
     let request = ghosttyOpenURLRequest(
       urlString: "~/code/github.com/supabitapp/supacode",
-      kind: GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN
+      kind: GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN,
     )
 
     #expect(request?.url.isFileURL == true)
@@ -44,7 +44,7 @@ struct GhosttySurfaceBridgeTests {
     let input = "~\(username)/code/github.com/supabitapp/supacode"
     let request = ghosttyOpenURLRequest(
       urlString: input,
-      kind: GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN
+      kind: GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN,
     )
 
     #expect(request?.url.isFileURL == true)
@@ -55,7 +55,7 @@ struct GhosttySurfaceBridgeTests {
   func openUrlRequestTreatsPlainPathWithSpacesAsFileURL() {
     let request = ghosttyOpenURLRequest(
       urlString: "/tmp/supa code/output.txt",
-      kind: GHOSTTY_ACTION_OPEN_URL_KIND_TEXT
+      kind: GHOSTTY_ACTION_OPEN_URL_KIND_TEXT,
     )
 
     #expect(request?.kind == .text)
@@ -67,7 +67,7 @@ struct GhosttySurfaceBridgeTests {
   func openUrlRequestTreatsUnknownStringAsFilePath() {
     let request = ghosttyOpenURLRequest(
       urlString: "relative/path",
-      kind: GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN
+      kind: GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN,
     )
 
     #expect(request?.url.isFileURL == true)
@@ -100,7 +100,7 @@ struct GhosttySurfaceBridgeTests {
       "Body".withCString { bodyPtr in
         action.action.desktop_notification = ghostty_action_desktop_notification_s(
           title: titlePtr,
-          body: bodyPtr
+          body: bodyPtr,
         )
         _ = bridge.handleAction(target: target, action: action)
       }
@@ -130,7 +130,7 @@ struct GhosttySurfaceBridgeTests {
         action.action.context_signal = ghostty_action_context_signal_s(
           action: 0,
           id: idPtr,
-          metadata: metaPtr
+          metadata: metaPtr,
         )
         _ = bridge.handleAction(target: target, action: action)
       }
@@ -155,7 +155,7 @@ struct GhosttySurfaceBridgeTests {
       action.action.context_signal = ghostty_action_context_signal_s(
         action: 0,
         id: nil,
-        metadata: metaPtr
+        metadata: metaPtr,
       )
       _ = bridge.handleAction(target: target, action: action)
     }
@@ -166,7 +166,7 @@ struct GhosttySurfaceBridgeTests {
       action.action.context_signal = ghostty_action_context_signal_s(
         action: 0,
         id: idPtr,
-        metadata: nil
+        metadata: nil,
       )
       _ = bridge.handleAction(target: target, action: action)
     }
@@ -179,7 +179,7 @@ struct GhosttySurfaceBridgeTests {
       clock: clock,
       progressThrottleInterval: .milliseconds(50),
       progressIdleInterval: .milliseconds(50),
-      progressStaleTimeout: .seconds(15)
+      progressStaleTimeout: .seconds(15),
     )
     var callbackCount = 0
     bridge.onProgressReport = { _ in callbackCount += 1 }
@@ -203,7 +203,7 @@ struct GhosttySurfaceBridgeTests {
       clock: clock,
       progressThrottleInterval: .milliseconds(50),
       progressIdleInterval: .milliseconds(50),
-      progressStaleTimeout: .milliseconds(200)
+      progressStaleTimeout: .milliseconds(200),
     )
     var lastState: ghostty_action_progress_report_state_e?
     bridge.onProgressReport = { lastState = $0 }
@@ -223,7 +223,7 @@ struct GhosttySurfaceBridgeTests {
       clock: clock,
       progressThrottleInterval: .milliseconds(50),
       progressIdleInterval: .milliseconds(50),
-      progressStaleTimeout: .milliseconds(100)
+      progressStaleTimeout: .milliseconds(100),
     )
     var lastState: ghostty_action_progress_report_state_e?
     bridge.onProgressReport = { lastState = $0 }
@@ -245,7 +245,7 @@ struct GhosttySurfaceBridgeTests {
       clock: clock,
       progressThrottleInterval: .milliseconds(50),
       progressIdleInterval: .milliseconds(50),
-      progressStaleTimeout: .milliseconds(100)
+      progressStaleTimeout: .milliseconds(100),
     )
     bridge.onProgressReport = { _ in }
 
@@ -269,7 +269,7 @@ struct GhosttySurfaceBridgeTests {
       clock: clock,
       progressThrottleInterval: .milliseconds(50),
       progressIdleInterval: .milliseconds(50),
-      progressStaleTimeout: .seconds(15)
+      progressStaleTimeout: .seconds(15),
     )
     bridge.onProgressReport = { _ in }
 
@@ -289,7 +289,7 @@ struct GhosttySurfaceBridgeTests {
       clock: clock,
       progressThrottleInterval: .milliseconds(50),
       progressIdleInterval: .milliseconds(50),
-      progressStaleTimeout: .seconds(15)
+      progressStaleTimeout: .seconds(15),
     )
     var callbackCount = 0
     bridge.onProgressReport = { _ in callbackCount += 1 }
@@ -311,7 +311,7 @@ struct GhosttySurfaceBridgeTests {
     let bridge = GhosttySurfaceBridge(
       clock: TestClock(),
       progressThrottleInterval: .milliseconds(50),
-      progressStaleTimeout: .seconds(15)
+      progressStaleTimeout: .seconds(15),
     )
     var states: [ghostty_action_progress_report_state_e] = []
     bridge.onProgressReport = { states.append($0) }
@@ -334,7 +334,7 @@ struct GhosttySurfaceBridgeTests {
       clock: clock,
       progressThrottleInterval: .milliseconds(50),
       progressIdleInterval: .milliseconds(50),
-      progressStaleTimeout: .seconds(15)
+      progressStaleTimeout: .seconds(15),
     )
     var applied: [Int?] = []
     bridge.onProgressReport = { state in
@@ -373,7 +373,7 @@ struct GhosttySurfaceBridgeTests {
   private func withOpenURLAction<T>(
     url: String,
     kind: ghostty_action_open_url_kind_e = GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN,
-    _ body: (ghostty_action_s) -> T
+    _ body: (ghostty_action_s) -> T,
   ) -> T {
     var action = ghostty_action_s(tag: GHOSTTY_ACTION_OPEN_URL, action: .init())
     action.action.open_url.kind = kind

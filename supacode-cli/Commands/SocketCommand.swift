@@ -3,7 +3,7 @@ import ArgumentParser
 struct SocketCommand: ParsableCommand {
   static let configuration = CommandConfiguration(
     commandName: "socket",
-    abstract: "List active Supacode sockets."
+    abstract: "List active Supacode sockets.",
   )
 
   func run() throws {

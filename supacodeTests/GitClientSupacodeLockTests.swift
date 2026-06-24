@@ -94,7 +94,7 @@ struct GitClientSupacodeLockTests {
       name: "feature-remove",
       detail: "feature-remove",
       workingDirectory: worktreeURL,
-      repositoryRootURL: fixture.workURL
+      repositoryRootURL: fixture.workURL,
     )
 
     _ = try await GitClient().removeWorktree(worktree, deleteBranch: false)
@@ -116,7 +116,7 @@ struct GitClientSupacodeLockTests {
       detail: "feature-orphan-delete",
       workingDirectory: worktreeURL,
       repositoryRootURL: fixture.workURL,
-      isMissing: true
+      isMissing: true,
     )
 
     _ = try await GitClient().removeWorktree(worktree, deleteBranch: false)
@@ -138,7 +138,7 @@ struct GitClientSupacodeLockTests {
       detail: "feature-orphan-branch",
       workingDirectory: worktreeURL,
       repositoryRootURL: fixture.workURL,
-      isMissing: true
+      isMissing: true,
     )
 
     _ = try await GitClient().removeWorktree(worktree, deleteBranch: true)
@@ -248,7 +248,7 @@ private struct GitWorktreeFixture {
     let id = UUID().uuidString
     containerURL = tempRoot.appending(
       path: "supacode-lock-\(id)",
-      directoryHint: URL.DirectoryHint.isDirectory
+      directoryHint: URL.DirectoryHint.isDirectory,
     )
     try FileManager.default.createDirectory(at: containerURL, withIntermediateDirectories: true)
     workURL = containerURL.appending(path: "main", directoryHint: .isDirectory)

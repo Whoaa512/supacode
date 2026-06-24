@@ -23,7 +23,7 @@ struct Worktree: Identifiable, Hashable, Sendable {
     repositoryRootURL: URL,
     createdAt: Date? = nil,
     isMissing: Bool = false,
-    isAttached: Bool = true
+    isAttached: Bool = true,
   ) {
     self.id = id
     self.name = name

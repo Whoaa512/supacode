@@ -50,11 +50,11 @@ struct DeeplinkReferenceView: View {
     .init(url: "supacode://worktree/<worktree_id>/stop", description: "Stop all run-kind scripts."),
     .init(
       url: "supacode://worktree/<worktree_id>/script/<script_id>/run",
-      description: "Run a specific configured script by UUID."
+      description: "Run a specific configured script by UUID.",
     ),
     .init(
       url: "supacode://worktree/<worktree_id>/script/<script_id>/stop",
-      description: "Stop a specific running script by UUID."
+      description: "Stop a specific running script by UUID.",
     ),
     .init(url: "supacode://worktree/<worktree_id>/archive", description: "Archive the worktree."),
     .init(url: "supacode://worktree/<worktree_id>/unarchive", description: "Unarchive the worktree."),
@@ -66,30 +66,30 @@ struct DeeplinkReferenceView: View {
   private static let tabSurfaceRows: [DeeplinkEntry] = [
     .init(
       url: "supacode://worktree/<worktree_id>/tab/<tab_id>",
-      description: "Focus a tab."
+      description: "Focus a tab.",
     ),
     .init(
       url: "supacode://worktree/<worktree_id>/tab/new",
       description: "Create a new tab.",
-      params: "?input=<cmd>&id=<uuid>"
+      params: "?input=<cmd>&id=<uuid>",
     ),
     .init(
       url: "supacode://worktree/<worktree_id>/tab/<tab_id>/destroy",
-      description: "Close a tab."
+      description: "Close a tab.",
     ),
     .init(
       url: "supacode://worktree/<worktree_id>/tab/<tab_id>/surface/<surface_id>",
       description: "Focus a surface.",
-      params: "?input=<cmd>"
+      params: "?input=<cmd>",
     ),
     .init(
       url: "supacode://worktree/<worktree_id>/tab/<tab_id>/surface/<surface_id>/split",
       description: "Split a surface. Defaults to horizontal.",
-      params: "?direction=horizontal|vertical&input=<cmd>&id=<uuid>"
+      params: "?direction=horizontal|vertical&input=<cmd>&id=<uuid>",
     ),
     .init(
       url: "supacode://worktree/<worktree_id>/tab/<tab_id>/surface/<surface_id>/destroy",
-      description: "Close a surface."
+      description: "Close a surface.",
     ),
   ]
 
@@ -98,7 +98,7 @@ struct DeeplinkReferenceView: View {
     .init(
       url: "supacode://repo/<repo_id>/worktree/new",
       description: "Create a worktree.",
-      params: "?branch=<name>&base=<ref>&fetch=true&name=<folder>&location=<dir>"
+      params: "?branch=<name>&base=<ref>&fetch=true&name=<folder>&location=<dir>",
     ),
   ]
 
@@ -107,12 +107,12 @@ struct DeeplinkReferenceView: View {
     .init(
       url: "supacode://settings/<section>",
       description: "Open a specific section.",
-      params: "general|notifications|worktrees|developer|shortcuts|scripts|updates|github"
+      params: "general|notifications|worktrees|developer|shortcuts|scripts|updates|github",
     ),
     .init(url: "supacode://settings/repo/<repo_id>", description: "Open repository settings."),
     .init(
       url: "supacode://settings/repo/<repo_id>/scripts",
-      description: "Open repository Scripts settings."
+      description: "Open repository Scripts settings.",
     ),
   ]
 }

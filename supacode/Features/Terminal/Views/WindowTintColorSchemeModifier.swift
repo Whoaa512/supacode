@@ -28,7 +28,7 @@ private struct WindowTintColorScheme: ViewModifier {
     let tintScheme = manager.surfaceBackgroundColorScheme()
     let appearance = SurfaceChromeAppearance(
       colorScheme: tintScheme,
-      systemColorScheme: systemColorScheme
+      systemColorScheme: systemColorScheme,
     )
     return
       content

@@ -154,7 +154,7 @@ public struct SettingsFeature {
         agentPresenceBadgesEnabled: agentPresenceBadgesEnabled,
         autoUpdateAgentIntegrationsEnabled: autoUpdateAgentIntegrationsEnabled,
         confirmQuitMode: confirmQuitMode,
-        terminateSessionsOnQuit: terminateSessionsOnQuit
+        terminateSessionsOnQuit: terminateSessionsOnQuit,
       )
     }
   }
@@ -223,8 +223,8 @@ public struct SettingsFeature {
               let installed = await cliInstallerClient.checkInstalled()
               await send(.cliInstallChecked(installed: installed))
             },
-            .send(.refreshAgentIntegrationStates)
-          )
+            .send(.refreshAgentIntegrationStates),
+          ),
         )
 
       case .refreshAgentIntegrationStates:

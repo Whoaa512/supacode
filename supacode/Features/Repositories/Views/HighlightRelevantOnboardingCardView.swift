@@ -27,7 +27,7 @@ struct HighlightRelevantOnboardingCardView: View {
   static func resolveMode(
     groupPinnedRows: Bool,
     groupActiveRows: Bool,
-    dismissedAt: Date
+    dismissedAt: Date,
   ) -> Mode {
     let anyOn = groupPinnedRows || groupActiveRows
     return anyOn && !Self.isDismissed(at: dismissedAt) ? .visible : .hidden
@@ -64,7 +64,7 @@ private struct HighlightRelevantOnboardingCardBody: View {
           .font(.title2)
           .foregroundStyle(.orange)
           .accessibilityHidden(true)
-      }
+      },
     )
   }
 

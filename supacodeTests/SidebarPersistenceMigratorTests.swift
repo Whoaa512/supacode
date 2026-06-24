@@ -25,7 +25,7 @@ struct SidebarPersistenceMigratorTests {
     withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
       $0.date = .constant(Date(timeIntervalSince1970: 1_700_000_000))
@@ -35,7 +35,7 @@ struct SidebarPersistenceMigratorTests {
 
       SidebarPersistenceMigrator.migrateIfNeeded(
         fileExists: { _ in true },
-        readFile: { try? storage.load($0) }
+        readFile: { try? storage.load($0) },
       )
 
       // File untouched — still the bytes we seeded — and legacy
@@ -53,7 +53,7 @@ struct SidebarPersistenceMigratorTests {
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
       // Migrator now stamps `Date.now` onto pre-#214 archived
@@ -128,7 +128,7 @@ struct SidebarPersistenceMigratorTests {
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
       // Migrator now stamps `Date.now` onto pre-#214 archived
@@ -168,7 +168,7 @@ struct SidebarPersistenceMigratorTests {
       let candidates = roots.map { (candidate: $0, owningRoot: $0) }
       let resolved = SidebarPersistenceMigrator.repositoryID(
         owningWorktreeID: worktreeID,
-        amongLegacyRoots: candidates
+        amongLegacyRoots: candidates,
       )
       #expect(resolved == expected)
     }
@@ -184,7 +184,7 @@ struct SidebarPersistenceMigratorTests {
     let candidates = roots.map { (candidate: $0, owningRoot: $0) }
     let resolved = SidebarPersistenceMigrator.repositoryID(
       owningWorktreeID: worktreeID,
-      amongLegacyRoots: candidates
+      amongLegacyRoots: candidates,
     )
     #expect(resolved == nil)
   }
@@ -204,7 +204,7 @@ struct SidebarPersistenceMigratorTests {
     let candidates = roots.map { (candidate: $0, owningRoot: $0) }
     let resolved = SidebarPersistenceMigrator.repositoryID(
       owningWorktreeID: worktreeID,
-      amongLegacyRoots: candidates
+      amongLegacyRoots: candidates,
     )
     #expect(resolved == roots.first)
   }
@@ -233,7 +233,7 @@ struct SidebarPersistenceMigratorTests {
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
       // Migrator now stamps `Date.now` onto pre-#214 archived
@@ -247,7 +247,7 @@ struct SidebarPersistenceMigratorTests {
 
       SidebarPersistenceMigrator.migrateIfNeeded(
         fileExists: { _ in false },
-        readFile: { try? storage.load($0) }
+        readFile: { try? storage.load($0) },
       )
 
       let data = try storage.load(SupacodePaths.sidebarURL)
@@ -270,7 +270,7 @@ struct SidebarPersistenceMigratorTests {
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
       // Migrator now stamps `Date.now` onto pre-#214 archived
@@ -284,7 +284,7 @@ struct SidebarPersistenceMigratorTests {
 
       SidebarPersistenceMigrator.migrateIfNeeded(
         fileExists: { _ in true },
-        readFile: { try? storage.load($0) }
+        readFile: { try? storage.load($0) },
       )
 
       // Migration actually ran: legacy got folded AND the file now
@@ -311,7 +311,7 @@ struct SidebarPersistenceMigratorTests {
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
       // Migrator now stamps `Date.now` onto pre-#214 archived
@@ -325,7 +325,7 @@ struct SidebarPersistenceMigratorTests {
 
       SidebarPersistenceMigrator.migrateIfNeeded(
         fileExists: { _ in true },
-        readFile: { try? storage.load($0) }
+        readFile: { try? storage.load($0) },
       )
 
       // File bytes untouched.
@@ -346,7 +346,7 @@ struct SidebarPersistenceMigratorTests {
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
       // Migrator now stamps `Date.now` onto pre-#214 archived
@@ -363,7 +363,7 @@ struct SidebarPersistenceMigratorTests {
 
       SidebarPersistenceMigrator.migrateIfNeeded(
         fileExists: { _ in false },
-        readFile: { try? storage.load($0) }
+        readFile: { try? storage.load($0) },
       )
 
       let data = try storage.load(SupacodePaths.sidebarURL)
@@ -397,7 +397,7 @@ struct SidebarPersistenceMigratorTests {
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
       $0.date.now = injectedNow
@@ -414,7 +414,7 @@ struct SidebarPersistenceMigratorTests {
 
       SidebarPersistenceMigrator.migrateIfNeeded(
         fileExists: { _ in false },
-        readFile: { try? storage.load($0) }
+        readFile: { try? storage.load($0) },
       )
 
       let data = try storage.load(SupacodePaths.sidebarURL)
@@ -446,7 +446,7 @@ struct SidebarPersistenceMigratorTests {
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
       // Migrator now stamps `Date.now` onto pre-#214 archived
@@ -462,7 +462,7 @@ struct SidebarPersistenceMigratorTests {
 
       SidebarPersistenceMigrator.migrateIfNeeded(
         fileExists: { _ in false },
-        readFile: { try? storage.load($0) }
+        readFile: { try? storage.load($0) },
       )
 
       let data = try storage.load(SupacodePaths.sidebarURL)
@@ -490,7 +490,7 @@ struct SidebarPersistenceMigratorTests {
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
       // Migrator now stamps `Date.now` onto pre-#214 archived
@@ -510,7 +510,7 @@ struct SidebarPersistenceMigratorTests {
 
       SidebarPersistenceMigrator.migrateIfNeeded(
         fileExists: { _ in false },
-        readFile: { try? storage.load($0) }
+        readFile: { try? storage.load($0) },
       )
 
       let data = try storage.load(SupacodePaths.sidebarURL)
@@ -552,7 +552,7 @@ struct SidebarPersistenceMigratorTests {
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
       // Migrator now stamps `Date.now` onto pre-#214 archived
@@ -574,7 +574,7 @@ struct SidebarPersistenceMigratorTests {
 
       SidebarPersistenceMigrator.migrateIfNeeded(
         fileExists: { _ in false },
-        readFile: { try? storage.load($0) }
+        readFile: { try? storage.load($0) },
       )
 
       let data = try storage.load(SupacodePaths.sidebarURL)
@@ -612,7 +612,7 @@ struct SidebarPersistenceMigratorTests {
     let conventionBase = SupacodePaths.worktreeBaseDirectory(
       for: rootURL,
       globalDefaultPath: nil,
-      repositoryOverridePath: nil
+      repositoryOverridePath: nil,
     )
     let pinnedPath =
       conventionBase
@@ -624,7 +624,7 @@ struct SidebarPersistenceMigratorTests {
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
       $0.date = .constant(Date(timeIntervalSince1970: 1_700_000_000))
@@ -637,7 +637,7 @@ struct SidebarPersistenceMigratorTests {
 
       SidebarPersistenceMigrator.migrateIfNeeded(
         fileExists: { _ in false },
-        readFile: { try? storage.load($0) }
+        readFile: { try? storage.load($0) },
       )
 
       let data = try storage.load(SupacodePaths.sidebarURL)
@@ -663,7 +663,7 @@ struct SidebarPersistenceMigratorTests {
     let overrideBase = SupacodePaths.worktreeBaseDirectory(
       for: rootURL,
       globalDefaultPath: globalBase,
-      repositoryOverridePath: nil
+      repositoryOverridePath: nil,
     )
     let pinnedPath =
       overrideBase
@@ -674,7 +674,7 @@ struct SidebarPersistenceMigratorTests {
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
       $0.date = .constant(Date(timeIntervalSince1970: 1_700_000_000))
@@ -688,7 +688,7 @@ struct SidebarPersistenceMigratorTests {
 
       SidebarPersistenceMigrator.migrateIfNeeded(
         fileExists: { _ in false },
-        readFile: { try? storage.load($0) }
+        readFile: { try? storage.load($0) },
       )
 
       let data = try storage.load(SupacodePaths.sidebarURL)
@@ -724,13 +724,13 @@ struct SidebarPersistenceMigratorTests {
     let encoder = JSONEncoder()
     try localSettingsStorage.save(
       encoder.encode(perRepoSettings),
-      at: SupacodePaths.repositorySettingsURL(for: rootURL)
+      at: SupacodePaths.repositorySettingsURL(for: rootURL),
     )
 
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.repositoryLocalSettingsStorage = localSettingsStorage.storage
       $0.defaultAppStorage = .inMemory
@@ -744,7 +744,7 @@ struct SidebarPersistenceMigratorTests {
 
       SidebarPersistenceMigrator.migrateIfNeeded(
         fileExists: { _ in false },
-        readFile: { try? storage.load($0) }
+        readFile: { try? storage.load($0) },
       )
 
       let data = try storage.load(SupacodePaths.sidebarURL)
@@ -768,7 +768,7 @@ struct SidebarPersistenceMigratorTests {
     let conventionBase = SupacodePaths.worktreeBaseDirectory(
       for: rootURL,
       globalDefaultPath: nil,
-      repositoryOverridePath: nil
+      repositoryOverridePath: nil,
     )
     let archivedPath =
       conventionBase
@@ -781,7 +781,7 @@ struct SidebarPersistenceMigratorTests {
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
       $0.date = .constant(Date(timeIntervalSince1970: 1_700_000_000))
@@ -797,7 +797,7 @@ struct SidebarPersistenceMigratorTests {
 
       SidebarPersistenceMigrator.migrateIfNeeded(
         fileExists: { _ in false },
-        readFile: { try? storage.load($0) }
+        readFile: { try? storage.load($0) },
       )
 
       let data = try storage.load(SupacodePaths.sidebarURL)
@@ -813,7 +813,7 @@ struct SidebarPersistenceMigratorTests {
     try withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
         load: { try storage.load($0) },
-        save: { try storage.save($0, $1) }
+        save: { try storage.save($0, $1) },
       )
       $0.defaultAppStorage = .inMemory
       // Migrator now stamps `Date.now` onto pre-#214 archived

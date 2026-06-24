@@ -84,9 +84,9 @@ struct SettingsFilePersistenceTests {
         appearanceMode: .dark,
         updatesAutomaticallyCheckForUpdates: true,
         updatesAutomaticallyDownloadUpdates: false,
-        automaticallyArchiveMergedWorktrees: true
+        automaticallyArchiveMergedWorktrees: true,
       ),
-      repositories: [:]
+      repositories: [:],
     )
     let data = try JSONEncoder().encode(legacy)
     let storage = MutableTestStorage(initialData: data)
@@ -107,9 +107,9 @@ struct SettingsFilePersistenceTests {
         appearanceMode: .dark,
         updatesAutomaticallyCheckForUpdates: true,
         updatesAutomaticallyDownloadUpdates: false,
-        automaticallyArchiveMergedWorktrees: false
+        automaticallyArchiveMergedWorktrees: false,
       ),
-      repositories: [:]
+      repositories: [:],
     )
     let data = try JSONEncoder().encode(legacy)
     let storage = MutableTestStorage(initialData: data)
@@ -151,9 +151,9 @@ struct SettingsFilePersistenceTests {
       global: LegacyGlobalSettings(
         appearanceMode: .dark,
         updatesAutomaticallyCheckForUpdates: false,
-        updatesAutomaticallyDownloadUpdates: true
+        updatesAutomaticallyDownloadUpdates: true,
       ),
-      repositories: [:]
+      repositories: [:],
     )
     let data = try JSONEncoder().encode(legacy)
     let storage = MutableTestStorage(initialData: data)
@@ -200,9 +200,9 @@ struct SettingsFilePersistenceTests {
         appearanceMode: .dark,
         updatesAutomaticallyCheckForUpdates: true,
         updatesAutomaticallyDownloadUpdates: false,
-        confirmBeforeQuit: true
+        confirmBeforeQuit: true,
       ),
-      repositories: [:]
+      repositories: [:],
     )
     let data = try JSONEncoder().encode(legacy)
     let storage = MutableTestStorage(initialData: data)
@@ -224,9 +224,9 @@ struct SettingsFilePersistenceTests {
         appearanceMode: .dark,
         updatesAutomaticallyCheckForUpdates: true,
         updatesAutomaticallyDownloadUpdates: false,
-        confirmBeforeQuit: false
+        confirmBeforeQuit: false,
       ),
-      repositories: [:]
+      repositories: [:],
     )
     let data = try JSONEncoder().encode(legacy)
     let storage = MutableTestStorage(initialData: data)
@@ -248,9 +248,9 @@ struct SettingsFilePersistenceTests {
       global: LegacyGlobalSettings(
         appearanceMode: .dark,
         updatesAutomaticallyCheckForUpdates: false,
-        updatesAutomaticallyDownloadUpdates: true
+        updatesAutomaticallyDownloadUpdates: true,
       ),
-      repositories: [:]
+      repositories: [:],
     )
     let data = try JSONEncoder().encode(legacy)
     let storage = MutableTestStorage(initialData: data)
@@ -299,7 +299,7 @@ nonisolated private final class MutableTestStorage: @unchecked Sendable {
   var storage: SettingsFileStorage {
     SettingsFileStorage(
       load: { try self.load($0) },
-      save: { try self.save($0, $1) }
+      save: { try self.save($0, $1) },
     )
   }
 
