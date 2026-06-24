@@ -10,7 +10,7 @@
 #
 # Sourced by build-ghostty.sh. Two entrypoints:
 #   ghostty_make_sdk_overlay <real_sdk> <stub_dir> <out_dir>   -> prints overlay SDK path
-#   ghostty_make_xcrun_shim  <overlay_sdk> <out_dir>           -> prints shim dir (prepend to PATH)
+#   ghostty_make_build_shims <overlay_sdk> <out_dir>           -> prints shim dir (prepend to PATH)
 
 set -euo pipefail
 
@@ -76,17 +76,26 @@ ghostty_make_sdk_overlay() {
   printf '%s\n' "${ov}"
 }
 
-# Write an `xcrun` shim at <out_dir>/bin that returns the overlay path for
-# `xcrun --sdk macosx --show-sdk-path` (zig's native SDK detection) and delegates
-# everything else to the real /usr/bin/xcrun. The overlay path is baked in so the
-# shim needs no environment. Steps that must hit the real SDK (Metal compile,
-# xcframework assembly) call /usr/bin/xcrun by absolute path and are unaffected.
-ghostty_make_xcrun_shim() {
+# Write PATH shims at <out_dir>/bin and print the dir (prepend to PATH):
+#
+#  * xcrun  - returns the overlay path for `xcrun --sdk macosx --show-sdk-path`
+#    (zig's native SDK detection); everything else delegates to /usr/bin/xcrun.
+#    Steps that must hit the real SDK (Metal, xcframework assembly) call
+#    /usr/bin/xcrun by absolute path and are unaffected.
+#
+#  * libtool - translates `libtool -static -o OUT IN...` into an llvm-ar (zig ar)
+#    MRI merge. Xcode 26's libtool silently drops archive members that aren't
+#    8-byte aligned (zig emits such objects, e.g. the ~9MB libghostty_zcu.o that
+#    carries the embedded C API), so the combined fat lib loses ghostty_app_* and
+#    the consuming app fails to link. llvm-ar preserves every member. Any other
+#    libtool usage delegates to the real /usr/bin/libtool.
+ghostty_make_build_shims() {
   local overlay_sdk="$1" out_dir="$2"
   local bin="${out_dir}/bin"
 
   rm -rf "${out_dir}"
   mkdir -p "${bin}"
+
   cat > "${bin}/xcrun" <<EOF
 #!/bin/sh
 sdk=macosx
@@ -104,5 +113,34 @@ fi
 exec /usr/bin/xcrun "\$@"
 EOF
   chmod +x "${bin}/xcrun"
+
+  cat > "${bin}/libtool" <<'EOF'
+#!/bin/sh
+# Translate `libtool -static -o OUT IN...` into an llvm-ar MRI merge.
+static=0
+out=""
+expect_out=0
+inputs=""
+for a in "$@"; do
+  if [ "$expect_out" = 1 ]; then out="$a"; expect_out=0; continue; fi
+  case "$a" in
+    -static) static=1; continue;;
+    -o) expect_out=1; continue;;
+  esac
+  inputs="$inputs $a"
+done
+if [ "$static" = 1 ] && [ -n "$out" ]; then
+  zig="$(command -v zig 2>/dev/null || true)"
+  {
+    printf 'create %s\n' "$out"
+    for i in $inputs; do printf 'addlib %s\n' "$i"; done
+    printf 'save\nend\n'
+  } | { [ -n "$zig" ] && "$zig" ar -M || mise exec -- zig ar -M; }
+  exit $?
+fi
+exec /usr/bin/libtool "$@"
+EOF
+  chmod +x "${bin}/libtool"
+
   printf '%s\n' "${bin}"
 }

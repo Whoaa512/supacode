@@ -185,6 +185,9 @@ cd "${ghostty_dir}"
 # `xcrun --sdk macosx --show-sdk-path` at it, then build only the native macOS slice
 # (patches/ghostty-xcode-26.4.patch makes the .native target skip iOS). Metal and
 # xcframework steps call /usr/bin/xcrun by absolute path, so they keep the real SDK.
+# The shim dir also wraps libtool: Xcode 26's libtool drops archive members that
+# aren't 8-byte aligned, which would silently strip the embedded C API from the fat
+# lib, so the static-archive merge is routed through llvm-ar (zig ar) instead.
 # When the active SDK is <= 26.3 (CI, older Xcode) this is a no-op: normal universal
 # build, unshimmed PATH.
 shim_path_prefix=""
@@ -195,7 +198,7 @@ if [ -n "${active_sdk_ver}" ] &&
   # shellcheck source=sdk-overlay.sh
   source "${script_dir}/sdk-overlay.sh"
   overlay_sdk="$(ghostty_make_sdk_overlay "$(xcrun --show-sdk-path)" "${script_dir}/sdk-stubs" "${ghostty_build_root}/sdk-overlay")"
-  shim_dir="$(ghostty_make_xcrun_shim "${overlay_sdk}" "${ghostty_build_root}/sdk-shim")"
+  shim_dir="$(ghostty_make_build_shims "${overlay_sdk}" "${ghostty_build_root}/sdk-shim")"
   shim_path_prefix="${shim_dir}:"
   xcframework_target_flag="-Dxcframework-target=native"
 fi
