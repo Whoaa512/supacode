@@ -151,6 +151,14 @@ public nonisolated enum SupacodePaths {
     .path(percentEncoded: false)
   }
 
+  public static var scrollbackDirectory: URL {
+    baseDirectory.appending(path: "scrollback", directoryHint: .isDirectory)
+  }
+
+  public static func scrollbackFileURL(for surfaceID: UUID) -> URL {
+    scrollbackDirectory.appending(path: "\(surfaceID.uuidString).vt", directoryHint: .notDirectory)
+  }
+
   public static var layoutsURL: URL {
     baseDirectory.appending(path: "layouts.json", directoryHint: .notDirectory)
   }

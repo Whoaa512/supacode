@@ -77,6 +77,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
   private let workingDirectoryCString: UnsafeMutablePointer<CChar>?
   private let commandCString: UnsafeMutablePointer<CChar>?
   private let initialInputCString: UnsafeMutablePointer<CChar>?
+  private let initialScrollbackPathCString: UnsafeMutablePointer<CChar>?
   private let environmentVariables: [String: String]
   /// Argv prepended to Ghostty's resolved command (e.g. `zmx attach <id>`), so
   /// the real shell runs as a child of the wrapper. Empty means no wrapper.
@@ -211,7 +212,8 @@ final class GhosttySurfaceView: NSView, Identifiable {
     commandWrapper: [String] = [],
     disableShellIntegration: Bool = false,
     fontSize: Float32? = nil,
-    context: ghostty_surface_context_e
+    context: ghostty_surface_context_e,
+    initialScrollbackPath: String? = nil,
   ) {
     self.id = id
     self.runtime = runtime
@@ -238,6 +240,11 @@ final class GhosttySurfaceView: NSView, Identifiable {
       initialInputCString = initialInput.withCString { strdup($0) }
     } else {
       initialInputCString = nil
+    }
+    if let initialScrollbackPath {
+      initialScrollbackPathCString = initialScrollbackPath.withCString { strdup($0) }
+    } else {
+      initialScrollbackPathCString = nil
     }
     super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
     wantsLayer = true
@@ -276,6 +283,16 @@ final class GhosttySurfaceView: NSView, Identifiable {
     }
     if let initialInputCString {
       free(initialInputCString)
+    }
+    if let initialScrollbackPathCString {
+      free(initialScrollbackPathCString)
+    }
+  }
+
+  func writeScrollback(to path: String) -> Bool {
+    guard let surface else { return false }
+    return path.withCString { cPath in
+      ghostty_surface_write_scrollback(surface, cPath)
     }
   }
 
@@ -995,6 +1012,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
     config.working_directory = workingDirectoryCString.map { UnsafePointer($0) }
     config.command = commandCString.map { UnsafePointer($0) }
     config.initial_input = initialInputCString.map { UnsafePointer($0) }
+    config.initial_scrollback_path = initialScrollbackPathCString.map { UnsafePointer($0) }
     config.context = context
     config.disable_shell_integration = disableShellIntegration
     // Ghostty copies env vars into its arena allocator, so

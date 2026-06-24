@@ -223,6 +223,12 @@ struct SupacodeApp: App {
       @SharedReader(.layouts) var layouts: [String: TerminalLayoutSnapshot] = [:]
       return layouts[worktreeID.rawValue]
     }
+    // Prune orphan scrollback files: keep only those referenced by saved layouts.
+    do {
+      @SharedReader(.layouts) var layouts: [String: TerminalLayoutSnapshot] = [:]
+      let knownIDs = Set(layouts.values.flatMap(\.allSurfaceIDs))
+      WorktreeTerminalState.pruneScrollbackFiles(keeping: knownIDs)
+    }
     return terminalManager
   }
 
@@ -284,6 +290,9 @@ struct SupacodeApp: App {
         },
         reapOrphanSessions: { knownSurfaceIDs in
           await terminalManager.reapOrphanSessions(knownSurfaceIDs: knownSurfaceIDs)
+        },
+        resolveLiveZmxSessions: {
+          await terminalManager.resolveLiveZmxSessions()
         },
         saveLayoutsWithAgents: { agentsBySurface in
           terminalManager.saveAllLayoutSnapshots(agentsBySurface: agentsBySurface)
