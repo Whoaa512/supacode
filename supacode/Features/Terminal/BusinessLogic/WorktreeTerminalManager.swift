@@ -68,6 +68,13 @@ final class WorktreeTerminalManager {
   @ObservationIgnored private let layoutDebounceSleep: @Sendable (Duration) async throws -> Void
   /// Debounce window before an incremental layout snapshot is flushed.
   private static let layoutDebounceDuration: Duration = .seconds(1)
+  /// Periodic scrollback + layout save cadence (crash safety).
+  private static let scrollbackPersistInterval: Duration = .seconds(30)
+  /// Scrollback periodic-persist Task.
+  @ObservationIgnored private var scrollbackPersistTask: Task<Void, Never>?
+  /// Live zmx session names resolved at launch. Injected into each state so
+  /// `scrollbackPathIfAvailable` can skip replay for live sessions.
+  @ObservationIgnored private(set) var liveZmxSessionNames: Set<String>?
   /// Reads the freshest `agentsBySurface` at flush time so incremental captures
   /// embed live badge records instead of the empty default.
   var currentAgentsBySurface: (() -> [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]])?
@@ -161,6 +168,7 @@ final class WorktreeTerminalManager {
         Task { @MainActor [weak self] in self?.refreshFocusedSurfaceBackground() }
       }
     )
+    startScrollbackPersistTimer(sleep: { duration in try await clock.sleep(for: duration) })
     let resolvedServer = socketServer ?? AgentHookSocketServer()
     guard resolvedServer.socketPath != nil else {
       self.socketServer = nil
@@ -172,6 +180,7 @@ final class WorktreeTerminalManager {
   }
 
   isolated deinit {
+    scrollbackPersistTask?.cancel()
     for task in pendingIdleHookEvents.values { task.cancel() }
     for task in layoutDirtyTasks.values { task.cancel() }
     for task in layoutFlushTasks.values { task.cancel() }
@@ -440,6 +449,7 @@ final class WorktreeTerminalManager {
         previousState.setAllSurfacesOccluded()
         previousState.forgetLastEmittedFocus()
         lastEmittedCoalescable.removeValue(forKey: .focus(previousID))
+        previousState.saveScrollbackFiles()
         markLayoutDirty(worktreeID: previousID)
       }
       selectedWorktreeID = id
@@ -530,6 +540,7 @@ final class WorktreeTerminalManager {
       runSetupScript: runSetupScript
     )
     state.socketPath = socketServer?.socketPath
+    state.liveZmxSessionNamesProvider = { [weak self] in self?.liveZmxSessionNames }
     // Load saved layout snapshot for restoration (skip when a setup script is pending).
     if !runSetupScript {
       state.pendingLayoutSnapshot = loadLayoutSnapshot?(worktree.id)
@@ -1103,6 +1114,7 @@ final class WorktreeTerminalManager {
     // in-memory `@Shared` dict via `saveLayoutSnapshot` for any live readers.
     var changes: [String: LayoutsIncrementalWriter.Change] = [:]
     for (id, state) in states {
+      state.saveScrollbackFiles()
       let snapshot = state.captureLayoutSnapshot(agentsBySurface: agentsBySurface)
       saveLayoutSnapshot(id, snapshot)
       changes[id.rawValue] = snapshot.map { .snapshot($0) } ?? .delete
@@ -1162,6 +1174,45 @@ final class WorktreeTerminalManager {
   // whiteish on a dark terminal, blackish on light.
   func chromeOverlayTint() -> Color {
     focusedSurfaceBackground.isLightColor ? .black : .white
+  }
+
+  /// Saves scrollback files for all loaded states. Called on quit and periodically.
+  func saveAllScrollbackFiles() {
+    for state in states.values {
+      state.saveScrollbackFiles()
+    }
+  }
+
+  /// Resolves live zmx sessions at launch and caches the result so restore paths
+  /// can gate disk-scrollback replay.
+  func resolveLiveZmxSessions() async {
+    guard zmxClient.isBundled() else {
+      liveZmxSessionNames = Set()
+      return
+    }
+    if let entries = await zmxClient.listSessionsWithClients() {
+      liveZmxSessionNames = Set(entries.map(\.name))
+    } else {
+      liveZmxSessionNames = nil
+    }
+  }
+
+  private func startScrollbackPersistTimer(sleep: @escaping @Sendable (Duration) async throws -> Void) {
+    scrollbackPersistTask = Task { [weak self] in
+      while !Task.isCancelled {
+        try? await sleep(Self.scrollbackPersistInterval)
+        guard !Task.isCancelled else { break }
+        self?.persistAllScrollbackAndLayouts()
+      }
+    }
+  }
+
+  private func persistAllScrollbackAndLayouts() {
+    guard saveLayoutSnapshot != nil else { return }
+    for (id, state) in states {
+      state.saveScrollbackFiles()
+      markLayoutDirty(worktreeID: id)
+    }
   }
 
   // The focused terminal background's luminance as a scheme (dark terminal → .dark).

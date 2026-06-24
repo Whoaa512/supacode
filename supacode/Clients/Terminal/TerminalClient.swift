@@ -26,6 +26,8 @@ struct TerminalClient {
   /// Kill `supa-*` sessions hosted by the daemon that no persisted layout
   /// references. Called at launch to clean up crash / force-quit orphans.
   var reapOrphanSessions: @MainActor @Sendable (_ knownSurfaceIDs: Set<UUID>) async -> Void
+  /// Resolve live zmx sessions at launch so restore paths can gate disk-scrollback replay.
+  var resolveLiveZmxSessions: @MainActor @Sendable () async -> Void
   /// Persist layouts with embedded per-surface agent records. Called on
   /// background and on quit so a force-quit between them caps staleness.
   var saveLayoutsWithAgents:
@@ -138,6 +140,7 @@ extension TerminalClient: DependencyKey {
     hasInflightBlockingScripts: { fatalError("TerminalClient.hasInflightBlockingScripts not configured") },
     terminateAllSessions: { fatalError("TerminalClient.terminateAllSessions not configured") },
     reapOrphanSessions: { _ in fatalError("TerminalClient.reapOrphanSessions not configured") },
+    resolveLiveZmxSessions: { fatalError("TerminalClient.resolveLiveZmxSessions not configured") },
     saveLayoutsWithAgents: { _ in fatalError("TerminalClient.saveLayoutsWithAgents not configured") }
   )
 
@@ -156,6 +159,7 @@ extension TerminalClient: DependencyKey {
     hasInflightBlockingScripts: unimplemented("TerminalClient.hasInflightBlockingScripts", placeholder: false),
     terminateAllSessions: unimplemented("TerminalClient.terminateAllSessions"),
     reapOrphanSessions: unimplemented("TerminalClient.reapOrphanSessions"),
+    resolveLiveZmxSessions: unimplemented("TerminalClient.resolveLiveZmxSessions"),
     saveLayoutsWithAgents: unimplemented("TerminalClient.saveLayoutsWithAgents")
   )
 }
