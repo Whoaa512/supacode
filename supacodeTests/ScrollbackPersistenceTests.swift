@@ -34,7 +34,7 @@ struct ScrollbackPersistenceTests {
     #expect(url.deletingLastPathComponent() == SupacodePaths.scrollbackDirectory)
   }
 
-  // MARK: - Prune
+  // MARK: - Prune (real implementation)
 
   @Test func pruneKeepsReferencedDeletesOrphans() throws {
     try setUp()
@@ -47,7 +47,7 @@ struct ScrollbackPersistenceTests {
     try Data("kept".utf8).write(to: keptFile)
     try Data("orphan".utf8).write(to: orphanFile)
 
-    pruneScrollbackFilesInDirectory(testDir, keeping: [kept])
+    WorktreeTerminalState.pruneScrollbackFiles(keeping: [kept], directory: testDir)
 
     #expect(FileManager.default.fileExists(atPath: keptFile.path(percentEncoded: false)))
     #expect(!FileManager.default.fileExists(atPath: orphanFile.path(percentEncoded: false)))
@@ -60,141 +60,61 @@ struct ScrollbackPersistenceTests {
     let junkFile = testDir.appending(path: "junk.vt")
     try Data("junk".utf8).write(to: junkFile)
 
-    pruneScrollbackFilesInDirectory(testDir, keeping: [])
+    WorktreeTerminalState.pruneScrollbackFiles(keeping: [], directory: testDir)
 
     #expect(!FileManager.default.fileExists(atPath: junkFile.path(percentEncoded: false)))
   }
 
-  // MARK: - scrollbackPathIfAvailable zmx guard
+  // MARK: - shouldReplayScrollback (real static)
 
-  @Test func scrollbackPathReturnsNilWhenFileMissing() {
-    let state = makeState(zmxBundled: false, liveNames: Set())
-    let result = state.scrollbackPathIfAvailable(for: UUID())
-    #expect(result == nil)
-  }
-
-  @Test func scrollbackPathReturnsNilWhenZmxSessionIsLive() throws {
-    try setUp()
-    defer { tearDown() }
-
-    let surfaceID = UUID()
-    let file = testDir.appending(path: "\(surfaceID.uuidString).vt")
-    try Data("scrollback".utf8).write(to: file)
-
-    let sessionName = ZmxSessionID.make(surfaceID: surfaceID)
-    let state = makeState(
-      zmxBundled: true,
-      liveNames: [sessionName],
-      scrollbackDir: testDir,
-    )
-    let result = state.scrollbackPathIfAvailable(for: surfaceID)
-    #expect(result == nil)
-  }
-
-  @Test func scrollbackPathReturnsPathWhenZmxSessionIsDead() throws {
-    try setUp()
-    defer { tearDown() }
-
-    let surfaceID = UUID()
-    let file = testDir.appending(path: "\(surfaceID.uuidString).vt")
-    try Data("scrollback".utf8).write(to: file)
-
-    let state = makeState(
-      zmxBundled: true,
-      liveNames: Set(),
-      scrollbackDir: testDir,
-    )
-    let result = state.scrollbackPathIfAvailable(for: surfaceID)
-    #expect(result == file.path(percentEncoded: false))
-  }
-
-  @Test func scrollbackPathReturnsNilWhenProbeUnavailableAndZmxBundled() throws {
-    try setUp()
-    defer { tearDown() }
-
-    let surfaceID = UUID()
-    let file = testDir.appending(path: "\(surfaceID.uuidString).vt")
-    try Data("scrollback".utf8).write(to: file)
-
-    let state = makeState(
-      zmxBundled: true,
-      liveNames: nil,
-      scrollbackDir: testDir,
-    )
-    let result = state.scrollbackPathIfAvailable(for: surfaceID)
-    #expect(result == nil)
-  }
-
-  @Test func scrollbackPathReturnPathWhenZmxNotBundled() throws {
-    try setUp()
-    defer { tearDown() }
-
-    let surfaceID = UUID()
-    let file = testDir.appending(path: "\(surfaceID.uuidString).vt")
-    try Data("scrollback".utf8).write(to: file)
-
-    let state = makeState(
+  @Test func replayReturnsFalseWhenFileMissing() {
+    let result = WorktreeTerminalState.shouldReplayScrollback(
+      fileExists: false,
       zmxBundled: false,
-      liveNames: nil,
-      scrollbackDir: testDir,
+      liveSessionNames: Set(),
+      sessionName: "test",
     )
-    let result = state.scrollbackPathIfAvailable(for: surfaceID)
-    #expect(result == file.path(percentEncoded: false))
+    #expect(result == false)
   }
 
-  // MARK: - Helpers
-
-  /// Prune helper that operates on a custom directory (mirrors the static method logic).
-  private func pruneScrollbackFilesInDirectory(_ dir: URL, keeping knownIDs: Set<UUID>) {
-    guard
-      let items = try? FileManager.default.contentsOfDirectory(
-        at: dir, includingPropertiesForKeys: nil
-      )
-    else { return }
-    for item in items {
-      let name = item.deletingPathExtension().lastPathComponent
-      guard let id = UUID(uuidString: name) else {
-        try? FileManager.default.removeItem(at: item)
-        continue
-      }
-      if !knownIDs.contains(id) {
-        try? FileManager.default.removeItem(at: item)
-      }
-    }
-  }
-
-  /// Creates a minimal test harness for `scrollbackPathIfAvailable` with controllable zmx state.
-  private func makeState(
-    zmxBundled: Bool,
-    liveNames: Set<String>?,
-    scrollbackDir: URL? = nil
-  ) -> ScrollbackTestHelper {
-    ScrollbackTestHelper(
-      zmxBundled: zmxBundled,
-      liveNames: liveNames,
-      scrollbackDir: scrollbackDir
+  @Test func replayReturnsFalseWhenZmxSessionIsLive() {
+    let sessionName = "supacode-session"
+    let result = WorktreeTerminalState.shouldReplayScrollback(
+      fileExists: true,
+      zmxBundled: true,
+      liveSessionNames: [sessionName],
+      sessionName: sessionName,
     )
+    #expect(result == false)
   }
-}
 
-/// Lightweight test double that exercises the same logic as
-/// `WorktreeTerminalState.scrollbackPathIfAvailable` without needing a full state.
-private struct ScrollbackTestHelper {
-  let zmxBundled: Bool
-  let liveNames: Set<String>?
-  let scrollbackDir: URL?
+  @Test func replayReturnsTrueWhenZmxSessionIsDead() {
+    let result = WorktreeTerminalState.shouldReplayScrollback(
+      fileExists: true,
+      zmxBundled: true,
+      liveSessionNames: Set(),
+      sessionName: "dead-session",
+    )
+    #expect(result == true)
+  }
 
-  func scrollbackPathIfAvailable(for surfaceID: UUID?) -> String? {
-    guard let surfaceID else { return nil }
-    let dir = scrollbackDir ?? SupacodePaths.scrollbackDirectory
-    let url = dir.appending(path: "\(surfaceID.uuidString).vt", directoryHint: .notDirectory)
-    let path = url.path(percentEncoded: false)
-    guard FileManager.default.isReadableFile(atPath: path) else { return nil }
-    let sessionName = ZmxSessionID.make(surfaceID: surfaceID)
-    if zmxBundled {
-      guard let liveNames else { return nil }
-      if liveNames.contains(sessionName) { return nil }
-    }
-    return path
+  @Test func replayReturnsFalseWhenProbeUnavailableAndZmxBundled() {
+    let result = WorktreeTerminalState.shouldReplayScrollback(
+      fileExists: true,
+      zmxBundled: true,
+      liveSessionNames: nil,
+      sessionName: "any",
+    )
+    #expect(result == false)
+  }
+
+  @Test func replayReturnsTrueWhenZmxNotBundled() {
+    let result = WorktreeTerminalState.shouldReplayScrollback(
+      fileExists: true,
+      zmxBundled: false,
+      liveSessionNames: nil,
+      sessionName: "any",
+    )
+    #expect(result == true)
   }
 }

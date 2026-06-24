@@ -463,7 +463,7 @@ final class WorktreeTerminalManager {
       runSetupScript: runSetupScript,
     )
     state.socketPath = socketServer?.socketPath
-    state.liveZmxSessionNames = liveZmxSessionNames
+    state.liveZmxSessionNamesProvider = { [weak self] in self?.liveZmxSessionNames }
     // Load saved layout snapshot for restoration (skip when a setup script is pending).
     if !runSetupScript {
       state.pendingLayoutSnapshot = loadLayoutSnapshot?(worktree.id)
@@ -894,9 +894,6 @@ final class WorktreeTerminalManager {
       liveZmxSessionNames = Set(entries.map(\.name))
     } else {
       liveZmxSessionNames = nil
-    }
-    for state in states.values {
-      state.liveZmxSessionNames = liveZmxSessionNames
     }
   }
 

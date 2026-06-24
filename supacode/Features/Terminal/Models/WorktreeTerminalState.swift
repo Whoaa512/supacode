@@ -93,9 +93,9 @@ final class WorktreeTerminalState {
   @ObservationIgnored @Dependency(\.zmxClient) private var zmxClient
   @ObservationIgnored @Dependency(\.analyticsClient) private var analyticsClient
   @ObservationIgnored @Dependency(\.continuousClock) private var clock
-  /// Live zmx session names at launch. nil = probe not yet resolved or unavailable.
-  /// Used by `scrollbackPathIfAvailable` to avoid doubling when zmx re-attaches.
-  @ObservationIgnored var liveZmxSessionNames: Set<String>?
+  /// Closure that reads the manager's current live zmx session names at restore time.
+  /// Lazy read ensures a worktree selected after the probe completes sees the fresh set.
+  @ObservationIgnored var liveZmxSessionNamesProvider: () -> Set<String>? = { nil }
   /// When a custom (hook / OSC 3008) notification last committed per surface.
   /// Stored as a monotonic instant so the suppression window and the OSC-9 hold
   /// share one clock source and can't desync on an NTP step / manual clock change.
@@ -1074,7 +1074,12 @@ final class WorktreeTerminalState {
 
   func saveScrollbackFiles() {
     let dir = SupacodePaths.scrollbackDirectory
-    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    do {
+      try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    } catch {
+      layoutLogger.warning("Failed to create scrollback directory: \(error.localizedDescription)")
+      return
+    }
     for (id, view) in surfaces {
       let path = SupacodePaths.scrollbackFileURL(for: id).path(percentEncoded: false)
       if !view.writeScrollback(to: path) {
@@ -1094,32 +1099,35 @@ final class WorktreeTerminalState {
     let path = url.path(percentEncoded: false)
     guard FileManager.default.isReadableFile(atPath: path) else { return nil }
     let sessionName = ZmxSessionID.make(surfaceID: surfaceID)
-    if zmxClient.isBundled() {
-      guard let liveNames = liveZmxSessionNames else {
-        // Probe unavailable — can't rule out a live session; skip replay to avoid doubling.
-        return nil
-      }
-      if liveNames.contains(sessionName) {
-        return nil
-      }
-    }
+    guard
+      Self.shouldReplayScrollback(
+        fileExists: true,
+        zmxBundled: zmxClient.isBundled(),
+        liveSessionNames: liveZmxSessionNamesProvider(),
+        sessionName: sessionName,
+      )
+    else { return nil }
     return path
   }
 
-  static func cleanupScrollbackFiles() {
-    let dir = SupacodePaths.scrollbackDirectory
-    guard
-      let items = try? FileManager.default.contentsOfDirectory(
-        at: dir, includingPropertiesForKeys: nil,
-      )
-    else { return }
-    for item in items {
-      try? FileManager.default.removeItem(at: item)
+  /// Pure decision: should disk scrollback be replayed for this surface?
+  /// Extracted for direct unit testing without full state construction.
+  static func shouldReplayScrollback(
+    fileExists: Bool,
+    zmxBundled: Bool,
+    liveSessionNames: Set<String>?,
+    sessionName: String,
+  ) -> Bool {
+    guard fileExists else { return false }
+    if zmxBundled {
+      guard let liveNames = liveSessionNames else { return false }
+      if liveNames.contains(sessionName) { return false }
     }
+    return true
   }
 
-  static func pruneScrollbackFiles(keeping knownIDs: Set<UUID>) {
-    let dir = SupacodePaths.scrollbackDirectory
+  static func pruneScrollbackFiles(keeping knownIDs: Set<UUID>, directory: URL = SupacodePaths.scrollbackDirectory) {
+    let dir = directory
     guard
       let items = try? FileManager.default.contentsOfDirectory(
         at: dir, includingPropertiesForKeys: nil,
@@ -1418,7 +1426,7 @@ final class WorktreeTerminalState {
     let repoPath = worktree.repositoryRootURL.path(percentEncoded: false)
     env["SUPACODE_REPO_ID"] = percentEncode(repoPath, allowedCharacters: percentEncodingSet, label: "SUPACODE_REPO_ID")
     env["SUPACODE_WORKTREE_ID"] = percentEncode(
-      worktree.id, allowedCharacters: percentEncodingSet, label: "SUPACODE_WORKTREE_ID",)
+      worktree.id, allowedCharacters: percentEncodingSet, label: "SUPACODE_WORKTREE_ID", )
     env["SUPACODE_TAB_ID"] = tabId.rawValue.uuidString
     env["SUPACODE_SURFACE_ID"] = surfaceID.uuidString
     if let socketPath {
@@ -1632,7 +1640,7 @@ final class WorktreeTerminalState {
     }
     return .success(
       AgentHookEvent(
-        agent: signal.agent, event: signal.eventRawValue, surfaceID: surfaceID, pid: signal.pid,))
+        agent: signal.agent, event: signal.eventRawValue, surfaceID: surfaceID, pid: signal.pid, ))
   }
 
   /// Parse an OSC 3008 notify signal for the receiving surface, then sanitize and
