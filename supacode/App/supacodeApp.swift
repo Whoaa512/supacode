@@ -168,7 +168,7 @@ struct SupacodeApp: App {
     let appStore = Self.makeStore(
       initialSettings: initialSettings,
       terminalManager: terminalManager,
-      worktreeInfoWatcher: worktreeInfoWatcher
+      worktreeInfoWatcher: worktreeInfoWatcher,
     )
     _store = State(initialValue: appStore)
     appDelegate.appStore = appStore
@@ -198,6 +198,12 @@ struct SupacodeApp: App {
       @SharedReader(.layouts) var layouts: [String: TerminalLayoutSnapshot] = [:]
       return layouts[worktreeID]
     }
+    // Prune orphan scrollback files: keep only those referenced by saved layouts.
+    do {
+      @SharedReader(.layouts) var layouts: [String: TerminalLayoutSnapshot] = [:]
+      let knownIDs = Set(layouts.values.flatMap(\.allSurfaceIDs))
+      WorktreeTerminalState.pruneScrollbackFiles(keeping: knownIDs)
+    }
     return terminalManager
   }
 
@@ -205,7 +211,7 @@ struct SupacodeApp: App {
   private static func makeStore(
     initialSettings: GlobalSettings,
     terminalManager: WorktreeTerminalManager,
-    worktreeInfoWatcher: WorktreeInfoWatcherManager
+    worktreeInfoWatcher: WorktreeInfoWatcherManager,
   ) -> StoreOf<AppFeature> {
     Store(initialState: AppFeature.State(settings: SettingsFeature.State(settings: initialSettings))) {
       AppFeature()
@@ -254,9 +260,12 @@ struct SupacodeApp: App {
         reapOrphanSessions: { knownSurfaceIDs in
           await terminalManager.reapOrphanSessions(knownSurfaceIDs: knownSurfaceIDs)
         },
+        resolveLiveZmxSessions: {
+          await terminalManager.resolveLiveZmxSessions()
+        },
         saveLayoutsWithAgents: { agentsBySurface in
           terminalManager.saveAllLayoutSnapshots(agentsBySurface: agentsBySurface)
-        }
+        },
       )
       values.worktreeInfoWatcher = WorktreeInfoWatcherClient(
         send: { command in
@@ -264,7 +273,7 @@ struct SupacodeApp: App {
         },
         events: {
           worktreeInfoWatcher.eventStream()
-        }
+        },
       )
       // Bridge the archived-worktree timestamps from the canonical
       // `@Shared(.sidebar)` bucket into the `SupacodeSettingsShared`
@@ -290,7 +299,7 @@ struct SupacodeApp: App {
   @MainActor
   private static func configureSocketHandlers(
     terminalManager: WorktreeTerminalManager,
-    store: StoreOf<AppFeature>
+    store: StoreOf<AppFeature>,
   ) {
     terminalManager.onDeeplinkCommand = { url, clientFD in
       store.send(.deeplinkReceived(url, source: .socket, responseFD: clientFD))
@@ -301,7 +310,7 @@ struct SupacodeApp: App {
         params: params,
         clientFD: clientFD,
         terminalManager: terminalManager,
-        store: store
+        store: store,
       )
     }
     // Kicked off here rather than from `.appLaunched` so unit tests that
@@ -317,7 +326,7 @@ struct SupacodeApp: App {
     params: [String: String],
     clientFD: Int32,
     terminalManager: WorktreeTerminalManager,
-    store: StoreOf<AppFeature>
+    store: StoreOf<AppFeature>,
   ) {
     let repos = store.repositories.repositories
     let selectedWorktreeID = store.repositories.selectedWorktreeID
@@ -342,7 +351,7 @@ struct SupacodeApp: App {
     case "tabs":
       guard let worktreeID = params["worktreeID"] else {
         AgentHookSocketServer.sendCommandResponse(
-          clientFD: clientFD, ok: false, error: "Missing worktreeID for tab list.")
+          clientFD: clientFD, ok: false, error: "Missing worktreeID for tab list.",)
         return
       }
       let tabs = terminalManager.listTabs(worktreeID: worktreeID)
@@ -351,7 +360,7 @@ struct SupacodeApp: App {
         let worktreeExists = repos.contains { $0.worktrees.contains { $0.id == decoded } }
         guard worktreeExists else {
           AgentHookSocketServer.sendCommandResponse(
-            clientFD: clientFD, ok: false, error: "Worktree not found: \(worktreeID)")
+            clientFD: clientFD, ok: false, error: "Worktree not found: \(worktreeID)",)
           return
         }
       }
@@ -359,19 +368,19 @@ struct SupacodeApp: App {
     case "surfaces":
       guard let worktreeID = params["worktreeID"], let tabID = params["tabID"] else {
         AgentHookSocketServer.sendCommandResponse(
-          clientFD: clientFD, ok: false, error: "Missing worktreeID/tabID for surface list.")
+          clientFD: clientFD, ok: false, error: "Missing worktreeID/tabID for surface list.",)
         return
       }
       guard let surfaces = terminalManager.listSurfaces(worktreeID: worktreeID, tabID: tabID) else {
         AgentHookSocketServer.sendCommandResponse(
-          clientFD: clientFD, ok: false, error: "Worktree or tab not found.")
+          clientFD: clientFD, ok: false, error: "Worktree or tab not found.",)
         return
       }
       AgentHookSocketServer.sendQueryResponse(clientFD: clientFD, data: surfaces)
     case "scripts":
       guard let worktreeID = params["worktreeID"] else {
         AgentHookSocketServer.sendCommandResponse(
-          clientFD: clientFD, ok: false, error: "Missing worktreeID for script list.")
+          clientFD: clientFD, ok: false, error: "Missing worktreeID for script list.",)
         return
       }
       let decoded = worktreeID.removingPercentEncoding ?? worktreeID
@@ -383,7 +392,7 @@ struct SupacodeApp: App {
         ?? allWorktrees.first(where: { $0.id == decoded + "/" })
       guard let worktree else {
         AgentHookSocketServer.sendCommandResponse(
-          clientFD: clientFD, ok: false, error: "Worktree not found: \(worktreeID)")
+          clientFD: clientFD, ok: false, error: "Worktree not found: \(worktreeID)",)
         return
       }
       @SharedReader(.repositorySettings(worktree.repositoryRootURL)) var settings
@@ -407,7 +416,7 @@ struct SupacodeApp: App {
       AgentHookSocketServer.sendQueryResponse(clientFD: clientFD, data: data)
     default:
       AgentHookSocketServer.sendCommandResponse(
-        clientFD: clientFD, ok: false, error: "Unknown resource: \(resource)")
+        clientFD: clientFD, ok: false, error: "Unknown resource: \(resource)",)
     }
   }
 

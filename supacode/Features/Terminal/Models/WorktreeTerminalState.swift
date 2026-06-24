@@ -28,7 +28,7 @@ struct WorktreeTabProjection: Equatable, Sendable {
     surfaceIDs: [UUID],
     activeSurfaceID: UUID?,
     unseenNotificationCount: Int,
-    isSplitZoomed: Bool = false
+    isSplitZoomed: Bool = false,
   ) {
     self.tabID = tabID
     self.surfaceIDs = surfaceIDs
@@ -93,6 +93,9 @@ final class WorktreeTerminalState {
   @ObservationIgnored @Dependency(\.zmxClient) private var zmxClient
   @ObservationIgnored @Dependency(\.analyticsClient) private var analyticsClient
   @ObservationIgnored @Dependency(\.continuousClock) private var clock
+  /// Live zmx session names at launch. nil = probe not yet resolved or unavailable.
+  /// Used by `scrollbackPathIfAvailable` to avoid doubling when zmx re-attaches.
+  @ObservationIgnored var liveZmxSessionNames: Set<String>?
   /// When a custom (hook / OSC 3008) notification last committed per surface.
   /// Stored as a monotonic instant so the suppression window and the OSC-9 hold
   /// share one clock source and can't desync on an NTP step / manual clock change.
@@ -110,7 +113,7 @@ final class WorktreeTerminalState {
   /// so the suppression window can compare instants of the type-erased clock.
   private static func elapsed(
     from start: any InstantProtocol<Duration>,
-    to end: any InstantProtocol<Duration>
+    to end: any InstantProtocol<Duration>,
   ) -> Duration {
     func gap<I: InstantProtocol>(_ start: I, _ end: any InstantProtocol<Duration>) -> Duration
     where I.Duration == Duration {
@@ -445,7 +448,7 @@ final class WorktreeTerminalState {
       initialInput: creation.initialInput,
       context: creation.context,
       surfaceID: creation.tabID != nil ? tabId.rawValue : nil,
-      bypassZmx: creation.bypassZmx
+      bypassZmx: creation.bypassZmx,
     )
     updateShouldHideTabBar()
     if creation.focusing, let surface = tree.root?.leftmostLeaf() {
@@ -710,7 +713,7 @@ final class WorktreeTerminalState {
     initialInput: String? = nil,
     context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_TAB,
     surfaceID: UUID? = nil,
-    bypassZmx: Bool = false
+    bypassZmx: Bool = false,
   ) -> SplitTree<GhosttySurfaceView> {
     if let existing = trees[tabId] {
       return existing
@@ -722,7 +725,7 @@ final class WorktreeTerminalState {
       inheritingFromSurfaceId: inheritingFromSurfaceId,
       context: context,
       surfaceID: surfaceID,
-      bypassZmx: bypassZmx
+      bypassZmx: bypassZmx,
     )
     let tree = SplitTree(view: surface)
     setTree(tree, for: tabId)
@@ -1067,9 +1070,76 @@ final class WorktreeTerminalState {
     return TerminalLayoutSnapshot(tabs: tabSnapshots, selectedTabIndex: selectedIndex)
   }
 
+  // MARK: - Scrollback Persistence
+
+  func saveScrollbackFiles() {
+    let dir = SupacodePaths.scrollbackDirectory
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    for (id, view) in surfaces {
+      let path = SupacodePaths.scrollbackFileURL(for: id).path(percentEncoded: false)
+      if !view.writeScrollback(to: path) {
+        layoutLogger.debug("No scrollback to save for surface \(id)")
+      }
+    }
+  }
+
+  /// Returns the on-disk scrollback path for a surface only when safe to replay.
+  /// Returns nil when:
+  /// - The file doesn't exist
+  /// - The zmx session is live (zmx will replay its own buffer)
+  /// - The probe is unavailable AND zmx is bundled (can't rule out live session)
+  func scrollbackPathIfAvailable(for surfaceID: UUID?) -> String? {
+    guard let surfaceID else { return nil }
+    let url = SupacodePaths.scrollbackFileURL(for: surfaceID)
+    let path = url.path(percentEncoded: false)
+    guard FileManager.default.isReadableFile(atPath: path) else { return nil }
+    let sessionName = ZmxSessionID.make(surfaceID: surfaceID)
+    if zmxClient.isBundled() {
+      guard let liveNames = liveZmxSessionNames else {
+        // Probe unavailable — can't rule out a live session; skip replay to avoid doubling.
+        return nil
+      }
+      if liveNames.contains(sessionName) {
+        return nil
+      }
+    }
+    return path
+  }
+
+  static func cleanupScrollbackFiles() {
+    let dir = SupacodePaths.scrollbackDirectory
+    guard
+      let items = try? FileManager.default.contentsOfDirectory(
+        at: dir, includingPropertiesForKeys: nil,
+      )
+    else { return }
+    for item in items {
+      try? FileManager.default.removeItem(at: item)
+    }
+  }
+
+  static func pruneScrollbackFiles(keeping knownIDs: Set<UUID>) {
+    let dir = SupacodePaths.scrollbackDirectory
+    guard
+      let items = try? FileManager.default.contentsOfDirectory(
+        at: dir, includingPropertiesForKeys: nil,
+      )
+    else { return }
+    for item in items {
+      let name = item.deletingPathExtension().lastPathComponent
+      guard let id = UUID(uuidString: name) else {
+        try? FileManager.default.removeItem(at: item)
+        continue
+      }
+      if !knownIDs.contains(id) {
+        try? FileManager.default.removeItem(at: item)
+      }
+    }
+  }
+
   private func captureLayoutNode(
     _ node: SplitTree<GhosttySurfaceView>.Node,
-    agentsBySurface: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]]
+    agentsBySurface: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]],
   ) -> TerminalLayoutSnapshot.LayoutNode {
     switch node {
     case .leaf(let view):
@@ -1077,7 +1147,7 @@ final class WorktreeTerminalState {
         TerminalLayoutSnapshot.SurfaceSnapshot(
           id: view.id,
           workingDirectory: view.bridge.state.pwd,
-          agents: agentsBySurface[view.id]
+          agents: agentsBySurface[view.id],
         )
       )
     case .split(let split):
@@ -1091,7 +1161,7 @@ final class WorktreeTerminalState {
           direction: direction,
           ratio: split.ratio,
           left: captureLayoutNode(split.left, agentsBySurface: agentsBySurface),
-          right: captureLayoutNode(split.right, agentsBySurface: agentsBySurface)
+          right: captureLayoutNode(split.right, agentsBySurface: agentsBySurface),
         )
       )
     }
@@ -1121,6 +1191,7 @@ final class WorktreeTerminalState {
       if let customTitle = tabSnapshot.customTitle {
         tabManager.setCustomTitle(tabId, title: customTitle)
       }
+      let scrollbackPath = scrollbackPathIfAvailable(for: tabSnapshot.layout.firstLeaf.id)
       let surface = createSurface(
         tabId: tabId,
         initialInput: nil,
@@ -1128,6 +1199,7 @@ final class WorktreeTerminalState {
         inheritingFromSurfaceId: nil,
         context: context,
         surfaceID: tabSnapshot.layout.firstLeaf.id,
+        initialScrollbackPath: scrollbackPath,
       )
       let tree = SplitTree(view: surface)
       setTree(tree, for: tabId)
@@ -1192,6 +1264,7 @@ final class WorktreeTerminalState {
         workingDirectory: rightWorkingDir,
         tabId: tabId,
         surfaceID: split.right.firstLeaf.id,
+        initialScrollbackPath: scrollbackPathIfAvailable(for: split.right.firstLeaf.id),
       )
     else {
       layoutLogger.warning("Skipping subtree restoration for tab \(tabId.rawValue)")
@@ -1209,7 +1282,8 @@ final class WorktreeTerminalState {
     ratio: Double,
     workingDirectory: URL?,
     tabId: TerminalTabID,
-    surfaceID: UUID? = nil
+    surfaceID: UUID? = nil,
+    initialScrollbackPath: String? = nil,
   ) -> GhosttySurfaceView? {
     guard var tree = trees[tabId] else { return nil }
     let newSurface = createSurface(
@@ -1219,6 +1293,7 @@ final class WorktreeTerminalState {
       inheritingFromSurfaceId: anchor.id,
       context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
       surfaceID: surfaceID,
+      initialScrollbackPath: initialScrollbackPath,
     )
     do {
       tree = try tree.inserting(view: newSurface, at: anchor, direction: direction, ratio: ratio)
@@ -1343,7 +1418,7 @@ final class WorktreeTerminalState {
     let repoPath = worktree.repositoryRootURL.path(percentEncoded: false)
     env["SUPACODE_REPO_ID"] = percentEncode(repoPath, allowedCharacters: percentEncodingSet, label: "SUPACODE_REPO_ID")
     env["SUPACODE_WORKTREE_ID"] = percentEncode(
-      worktree.id, allowedCharacters: percentEncodingSet, label: "SUPACODE_WORKTREE_ID")
+      worktree.id, allowedCharacters: percentEncodingSet, label: "SUPACODE_WORKTREE_ID",)
     env["SUPACODE_TAB_ID"] = tabId.rawValue.uuidString
     env["SUPACODE_SURFACE_ID"] = surfaceID.uuidString
     if let socketPath {
@@ -1382,7 +1457,8 @@ final class WorktreeTerminalState {
     inheritingFromSurfaceId: UUID?,
     context: ghostty_surface_context_e,
     surfaceID: UUID? = nil,
-    bypassZmx: Bool = false
+    bypassZmx: Bool = false,
+    initialScrollbackPath: String? = nil,
   ) -> GhosttySurfaceView {
     let resolvedID: UUID
     if let requested = surfaceID {
@@ -1402,7 +1478,7 @@ final class WorktreeTerminalState {
       surfaceID: surfaceID,
       command: command,
       initialInput: initialInput,
-      bypassZmx: bypassZmx
+      bypassZmx: bypassZmx,
     )
     let view = GhosttySurfaceView(
       id: surfaceID,
@@ -1416,7 +1492,8 @@ final class WorktreeTerminalState {
       // not get Ghostty's shell integration injected into the host shell.
       disableShellIntegration: bypassZmx,
       fontSize: inherited.fontSize,
-      context: context
+      context: context,
+      initialScrollbackPath: initialScrollbackPath,
     )
     wireSurfaceCallbacks(view: view, tabId: tabId, surfaceID: surfaceID)
     surfaces[view.id] = view
@@ -1430,7 +1507,7 @@ final class WorktreeTerminalState {
   private func wireSurfaceCallbacks(
     view: GhosttySurfaceView,
     tabId: TerminalTabID,
-    surfaceID: UUID
+    surfaceID: UUID,
   ) {
     view.bridge.onTitleChange = { [weak self, weak view] title in
       guard let self, let view else { return }
@@ -1518,7 +1595,7 @@ final class WorktreeTerminalState {
       id: id,
       metadata: metadata,
       surfaceID: surfaceID,
-      surfaceExists: surfaces[surfaceID] != nil
+      surfaceExists: surfaces[surfaceID] != nil,
     ) {
     case .success(let event):
       onAgentHookEvent?(event)
@@ -1547,7 +1624,7 @@ final class WorktreeTerminalState {
     id: String,
     metadata: String,
     surfaceID: UUID,
-    surfaceExists: Bool
+    surfaceExists: Bool,
   ) -> Result<AgentHookEvent, PresenceDrop> {
     guard surfaceExists else { return .failure(.unknownSurface) }
     guard let signal = AgentPresenceOSC.parse(id: id, metadata: metadata) else {
@@ -1555,7 +1632,7 @@ final class WorktreeTerminalState {
     }
     return .success(
       AgentHookEvent(
-        agent: signal.agent, event: signal.eventRawValue, surfaceID: surfaceID, pid: signal.pid))
+        agent: signal.agent, event: signal.eventRawValue, surfaceID: surfaceID, pid: signal.pid,))
   }
 
   /// Parse an OSC 3008 notify signal for the receiving surface, then sanitize and
@@ -1564,7 +1641,7 @@ final class WorktreeTerminalState {
     switch Self.notification(
       id: id,
       metadata: metadata,
-      surfaceExists: surfaces[surfaceID] != nil
+      surfaceExists: surfaces[surfaceID] != nil,
     ) {
     case .success(let resolved):
       // Gate AFTER parse so the setting can't be probed via drop-rate signals.
@@ -1616,7 +1693,7 @@ final class WorktreeTerminalState {
   nonisolated static func notification(
     id: String,
     metadata: String,
-    surfaceExists: Bool
+    surfaceExists: Bool,
   ) -> Result<ResolvedNotification, NotifyDrop> {
     guard surfaceExists else { return .failure(.unknownSurface) }
     guard let notify = AgentPresenceOSC.parseNotify(id: id, metadata: metadata) else {
@@ -1671,7 +1748,7 @@ final class WorktreeTerminalState {
     surfaceID: UUID,
     command: String?,
     initialInput: String?,
-    bypassZmx: Bool
+    bypassZmx: Bool,
   ) -> ResolvedLaunch {
     if bypassZmx {
       return ResolvedLaunch(command: command, initialInput: initialInput, commandWrapper: [])
@@ -1679,12 +1756,12 @@ final class WorktreeTerminalState {
     let resolved = ZmxAttach.resolveLaunch(
       executablePath: zmxClient.executableURL()?.path(percentEncoded: false),
       sessionID: ZmxSessionID.make(surfaceID: surfaceID),
-      command: command
+      command: command,
     )
     return ResolvedLaunch(
       command: resolved.command,
       initialInput: initialInput,
-      commandWrapper: resolved.commandWrapper
+      commandWrapper: resolved.commandWrapper,
     )
   }
 
@@ -1695,7 +1772,7 @@ final class WorktreeTerminalState {
 
   private func inheritedSurfaceConfig(
     fromSurfaceId surfaceID: UUID?,
-    context: ghostty_surface_context_e
+    context: ghostty_surface_context_e,
   ) -> InheritedSurfaceConfig {
     guard let surfaceID,
       let view = surfaces[surfaceID],
@@ -1871,7 +1948,7 @@ final class WorktreeTerminalState {
     let client = zmxClient
     analyticsClient.capture(
       "terminal_persistence_session_killed",
-      ["reason": "user_close", "count": sessionIDs.count]
+      ["reason": "user_close", "count": sessionIDs.count],
     )
     Task.detached {
       await withTaskGroup(of: Void.self) { group in
@@ -1938,7 +2015,7 @@ final class WorktreeTerminalState {
     {
       return TerminalTabProgressDisplay.make(
         progressState: focused.bridge.state.progressState,
-        progressValue: focused.bridge.state.progressValue
+        progressValue: focused.bridge.state.progressValue,
       )
     }
     var worst: TerminalTabProgressDisplay?
@@ -1946,7 +2023,7 @@ final class WorktreeTerminalState {
       guard
         let candidate = TerminalTabProgressDisplay.make(
           progressState: surface.bridge.state.progressState,
-          progressValue: surface.bridge.state.progressValue
+          progressValue: surface.bridge.state.progressValue,
         )
       else { continue }
       if worst == nil || candidate.severity > worst!.severity {
@@ -2042,7 +2119,7 @@ final class WorktreeTerminalState {
       surfaceIDs: surfaceIDs,
       activeSurfaceID: focusedSurfaceIdByTab[tabId],
       unseenNotificationCount: unseenCount,
-      isSplitZoomed: tree.zoomed != nil
+      isSplitZoomed: tree.zoomed != nil,
     )
     guard lastTabProjections[tabId] != projection else { return }
     lastTabProjections[tabId] = projection
