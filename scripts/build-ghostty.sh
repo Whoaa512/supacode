@@ -121,9 +121,18 @@ apply_ghostty_patches() {
 
 revert_ghostty_patches() {
   [ -d "${ghostty_patches_dir}" ] || return 0
-  local patch
-  for patch in "${ghostty_patches_dir}"/*.patch; do
-    [ -e "${patch}" ] || continue
+  # Collect the same glob apply_ghostty_patches uses, then revert in REVERSE order.
+  # Interdependent patches (e.g. osc3008 and scrollback both touch ghostty.h) only
+  # reverse-apply cleanly when undone in the opposite order they were applied;
+  # reverting forward leaves a half-reverted, dirty tree that breaks the next build.
+  local patches=()
+  local p
+  for p in "${ghostty_patches_dir}"/*.patch; do
+    [ -e "${p}" ] && patches+=("${p}")
+  done
+  local i patch
+  for (( i=${#patches[@]}-1; i>=0; i-- )); do
+    patch="${patches[$i]}"
     # Prefer a clean reverse-apply; fall back to resetting just the patched files.
     # The fallback also guards against `set -e` aborting the trap mid-revert if the
     # reverse-apply fails (e.g. a partially-applied tree).
