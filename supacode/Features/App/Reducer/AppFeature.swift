@@ -291,9 +291,9 @@ struct AppFeature {
             }
           },
           .run { send in
-            // Reap crash / force-quit orphans, then resurrect agent badges
-            // from embedded records. Races with `.task` under `.merge`; the
-            // `repositoriesChanged` handler drains layout-seeded surfaces if restore wins.
+            // Resolve live zmx sessions first so restore paths can gate scrollback replay,
+            // then reap crash / force-quit orphans and resurrect agent badges.
+            await terminalClient.resolveLiveZmxSessions()
             @SharedReader(.layouts) var layouts: [String: TerminalLayoutSnapshot] = [:]
             let known = Set(layouts.values.flatMap { $0.allSurfaceIDs })
             let staged = AgentPresenceFeature.stageRestore(fromLayouts: layouts.values)
