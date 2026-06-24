@@ -1,0 +1,965 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+index f9d1ea330..543cd1fea 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -453,6 +453,7 @@ typedef struct {
+   ghostty_env_var_s* env_vars;
+   size_t env_var_count;
+   const char* initial_input;
++  const char* initial_scrollback_path;
+   bool wait_after_command;
+   ghostty_surface_context_e context;
+   const char* const* command_wrapper;
+@@ -1091,6 +1092,7 @@ ghostty_surface_config_s ghostty_surface_config_new();
+ ghostty_surface_t ghostty_surface_new(ghostty_app_t,
+                                       const ghostty_surface_config_s*);
+ void ghostty_surface_free(ghostty_surface_t);
++bool ghostty_surface_write_scrollback(ghostty_surface_t, const char*);
+ void* ghostty_surface_userdata(ghostty_surface_t);
+ ghostty_app_t ghostty_surface_app(ghostty_surface_t);
+ ghostty_surface_config_s ghostty_surface_inherited_config(ghostty_surface_t, ghostty_surface_context_e);
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 4a652e96f..658931ee7 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -119,7 +119,7 @@ last_binding_trigger: u64 = 0,
+ /// The terminal IO handler.
+ io: termio.Termio,
+ io_thread: termio.Thread,
+-io_thr: std.Thread,
++io_thr: ?std.Thread = null,
+ 
+ /// Terminal inspector
+ inspector: ?*inspectorpkg.Inspector = null,
+@@ -486,10 +486,12 @@ pub fn init(
+     } else config_original;
+ 
+     // Get our configuration
++    log.debug("surface init: deriving config", .{});
+     var derived_config = try DerivedConfig.init(alloc, config);
+     errdefer derived_config.deinit();
+ 
+     // Initialize our renderer with our initialized surface.
++    log.debug("surface init: renderer surfaceInit", .{});
+     try Renderer.surfaceInit(rt_surface);
+ 
+     // Determine our DPI configurations so we can properly configure
+@@ -547,6 +549,7 @@ pub fn init(
+     };
+ 
+     // Create our terminal grid with the initial size
++    log.debug("surface init: creating renderer", .{});
+     const app_mailbox: App.Mailbox = .{ .rt_app = rt_app, .mailbox = &app.mailbox };
+     var renderer_impl = try Renderer.init(alloc, .{
+         .config = try .init(alloc, config),
+@@ -564,6 +567,7 @@ pub fn init(
+     errdefer alloc.destroy(mutex);
+ 
+     // Create the renderer thread
++    log.debug("surface init: creating render thread", .{});
+     var render_thread = try rendererpkg.Thread.init(
+         alloc,
+         config,
+@@ -598,7 +602,7 @@ pub fn init(
+         .keyboard = .{},
+         .io = undefined,
+         .io_thread = io_thread,
+-        .io_thr = undefined,
++        .io_thr = null,
+         .size = size,
+         .config = derived_config,
+ 
+@@ -653,6 +657,7 @@ pub fn init(
+         var io_mailbox = try termio.Mailbox.initSPSC(alloc);
+         errdefer io_mailbox.deinit(alloc);
+ 
++        log.debug("surface init: initializing termio (scrollback replay happens here)", .{});
+         try termio.Termio.init(&self.io, alloc, .{
+             .size = size,
+             .full_config = config,
+@@ -663,6 +668,10 @@ pub fn init(
+             .renderer_wakeup = render_thread.wakeup,
+             .renderer_mailbox = render_thread.mailbox,
+             .surface_mailbox = .{ .surface = self, .app = app_mailbox },
++            .initial_scrollback_path = if (comptime @hasDecl(apprt.runtime.Surface, "initialScrollbackPath"))
++                rt_surface.initialScrollbackPath()
++            else
++                null,
+         });
+     }
+     // Outside the block, IO has now taken ownership of our temporary state
+@@ -670,6 +679,7 @@ pub fn init(
+     errdefer self.io.deinit();
+ 
+     // Report initial cell size on surface creation
++    log.debug("surface init: termio done, reporting cell size", .{});
+     _ = try rt_app.performAction(
+         .{ .surface = self },
+         .cell_size,
+@@ -693,13 +703,16 @@ pub fn init(
+     // init stuff we should get rid of this. But this is required because
+     // sizeCallback does retina-aware stuff we don't do here and don't want
+     // to duplicate.
++    log.debug("surface init: resizing", .{});
+     try self.resize(self.size.screen);
+ 
+     // Give the renderer one more opportunity to finalize any surface
+     // setup on the main thread prior to spinning up the rendering thread.
++    log.debug("surface init: finalizing renderer", .{});
+     try renderer_impl.finalizeSurfaceInit(rt_surface);
+ 
+     // Start our renderer thread
++    log.debug("surface init: spawning renderer thread", .{});
+     self.renderer_thr = try std.Thread.spawn(
+         .{},
+         rendererpkg.Thread.threadMain,
+@@ -707,13 +720,13 @@ pub fn init(
+     );
+     self.renderer_thr.setName("renderer") catch {};
+ 
+-    // Start our IO thread
+-    self.io_thr = try std.Thread.spawn(
+-        .{},
+-        termio.Thread.threadMain,
+-        .{ &self.io_thread, &self.io },
+-    );
+-    self.io_thr.setName("io") catch {};
++    // Start our IO thread unless we have scrollback to replay. In that
++    // case we defer until the first real size is known so the replay
++    // and subprocess both start at the correct terminal dimensions.
++    if (self.io.initial_scrollback_path == null) {
++        try self.startIO();
++    }
++    log.debug("surface init: complete", .{});
+ 
+     // Determine our initial window size if configured. We need to do this
+     // quite late in the process because our height/width are in grid dimensions,
+@@ -790,10 +803,10 @@ pub fn deinit(self: *Surface) void {
+     }
+ 
+     // Stop our IO thread
+-    {
++    if (self.io_thr) |thr| {
+         self.io_thread.stop.notify() catch |err|
+             log.err("error notifying io thread to stop, may stall err={}", .{err});
+-        self.io_thr.join();
++        thr.join();
+     }
+ 
+     // We need to deinit AFTER everything is stopped, since there are
+@@ -2431,6 +2444,39 @@ fn queueRender(self: *Surface) !void {
+     try self.renderer_thread.wakeup.notify();
+ }
+ 
++/// Start the IO thread. This spawns the thread that runs the terminal
++/// IO event loop, which in turn starts the subprocess.
++fn startIO(self: *Surface) !void {
++    assert(self.io_thr == null);
++
++    // Sync the current size to the IO layer so the terminal starts at
++    // the correct dimensions. This matters when IO start was deferred
++    // until the first real size was known.
++    {
++        self.io.size = self.size;
++        const grid_size = self.size.grid();
++        self.renderer_state.mutex.lock();
++        defer self.renderer_state.mutex.unlock();
++        self.io.terminal.resize(
++            self.alloc,
++            grid_size.columns,
++            grid_size.rows,
++        ) catch |err| {
++            log.warn("error resizing terminal for deferred IO start err={}", .{err});
++        };
++        self.io.terminal.width_px = grid_size.columns * self.size.cell.width;
++        self.io.terminal.height_px = grid_size.rows * self.size.cell.height;
++    }
++
++    log.debug("surface init: spawning io thread", .{});
++    self.io_thr = try std.Thread.spawn(
++        .{},
++        termio.Thread.threadMain,
++        .{ &self.io_thread, &self.io },
++    );
++    self.io_thr.?.setName("io") catch {};
++}
++
+ pub fn sizeCallback(self: *Surface, size: apprt.SurfaceSize) !void {
+     // Crash metadata in case we crash in here
+     crash.sentry.thread_state = self.crashThreadState();
+@@ -2447,6 +2493,12 @@ pub fn sizeCallback(self: *Surface, size: apprt.SurfaceSize) !void {
+     if (self.size.screen.equals(new_screen_size)) return;
+ 
+     try self.resize(new_screen_size);
++
++    // If the IO thread hasn't started yet, we were deferring until the
++    // first real size arrived (for scrollback replay). Start it now.
++    if (self.io_thr == null) {
++        try self.startIO();
++    }
+ }
+ 
+ fn resize(self: *Surface, size: rendererpkg.ScreenSize) !void {
+@@ -5915,24 +5967,11 @@ fn writeScreenFile(
+             return;
+         };
+ 
+-        const ScreenFormatter = terminal.formatter.ScreenFormatter;
+-        var formatter: ScreenFormatter = .init(self.io.terminal.screens.active, .{
+-            .emit = switch (write_screen.emit) {
+-                .plain => .plain,
+-                .vt => .vt,
+-                .html => .html,
+-            },
+-            .unwrap = true,
+-            .trim = false,
+-            .background = self.io.terminal.colors.background.get(),
+-            .foreground = self.io.terminal.colors.foreground.get(),
+-            .palette = &self.io.terminal.colors.palette.current,
+-        });
+-        formatter.content = .{ .selection = sel.ordered(
+-            self.io.terminal.screens.active,
+-            .forward,
+-        ) };
+-        try formatter.format(buf_writer);
++        try self.formatSelection(sel, switch (write_screen.emit) {
++            .plain => .plain,
++            .vt => .vt,
++            .html => .html,
++        }, buf_writer);
+     }
+     try buf_writer.flush();
+ 
+@@ -5963,6 +6002,95 @@ fn writeScreenFile(
+     }
+ }
+ 
++/// Write the surface's scrollback and screen content to the given path as
++/// VT sequences. Used for window state restoration. The caller must ensure
++/// the directory exists. When the alternate screen is active, the primary
++/// screen's history is saved instead.
++pub fn writeScrollbackFile(self: *Surface, path: []const u8) !void {
++    // When the alternate screen is active (vim, htop, etc.) we save the
++    // primary screen's history — the alternate screen has no scrollback.
++    const on_alt = self.io.terminal.screens.active_key == .alternate;
++    const screen = if (on_alt)
++        self.io.terminal.screens.get(.primary) orelse return error.NoScrollback
++    else
++        self.io.terminal.screens.active;
++
++    {
++        self.renderer_state.mutex.lock();
++        defer self.renderer_state.mutex.unlock();
++
++        const pages = &screen.pages;
++        // On alternate screen, only save history (no active screen to save).
++        // Otherwise save everything.
++        const bottom = if (on_alt)
++            pages.getBottomRight(.history)
++        else
++            pages.getBottomRight(.screen);
++
++        if (bottom == null) return error.NoScrollback;
++    }
++
++    var file = try std.fs.createFileAbsolute(path, .{ .mode = 0o600 });
++    defer file.close();
++
++    var buf: [4096]u8 = undefined;
++    var file_writer = file.writer(&buf);
++    var buf_writer = &file_writer.interface;
++
++    {
++        self.renderer_state.mutex.lock();
++        defer self.renderer_state.mutex.unlock();
++
++        const pages = &screen.pages;
++        const top = pages.getTopLeft(.history);
++        const bottom = if (on_alt)
++            pages.getBottomRight(.history) orelse unreachable
++        else
++            pages.getBottomRight(.screen) orelse unreachable;
++        const sel = terminal.Selection.init(top, bottom, false);
++
++        const ScreenFormatter = terminal.formatter.ScreenFormatter;
++        var formatter: ScreenFormatter = .init(screen, .{
++            .emit = .vt,
++            .unwrap = true,
++            .trim = false,
++            .background = self.io.terminal.colors.background.get(),
++            .foreground = self.io.terminal.colors.foreground.get(),
++            .palette = &self.io.terminal.colors.palette.current,
++        });
++        formatter.content = .{ .selection = sel.ordered(
++            screen,
++            .forward,
++        ) };
++        try formatter.format(buf_writer);
++    }
++    try buf_writer.flush();
++}
++
++/// Format a terminal selection to a writer using ScreenFormatter.
++/// Caller must hold renderer_state.mutex.
++fn formatSelection(
++    self: *const Surface,
++    sel: terminal.Selection,
++    emit: terminal.formatter.Format,
++    writer: *std.Io.Writer,
++) !void {
++    const ScreenFormatter = terminal.formatter.ScreenFormatter;
++    var formatter: ScreenFormatter = .init(self.io.terminal.screens.active, .{
++        .emit = emit,
++        .unwrap = true,
++        .trim = false,
++        .background = self.io.terminal.colors.background.get(),
++        .foreground = self.io.terminal.colors.foreground.get(),
++        .palette = &self.io.terminal.colors.palette.current,
++    });
++    formatter.content = .{ .selection = sel.ordered(
++        self.io.terminal.screens.active,
++        .forward,
++    ) };
++    try formatter.format(writer);
++}
++
+ /// Call this to complete a clipboard request sent to apprt. This should
+ /// only be called once for each request. The data is immediately copied so
+ /// it is safe to free the data after this call.
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index ba385db02..4ef92f33d 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -419,6 +419,10 @@ pub const Surface = struct {
+     /// that getTitle works without the implementer needing to save it.
+     title: ?[:0]const u8 = null,
+ 
++    /// Path to the scrollback replay file set during surface init. Only
++    /// valid during the call to core_surface.init(); cleared afterwards.
++    initial_scrollback_path: ?[*:0]const u8 = null,
++
+     /// Surface initialization options.
+     pub const Options = extern struct {
+         /// The platform that this surface is being initialized for and
+@@ -455,6 +459,10 @@ pub const Surface = struct {
+         /// Input to send to the command after it is started.
+         initial_input: ?[*:0]const u8 = null,
+ 
++        /// Path to a VT-serialized scrollback file to replay into the
++        /// terminal before the PTY starts. Used for state restoration.
++        initial_scrollback_path: ?[*:0]const u8 = null,
++
+         /// Wait after the command exits
+         wait_after_command: bool = false,
+ 
+@@ -605,6 +613,12 @@ pub const Surface = struct {
+             config.@"wait-after-command" = true;
+         }
+ 
++        // Store the scrollback path so initialScrollbackPath() can return it
++        // to Surface.zig during core_surface.init(). The pointer is owned by
++        // the caller and remains valid for the duration of this init call.
++        self.initial_scrollback_path = opts.initial_scrollback_path;
++        defer self.initial_scrollback_path = null;
++
+         // Initialize our surface right away. We're given a view that is
+         // ready to use.
+         try self.core_surface.init(
+@@ -638,6 +652,13 @@ pub const Surface = struct {
+         self.core_surface.deinit();
+     }
+ 
++    /// Returns the scrollback replay path set during surface initialization.
++    /// Only valid during the core_surface.init() call; null at all other times.
++    pub fn initialScrollbackPath(self: *const Surface) ?[:0]const u8 {
++        const ptr = self.initial_scrollback_path orelse return null;
++        return std.mem.span(ptr);
++    }
++
+     /// Initialize the inspector instance. A surface can only have one
+     /// inspector at any given time, so this will return the previous inspector
+     /// if it was already initialized.
+@@ -1591,6 +1612,21 @@ pub const CAPI = struct {
+         ptr.app.closeSurface(ptr);
+     }
+ 
++    /// Write the surface's scrollback history to a file as VT sequences.
++    /// Returns true on success. Used for window state restoration.
++    export fn ghostty_surface_write_scrollback(
++        surface: *Surface,
++        path: [*:0]const u8,
++    ) bool {
++        surface.core_surface.writeScrollbackFile(std.mem.span(path)) catch |err| {
++            // NoScrollback is not an error - alternate screen has no scrollback to save
++            if (err == error.NoScrollback) return false;
++            log.warn("failed to write scrollback file err={}", .{err});
++            return false;
++        };
++        return true;
++    }
++
+     /// Returns the userdata associated with the surface.
+     export fn ghostty_surface_userdata(surface: *Surface) ?*anyopaque {
+         return surface.userdata;
+diff --git a/src/config/Config.zig b/src/config/Config.zig
+index fb13433e5..4fff1b11f 100644
+--- a/src/config/Config.zig
++++ b/src/config/Config.zig
+@@ -2244,6 +2244,17 @@ keybind: Keybinds = .{},
+ /// This is currently only supported on macOS. This has no effect on Linux.
+ @"window-save-state": WindowSaveState = .default,
+ 
++/// Save and restore scrollback history as part of window state restoration.
++/// Requires `window-save-state` to be active. When enabled, each surface's
++/// scrollback is written to disk during state encoding (on app quit, window
++/// close, or periodic autosave) and replayed on restore, preserving colors
++/// and formatting via VT sequences.
++///
++/// Disabled by default due to disk I/O cost and storage requirements.
++///
++/// This is currently only supported on macOS. This has no effect on Linux.
++@"window-save-state-scrollback": bool = false,
++
+ /// Resize the window in discrete increments of the focused surface's cell size.
+ /// If this is disabled, surfaces are resized in pixel increments. Currently
+ /// only supported on macOS.
+diff --git a/src/termio/Options.zig b/src/termio/Options.zig
+index a6bf8c4d4..bb88c7477 100644
+--- a/src/termio/Options.zig
++++ b/src/termio/Options.zig
+@@ -39,3 +39,8 @@ renderer_mailbox: *renderer.Thread.Mailbox,
+ 
+ /// The mailbox for sending the surface messages.
+ surface_mailbox: apprt.surface.Mailbox,
++
++/// Path to a VT-serialized scrollback file to replay into the terminal
++/// during init, before the PTY starts. Used for state restoration.
++/// Caller retains ownership; this is only read during init.
++initial_scrollback_path: ?[:0]const u8 = null,
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+index f05379077..364a6caf1 100644
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -12,6 +12,8 @@ const EnvMap = std.process.EnvMap;
+ const posix = std.posix;
+ const termio = @import("../termio.zig");
+ const StreamHandler = @import("stream_handler.zig").StreamHandler;
++const stream_replay = @import("stream_replay.zig");
++const ReplayHandler = stream_replay.Handler;
+ const terminalpkg = @import("../terminal/main.zig");
+ const xev = @import("../global.zig").xev;
+ const renderer = @import("../renderer.zig");
+@@ -67,6 +69,11 @@ terminal_stream: StreamHandler.Stream,
+ /// flooding with cursor resets.
+ last_cursor_reset: ?std.time.Instant = null,
+ 
++/// Path to a scrollback VT file to replay after the surface reports
++/// its true size. Owned by Termio (heap-duped during init), freed
++/// after replay.
++initial_scrollback_path: ?[:0]const u8 = null,
++
+ /// State we have for thread enter. This may be null if we don't need
+ /// to keep track of any state or if its already been freed.
+ thread_enter_state: ?*ThreadEnterState = null,
+@@ -316,6 +323,10 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
+         .backend = backend,
+         .mailbox = opts.mailbox,
+         .terminal_stream = .initAlloc(alloc, handler),
++        .initial_scrollback_path = if (opts.initial_scrollback_path) |p|
++            alloc.dupeZ(u8, p) catch null
++        else
++            null,
+         .thread_enter_state = thread_enter_state,
+     };
+ }
+@@ -329,6 +340,9 @@ pub fn deinit(self: *Termio) void {
+     // Clear any StreamHandler state
+     self.terminal_stream.deinit();
+ 
++    // Free any unreplayed scrollback path
++    if (self.initial_scrollback_path) |path| self.alloc.free(path);
++
+     // Clear any initial state if we have it
+     if (self.thread_enter_state) |v| v.destroy();
+ }
+@@ -361,6 +375,14 @@ pub fn threadEnter(
+         .backend = undefined, // Backend must replace this on threadEnter
+     };
+ 
++    // Replay scrollback history before starting the subprocess so that
++    // restored content appears before any new shell output.
++    if (self.initial_scrollback_path) |path| {
++        self.initial_scrollback_path = null;
++        self.replayScrollback(path);
++        self.alloc.free(path);
++    }
++
+     // Setup our backend
+     try self.backend.threadEnter(self.alloc, self, data);
+     errdefer self.backend.threadExit(data);
+@@ -518,6 +540,70 @@ pub fn resize(
+     self.renderer_wakeup.notify() catch {};
+ }
+ 
++/// Replay a scrollback VT file into the terminal. Called from the
++/// IO thread's coalesce callback after resize has been applied.
++///
++/// Uses a replay-specific stream handler that applies terminal state
++/// without writing to any mailbox, avoiding deadlocks. Side effects
++/// like title and bell are captured and applied after replay.
++pub fn replayScrollback(self: *Termio, path: [:0]const u8) void {
++    const file = std.fs.openFileAbsolute(path, .{}) catch |err| {
++        log.warn("failed to open scrollback file err={}", .{err});
++        return;
++    };
++    defer file.close();
++
++    self.renderer_state.mutex.lock();
++    defer self.renderer_state.mutex.unlock();
++
++    var handler: ReplayHandler = .init(&self.terminal);
++    var replay_stream: stream_replay.Stream = .initAlloc(self.alloc, handler);
++    defer replay_stream.deinit();
++
++    var buf: [4096]u8 = undefined;
++    while (true) {
++        const n = file.read(buf[0..]) catch break;
++        if (n == 0) break;
++        replay_stream.nextSlice(buf[0..n]);
++    }
++
++    // Reset modes that may have been left enabled by the saved VT
++    // content so the new shell session starts clean.
++    replay_stream.nextSlice(
++        "\x1b[m" ++ // SGR reset
++            "\x1b[?9l" ++ // mouse x10 off
++            "\x1b[?1000l" ++ // mouse normal off
++            "\x1b[?1002l" ++ // mouse button off
++            "\x1b[?1003l" ++ // mouse any off
++            "\x1b[?1005l" ++ // mouse format utf8 off
++            "\x1b[?1006l" ++ // mouse format sgr off
++            "\x1b[?1015l" ++ // mouse format urxvt off
++            "\x1b[?1016l" ++ // mouse format sgr_pixels off
++            "\x1b[?2004l" ++ // bracketed paste off
++            "\x1b[?25h" ++ // cursor visible
++            "\r\n",
++    );
++
++    // Apply captured side effects after replay
++    handler = replay_stream.handler;
++
++    if (handler.getTitle()) |title| {
++        var title_buf: [256]u8 = undefined;
++        @memcpy(title_buf[0..title.len], title);
++        title_buf[title.len] = 0;
++        const msg: apprt.surface.Message = .{ .set_title = title_buf };
++        if (self.surface_mailbox.push(msg, .{ .instant = {} }) == 0) {
++            self.renderer_state.mutex.unlock();
++            defer self.renderer_state.mutex.lock();
++            _ = self.surface_mailbox.push(msg, .{ .forever = {} });
++        }
++    }
++
++    // bell_pending is captured but not forwarded here — ring_bell
++    // would trigger the audible alert, not just the visual indicator.
++    // A silent bell indicator could be added as a future enhancement.
++}
++
+ /// Make a size report.
+ pub fn sizeReport(self: *Termio, td: *ThreadData, style: termio.Message.SizeReport) !void {
+     self.renderer_state.mutex.lock();
+diff --git a/src/termio/stream_replay.zig b/src/termio/stream_replay.zig
+new file mode 100644
+index 000000000..0054b6778
+--- /dev/null
++++ b/src/termio/stream_replay.zig
+@@ -0,0 +1,389 @@
++/// A Stream handler for replaying saved VT content into a terminal.
++///
++/// This is based on the readonly handler but additionally captures
++/// side-effect state (title, bell) that the caller can apply after
++/// replay completes. Unlike the full StreamHandler, this never writes
++/// to any mailbox or surface, so it cannot deadlock.
++const std = @import("std");
++const log = std.log.scoped(.stream_replay);
++const stream = @import("../terminal/stream.zig");
++const Action = stream.Action;
++const Screen = @import("../terminal/Screen.zig");
++const modes = @import("../terminal/modes.zig");
++const osc_color = @import("../terminal/osc/parsers/color.zig");
++const kitty_color = @import("../terminal/kitty/color.zig");
++const Terminal = @import("../terminal/Terminal.zig");
++
++pub const Stream = stream.Stream(Handler);
++
++pub const Handler = struct {
++    terminal: *Terminal,
++
++    /// The last window title set during replay, stored in a local buffer
++    /// since the parser's memory is transient.
++    last_title: [256]u8 = undefined,
++    last_title_len: u8 = 0,
++    has_title: bool = false,
++
++    /// Whether a bell was encountered during replay.
++    bell_pending: bool = false,
++
++    pub fn init(terminal: *Terminal) Handler {
++        return .{ .terminal = terminal };
++    }
++
++    pub fn deinit(self: *Handler) void {
++        _ = self;
++    }
++
++    /// Returns the captured title, if any.
++    pub fn getTitle(self: *const Handler) ?[]const u8 {
++        if (!self.has_title) return null;
++        return self.last_title[0..self.last_title_len];
++    }
++
++    pub fn vt(
++        self: *Handler,
++        comptime action: Action.Tag,
++        value: Action.Value(action),
++    ) void {
++        self.vtFallible(action, value) catch |err| {
++            log.warn("error handling VT action during replay action={} err={}", .{ action, err });
++        };
++    }
++
++    fn vtFallible(
++        self: *Handler,
++        comptime action: Action.Tag,
++        value: Action.Value(action),
++    ) !void {
++        switch (action) {
++            // Capture title in local buffer
++            .window_title => {
++                if (value.title.len < self.last_title.len) {
++                    @memcpy(self.last_title[0..value.title.len], value.title);
++                    self.last_title_len = @intCast(value.title.len);
++                    self.has_title = true;
++                }
++            },
++
++            // Record that a bell occurred without firing it
++            .bell => self.bell_pending = true,
++
++            // All terminal-state-modifying actions — delegated identically
++            // to the readonly handler.
++            .print => try self.terminal.print(value.cp),
++            .print_repeat => try self.terminal.printRepeat(value),
++            .backspace => self.terminal.backspace(),
++            .carriage_return => self.terminal.carriageReturn(),
++            .linefeed => try self.terminal.linefeed(),
++            .index => try self.terminal.index(),
++            .next_line => {
++                try self.terminal.index();
++                self.terminal.carriageReturn();
++            },
++            .reverse_index => self.terminal.reverseIndex(),
++            .cursor_up => self.terminal.cursorUp(value.value),
++            .cursor_down => self.terminal.cursorDown(value.value),
++            .cursor_left => self.terminal.cursorLeft(value.value),
++            .cursor_right => self.terminal.cursorRight(value.value),
++            .cursor_pos => self.terminal.setCursorPos(value.row, value.col),
++            .cursor_col => self.terminal.setCursorPos(self.terminal.screens.active.cursor.y + 1, value.value),
++            .cursor_row => self.terminal.setCursorPos(value.value, self.terminal.screens.active.cursor.x + 1),
++            .cursor_col_relative => self.terminal.setCursorPos(
++                self.terminal.screens.active.cursor.y + 1,
++                self.terminal.screens.active.cursor.x + 1 +| value.value,
++            ),
++            .cursor_row_relative => self.terminal.setCursorPos(
++                self.terminal.screens.active.cursor.y + 1 +| value.value,
++                self.terminal.screens.active.cursor.x + 1,
++            ),
++            .cursor_style => {
++                const blink = switch (value) {
++                    .default, .steady_block, .steady_bar, .steady_underline => false,
++                    .blinking_block, .blinking_bar, .blinking_underline => true,
++                };
++                const style: Screen.CursorStyle = switch (value) {
++                    .default, .blinking_block, .steady_block => .block,
++                    .blinking_bar, .steady_bar => .bar,
++                    .blinking_underline, .steady_underline => .underline,
++                };
++                self.terminal.modes.set(.cursor_blinking, blink);
++                self.terminal.screens.active.cursor.cursor_style = style;
++            },
++            .erase_display_below => self.terminal.eraseDisplay(.below, value),
++            .erase_display_above => self.terminal.eraseDisplay(.above, value),
++            .erase_display_complete => self.terminal.eraseDisplay(.complete, value),
++            .erase_display_scrollback => self.terminal.eraseDisplay(.scrollback, value),
++            .erase_display_scroll_complete => self.terminal.eraseDisplay(.scroll_complete, value),
++            .erase_line_right => self.terminal.eraseLine(.right, value),
++            .erase_line_left => self.terminal.eraseLine(.left, value),
++            .erase_line_complete => self.terminal.eraseLine(.complete, value),
++            .erase_line_right_unless_pending_wrap => self.terminal.eraseLine(.right_unless_pending_wrap, value),
++            .delete_chars => self.terminal.deleteChars(value),
++            .erase_chars => self.terminal.eraseChars(value),
++            .insert_lines => self.terminal.insertLines(value),
++            .insert_blanks => self.terminal.insertBlanks(value),
++            .delete_lines => self.terminal.deleteLines(value),
++            .scroll_up => try self.terminal.scrollUp(value),
++            .scroll_down => self.terminal.scrollDown(value),
++            .horizontal_tab => self.horizontalTab(value),
++            .horizontal_tab_back => self.horizontalTabBack(value),
++            .tab_clear_current => self.terminal.tabClear(.current),
++            .tab_clear_all => self.terminal.tabClear(.all),
++            .tab_set => self.terminal.tabSet(),
++            .tab_reset => self.terminal.tabReset(),
++            .set_mode => try self.setMode(value.mode, true),
++            .reset_mode => try self.setMode(value.mode, false),
++            .save_mode => self.terminal.modes.save(value.mode),
++            .restore_mode => {
++                const v = self.terminal.modes.restore(value.mode);
++                try self.setMode(value.mode, v);
++            },
++            .top_and_bottom_margin => self.terminal.setTopAndBottomMargin(value.top_left, value.bottom_right),
++            .left_and_right_margin => self.terminal.setLeftAndRightMargin(value.top_left, value.bottom_right),
++            .left_and_right_margin_ambiguous => {
++                if (self.terminal.modes.get(.enable_left_and_right_margin)) {
++                    self.terminal.setLeftAndRightMargin(0, 0);
++                } else {
++                    self.terminal.saveCursor();
++                }
++            },
++            .save_cursor => self.terminal.saveCursor(),
++            .restore_cursor => self.terminal.restoreCursor(),
++            .invoke_charset => self.terminal.invokeCharset(value.bank, value.charset, value.locking),
++            .configure_charset => self.terminal.configureCharset(value.slot, value.charset),
++            .set_attribute => switch (value) {
++                .unknown => {},
++                else => self.terminal.setAttribute(value) catch {},
++            },
++            .protected_mode_off => self.terminal.setProtectedMode(.off),
++            .protected_mode_iso => self.terminal.setProtectedMode(.iso),
++            .protected_mode_dec => self.terminal.setProtectedMode(.dec),
++            .mouse_shift_capture => self.terminal.flags.mouse_shift_capture = if (value) .true else .false,
++            .kitty_keyboard_push => self.terminal.screens.active.kitty_keyboard.push(value.flags),
++            .kitty_keyboard_pop => self.terminal.screens.active.kitty_keyboard.pop(@intCast(value)),
++            .kitty_keyboard_set => self.terminal.screens.active.kitty_keyboard.set(.set, value.flags),
++            .kitty_keyboard_set_or => self.terminal.screens.active.kitty_keyboard.set(.@"or", value.flags),
++            .kitty_keyboard_set_not => self.terminal.screens.active.kitty_keyboard.set(.not, value.flags),
++            .modify_key_format => {
++                self.terminal.flags.modify_other_keys_2 = false;
++                switch (value) {
++                    .other_keys_numeric => self.terminal.flags.modify_other_keys_2 = true,
++                    else => {},
++                }
++            },
++            .active_status_display => self.terminal.status_display = value,
++            .decaln => try self.terminal.decaln(),
++            .full_reset => self.terminal.fullReset(),
++            .start_hyperlink => try self.terminal.screens.active.startHyperlink(value.uri, value.id),
++            .end_hyperlink => self.terminal.screens.active.endHyperlink(),
++            .semantic_prompt => try self.terminal.semanticPrompt(value),
++            .mouse_shape => self.terminal.mouse_shape = value,
++            .color_operation => try self.colorOperation(value.op, &value.requests),
++            .kitty_color_report => try self.kittyColorOperation(value),
++
++            // No-op: queries, responses, notifications
++            .enquiry,
++            .request_mode,
++            .request_mode_unknown,
++            .size_report,
++            .xtversion,
++            .device_attributes,
++            .device_status,
++            .kitty_keyboard_query,
++            .report_pwd,
++            .show_desktop_notification,
++            .progress_report,
++            .clipboard_contents,
++            .title_push,
++            .title_pop,
++            .context_signal,
++            => {},
++
++            // No-op: DCS/APC
++            .dcs_hook,
++            .dcs_put,
++            .dcs_unhook,
++            .apc_start,
++            .apc_end,
++            .apc_put,
++            => {},
++        }
++    }
++
++    inline fn horizontalTab(self: *Handler, count: u16) void {
++        for (0..count) |_| {
++            const x = self.terminal.screens.active.cursor.x;
++            self.terminal.horizontalTab();
++            if (x == self.terminal.screens.active.cursor.x) break;
++        }
++    }
++
++    inline fn horizontalTabBack(self: *Handler, count: u16) void {
++        for (0..count) |_| {
++            const x = self.terminal.screens.active.cursor.x;
++            self.terminal.horizontalTabBack();
++            if (x == self.terminal.screens.active.cursor.x) break;
++        }
++    }
++
++    fn setMode(self: *Handler, mode: modes.Mode, enabled: bool) !void {
++        self.terminal.modes.set(mode, enabled);
++
++        switch (mode) {
++            .autorepeat,
++            .reverse_colors,
++            => {},
++
++            .origin => self.terminal.setCursorPos(1, 1),
++
++            .enable_left_and_right_margin => if (!enabled) {
++                self.terminal.scrolling_region.left = 0;
++                self.terminal.scrolling_region.right = self.terminal.cols - 1;
++            },
++
++            .alt_screen_legacy => try self.terminal.switchScreenMode(.@"47", enabled),
++            .alt_screen => try self.terminal.switchScreenMode(.@"1047", enabled),
++            .alt_screen_save_cursor_clear_enter => try self.terminal.switchScreenMode(.@"1049", enabled),
++
++            .save_cursor => if (enabled) {
++                self.terminal.saveCursor();
++            } else {
++                self.terminal.restoreCursor();
++            },
++
++            .enable_mode_3 => {},
++
++            .@"132_column" => try self.terminal.deccolm(
++                self.terminal.screens.active.alloc,
++                if (enabled) .@"132_cols" else .@"80_cols",
++            ),
++
++            .synchronized_output,
++            .linefeed,
++            .in_band_size_reports,
++            .focus_event,
++            => {},
++
++            .mouse_event_x10 => self.terminal.flags.mouse_event = if (enabled) .x10 else .none,
++            .mouse_event_normal => self.terminal.flags.mouse_event = if (enabled) .normal else .none,
++            .mouse_event_button => self.terminal.flags.mouse_event = if (enabled) .button else .none,
++            .mouse_event_any => self.terminal.flags.mouse_event = if (enabled) .any else .none,
++
++            .mouse_format_utf8 => self.terminal.flags.mouse_format = if (enabled) .utf8 else .x10,
++            .mouse_format_sgr => self.terminal.flags.mouse_format = if (enabled) .sgr else .x10,
++            .mouse_format_urxvt => self.terminal.flags.mouse_format = if (enabled) .urxvt else .x10,
++            .mouse_format_sgr_pixels => self.terminal.flags.mouse_format = if (enabled) .sgr_pixels else .x10,
++
++            else => {},
++        }
++    }
++
++    fn colorOperation(
++        self: *Handler,
++        op: osc_color.Operation,
++        requests: *const osc_color.List,
++    ) !void {
++        _ = op;
++        if (requests.count() == 0) return;
++
++        var it = requests.constIterator(0);
++        while (it.next()) |req| {
++            switch (req.*) {
++                .set => |set| {
++                    switch (set.target) {
++                        .palette => |i| {
++                            self.terminal.flags.dirty.palette = true;
++                            self.terminal.colors.palette.set(i, set.color);
++                        },
++                        .dynamic => |dynamic| switch (dynamic) {
++                            .foreground => self.terminal.colors.foreground.set(set.color),
++                            .background => self.terminal.colors.background.set(set.color),
++                            .cursor => self.terminal.colors.cursor.set(set.color),
++                            .pointer_foreground,
++                            .pointer_background,
++                            .tektronix_foreground,
++                            .tektronix_background,
++                            .highlight_background,
++                            .tektronix_cursor,
++                            .highlight_foreground,
++                            => {},
++                        },
++                        .special => {},
++                    }
++                },
++
++                .reset => |target| switch (target) {
++                    .palette => |i| {
++                        self.terminal.flags.dirty.palette = true;
++                        self.terminal.colors.palette.reset(i);
++                    },
++                    .dynamic => |dynamic| switch (dynamic) {
++                        .foreground => self.terminal.colors.foreground.reset(),
++                        .background => self.terminal.colors.background.reset(),
++                        .cursor => self.terminal.colors.cursor.reset(),
++                        .pointer_foreground,
++                        .pointer_background,
++                        .tektronix_foreground,
++                        .tektronix_background,
++                        .highlight_background,
++                        .tektronix_cursor,
++                        .highlight_foreground,
++                        => {},
++                    },
++                    .special => {},
++                },
++
++                .reset_palette => {
++                    const mask = &self.terminal.colors.palette.mask;
++                    var mask_it = mask.iterator(.{});
++                    while (mask_it.next()) |i| {
++                        self.terminal.flags.dirty.palette = true;
++                        self.terminal.colors.palette.reset(@intCast(i));
++                    }
++                    mask.* = .initEmpty();
++                },
++
++                .query,
++                .reset_special,
++                => {},
++            }
++        }
++    }
++
++    fn kittyColorOperation(
++        self: *Handler,
++        request: kitty_color.OSC,
++    ) !void {
++        for (request.list.items) |item| {
++            switch (item) {
++                .set => |v| switch (v.key) {
++                    .palette => |palette| {
++                        self.terminal.flags.dirty.palette = true;
++                        self.terminal.colors.palette.set(palette, v.color);
++                    },
++                    .special => |special| switch (special) {
++                        .foreground => self.terminal.colors.foreground.set(v.color),
++                        .background => self.terminal.colors.background.set(v.color),
++                        .cursor => self.terminal.colors.cursor.set(v.color),
++                        else => {},
++                    },
++                },
++                .reset => |key| switch (key) {
++                    .palette => |palette| {
++                        self.terminal.flags.dirty.palette = true;
++                        self.terminal.colors.palette.reset(palette);
++                    },
++                    .special => |special| switch (special) {
++                        .foreground => self.terminal.colors.foreground.reset(),
++                        .background => self.terminal.colors.background.reset(),
++                        .cursor => self.terminal.colors.cursor.reset(),
++                        else => {},
++                    },
++                },
++                .query => {},
++            }
++        }
++    }
++};
