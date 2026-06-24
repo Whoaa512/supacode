@@ -136,7 +136,7 @@ final class AgentHookSocketServer {
       var totalWritten = 0
       while totalWritten < data.count {
         let written = write(
-          fileDescriptor, base.advanced(by: totalWritten), data.count - totalWritten,)
+          fileDescriptor, base.advanced(by: totalWritten), data.count - totalWritten, )
         if written < 0 {
           guard errno == EINTR else {
             socketLogger.warning("write() failed: \(String(cString: strerror(errno)))")
@@ -212,7 +212,7 @@ final class AgentHookSocketServer {
     guard let encoded = try? JSONSerialization.data(withJSONObject: json) else {
       socketLogger.warning("Failed to encode query response")
       writeAll(
-        to: clientFD, data: Data("{\"ok\":false,\"error\":\"Internal encoding error.\"}".utf8),)
+        to: clientFD, data: Data("{\"ok\":false,\"error\":\"Internal encoding error.\"}".utf8), )
       close(clientFD)
       return
     }
@@ -229,7 +229,7 @@ final class AgentHookSocketServer {
     guard let data = try? JSONSerialization.data(withJSONObject: json) else {
       socketLogger.warning("Failed to encode command response")
       writeAll(
-        to: clientFD, data: Data("{\"ok\":false,\"error\":\"Internal encoding error.\"}".utf8),)
+        to: clientFD, data: Data("{\"ok\":false,\"error\":\"Internal encoding error.\"}".utf8), )
       close(clientFD)
       return
     }
@@ -422,7 +422,7 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
     let event = try container.decode(String.self, forKey: .event)
     guard !event.isEmpty else {
       throw DecodingError.dataCorruptedError(
-        forKey: .event, in: container, debugDescription: "`event` must be non-empty.",)
+        forKey: .event, in: container, debugDescription: "`event` must be non-empty.", )
     }
     self.event = event
     self.surfaceID = try Self.decodeUUID(from: container, forKey: .surfaceID)
@@ -436,7 +436,7 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
       guard let bounded = pid_t(exactly: rawPid), bounded > 0 else {
         throw DecodingError.dataCorruptedError(
           forKey: .pid, in: container,
-          debugDescription: "`pid` \(rawPid) is not a positive pid_t value.",)
+          debugDescription: "`pid` \(rawPid) is not a positive pid_t value.", )
       }
       self.pid = bounded
     } else {
@@ -486,7 +486,7 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
     guard let uuid = UUID(uuidString: raw) else {
       throw DecodingError.dataCorruptedError(
         forKey: key, in: container,
-        debugDescription: "`\(key.stringValue)` is not a valid UUID: \(raw).",)
+        debugDescription: "`\(key.stringValue)` is not a valid UUID: \(raw).", )
     }
     return uuid
   }

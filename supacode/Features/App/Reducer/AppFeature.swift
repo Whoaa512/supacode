@@ -804,7 +804,7 @@ struct AppFeature {
           // Close the socket FD with an error so the CLI doesn't hang.
           if let responseFD {
             return sendSocketResponse(
-              clientFD: responseFD, ok: false, error: "Invalid deeplink: \(url.absoluteString)",)
+              clientFD: responseFD, ok: false, error: "Invalid deeplink: \(url.absoluteString)", )
           }
           if url.scheme == "supacode" {
             state.alert = AlertState {
@@ -825,7 +825,7 @@ struct AppFeature {
           // FD, and replaying them later would leave the CLI client hanging.
           if let responseFD {
             return sendSocketResponse(
-              clientFD: responseFD, ok: false, error: "Supacode is still loading. Try again.",)
+              clientFD: responseFD, ok: false, error: "Supacode is still loading. Try again.", )
           }
           state.pendingDeeplinks.append(parsed)
           return .none
@@ -844,7 +844,7 @@ struct AppFeature {
         return .concatenate(
           effect,
           sendSocketResponse(
-            clientFD: responseFD, ok: succeeded, error: errorMessage,),)
+            clientFD: responseFD, ok: succeeded, error: errorMessage, ), )
 
       case .deeplinkReferenceOpened:
         state.isDeeplinkReferenceRequested = false
@@ -883,7 +883,7 @@ struct AppFeature {
             sendSocketResponse(
               clientFD: $0,
               ok: succeeded,
-              error: succeeded ? nil : extractAlertMessage(state.alert),)
+              error: succeeded ? nil : extractAlertMessage(state.alert), )
           } ?? .none
         let policyEffect: Effect<Action> =
           alwaysAllow
@@ -968,7 +968,7 @@ struct AppFeature {
           .repositories(
             .requestDeleteSidebarItems([
               RepositoriesFeature.DeleteWorktreeTarget(
-                worktreeID: worktreeID, repositoryID: repositoryID,)
+                worktreeID: worktreeID, repositoryID: repositoryID, )
             ])))
 
       case .commandPalette(.delegate(.archiveWorktree(let worktreeID, let repositoryID))):
@@ -1586,7 +1586,7 @@ struct AppFeature {
       if requiresInputConfirmation(state: state, bypassConfirmation: bypassConfirmation) {
         return presentDeeplinkConfirmation(
           worktreeID: worktreeID, responseFD: responseFD, message: .command(input),
-          action: action, state: &state,)
+          action: action, state: &state, )
       }
       return sendTerminalCommand(worktreeID: worktreeID, state: state) { worktree in
         .createTabWithInput(worktree, input: input, runSetupScriptIfNew: false, id: id)
@@ -1599,7 +1599,7 @@ struct AppFeature {
           responseFD: responseFD,
           message: .confirmation("Close tab \(tabID.uuidString.prefix(8))…?"),
           action: action,
-          state: &state,)
+          state: &state, )
       }
       return sendTerminalCommand(worktreeID: worktreeID, state: state) { worktree in
         .destroyTab(worktree, tabID: TerminalTabID(rawValue: tabID))
@@ -1613,7 +1613,7 @@ struct AppFeature {
       {
         return presentDeeplinkConfirmation(
           worktreeID: worktreeID, responseFD: responseFD, message: .command(input),
-          action: action, state: &state,)
+          action: action, state: &state, )
       }
       return sendTerminalCommand(worktreeID: worktreeID, state: state) { worktree in
         .focusSurface(worktree, tabID: TerminalTabID(rawValue: tabID), surfaceID: surfaceID, input: input)
@@ -1638,12 +1638,12 @@ struct AppFeature {
       {
         return presentDeeplinkConfirmation(
           worktreeID: worktreeID, responseFD: responseFD, message: .command(input),
-          action: action, state: &state,)
+          action: action, state: &state, )
       }
       return sendTerminalCommand(worktreeID: worktreeID, state: state) { worktree in
         .splitSurface(
           worktree, tabID: TerminalTabID(rawValue: tabID), surfaceID: surfaceID,
-          direction: direction, input: input, id: id,)
+          direction: direction, input: input, id: id, )
       }
     case .surfaceDestroy(let tabID, let surfaceID):
       guard validateSurface(worktreeID: worktreeID, tabID: tabID, surfaceID: surfaceID, state: &state) else {
@@ -1655,7 +1655,7 @@ struct AppFeature {
           responseFD: responseFD,
           message: .confirmation("Close surface \(surfaceID.uuidString.prefix(8))…?"),
           action: action,
-          state: &state,)
+          state: &state, )
       }
       return sendTerminalCommand(worktreeID: worktreeID, state: state) { worktree in
         .destroySurface(worktree, tabID: TerminalTabID(rawValue: tabID), surfaceID: surfaceID)

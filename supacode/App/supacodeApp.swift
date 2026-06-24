@@ -351,7 +351,7 @@ struct SupacodeApp: App {
     case "tabs":
       guard let worktreeID = params["worktreeID"] else {
         AgentHookSocketServer.sendCommandResponse(
-          clientFD: clientFD, ok: false, error: "Missing worktreeID for tab list.",)
+          clientFD: clientFD, ok: false, error: "Missing worktreeID for tab list.", )
         return
       }
       let tabs = terminalManager.listTabs(worktreeID: worktreeID)
@@ -360,7 +360,7 @@ struct SupacodeApp: App {
         let worktreeExists = repos.contains { $0.worktrees.contains { $0.id == decoded } }
         guard worktreeExists else {
           AgentHookSocketServer.sendCommandResponse(
-            clientFD: clientFD, ok: false, error: "Worktree not found: \(worktreeID)",)
+            clientFD: clientFD, ok: false, error: "Worktree not found: \(worktreeID)", )
           return
         }
       }
@@ -368,19 +368,19 @@ struct SupacodeApp: App {
     case "surfaces":
       guard let worktreeID = params["worktreeID"], let tabID = params["tabID"] else {
         AgentHookSocketServer.sendCommandResponse(
-          clientFD: clientFD, ok: false, error: "Missing worktreeID/tabID for surface list.",)
+          clientFD: clientFD, ok: false, error: "Missing worktreeID/tabID for surface list.", )
         return
       }
       guard let surfaces = terminalManager.listSurfaces(worktreeID: worktreeID, tabID: tabID) else {
         AgentHookSocketServer.sendCommandResponse(
-          clientFD: clientFD, ok: false, error: "Worktree or tab not found.",)
+          clientFD: clientFD, ok: false, error: "Worktree or tab not found.", )
         return
       }
       AgentHookSocketServer.sendQueryResponse(clientFD: clientFD, data: surfaces)
     case "scripts":
       guard let worktreeID = params["worktreeID"] else {
         AgentHookSocketServer.sendCommandResponse(
-          clientFD: clientFD, ok: false, error: "Missing worktreeID for script list.",)
+          clientFD: clientFD, ok: false, error: "Missing worktreeID for script list.", )
         return
       }
       let decoded = worktreeID.removingPercentEncoding ?? worktreeID
@@ -392,7 +392,7 @@ struct SupacodeApp: App {
         ?? allWorktrees.first(where: { $0.id == decoded + "/" })
       guard let worktree else {
         AgentHookSocketServer.sendCommandResponse(
-          clientFD: clientFD, ok: false, error: "Worktree not found: \(worktreeID)",)
+          clientFD: clientFD, ok: false, error: "Worktree not found: \(worktreeID)", )
         return
       }
       @SharedReader(.repositorySettings(worktree.repositoryRootURL)) var settings
@@ -416,7 +416,7 @@ struct SupacodeApp: App {
       AgentHookSocketServer.sendQueryResponse(clientFD: clientFD, data: data)
     default:
       AgentHookSocketServer.sendCommandResponse(
-        clientFD: clientFD, ok: false, error: "Unknown resource: \(resource)",)
+        clientFD: clientFD, ok: false, error: "Unknown resource: \(resource)", )
     }
   }
 

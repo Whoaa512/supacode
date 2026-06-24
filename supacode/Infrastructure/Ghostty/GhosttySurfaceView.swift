@@ -1443,7 +1443,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       return (event, event.modifierFlags)
     }
     let translatedModsGhostty = ghostty_surface_key_translation_mods(
-      surface, ghosttyMods(event.modifierFlags),)
+      surface, ghosttyMods(event.modifierFlags), )
     let translatedMods = appKitMods(translatedModsGhostty)
     var resolved = event.modifierFlags
     for flag in [NSEvent.ModifierFlags.shift, .control, .option, .command] {

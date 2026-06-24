@@ -259,7 +259,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     if let policy = try container.decodeIfPresent(AutomatedActionPolicy.self, forKey: .automatedActionPolicy) {
       automatedActionPolicy = policy
     } else if let legacyBool = try legacy.decodeIfPresent(
-      Bool.self, forKey: LegacyCodingKey(stringValue: "allowArbitraryDeeplinkInput")!,)
+      Bool.self, forKey: LegacyCodingKey(stringValue: "allowArbitraryDeeplinkInput")!, )
     {
       automatedActionPolicy = legacyBool ? .always : .never
     } else {
@@ -310,7 +310,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     {
       confirmQuitMode = mode
     } else if let legacyConfirmBeforeQuit = try legacy.decodeIfPresent(
-      Bool.self, forKey: LegacyCodingKey(stringValue: "confirmBeforeQuit")!,)
+      Bool.self, forKey: LegacyCodingKey(stringValue: "confirmBeforeQuit")!, )
     {
       confirmQuitMode = legacyConfirmBeforeQuit ? .always : .never
     } else {

@@ -333,7 +333,7 @@ struct RepositoriesFeature {
     case consumeSetupScript(Worktree.ID)
     case consumeTerminalFocus(Worktree.ID)
     case scriptCompleted(
-      worktreeID: Worktree.ID, scriptID: UUID, kind: BlockingScriptKind, exitCode: Int?, tabId: TerminalTabID?,)
+      worktreeID: Worktree.ID, scriptID: UUID, kind: BlockingScriptKind, exitCode: Int?, tabId: TerminalTabID?, )
     case requestArchiveWorktree(Worktree.ID, Repository.ID)
     case requestArchiveWorktrees([ArchiveWorktreeTarget])
     case archiveWorktreeConfirmed(Worktree.ID, Repository.ID)
@@ -2482,10 +2482,10 @@ struct RepositoriesFeature {
           ActiveRemovalBatch(id: batchID, pending: [repository.id])
         return .send(
           .repositoryRemovalCompleted(
-            repository.id, outcome: .success, selectionWasRemoved: selectionWasRemoved,))
+            repository.id, outcome: .success, selectionWasRemoved: selectionWasRemoved, ))
 
       case .repositoryRemovalCompleted(
-        let repositoryID, let outcome, let selectionWasRemoved,):
+        let repositoryID, let outcome, let selectionWasRemoved, ):
         // Aggregator entry point. Every repo-level removal
         // (successful or not) drains through here so bulk batches
         // fire a single terminal `.repositoriesRemoved` after the
@@ -2606,7 +2606,7 @@ struct RepositoriesFeature {
           rowEffects.append(
             .send(
               .repositoriesRemoved(
-                batch.succeeded, selectionWasRemoved: batch.selectionWasRemoved,))
+                batch.succeeded, selectionWasRemoved: batch.selectionWasRemoved, ))
           )
           return .merge(rowEffects)
         }

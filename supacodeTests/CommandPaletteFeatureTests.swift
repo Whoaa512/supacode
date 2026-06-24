@@ -361,7 +361,7 @@ struct CommandPaletteFeatureTests {
         main,
         pinned,
         unpinned,
-      ],)
+      ], )
     var state = RepositoriesFeature.State(reconciledRepositories: [repository])
     state.$sidebar.withLock { sidebar in
       sidebar.sections[repository.id] = .init(

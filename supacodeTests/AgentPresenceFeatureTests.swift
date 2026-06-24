@@ -117,7 +117,7 @@ struct AgentPresenceFeatureTests {
       .hookEventReceived(
         makeEvent(
           rawEventName: "future_event_we_dont_know",
-          agent: .claude, surfaceID: surfaceID,)))
+          agent: .claude, surfaceID: surfaceID, )))
 
     #expect(harness.state.agents(forSurface: surfaceID, badgesEnabled: true).isEmpty)
   }

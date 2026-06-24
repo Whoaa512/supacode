@@ -185,7 +185,7 @@ extension RepositoriesFeature {
     else { return .none }
     return .send(
       .repositoryRemovalCompleted(
-        repositoryID, outcome: .failureSilent, selectionWasRemoved: false,))
+        repositoryID, outcome: .failureSilent, selectionWasRemoved: false, ))
   }
 
   /// Shared "Action not available" alert shown when archive /
@@ -257,7 +257,7 @@ extension RepositoriesFeature {
     guard let diskDeletionURL else {
       return .send(
         .repositoryRemovalCompleted(
-          repositoryID, outcome: .success, selectionWasRemoved: selectionWasRemoved,))
+          repositoryID, outcome: .success, selectionWasRemoved: selectionWasRemoved, ))
     }
     return .run { send in
       do {
@@ -266,7 +266,7 @@ extension RepositoriesFeature {
         }.value
         await send(
           .repositoryRemovalCompleted(
-            repositoryID, outcome: .success, selectionWasRemoved: selectionWasRemoved,))
+            repositoryID, outcome: .success, selectionWasRemoved: selectionWasRemoved, ))
       } catch {
         repositoriesLogger.warning(
           "Failed to trash folder at \(diskDeletionURL.path(percentEncoded: false)): "

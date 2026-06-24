@@ -85,7 +85,7 @@ nonisolated struct CodexSettingsInstaller {
   /// can't false-positive as `.legacy`.
   private func featuresConfigState() -> FeaturesConfigState {
     let url = homeDirectoryURL.appending(
-      path: ".codex/config.toml", directoryHint: .notDirectory,)
+      path: ".codex/config.toml", directoryHint: .notDirectory, )
     guard let contents = try? String(contentsOf: url, encoding: .utf8) else { return .absent }
     let flags = Self.featuresFlags(in: contents)
     if flags.legacy { return .legacy }
@@ -173,7 +173,7 @@ nonisolated struct CodexSettingsInstaller {
     transform: (Substring, _ inFeaturesSection: Bool) -> Substring?
   ) {
     let url = homeDirectoryURL.appending(
-      path: ".codex/config.toml", directoryHint: .notDirectory,)
+      path: ".codex/config.toml", directoryHint: .notDirectory, )
     let original: String
     do {
       original = try String(contentsOf: url, encoding: .utf8)

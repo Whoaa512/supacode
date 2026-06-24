@@ -36,7 +36,7 @@ struct AgentHookSettingsFileInstallerTests {
               "type": "command",
               "command": .string(
                 AgentHookSettingsCommand.compositeCommand(
-                  events: [.idle], forwardStdinAsNotification: false, agent: .claude,)),
+                  events: [.idle], forwardStdinAsNotification: false, agent: .claude, )),
               "timeout": 10,
             ])
           ])

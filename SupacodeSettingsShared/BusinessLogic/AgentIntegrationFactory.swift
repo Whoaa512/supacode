@@ -21,7 +21,7 @@ nonisolated enum AgentIntegrationFactory {
 
   private static func claude(homeDirectoryURL: URL, fileManager: FileManager) -> AgentIntegration {
     let installer = ClaudeSettingsInstaller(
-      homeDirectoryURL: homeDirectoryURL, fileManager: fileManager,)
+      homeDirectoryURL: homeDirectoryURL, fileManager: fileManager, )
     let skill = CLISkillInstaller()
     return AgentIntegration(
       agent: .claude,
@@ -39,7 +39,7 @@ nonisolated enum AgentIntegrationFactory {
 
   private static func codex(homeDirectoryURL: URL, fileManager: FileManager) -> AgentIntegration {
     let installer = CodexSettingsInstaller(
-      homeDirectoryURL: homeDirectoryURL, fileManager: fileManager,)
+      homeDirectoryURL: homeDirectoryURL, fileManager: fileManager, )
     let skill = CLISkillInstaller()
     return AgentIntegration(
       agent: .codex,
@@ -57,7 +57,7 @@ nonisolated enum AgentIntegrationFactory {
 
   private static func kiro(homeDirectoryURL: URL, fileManager: FileManager) -> AgentIntegration {
     let installer = KiroSettingsInstaller(
-      homeDirectoryURL: homeDirectoryURL, fileManager: fileManager,)
+      homeDirectoryURL: homeDirectoryURL, fileManager: fileManager, )
     let skill = CLISkillInstaller()
     return AgentIntegration(
       agent: .kiro,
@@ -75,7 +75,7 @@ nonisolated enum AgentIntegrationFactory {
 
   private static func pi(homeDirectoryURL: URL, fileManager: FileManager) -> AgentIntegration {
     let installer = PiSettingsInstaller(
-      homeDirectoryURL: homeDirectoryURL, fileManager: fileManager,)
+      homeDirectoryURL: homeDirectoryURL, fileManager: fileManager, )
     let skill = CLISkillInstaller()
     return AgentIntegration(
       agent: .pi,

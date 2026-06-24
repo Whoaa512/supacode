@@ -170,7 +170,7 @@ struct DeeplinkClientTests {
         == .worktree(
           id: "/tmp/repo/wt-1",
           action: .surfaceSplit(
-            tabID: tabUUID, surfaceID: surfaceUUID, direction: .vertical, input: "echo hi", id: nil,),
+            tabID: tabUUID, surfaceID: surfaceUUID, direction: .vertical, input: "echo hi", id: nil, ),
         )
     )
   }

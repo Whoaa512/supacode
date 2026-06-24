@@ -465,7 +465,7 @@ struct AppFeatureCommandPaletteTests {
     }
 
     let target = RepositoriesFeature.DeleteWorktreeTarget(
-      worktreeID: worktree.id, repositoryID: repository.id,)
+      worktreeID: worktree.id, repositoryID: repository.id, )
     let expectedAlert = AlertState<RepositoriesFeature.Alert> {
       TextState("Delete worktree?")
     } actions: {

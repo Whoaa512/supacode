@@ -556,7 +556,7 @@ final class GhosttySurfaceBridge {
       switch table.tag {
       case GHOSTTY_KEY_TABLE_ACTIVATE:
         state.keyTableName = string(
-          from: table.value.activate.name, length: table.value.activate.len,)
+          from: table.value.activate.name, length: table.value.activate.len, )
         state.keyTableDepth += 1
       case GHOSTTY_KEY_TABLE_DEACTIVATE:
         state.keyTableName = nil

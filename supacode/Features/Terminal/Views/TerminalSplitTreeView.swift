@@ -84,7 +84,7 @@ struct TerminalSplitTreeView: View {
             },
             set: {
               action(.resize(node: node, ratio: Double($0)))
-            },),
+            }, ),
           dividerColor: Color(nsColor: .separatorColor),
           resizeIncrements: .init(width: 1, height: 1),
           left: {
@@ -164,7 +164,7 @@ struct TerminalSplitTreeView: View {
                   viewSize: geometry.size,
                   destinationId: surfaceView.id,
                   action: action,
-                ),)
+                ), )
           }
           .overlay {
             if case .dropping(let zone) = dropState {

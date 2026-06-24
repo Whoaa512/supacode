@@ -825,7 +825,7 @@ struct AppFeatureDeeplinkTests {
     await store.send(
       .deeplink(
         .worktree(
-          id: worktree.id, action: .surface(tabID: tabUUID, surfaceID: surfaceUUID, input: "echo test"),)))
+          id: worktree.id, action: .surface(tabID: tabUUID, surfaceID: surfaceUUID, input: "echo test"), )))
     #expect(store.state.deeplinkInputConfirmation != nil)
     #expect(store.state.deeplinkInputConfirmation?.message == .command("echo test"))
   }
@@ -841,7 +841,7 @@ struct AppFeatureDeeplinkTests {
         .worktree(
           id: worktree.id,
           action: .surfaceSplit(
-            tabID: tabUUID, surfaceID: surfaceUUID, direction: .horizontal, input: "echo test", id: nil,),)))
+            tabID: tabUUID, surfaceID: surfaceUUID, direction: .horizontal, input: "echo test", id: nil, ), )))
     #expect(store.state.deeplinkInputConfirmation != nil)
     #expect(store.state.deeplinkInputConfirmation?.message == .command("echo test"))
   }
@@ -872,7 +872,7 @@ struct AppFeatureDeeplinkTests {
         .worktree(
           id: worktree.id,
           action: .surfaceSplit(
-            tabID: tabUUID, surfaceID: surfaceUUID, direction: .vertical, input: nil, id: nil,),)))
+            tabID: tabUUID, surfaceID: surfaceUUID, direction: .vertical, input: nil, id: nil, ), )))
     #expect(store.state.deeplinkInputConfirmation == nil)
     let hasSplit = sent.value.contains(where: {
       if case .splitSurface = $0 { return true }
@@ -896,7 +896,7 @@ struct AppFeatureDeeplinkTests {
       repositoryName: "repo",
       message: .command("echo test"),
       action: .surfaceSplit(
-        tabID: tabUUID, surfaceID: surfaceUUID, direction: .horizontal, input: "echo test", id: nil,),
+        tabID: tabUUID, surfaceID: surfaceUUID, direction: .horizontal, input: "echo test", id: nil, ),
     )
     let store = TestStore(initialState: initialState) {
       AppFeature()
@@ -918,8 +918,8 @@ struct AppFeatureDeeplinkTests {
                 worktreeID: worktree.id,
                 action: .surfaceSplit(
                   tabID: tabUUID, surfaceID: surfaceUUID, direction: .horizontal,
-                  input: "echo test", id: nil,),
-                alwaysAllow: false,)))
+                  input: "echo test", id: nil, ),
+                alwaysAllow: false, )))
         )
       ) {
         $0.deeplinkInputConfirmation = nil
@@ -1261,7 +1261,7 @@ struct AppFeatureDeeplinkTests {
           .presented(
             .delegate(
               .confirm(
-                worktreeID: "/nonexistent", action: .tabNew(input: "echo hello", id: nil), alwaysAllow: false,)))
+                worktreeID: "/nonexistent", action: .tabNew(input: "echo hello", id: nil), alwaysAllow: false, )))
         )
       ) {
         $0.deeplinkInputConfirmation = nil
@@ -2447,7 +2447,7 @@ struct AppFeatureDeeplinkTests {
           id: worktree.id,
           action: .surfaceSplit(
             tabID: tabUUID, surfaceID: surfaceUUID, direction: .horizontal,
-            input: nil, id: existingSurfaceID,),)))
+            input: nil, id: existingSurfaceID, ), )))
     #expect(store.state.alert != nil)
     #expect(store.state.deeplinkInputConfirmation == nil)
   }

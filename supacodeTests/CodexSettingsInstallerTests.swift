@@ -81,7 +81,7 @@ struct CodexSettingsInstallerTests {
     defer { try? fileManager.removeItem(at: homeURL) }
     let configURL = homeURL.appendingPathComponent(".codex/config.toml", isDirectory: false)
     try fileManager.createDirectory(
-      at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true,)
+      at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true, )
     try "[features]\nhooks = true\n".write(to: configURL, atomically: true, encoding: .utf8)
 
     let installer = CodexSettingsInstaller(
@@ -105,7 +105,7 @@ struct CodexSettingsInstallerTests {
     defer { try? fileManager.removeItem(at: homeURL) }
     let configURL = homeURL.appendingPathComponent(".codex/config.toml", isDirectory: false)
     try fileManager.createDirectory(
-      at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true,)
+      at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true, )
     try "[features]\n# codex_hooks = true (deprecated, see docs)\nhooks = true\n"
       .write(to: configURL, atomically: true, encoding: .utf8)
 
@@ -128,7 +128,7 @@ struct CodexSettingsInstallerTests {
     defer { try? fileManager.removeItem(at: homeURL) }
     let configURL = homeURL.appendingPathComponent(".codex/config.toml", isDirectory: false)
     try fileManager.createDirectory(
-      at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true,)
+      at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true, )
     try "[features]\nplugins = [\"a\", \"b\"]\nhooks = true\n"
       .write(to: configURL, atomically: true, encoding: .utf8)
 

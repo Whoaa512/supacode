@@ -44,19 +44,19 @@ struct ToolbarNotificationGroupingTests {
         WorktreeTerminalNotification(
           surfaceID: UUID(), title: "A1", body: "done", createdAt: .distantPast, isRead: true,
         )
-      ],)
+      ], )
     setRowNotifications(
       &state, id: repoATwo.id,
       notifications: [
         WorktreeTerminalNotification(surfaceID: UUID(), title: "A2", body: "done", createdAt: .distantPast)
-      ],)
+      ], )
     setRowNotifications(
       &state, id: repoBOne.id,
       notifications: [
         WorktreeTerminalNotification(
           surfaceID: UUID(), title: "B1", body: "done", createdAt: .distantPast, isRead: true,
         )
-      ],)
+      ], )
 
     let groups = state.computeToolbarNotificationGroups()
 
@@ -93,7 +93,7 @@ struct ToolbarNotificationGroupingTests {
       &state, id: repoAArchived.id,
       notifications: [
         WorktreeTerminalNotification(surfaceID: UUID(), title: "Archived", body: "hidden", createdAt: .distantPast)
-      ],)
+      ], )
 
     let groups = state.computeToolbarNotificationGroups()
 
@@ -116,7 +116,7 @@ struct ToolbarNotificationGroupingTests {
         WorktreeTerminalNotification(
           surfaceID: UUID(), title: "Read 1", body: "done", createdAt: .distantPast, isRead: true,
         )
-      ],)
+      ], )
     setRowNotifications(
       &state, id: mixed.id,
       notifications: [
@@ -126,7 +126,7 @@ struct ToolbarNotificationGroupingTests {
         WorktreeTerminalNotification(
           surfaceID: UUID(), title: "Unread", body: "new", createdAt: .distantPast, isRead: false,
         ),
-      ],)
+      ], )
 
     let groups = state.computeToolbarNotificationGroups()
 
@@ -150,7 +150,7 @@ struct ToolbarNotificationGroupingTests {
         WorktreeTerminalNotification(
           surfaceID: UUID(), title: "Read", body: "kept", createdAt: .distantPast, isRead: true,
         )
-      ],)
+      ], )
 
     let groups = state.computeToolbarNotificationGroups()
 
@@ -178,7 +178,7 @@ struct ToolbarNotificationGroupingTests {
       &state, id: feature.id,
       notifications: [
         WorktreeTerminalNotification(surfaceID: UUID(), title: "T", body: "done", createdAt: .distantPast)
-      ],)
+      ], )
 
     let groups = state.computeToolbarNotificationGroups()
 
