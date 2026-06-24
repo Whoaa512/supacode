@@ -93,6 +93,9 @@ final class WorktreeTerminalState {
   @ObservationIgnored @Dependency(\.zmxClient) private var zmxClient
   @ObservationIgnored @Dependency(\.analyticsClient) private var analyticsClient
   @ObservationIgnored @Dependency(\.continuousClock) private var clock
+  /// Closure that reads the manager's current live zmx session names at restore time.
+  /// Lazy read ensures a worktree selected after the probe completes sees the fresh set.
+  @ObservationIgnored var liveZmxSessionNamesProvider: () -> Set<String>? = { nil }
   /// When a custom (hook / OSC 3008) notification last committed per surface.
   /// Stored as a monotonic instant so the suppression window and the OSC-9 hold
   /// share one clock source and can't desync on an NTP step / manual clock change.
@@ -1067,6 +1070,81 @@ final class WorktreeTerminalState {
     return TerminalLayoutSnapshot(tabs: tabSnapshots, selectedTabIndex: selectedIndex)
   }
 
+  // MARK: - Scrollback Persistence
+
+  func saveScrollbackFiles() {
+    let dir = SupacodePaths.scrollbackDirectory
+    do {
+      try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    } catch {
+      layoutLogger.warning("Failed to create scrollback directory: \(error.localizedDescription)")
+      return
+    }
+    for (id, view) in surfaces {
+      let path = SupacodePaths.scrollbackFileURL(for: id).path(percentEncoded: false)
+      if !view.writeScrollback(to: path) {
+        layoutLogger.debug("No scrollback to save for surface \(id)")
+      }
+    }
+  }
+
+  /// Returns the on-disk scrollback path for a surface only when safe to replay.
+  /// Returns nil when:
+  /// - The file doesn't exist
+  /// - The zmx session is live (zmx will replay its own buffer)
+  /// - The probe is unavailable AND zmx is bundled (can't rule out live session)
+  func scrollbackPathIfAvailable(for surfaceID: UUID?) -> String? {
+    guard let surfaceID else { return nil }
+    let url = SupacodePaths.scrollbackFileURL(for: surfaceID)
+    let path = url.path(percentEncoded: false)
+    guard FileManager.default.isReadableFile(atPath: path) else { return nil }
+    let sessionName = ZmxSessionID.make(surfaceID: surfaceID)
+    guard
+      Self.shouldReplayScrollback(
+        fileExists: true,
+        zmxBundled: zmxClient.isBundled(),
+        liveSessionNames: liveZmxSessionNamesProvider(),
+        sessionName: sessionName,
+      )
+    else { return nil }
+    return path
+  }
+
+  /// Pure decision: should disk scrollback be replayed for this surface?
+  /// Extracted for direct unit testing without full state construction.
+  static func shouldReplayScrollback(
+    fileExists: Bool,
+    zmxBundled: Bool,
+    liveSessionNames: Set<String>?,
+    sessionName: String,
+  ) -> Bool {
+    guard fileExists else { return false }
+    if zmxBundled {
+      guard let liveNames = liveSessionNames else { return false }
+      if liveNames.contains(sessionName) { return false }
+    }
+    return true
+  }
+
+  static func pruneScrollbackFiles(keeping knownIDs: Set<UUID>, directory: URL = SupacodePaths.scrollbackDirectory) {
+    let dir = directory
+    guard
+      let items = try? FileManager.default.contentsOfDirectory(
+        at: dir, includingPropertiesForKeys: nil,
+      )
+    else { return }
+    for item in items {
+      let name = item.deletingPathExtension().lastPathComponent
+      guard let id = UUID(uuidString: name) else {
+        try? FileManager.default.removeItem(at: item)
+        continue
+      }
+      if !knownIDs.contains(id) {
+        try? FileManager.default.removeItem(at: item)
+      }
+    }
+  }
+
   private func captureLayoutNode(
     _ node: SplitTree<GhosttySurfaceView>.Node,
     agentsBySurface: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]]
@@ -1121,6 +1199,7 @@ final class WorktreeTerminalState {
       if let customTitle = tabSnapshot.customTitle {
         tabManager.setCustomTitle(tabId, title: customTitle)
       }
+      let scrollbackPath = scrollbackPathIfAvailable(for: tabSnapshot.layout.firstLeaf.id)
       let surface = createSurface(
         tabId: tabId,
         initialInput: nil,
@@ -1128,6 +1207,7 @@ final class WorktreeTerminalState {
         inheritingFromSurfaceId: nil,
         context: context,
         surfaceID: tabSnapshot.layout.firstLeaf.id,
+        initialScrollbackPath: scrollbackPath,
       )
       let tree = SplitTree(view: surface)
       setTree(tree, for: tabId)
@@ -1192,6 +1272,7 @@ final class WorktreeTerminalState {
         workingDirectory: rightWorkingDir,
         tabId: tabId,
         surfaceID: split.right.firstLeaf.id,
+        initialScrollbackPath: scrollbackPathIfAvailable(for: split.right.firstLeaf.id),
       )
     else {
       layoutLogger.warning("Skipping subtree restoration for tab \(tabId.rawValue)")
@@ -1209,7 +1290,8 @@ final class WorktreeTerminalState {
     ratio: Double,
     workingDirectory: URL?,
     tabId: TerminalTabID,
-    surfaceID: UUID? = nil
+    surfaceID: UUID? = nil,
+    initialScrollbackPath: String? = nil,
   ) -> GhosttySurfaceView? {
     guard var tree = trees[tabId] else { return nil }
     let newSurface = createSurface(
@@ -1219,6 +1301,7 @@ final class WorktreeTerminalState {
       inheritingFromSurfaceId: anchor.id,
       context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
       surfaceID: surfaceID,
+      initialScrollbackPath: initialScrollbackPath,
     )
     do {
       tree = try tree.inserting(view: newSurface, at: anchor, direction: direction, ratio: ratio)
@@ -1382,7 +1465,8 @@ final class WorktreeTerminalState {
     inheritingFromSurfaceId: UUID?,
     context: ghostty_surface_context_e,
     surfaceID: UUID? = nil,
-    bypassZmx: Bool = false
+    bypassZmx: Bool = false,
+    initialScrollbackPath: String? = nil,
   ) -> GhosttySurfaceView {
     let resolvedID: UUID
     if let requested = surfaceID {
@@ -1416,7 +1500,8 @@ final class WorktreeTerminalState {
       // not get Ghostty's shell integration injected into the host shell.
       disableShellIntegration: bypassZmx,
       fontSize: inherited.fontSize,
-      context: context
+      context: context,
+      initialScrollbackPath: initialScrollbackPath,
     )
     wireSurfaceCallbacks(view: view, tabId: tabId, surfaceID: surfaceID)
     surfaces[view.id] = view
