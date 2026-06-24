@@ -29,6 +29,8 @@ print_fingerprint() {
       git ls-files --others --exclude-standard | LC_ALL=C sort | shasum -a 256
       shasum -a 256 "${script_path}" | awk '{print $1}'
       shasum -a 256 "${srcroot}/mise.toml" | awk '{print $1}'
+      shasum -a 256 "${script_dir}/sdk-overlay.sh" | awk '{print $1}'
+      find "${script_dir}/sdk-stubs" -type f -exec shasum -a 256 {} + 2>/dev/null | shasum -a 256 | awk '{print $1}'
     } | shasum -a 256 | awk '{print $1}'
   )
 }
@@ -164,23 +166,28 @@ if [ -f "${ghostty_fingerprint_path}" ] &&
 fi
 
 cd "${ghostty_dir}"
-# Xcode 26.4+ local-build workaround (zig#31272): zig 0.15.2 can't link the
-# 26.4+ macOS SDK (undefined libSystem symbols). When the active SDK is too new,
-# point zig at the Command Line Tools SDK (<= 26.3) so the build runner + libs
-# link, and build only the native macOS xcframework slice — CLT has no iOS SDK,
-# and patches/ghostty-xcode-26.4.patch makes the .native target skip iOS.
-# When the active SDK is <= 26.3 (CI, older Xcode) this is a no-op: normal
-# universal build, no DEVELOPER_DIR override.
-zig_env=()
+# Xcode 26.4+ local-build workaround (zig#31272): zig 0.15.2 can't resolve arm64
+# libc symbols for a native host target against the 26.4+ macOS SDK, whose libSystem
+# tbds export only arm64e-macos. We build a hermetic overlay SDK (live 26.x headers +
+# vendored arm64-macos libSystem stubs, see scripts/sdk-overlay.sh) and shim zig's
+# `xcrun --sdk macosx --show-sdk-path` at it, then build only the native macOS slice
+# (patches/ghostty-xcode-26.4.patch makes the .native target skip iOS). Metal and
+# xcframework steps call /usr/bin/xcrun by absolute path, so they keep the real SDK.
+# When the active SDK is <= 26.3 (CI, older Xcode) this is a no-op: normal universal
+# build, unshimmed PATH.
+shim_path_prefix=""
 xcframework_target_flag=""
 active_sdk_ver="$(xcrun --show-sdk-version 2>/dev/null || true)"
 if [ -n "${active_sdk_ver}" ] &&
-  [ "$(printf '%s\n26.3\n' "${active_sdk_ver}" | sort -V | tail -1)" != "26.3" ] &&
-  [ -d /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk ]; then
-  zig_env=(env DEVELOPER_DIR=/Library/Developer/CommandLineTools)
+  [ "$(printf '%s\n26.3\n' "${active_sdk_ver}" | sort -V | tail -1)" != "26.3" ]; then
+  # shellcheck source=sdk-overlay.sh
+  source "${script_dir}/sdk-overlay.sh"
+  overlay_sdk="$(ghostty_make_sdk_overlay "$(xcrun --show-sdk-path)" "${script_dir}/sdk-stubs" "${ghostty_build_root}/sdk-overlay")"
+  shim_dir="$(ghostty_make_xcrun_shim "${overlay_sdk}" "${ghostty_build_root}/sdk-shim")"
+  shim_path_prefix="${shim_dir}:"
   xcframework_target_flag="-Dxcframework-target=native"
 fi
-"${zig_env[@]}" mise exec -- zig build -Doptimize=ReleaseFast -Demit-xcframework=true ${xcframework_target_flag} -Dsentry=false --prefix "${ghostty_build_root}" --cache-dir "${ghostty_local_cache_dir}" --global-cache-dir "${ghostty_global_cache_dir}"
+PATH="${shim_path_prefix}${PATH}" mise exec -- zig build -Doptimize=ReleaseFast -Demit-xcframework=true ${xcframework_target_flag} -Dsentry=false --prefix "${ghostty_build_root}" --cache-dir "${ghostty_local_cache_dir}" --global-cache-dir "${ghostty_global_cache_dir}"
 rsync -a --delete "${ghostty_dir}/macos/GhosttyKit.xcframework/" "${xcframework_path}/"
 prepare_xcframework
 printf '%s\n' "${fingerprint}" > "${ghostty_fingerprint_path}"
