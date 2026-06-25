@@ -1132,6 +1132,11 @@ final class WorktreeTerminalState {
         at: dir, withIntermediateDirectories: true,
         attributes: [.posixPermissions: 0o700]
       )
+      // Enforce 0700 on a pre-existing dir from an older build (createDirectory
+      // only applies attributes on create), closing the upgrade-path leak.
+      try? FileManager.default.setAttributes(
+        [.posixPermissions: 0o700], ofItemAtPath: dir.path(percentEncoded: false)
+      )
     } catch {
       layoutLogger.warning("Failed to create scrollback directory: \(error.localizedDescription)")
       return

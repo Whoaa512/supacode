@@ -925,6 +925,8 @@ final class WorktreeTerminalManager {
   /// write still runs on MainActor (required for ghostty surface safety).
   private func persistAllScrollbackAndLayoutsCooperative() async {
     guard saveLayoutSnapshot != nil else { return }
+    // Iterates a value-type Dictionary snapshot: adds/removes during a yield
+    // don't affect this loop, and the snapshot retains each state across yields.
     for (id, state) in states {
       state.saveScrollbackFiles()
       markLayoutDirty(worktreeID: id)
