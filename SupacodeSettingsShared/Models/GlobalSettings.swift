@@ -67,6 +67,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   /// down the bundled zmx daemon's sessions, so nothing keeps running in
   /// the background. Default off because persistence is the headline feature.
   public var terminateSessionsOnQuit: Bool
+  public var persistScrollbackEnabled: Bool
 
   public static let `default` = GlobalSettings(
     appearanceMode: .dark,
@@ -100,7 +101,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     agentPresenceBadgesEnabled: true,
     autoUpdateAgentIntegrationsEnabled: true,
     confirmQuitMode: .auto,
-    terminateSessionsOnQuit: false
+    terminateSessionsOnQuit: false,
+    persistScrollbackEnabled: true
   )
 
   public init(
@@ -135,7 +137,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     agentPresenceBadgesEnabled: Bool = true,
     autoUpdateAgentIntegrationsEnabled: Bool = true,
     confirmQuitMode: ConfirmQuitMode = .auto,
-    terminateSessionsOnQuit: Bool = false
+    terminateSessionsOnQuit: Bool = false,
+    persistScrollbackEnabled: Bool = true
   ) {
     self.appearanceMode = appearanceMode
     self.defaultEditorID = defaultEditorID
@@ -169,6 +172,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.autoUpdateAgentIntegrationsEnabled = autoUpdateAgentIntegrationsEnabled
     self.confirmQuitMode = confirmQuitMode
     self.terminateSessionsOnQuit = terminateSessionsOnQuit
+    self.persistScrollbackEnabled = persistScrollbackEnabled
   }
 
   /// Keys for reading renamed settings fields that no longer
@@ -319,5 +323,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     terminateSessionsOnQuit =
       try container.decodeIfPresent(Bool.self, forKey: .terminateSessionsOnQuit)
       ?? Self.default.terminateSessionsOnQuit
+    persistScrollbackEnabled =
+      try container.decodeIfPresent(Bool.self, forKey: .persistScrollbackEnabled)
+      ?? true
   }
 }
