@@ -1,7 +1,6 @@
 import AppKit
 import DependenciesTestSupport
 import Sharing
-import SupacodeSettingsShared
 import Testing
 
 @testable import SupacodeSettingsShared
