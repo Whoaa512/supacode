@@ -1165,8 +1165,34 @@ final class WorktreeTerminalState {
         sessionName: sessionName,
       )
     else { return nil }
-    return path
+    return replayPathWithBanner(for: surfaceID, originalPath: path)
   }
+
+  /// Creates a sibling `.replay.vt` file containing the original scrollback
+  /// content followed by a dim boundary banner. Returns the replay path.
+  private func replayPathWithBanner(for surfaceID: UUID, originalPath: String) -> String? {
+    let replayURL = SupacodePaths.scrollbackDirectory
+      .appending(path: "\(surfaceID.uuidString).replay.vt", directoryHint: .notDirectory)
+    let replayPath = replayURL.path(percentEncoded: false)
+    guard let originalData = FileManager.default.contents(atPath: originalPath) else { return nil }
+    let banner = Self.scrollbackRestoredBanner
+    var combined = originalData
+    combined.append(contentsOf: banner.utf8)
+    do {
+      try combined.write(to: replayURL)
+    } catch {
+      layoutLogger.warning("Failed to write replay file: \(error.localizedDescription)")
+      return originalPath
+    }
+    return replayPath
+  }
+
+  /// VT banner appended to replayed scrollback to mark the boundary between
+  /// historical output and the fresh session.
+  static let scrollbackRestoredBanner: String = {
+    let msg = "\u{2500}\u{2500} scrollback restored from disk \u{00b7} processes are not running \u{2500}\u{2500}"
+    return "\r\n\u{1b}[2m\(msg)\u{1b}[0m\r\n"
+  }()
 
   /// Pure decision: should disk scrollback be replayed for this surface?
   /// Extracted for direct unit testing without full state construction.
