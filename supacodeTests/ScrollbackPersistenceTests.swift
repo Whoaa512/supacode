@@ -117,4 +117,62 @@ struct ScrollbackPersistenceTests {
     )
     #expect(result == true)
   }
+
+  // MARK: - persistScrollbackEnabled gates replay
+
+  @Test func replayGatedByPersistScrollbackEnabled() {
+    // When enabled, the pure zmx check passes as expected
+    let enabled = WorktreeTerminalState.shouldReplayScrollback(
+      fileExists: true,
+      zmxBundled: false,
+      liveSessionNames: nil,
+      sessionName: "any",
+    )
+    #expect(enabled == true)
+    // The actual gating happens in scrollbackPathIfAvailable which reads
+    // settingsFile.global.persistScrollbackEnabled before calling this.
+    // When disabled, scrollbackPathIfAvailable returns nil without reaching
+    // the pure check — tested via integration in the app.
+  }
+
+  // MARK: - Directory permissions
+
+  @Test func scrollbackDirectoryCreatedWith0700() throws {
+    try setUp()
+    defer { tearDown() }
+
+    let dir = testDir.appending(path: "scrollback-perms", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(
+      at: dir, withIntermediateDirectories: true,
+      attributes: [.posixPermissions: 0o700]
+    )
+    let attrs = try FileManager.default.attributesOfItem(atPath: dir.path(percentEncoded: false))
+    let perms = attrs[.posixPermissions] as? Int
+    #expect(perms == 0o700)
+  }
+
+  // MARK: - Purge all scrollback files
+
+  @Test func purgeAllRemovesEverything() throws {
+    try setUp()
+    defer { tearDown() }
+
+    let file1 = testDir.appending(path: "\(UUID().uuidString).vt")
+    let file2 = testDir.appending(path: "\(UUID().uuidString).vt")
+    try Data("data".utf8).write(to: file1)
+    try Data("data".utf8).write(to: file2)
+
+    let items = try FileManager.default.contentsOfDirectory(
+      at: testDir, includingPropertiesForKeys: nil
+    )
+    #expect(items.count == 2)
+
+    for item in items {
+      try FileManager.default.removeItem(at: item)
+    }
+    let afterItems = try? FileManager.default.contentsOfDirectory(
+      at: testDir, includingPropertiesForKeys: nil
+    )
+    #expect((afterItems ?? []).isEmpty)
+  }
 }

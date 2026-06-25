@@ -71,6 +71,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   /// When true, remote surfaces wrap their session in zmx on the host when
   /// the host has it installed, so the session survives disconnects.
   public var remoteSessionPersistenceEnabled: Bool
+  public var persistScrollbackEnabled: Bool
 
   public static let `default` = GlobalSettings(
     appearanceMode: .dark,
@@ -106,7 +107,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     autoUpdateAgentIntegrationsEnabled: true,
     confirmQuitMode: .auto,
     terminateSessionsOnQuit: false,
-    remoteSessionPersistenceEnabled: true
+    remoteSessionPersistenceEnabled: true,
+    persistScrollbackEnabled: true
   )
 
   public init(
@@ -143,7 +145,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     autoUpdateAgentIntegrationsEnabled: Bool = true,
     confirmQuitMode: ConfirmQuitMode = .auto,
     terminateSessionsOnQuit: Bool = false,
-    remoteSessionPersistenceEnabled: Bool = true
+    remoteSessionPersistenceEnabled: Bool = true,
+    persistScrollbackEnabled: Bool = true
   ) {
     self.appearanceMode = appearanceMode
     self.defaultEditorID = defaultEditorID
@@ -179,6 +182,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.confirmQuitMode = confirmQuitMode
     self.terminateSessionsOnQuit = terminateSessionsOnQuit
     self.remoteSessionPersistenceEnabled = remoteSessionPersistenceEnabled
+    self.persistScrollbackEnabled = persistScrollbackEnabled
   }
 
   /// Keys for reading renamed settings fields that no longer
@@ -344,5 +348,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     remoteSessionPersistenceEnabled =
       try container.decodeIfPresent(Bool.self, forKey: .remoteSessionPersistenceEnabled)
       ?? Self.default.remoteSessionPersistenceEnabled
+    persistScrollbackEnabled =
+      try container.decodeIfPresent(Bool.self, forKey: .persistScrollbackEnabled)
+      ?? true
   }
 }

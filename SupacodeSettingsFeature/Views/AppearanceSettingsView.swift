@@ -110,6 +110,15 @@ public struct AppearanceSettingsView: View {
           Text("Equalize Splits on Split")
           Text("Automatically equalize all pane sizes when creating a new split.")
         }
+        Toggle(isOn: $store.persistScrollbackEnabled) {
+          Text("Persist Terminal Scrollback to Disk")
+          Text("Scrollback survives restart/reboot. Stored unencrypted in ~/.supacode/scrollback.")
+        }
+        .onChange(of: store.persistScrollbackEnabled) { _, newValue in
+          if !newValue {
+            SupacodePaths.purgeAllScrollbackFiles()
+          }
+        }
         Picker(selection: $store.automatedActionPolicy.sending(\.setAutomatedActionPolicy)) {
           ForEach(AutomatedActionPolicy.allCases, id: \.self) { policy in
             Text(policy.displayName).tag(policy)
