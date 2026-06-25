@@ -897,38 +897,13 @@ final class WorktreeTerminalState {
 
     switch action {
     case .newSplit(let direction):
-      // Splits would leak a zmx-wrapped sibling into a transactional tab.
-      // Refuse before allocating a surface so the tab stays single-pane.
-      if tabManager.isBlockingScript(tabId) {
-        return false
-      }
-      let newSurface = createSurface(
+      return performNewSplit(
+        direction: direction,
         tabId: tabId,
+        surfaceID: surfaceID,
+        newSurfaceID: newSurfaceID,
         initialInput: initialInput,
-        inheritingFromSurfaceId: surfaceID,
-        context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-        surfaceID: newSurfaceID,
       )
-      do {
-        var newTree = try tree.inserting(
-          view: newSurface,
-          at: targetSurface,
-          direction: mapSplitDirection(direction),
-        )
-        @Shared(.settingsFile) var settingsFile
-        if settingsFile.global.equalizeSplitsOnSplit {
-          newTree = newTree.equalized()
-        }
-        updateTree(newTree, for: tabId)
-        focusSurface(newSurface, in: tabId)
-        return true
-      } catch {
-        terminalStateLogger.warning(
-          "performSplitAction: failed to insert split for surface \(surfaceID) in tab \(tabId.rawValue): \(error)")
-        newSurface.closeSurface()
-        discardSurfaceBookkeeping(for: newSurface.id)
-        return false
-      }
 
     case .gotoSplit(let direction):
       let focusDirection = mapFocusDirection(direction)
@@ -973,6 +948,50 @@ final class WorktreeTerminalState {
       updateTree(tree.settingZoomed(newZoomed), for: tabId)
       focusSurface(targetSurface, in: tabId)
       return true
+    }
+  }
+
+  private func performNewSplit(
+    direction: GhosttySplitAction.NewDirection,
+    tabId: TerminalTabID,
+    surfaceID: UUID,
+    newSurfaceID: UUID?,
+    initialInput: String?,
+  ) -> Bool {
+    guard let tree = trees[tabId], let targetSurface = surfaces[surfaceID] else {
+      return false
+    }
+    // Splits would leak a zmx-wrapped sibling into a transactional tab.
+    // Refuse before allocating a surface so the tab stays single-pane.
+    if tabManager.isBlockingScript(tabId) {
+      return false
+    }
+    let newSurface = createSurface(
+      tabId: tabId,
+      initialInput: initialInput,
+      inheritingFromSurfaceId: surfaceID,
+      context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+      surfaceID: newSurfaceID,
+    )
+    do {
+      var newTree = try tree.inserting(
+        view: newSurface,
+        at: targetSurface,
+        direction: mapSplitDirection(direction),
+      )
+      @Shared(.settingsFile) var settingsFile
+      if settingsFile.global.equalizeSplitsOnSplit {
+        newTree = newTree.equalized()
+      }
+      updateTree(newTree, for: tabId)
+      focusSurface(newSurface, in: tabId)
+      return true
+    } catch {
+      terminalStateLogger.warning(
+        "performSplitAction: failed to insert split for surface \(surfaceID) in tab \(tabId.rawValue): \(error)")
+      newSurface.closeSurface()
+      discardSurfaceBookkeeping(for: newSurface.id)
+      return false
     }
   }
 
