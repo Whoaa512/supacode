@@ -159,6 +159,18 @@ public nonisolated enum SupacodePaths {
     scrollbackDirectory.appending(path: "\(surfaceID.uuidString).vt", directoryHint: .notDirectory)
   }
 
+  public static func purgeAllScrollbackFiles() {
+    let dir = scrollbackDirectory
+    guard
+      let items = try? FileManager.default.contentsOfDirectory(
+        at: dir, includingPropertiesForKeys: nil
+      )
+    else { return }
+    for item in items {
+      try? FileManager.default.removeItem(at: item)
+    }
+  }
+
   public static var layoutsURL: URL {
     baseDirectory.appending(path: "layouts.json", directoryHint: .notDirectory)
   }
