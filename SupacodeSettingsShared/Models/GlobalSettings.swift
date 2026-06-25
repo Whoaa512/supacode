@@ -110,6 +110,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   /// Beta: hidden terminal tabs release their renderer after a few minutes of
   /// inactivity and reconnect when viewed. On by default.
   public var terminalHibernationEnabled: Bool
+  public var persistScrollbackEnabled: Bool
 
   public static let `default` = GlobalSettings(
     appearanceMode: .dark,
@@ -147,7 +148,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     confirmCloseSurface: true,
     terminateSessionsOnQuit: false,
     remoteSessionPersistenceEnabled: true,
-    appVisibility: .dockAndMenuBar
+    appVisibility: .dockAndMenuBar,
+    persistScrollbackEnabled: true
   )
 
   public init(
@@ -187,7 +189,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     terminateSessionsOnQuit: Bool = false,
     remoteSessionPersistenceEnabled: Bool = true,
     appVisibility: AppVisibility = .dockAndMenuBar,
-    terminalHibernationEnabled: Bool = true
+    terminalHibernationEnabled: Bool = true,
+    persistScrollbackEnabled: Bool = true
   ) {
     self.appearanceMode = appearanceMode
     self.defaultEditorID = defaultEditorID
@@ -226,6 +229,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.remoteSessionPersistenceEnabled = remoteSessionPersistenceEnabled
     self.appVisibility = appVisibility
     self.terminalHibernationEnabled = terminalHibernationEnabled
+    self.persistScrollbackEnabled = persistScrollbackEnabled
   }
 
   /// Keys for reading renamed settings fields that no longer
@@ -406,5 +410,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     terminalHibernationEnabled =
       try container.decodeIfPresent(Bool.self, forKey: .terminalHibernationEnabled)
       ?? Self.default.terminalHibernationEnabled
+    persistScrollbackEnabled =
+      try container.decodeIfPresent(Bool.self, forKey: .persistScrollbackEnabled)
+      ?? true
   }
 }

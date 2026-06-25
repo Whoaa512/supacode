@@ -151,6 +151,15 @@ public struct AppearanceSettingsView: View {
           Text("Equalize splits on split")
           Text("Automatically equalize all pane sizes when creating a new split.")
         }
+        Toggle(isOn: $store.persistScrollbackEnabled) {
+          Text("Persist terminal scrollback to disk")
+          Text("Scrollback survives restart/reboot. Stored unencrypted in ~/.supacode/scrollback.")
+        }
+        .onChange(of: store.persistScrollbackEnabled) { _, newValue in
+          if !newValue {
+            SupacodePaths.purgeAllScrollbackFiles()
+          }
+        }
       }
     }
     .formStyle(.grouped)

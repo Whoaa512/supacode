@@ -1535,9 +1535,14 @@ final class WorktreeTerminalState {
   // MARK: - Scrollback Persistence
 
   func saveScrollbackFiles() {
+    @Shared(.settingsFile) var settingsFile
+    guard settingsFile.global.persistScrollbackEnabled else { return }
     let dir = SupacodePaths.scrollbackDirectory
     do {
-      try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+      try FileManager.default.createDirectory(
+        at: dir, withIntermediateDirectories: true,
+        attributes: [.posixPermissions: 0o700]
+      )
     } catch {
       layoutLogger.warning("Failed to create scrollback directory: \(error.localizedDescription)")
       return
@@ -1557,6 +1562,8 @@ final class WorktreeTerminalState {
   /// - The probe is unavailable AND zmx is bundled (can't rule out live session)
   func scrollbackPathIfAvailable(for surfaceID: UUID?) -> String? {
     guard let surfaceID else { return nil }
+    @Shared(.settingsFile) var settingsFile
+    guard settingsFile.global.persistScrollbackEnabled else { return nil }
     let url = SupacodePaths.scrollbackFileURL(for: surfaceID)
     let path = url.path(percentEncoded: false)
     guard FileManager.default.isReadableFile(atPath: path) else { return nil }
