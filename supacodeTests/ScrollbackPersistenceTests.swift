@@ -175,4 +175,30 @@ struct ScrollbackPersistenceTests {
     )
     #expect((afterItems ?? []).isEmpty)
   }
+
+  // MARK: - Scrollback restored banner
+
+  @Test func bannerContainsExpectedContent() {
+    let banner = WorktreeTerminalState.scrollbackRestoredBanner
+    #expect(banner.contains("scrollback restored from disk"))
+    #expect(banner.contains("processes are not running"))
+    #expect(banner.contains("\u{1b}[2m"))
+    #expect(banner.contains("\u{1b}[0m"))
+  }
+
+  @Test func pruneRemovesReplayFiles() throws {
+    try setUp()
+    defer { tearDown() }
+
+    let id = UUID()
+    let canonicalFile = testDir.appending(path: "\(id.uuidString).vt")
+    let replayFile = testDir.appending(path: "\(id.uuidString).replay.vt")
+    try Data("canon".utf8).write(to: canonicalFile)
+    try Data("replay".utf8).write(to: replayFile)
+
+    WorktreeTerminalState.pruneScrollbackFiles(keeping: [id], directory: testDir)
+
+    #expect(FileManager.default.fileExists(atPath: canonicalFile.path(percentEncoded: false)))
+    #expect(!FileManager.default.fileExists(atPath: replayFile.path(percentEncoded: false)))
+  }
 }
