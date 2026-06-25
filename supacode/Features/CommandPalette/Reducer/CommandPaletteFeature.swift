@@ -796,26 +796,18 @@ private func delegateAction(for kind: CommandPaletteItem.Kind) -> CommandPalette
     return .openSettings
   case .newWorktree:
     return .newWorktree
-  case .forkWorktree(let worktreeID, let repositoryID):
-    return .forkWorktree(worktreeID, repositoryID)
   case .openRepository:
     return .openRepository
   case .addRemoteRepository:
     return .addRemoteRepository
-  case .removeWorktree(let worktreeID, let repositoryID):
-    return .removeWorktree(worktreeID, repositoryID)
-  case .archiveWorktree(let worktreeID, let repositoryID):
-    return .archiveWorktree(worktreeID, repositoryID)
-  case .renameBranch(let worktreeID, let repositoryID):
-    return .renameBranch(worktreeID, repositoryID)
   case .viewArchivedWorktrees:
     return .viewArchivedWorktrees
   case .refreshWorktrees:
     return .refreshWorktrees
   case .ghosttyCommand(let action):
     return .ghosttyCommand(action)
-  case .toggleCollapseRepository(let repositoryID):
-    return .toggleCollapseRepository(repositoryID)
+  case .forkWorktree, .removeWorktree, .archiveWorktree, .renameBranch, .toggleCollapseRepository:
+    return worktreeDelegateAction(for: kind)!
   case .openPullRequest,
     .markPullRequestReady,
     .mergePullRequest,
@@ -831,6 +823,25 @@ private func delegateAction(for kind: CommandPaletteItem.Kind) -> CommandPalette
     case .debugTestToast(let toast):
       return .debugTestToast(toast)
   #endif
+  }
+}
+
+private func worktreeDelegateAction(
+  for kind: CommandPaletteItem.Kind
+) -> CommandPaletteFeature.Delegate? {
+  switch kind {
+  case .forkWorktree(let worktreeID, let repositoryID):
+    return .forkWorktree(worktreeID, repositoryID)
+  case .removeWorktree(let worktreeID, let repositoryID):
+    return .removeWorktree(worktreeID, repositoryID)
+  case .archiveWorktree(let worktreeID, let repositoryID):
+    return .archiveWorktree(worktreeID, repositoryID)
+  case .renameBranch(let worktreeID, let repositoryID):
+    return .renameBranch(worktreeID, repositoryID)
+  case .toggleCollapseRepository(let repositoryID):
+    return .toggleCollapseRepository(repositoryID)
+  default:
+    return nil
   }
 }
 
