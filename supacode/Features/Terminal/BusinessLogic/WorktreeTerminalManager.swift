@@ -1094,8 +1094,20 @@ final class WorktreeTerminalManager {
       while !Task.isCancelled {
         try? await sleep(Self.scrollbackPersistInterval)
         guard !Task.isCancelled else { break }
-        self?.persistAllScrollbackAndLayouts()
+        await self?.persistAllScrollbackAndLayoutsCooperative()
       }
+    }
+  }
+
+  /// Periodic persist that yields between surfaces so a large batch can't
+  /// hitch the main thread for the entire duration. Each individual surface
+  /// write still runs on MainActor (required for ghostty surface safety).
+  private func persistAllScrollbackAndLayoutsCooperative() async {
+    guard saveLayoutSnapshot != nil else { return }
+    for (id, state) in states {
+      state.saveScrollbackFiles()
+      markLayoutDirty(worktreeID: id)
+      await Task.yield()
     }
   }
 
