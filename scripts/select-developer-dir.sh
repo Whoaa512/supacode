@@ -51,22 +51,23 @@ for dir in ${candidates[@]+"${candidates[@]}"}; do
   fi
 done
 
+# No Xcode <= 26.3 found. The fork builds the native macOS slice against a
+# hermetic SDK overlay (see scripts/sdk-overlay.sh + build-ghostty.sh / build-zmx.sh),
+# so a 26.4+ Xcode still links. Fall through to the active / default Xcode and let
+# the overlay handle the SDK rather than aborting.
+if current="$(xcode-select -p 2>/dev/null)" && [ -n "${current}" ] && [ -x "${current}/usr/bin/xcodebuild" ]; then
+  printf '%s\n' "${current}"
+  exit 0
+fi
+if [ -d /Applications/Xcode.app ]; then
+  printf '%s\n' "/Applications/Xcode.app/Contents/Developer"
+  exit 0
+fi
+
 cat >&2 <<'EOF'
-error: no Zig-linkable Xcode found.
+error: no usable Xcode found.
 
-  The pinned Zig (0.15.2, required exactly by ghostty) cannot link the macOS
-  26.4+ SDK: it dropped the arm64-macos slice from libSystem.tbd (ziglang/zig
-  #31658, fixed only in Zig 0.16+). Install Xcode 26.3, which ships the macOS
-  26.2 SDK whose .tbd still has arm64-macos:
-
-    https://developer.apple.com/download/all/?q=Xcode%2026.3
-
-  Then accept its license and finish first launch (DEVELOPER_DIR alone is not
-  enough until this completes):
-
-    sudo DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -license accept
-    sudo DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer xcodebuild -runFirstLaunch
-
-  No global `xcode-select -s` is needed. The build picks it up automatically.
+  Install a full Xcode. A Zig-linkable Xcode (<= 26.3) avoids the SDK overlay,
+  but a 26.4+ Xcode also works via the hermetic SDK overlay.
 EOF
 exit 1
