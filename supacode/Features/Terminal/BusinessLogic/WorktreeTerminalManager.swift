@@ -66,6 +66,11 @@ final class WorktreeTerminalManager {
   @ObservationIgnored private var layoutFlushTasks: [Worktree.ID: Task<Void, Never>] = [:]
   /// Sleeps the incremental-save debounce window; injected so tests drive it.
   @ObservationIgnored private let layoutDebounceSleep: @Sendable (Duration) async throws -> Void
+  /// True once the quit-time persist has captured final snapshots. Freezes all
+  /// layout persistence so the terminate-sessions close storm and the
+  /// `applicationWillTerminate` save can't overwrite the just-captured layouts
+  /// with empty ones (which would wipe the rows and break next-launch restore).
+  @ObservationIgnored private var layoutPersistenceFrozenForQuit = false
   /// Debounce window before an incremental layout snapshot is flushed.
   private static let layoutDebounceDuration: Duration = .seconds(1)
   /// Periodic scrollback + layout save cadence (crash safety).
@@ -710,6 +715,7 @@ final class WorktreeTerminalManager {
   /// (freshest tree + agent records), mutated into the in-memory `@Shared` dict
   /// on main, then merged into `layouts.json` off main.
   func markLayoutDirty(worktreeID: Worktree.ID) {
+    guard !layoutPersistenceFrozenForQuit else { return }
     layoutDirtyTasks[worktreeID]?.cancel()
     layoutDirtyTasks[worktreeID] = Task { [weak self, layoutDebounceSleep] in
       try? await layoutDebounceSleep(Self.layoutDebounceDuration)
@@ -722,6 +728,7 @@ final class WorktreeTerminalManager {
   /// `worktreeID`, updates the in-memory `@Shared` dict on main, then queues the
   /// off-main per-key merge. Its only caller is `markLayoutDirty`.
   private func flushLayoutSnapshot(worktreeID: Worktree.ID) {
+    guard !layoutPersistenceFrozenForQuit else { return }
     layoutDirtyTasks[worktreeID] = nil
     guard let state = states[worktreeID] else { return }
     let agents = currentAgentsBySurface?() ?? [:]
@@ -1003,6 +1010,7 @@ final class WorktreeTerminalManager {
   func saveAllLayoutSnapshots(
     agentsBySurface: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]] = [:]
   ) {
+    guard !layoutPersistenceFrozenForQuit else { return }
     guard let saveLayoutSnapshot else {
       assertionFailure("saveLayoutSnapshot closure not configured.")
       return
@@ -1018,6 +1026,21 @@ final class WorktreeTerminalManager {
       changes[id.rawValue] = snapshot.map { .snapshot($0) } ?? .delete
     }
     layoutsWriter.flushSync(changes)
+  }
+
+  /// "Quit and Terminate Sessions": persist layouts + scrollback while the
+  /// surfaces are still alive, then freeze layout persistence so the close
+  /// storm from `terminateAllSessions` can't emit empty snapshots. The zmx
+  /// sessions die here, so the next launch restores these snapshots and takes
+  /// the disk-scrollback replay path.
+  func persistAndTerminateAllSessions(
+    agentsBySurface: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]]
+  ) async {
+    saveAllLayoutSnapshots(agentsBySurface: agentsBySurface)
+    rememberSelectedWorktreeZoomOnQuit()
+    layoutPersistenceFrozenForQuit = true
+    cancelPendingLayoutSaves()
+    await terminateAllSessions()
   }
 
   /// Capture the selected worktree's zoom at quit (no switch fires then).

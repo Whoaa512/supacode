@@ -2295,7 +2295,7 @@ struct AppFeatureDeeplinkTests {
       AppFeature()
     } withDependencies: {
       $0.appLifecycleClient.terminate = { terminated.setValue(true) }
-      $0.terminalClient.terminateAllSessions = { terminateSessionsCalled.setValue(true) }
+      $0.terminalClient.persistAndTerminateAllSessions = { _ in terminateSessionsCalled.setValue(true) }
     }
     store.exhaustivity = .off
 
