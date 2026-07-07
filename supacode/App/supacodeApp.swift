@@ -268,6 +268,9 @@ struct SupacodeApp: App {
         terminateAllSessions: {
           await terminalManager.terminateAllSessions()
         },
+        persistAndTerminateAllSessions: { agentsBySurface in
+          await terminalManager.persistAndTerminateAllSessions(agentsBySurface: agentsBySurface)
+        },
         reapOrphanSessions: { knownSurfaceIDs in
           await terminalManager.reapOrphanSessions(knownSurfaceIDs: knownSurfaceIDs)
         },

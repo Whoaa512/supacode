@@ -2034,9 +2034,13 @@ struct AppFeature {
   private func quitEffect(state: inout State, terminateSessions: Bool) -> Effect<Action> {
     analyticsClient.capture("app_quit", ["terminate_sessions": terminateSessions])
     let pendingFDEffect = drainPendingResponseFD(state: &state, error: "Supacode is quitting.")
+    // Snapshot agent records now so the quit-time persist embeds them; the
+    // persist must run before surfaces close or the layouts get wiped and the
+    // next launch has nothing to restore scrollback into.
+    let agentsBySurface = state.agentPresence.agentsBySurface()
     let terminateEffect: Effect<Action> = .run { @MainActor [terminalClient, appLifecycleClient] _ in
       if terminateSessions {
-        await terminalClient.terminateAllSessions()
+        await terminalClient.persistAndTerminateAllSessions(agentsBySurface)
       }
       appLifecycleClient.terminate()
     }
