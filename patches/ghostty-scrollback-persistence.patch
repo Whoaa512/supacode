@@ -497,7 +497,7 @@ index f05379077..364a6caf1 100644
      // Setup our backend
      try self.backend.threadEnter(self.alloc, self, data);
      errdefer self.backend.threadExit(data);
-@@ -518,6 +540,70 @@ pub fn resize(
+@@ -518,6 +540,83 @@ pub fn resize(
      self.renderer_wakeup.notify() catch {};
  }
  
@@ -544,6 +544,19 @@ index f05379077..364a6caf1 100644
 +            "\x1b[?25h" ++ // cursor visible
 +            "\r\n",
 +    );
++
++    // Scroll everything the replay left on the active screen into
++    // scrollback. The subprocess's first draw may clear the screen
++    // (zmx attach emits ED2+CUP), and ED2 erases rows without saving
++    // them to scrollback, destroying restored content. Scrolling
++    // preserves rows, so the clear only hits blank lines.
++    {
++        const rows_to_push = self.terminal.screens.active.cursor.y + 1;
++        replay_stream.nextSlice("\x1b[9999;1H");
++        var i: usize = 0;
++        while (i < rows_to_push) : (i += 1) replay_stream.nextSlice("\n");
++        replay_stream.nextSlice("\x1b[H");
++    }
 +
 +    // Apply captured side effects after replay
 +    handler = replay_stream.handler;
