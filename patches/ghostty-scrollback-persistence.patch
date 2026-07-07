@@ -285,7 +285,7 @@ index 4a652e96f..658931ee7 100644
 +        var formatter: ScreenFormatter = .init(screen, .{
 +            .emit = .vt,
 +            .unwrap = true,
-+            .trim = false,
++            .trim = true, // padded rows would wrap+split on a narrower restore
 +            .background = self.io.terminal.colors.background.get(),
 +            .foreground = self.io.terminal.colors.foreground.get(),
 +            .palette = &self.io.terminal.colors.palette.current,
