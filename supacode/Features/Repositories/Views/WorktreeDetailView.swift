@@ -272,6 +272,14 @@ struct WorktreeDetailView: View {
           )
           store.send(.repositories(.requestDeleteSidebarItems([target])))
         }
+      } else if selectedWorktree != nil, !terminalManager.hasResolvedLiveZmxSessions {
+        // Defer the first terminal mount until launch-time zmx session
+        // resolution lands: `ensureInitialTab` restores the layout synchronously
+        // in the terminal view's body, and if it wins the race against `zmx ls`
+        // the scrollback replay gate fails closed and disk rehydration is
+        // silently skipped. Resolution is a fast local probe, so this renders
+        // for at most a few frames at launch and never again.
+        DetailPlaceholderView()
       } else if let selectedWorktree {
         let shouldRunSetupScript = selectedSlice?.lifecycle == .pending
         let shouldFocusTerminal = repositories.shouldFocusTerminal(for: selectedWorktree.id)
