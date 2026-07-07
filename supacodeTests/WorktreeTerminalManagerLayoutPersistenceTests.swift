@@ -122,6 +122,29 @@ struct LayoutPersistenceManagerTests {
     #expect(readDict(harness)[worktree.id.rawValue] != nil)
   }
 
+  @Test func quitPersistCapturesLayoutBeforeTerminateAndFreezes() async {
+    let harness = makeHarness()
+    let worktree = makeWorktree()
+    let state = harness.manager.state(for: worktree)
+    _ = state.createTab(focusing: false)
+
+    await harness.manager.persistAndTerminateAllSessions(agentsBySurface: [:])
+
+    // Snapshot captured before the close storm, so the row survives quit.
+    #expect(readDict(harness)[worktree.id.rawValue] != nil)
+
+    // Frozen: the willTerminate save (now seeing zero tabs) must not wipe it.
+    harness.manager.saveAllLayoutSnapshots()
+    await Task.megaYield()
+    #expect(readDict(harness)[worktree.id.rawValue] != nil)
+
+    // Frozen: late dirty marks can't flush an empty snapshot either.
+    harness.manager.markLayoutDirty(worktreeID: worktree.id)
+    await settleThenAdvance(harness.clock)
+    await Task.megaYield()
+    #expect(readDict(harness)[worktree.id.rawValue] != nil)
+  }
+
   @Test func pruneDeletesAndCancelsQueuedSave() async {
     let harness = makeHarness()
     let worktree = makeWorktree()

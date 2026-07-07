@@ -20,8 +20,15 @@ struct TerminalClient {
   /// with the app, so the auto-mode quit confirmation needs to know.
   var hasInflightBlockingScripts: @MainActor @Sendable () -> Bool
   /// Close every tracked surface and kill its zmx session in parallel.
-  /// Awaited from the quit path so teardown completes before process exit.
+  /// Used by the non-quit "Terminate All Terminal Sessions" menu action.
   var terminateAllSessions: @MainActor @Sendable () async -> Void
+  /// Quit-path variant: persist layouts + scrollback first, then terminate.
+  /// Keeps "Quit and Terminate Sessions" restorable on next launch (sessions
+  /// are dead, so restore replays scrollback from disk).
+  var persistAndTerminateAllSessions:
+    @MainActor @Sendable (
+      _ agentsBySurface: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]]
+    ) async -> Void
   /// Kill `supa-*` sessions hosted by the daemon that no persisted layout
   /// references. Called at launch to clean up crash / force-quit orphans.
   var reapOrphanSessions: @MainActor @Sendable (_ knownSurfaceIDs: Set<UUID>) async -> Void
@@ -127,6 +134,9 @@ extension TerminalClient: DependencyKey {
     markNotificationRead: { _, _ in fatalError("TerminalClient.markNotificationRead not configured") },
     hasInflightBlockingScripts: { fatalError("TerminalClient.hasInflightBlockingScripts not configured") },
     terminateAllSessions: { fatalError("TerminalClient.terminateAllSessions not configured") },
+    persistAndTerminateAllSessions: { _ in
+      fatalError("TerminalClient.persistAndTerminateAllSessions not configured")
+    },
     reapOrphanSessions: { _ in fatalError("TerminalClient.reapOrphanSessions not configured") },
     resolveLiveZmxSessions: { fatalError("TerminalClient.resolveLiveZmxSessions not configured") },
     saveLayoutsWithAgents: { _ in fatalError("TerminalClient.saveLayoutsWithAgents not configured") }
@@ -145,6 +155,7 @@ extension TerminalClient: DependencyKey {
     markNotificationRead: unimplemented("TerminalClient.markNotificationRead"),
     hasInflightBlockingScripts: unimplemented("TerminalClient.hasInflightBlockingScripts", placeholder: false),
     terminateAllSessions: unimplemented("TerminalClient.terminateAllSessions"),
+    persistAndTerminateAllSessions: unimplemented("TerminalClient.persistAndTerminateAllSessions"),
     reapOrphanSessions: unimplemented("TerminalClient.reapOrphanSessions"),
     resolveLiveZmxSessions: unimplemented("TerminalClient.resolveLiveZmxSessions"),
     saveLayoutsWithAgents: unimplemented("TerminalClient.saveLayoutsWithAgents")
