@@ -75,6 +75,11 @@ final class WorktreeTerminalManager {
   /// Live zmx session names resolved at launch. Injected into each state so
   /// `scrollbackPathIfAvailable` can skip replay for live sessions.
   @ObservationIgnored private(set) var liveZmxSessionNames: Set<String>?
+  /// True once launch-time zmx session resolution finished (or was unnecessary
+  /// because zmx isn't bundled). `WorktreeDetailView` defers mounting the
+  /// terminal until this flips so the first layout restore can't race the
+  /// `zmx ls` probe and silently skip disk-scrollback replay.
+  private(set) var hasResolvedLiveZmxSessions = false
   /// Reads the freshest `agentsBySurface` at flush time so incremental captures
   /// embed live badge records instead of the empty default.
   var currentAgentsBySurface: (() -> [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]])?
@@ -168,6 +173,7 @@ final class WorktreeTerminalManager {
         Task { @MainActor [weak self] in self?.refreshFocusedSurfaceBackground() }
       }
     )
+    self.hasResolvedLiveZmxSessions = !zmxClient.isBundled()
     startScrollbackPersistTimer(sleep: { duration in try await clock.sleep(for: duration) })
     let resolvedServer = socketServer ?? AgentHookSocketServer()
     guard resolvedServer.socketPath != nil else {
@@ -1078,6 +1084,7 @@ final class WorktreeTerminalManager {
   /// Resolves live zmx sessions at launch and caches the result so restore paths
   /// can gate disk-scrollback replay.
   func resolveLiveZmxSessions() async {
+    defer { hasResolvedLiveZmxSessions = true }
     guard zmxClient.isBundled() else {
       liveZmxSessionNames = Set()
       return
