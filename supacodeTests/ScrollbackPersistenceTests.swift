@@ -118,6 +118,63 @@ struct ScrollbackPersistenceTests {
     #expect(result == true)
   }
 
+  // MARK: - Launch-time zmx resolution gate
+
+  @Test func resolutionFlagStartsFalseWhenZmxBundled() {
+    let manager = withDependencies {
+      $0.zmxClient = ZmxClient(
+        executableURL: { nil },
+        isBundled: { true },
+        killSession: { _ in },
+        listSessionsWithClients: { [] }
+      )
+    } operation: {
+      WorktreeTerminalManager(runtime: GhosttyRuntime())
+    }
+    #expect(manager.hasResolvedLiveZmxSessions == false)
+  }
+
+  @Test func resolutionFlagStartsTrueWhenZmxNotBundled() {
+    let manager = withDependencies {
+      $0.zmxClient = .noop
+    } operation: {
+      WorktreeTerminalManager(runtime: GhosttyRuntime())
+    }
+    #expect(manager.hasResolvedLiveZmxSessions == true)
+  }
+
+  @Test func resolveLiveZmxSessionsFlipsFlagAndCachesNames() async {
+    let manager = withDependencies {
+      $0.zmxClient = ZmxClient(
+        executableURL: { nil },
+        isBundled: { true },
+        killSession: { _ in },
+        listSessionsWithClients: { [.init(name: "supa-live", clients: 1)] }
+      )
+    } operation: {
+      WorktreeTerminalManager(runtime: GhosttyRuntime())
+    }
+    await manager.resolveLiveZmxSessions()
+    #expect(manager.hasResolvedLiveZmxSessions == true)
+    #expect(manager.liveZmxSessionNames == ["supa-live"])
+  }
+
+  @Test func resolveLiveZmxSessionsFlipsFlagEvenWhenProbeFails() async {
+    let manager = withDependencies {
+      $0.zmxClient = ZmxClient(
+        executableURL: { nil },
+        isBundled: { true },
+        killSession: { _ in },
+        listSessionsWithClients: { nil }
+      )
+    } operation: {
+      WorktreeTerminalManager(runtime: GhosttyRuntime())
+    }
+    await manager.resolveLiveZmxSessions()
+    #expect(manager.hasResolvedLiveZmxSessions == true)
+    #expect(manager.liveZmxSessionNames == nil)
+  }
+
   // MARK: - persistScrollbackEnabled gates replay
 
   @Test func replayGatedByPersistScrollbackEnabled() {
