@@ -124,18 +124,63 @@ fi
 
 cd "${zmx_dir}"
 
-# Xcode 26.4+ local-build workaround (zig#31272): zig 0.15.2 can't link the
-# 26.4+ macOS SDK (undefined libSystem symbols). When the active SDK is too new,
-# point zig at the Command Line Tools SDK (<= 26.3) so the build runner + slices
-# link. The ghostty package dep would otherwise also build its iOS xcframework
-# slice (no iOS SDK under CLT); patches/zmx-emit-lib-vt.patch makes zmx request
+# Xcode 26.4+ local-build workaround (zig#31272 / zig#31658): zig 0.15.2 can't
+# link the 26.4+ macOS SDK (undefined libSystem symbols in the build runner).
+# When the active SDK is too new, point zig's SDK lookups at a concrete <= 26.3
+# SDK so the build runner + both slices link. Unlike build-ghostty.sh (which uses
+# the arm64-only stub overlay for its single native slice), zmx builds a universal
+# binary, so we reuse a full <= 26.3 SDK (which ships both arches). We can't rely
+# on DEVELOPER_DIR=CommandLineTools: its default MacOSX.sdk symlink now tracks the
+# newest installed SDK (26.5), so we resolve an explicit older SDK path and shim
+# zig's internal `xcrun --show-sdk-path` at it (SDKROOT alone is ignored by zig).
+# The ghostty package dep would otherwise also build its iOS xcframework slice
+# (no iOS SDK under CLT); patches/zmx-emit-lib-vt.patch makes zmx request
 # emit-lib-vt + emit-xcframework=false so only the native libghostty-vt is built.
+
+# Newest installed macOS SDK whose version is <= 26.3 (zig-linkable), or empty.
+find_linkable_macos_sdk() {
+  local dir sdk ver best="" best_ver=""
+  local sdk_dirs=(
+    /Library/Developer/CommandLineTools/SDKs
+    "$(/usr/bin/xcode-select -p 2>/dev/null)/Platforms/MacOSX.platform/Developer/SDKs"
+  )
+  for dir in "${sdk_dirs[@]}"; do
+    [ -d "${dir}" ] || continue
+    for sdk in "${dir}"/MacOSX*.sdk; do
+      [ -d "${sdk}" ] || continue
+      ver="$(/usr/bin/plutil -extract Version raw "${sdk}/SDKSettings.plist" 2>/dev/null || true)"
+      [ -n "${ver}" ] || continue
+      [ "$(printf '%s\n26.3\n' "${ver}" | sort -V | tail -1)" = "26.3" ] || continue
+      if [ -z "${best_ver}" ] ||
+        [ "$(printf '%s\n%s\n' "${best_ver}" "${ver}" | sort -V | tail -1)" = "${ver}" ]; then
+        best="${sdk}"
+        best_ver="${ver}"
+      fi
+    done
+  done
+  printf '%s' "${best}"
+}
+
 zig_env=()
 active_sdk_ver="$(xcrun --show-sdk-version 2>/dev/null || true)"
 if [ -n "${active_sdk_ver}" ] &&
-  [ "$(printf '%s\n26.3\n' "${active_sdk_ver}" | sort -V | tail -1)" != "26.3" ] &&
-  [ -d /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk ]; then
-  zig_env=(env DEVELOPER_DIR=/Library/Developer/CommandLineTools)
+  [ "$(printf '%s\n26.3\n' "${active_sdk_ver}" | sort -V | tail -1)" != "26.3" ]; then
+  linkable_sdk="$(find_linkable_macos_sdk)"
+  if [ -z "${linkable_sdk}" ]; then
+    echo "error: active macOS SDK ${active_sdk_ver} is too new for zig 0.15.2 and no <= 26.3 SDK was found." >&2
+    echo "       Install an older SDK (Xcode 26.3, or a MacOSX15.x SDK under CommandLineTools) so zmx can link." >&2
+    exit 1
+  fi
+  shim_dir="${zmx_build_root}/sdk-shim"
+  mkdir -p "${shim_dir}"
+  cat > "${shim_dir}/xcrun" <<SHIM
+#!/bin/bash
+if [ "\$1" = "--sdk" ] && [ "\$2" = "macosx" ] && [ "\$3" = "--show-sdk-path" ]; then echo "${linkable_sdk}"; exit 0; fi
+if [ "\$1" = "--show-sdk-path" ]; then echo "${linkable_sdk}"; exit 0; fi
+exec /usr/bin/xcrun "\$@"
+SHIM
+  chmod +x "${shim_dir}/xcrun"
+  zig_env=(env "PATH=${shim_dir}:${PATH}" "SDKROOT=${linkable_sdk}")
 fi
 
 slice_paths=()
