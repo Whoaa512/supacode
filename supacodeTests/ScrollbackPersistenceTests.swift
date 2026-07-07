@@ -126,6 +126,7 @@ struct ScrollbackPersistenceTests {
         executableURL: { nil },
         isBundled: { true },
         killSession: { _ in },
+        killRemoteSession: { _, _ in },
         listSessionsWithClients: { [] }
       )
     } operation: {
@@ -149,6 +150,7 @@ struct ScrollbackPersistenceTests {
         executableURL: { nil },
         isBundled: { true },
         killSession: { _ in },
+        killRemoteSession: { _, _ in },
         listSessionsWithClients: { [.init(name: "supa-live", clients: 1)] }
       )
     } operation: {
@@ -165,6 +167,7 @@ struct ScrollbackPersistenceTests {
         executableURL: { nil },
         isBundled: { true },
         killSession: { _ in },
+        killRemoteSession: { _, _ in },
         listSessionsWithClients: { nil }
       )
     } operation: {

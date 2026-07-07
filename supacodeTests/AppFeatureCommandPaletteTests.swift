@@ -2,6 +2,7 @@ import ComposableArchitecture
 import DependenciesTestSupport
 import Foundation
 import IdentifiedCollections
+import OrderedCollections
 import Testing
 
 @testable import SupacodeSettingsFeature
