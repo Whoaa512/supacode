@@ -984,6 +984,140 @@ struct RepositoriesFeatureTests {
     }
   }
 
+  @Test func forkWorktreeSeedsPromptWithSourceBranchAsBaseRef() async {
+    let repoRoot = "/tmp/repo"
+    let mainWorktree = makeWorktree(id: repoRoot, name: "main", repoRoot: repoRoot)
+    let featureWorktree = makeWorktree(
+      id: "/tmp/repo/feature", name: "feature", repoRoot: repoRoot)
+    let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree, featureWorktree])
+    var initialState = makeState(repositories: [repository])
+    initialState.reconcileSidebarForTesting()
+    let store = TestStore(initialState: initialState) {
+      RepositoriesFeature()
+    } withDependencies: {
+      $0.gitClient.automaticWorktreeBaseRef = { _ in "origin/main" }
+      $0.gitClient.remoteNames = { _ in ["origin"] }
+      $0.gitClient.branchInventory = { _, _ in
+        GitBranchInventory(
+          localBranches: ["feature", "main"],
+          remotes: [GitRemoteBranchGroup(name: "origin", branches: ["main"])]
+        )
+      }
+    }
+
+    await store.send(
+      .forkWorktree(worktreeID: featureWorktree.id, repositoryID: repository.id))
+    await store.receive(\.promptedWorktreeCreationDataLoaded) {
+      $0.worktreeCreationPrompt = WorktreeCreationPromptFeature.State(
+        repositoryID: repository.id,
+        repositoryRootURL: repository.rootURL,
+        repositoryName: repository.name,
+        automaticBaseRef: "origin/main",
+        defaultBranch: "main",
+        remoteNames: ["origin"],
+        branchMenu: nil,
+        branchName: "",
+        selectedBaseRef: "feature",
+        fetchOrigin: true,
+        defaultWorktreeBaseDirectory: expectedDefaultWorktreeBaseDirectory(
+          for: repository.rootURL),
+        validationMessage: nil
+      )
+    }
+    await store.receive(\.promptedWorktreeBranchesLoaded) {
+      $0.worktreeCreationPrompt?.branchMenu = BaseRefBranchMenu(
+        inventory: GitBranchInventory(
+          localBranches: ["feature", "main"],
+          remotes: [GitRemoteBranchGroup(name: "origin", branches: ["main"])]
+        ),
+        hoistedLocalBranch: "main"
+      )
+    }
+  }
+
+  @Test func forkWorktreeWithUnknownWorktreeIsNoOp() async {
+    let repoRoot = "/tmp/repo"
+    let mainWorktree = makeWorktree(id: repoRoot, name: "main", repoRoot: repoRoot)
+    let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree])
+    var initialState = makeState(repositories: [repository])
+    initialState.reconcileSidebarForTesting()
+    let store = TestStore(initialState: initialState) {
+      RepositoriesFeature()
+    }
+
+    await store.send(
+      .forkWorktree(worktreeID: WorktreeID("/tmp/repo/missing"), repositoryID: repository.id))
+  }
+
+  @Test func forkWorktreeForNonGitRepositoryShowsAlert() async {
+    let folderURL = URL(fileURLWithPath: "/tmp/folderRepo")
+    let folderWorktree = Worktree(
+      id: Repository.folderWorktreeID(for: folderURL),
+      kind: .folder,
+      name: Repository.name(for: folderURL),
+      detail: "",
+      workingDirectory: folderURL,
+      repositoryRootURL: folderURL
+    )
+    let folderRepo = Repository(
+      id: RepositoryID("/tmp/folderRepo"),
+      rootURL: folderURL,
+      name: Repository.name(for: folderURL),
+      worktrees: IdentifiedArray(uniqueElements: [folderWorktree]),
+      isGitRepository: false
+    )
+    var initialState = makeState(repositories: [folderRepo])
+    initialState.reconcileSidebarForTesting()
+    let store = TestStore(initialState: initialState) {
+      RepositoriesFeature()
+    }
+
+    let expectedAlert = AlertState<RepositoriesFeature.Alert> {
+      TextState("Unable to create worktree")
+    } actions: {
+      ButtonState(role: .cancel) {
+        TextState("OK")
+      }
+    } message: {
+      TextState("Worktrees are only supported for git repositories.")
+    }
+
+    await store.send(
+      .forkWorktree(worktreeID: folderWorktree.id, repositoryID: folderRepo.id)) {
+      $0.alert = expectedAlert
+    }
+  }
+
+  @Test func forkWorktreeWhileRepositoryRemovingShowsAlert() async {
+    let repoRoot = "/tmp/repo"
+    let mainWorktree = makeWorktree(id: repoRoot, name: "main", repoRoot: repoRoot)
+    let repository = makeRepository(id: repoRoot, worktrees: [mainWorktree])
+    var initialState = makeState(repositories: [repository])
+    initialState.reconcileSidebarForTesting()
+    initialState.removingRepositoryIDs[repository.id] = RepositoriesFeature.RepositoryRemovalRecord(
+      disposition: .gitRepositoryUnlink,
+      batchID: UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
+    )
+    let store = TestStore(initialState: initialState) {
+      RepositoriesFeature()
+    }
+
+    let expectedAlert = AlertState<RepositoriesFeature.Alert> {
+      TextState("Unable to create worktree")
+    } actions: {
+      ButtonState(role: .cancel) {
+        TextState("OK")
+      }
+    } message: {
+      TextState("This repository is being removed.")
+    }
+
+    await store.send(
+      .forkWorktree(worktreeID: mainWorktree.id, repositoryID: repository.id)) {
+      $0.alert = expectedAlert
+    }
+  }
+
   @Test func promptedWorktreeBranchesLoadedResetsStalePersistedBaseRef() async {
     let repoRoot = "/tmp/repo"
     let mainWorktree = makeWorktree(id: repoRoot, name: "main", repoRoot: repoRoot)
