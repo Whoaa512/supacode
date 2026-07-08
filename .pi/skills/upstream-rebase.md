@@ -100,13 +100,32 @@ Known pre-existing quirks (NOT introduced by the sync — verify against `cj-mai
 
 Fix syntax fallout from cherry-picks (stray/duplicate braces from conflict resolution are common — e.g. an extra `}` closing a SwiftUI `switch`/`VStack` early, or a doubled `}` ending a test func). Also watch swiftlint **cyclomatic_complexity** (limit 15): cherry-picked features that add a branch/case to an already-near-limit function (e.g. `performSplitAction`, `delegateAction`) tip it over — extract the case body into a helper (matches the repo's line-of-sight style). Commit cleanup on the throwaway branch (commit the specific files, never `git add -A` after a stray `make check`).
 
+## 5b. Agent-integration protocol drift check
+
+The app talks to locally-installed agent hook extensions (`~/.pi/agent/extensions/`, `~/.claude/`, etc.). Upstream can change the wire protocol and silently orphan installed extensions — 2026-07-07 regression: upstream removed JSON event handling from `AgentHookSocketServer` (socket became CLI command/query only; presence/notifications moved to OSC 3008 via `AgentPresenceOSC`), which killed a custom socket-based pi extension's agent indicators.
+
+On every sync:
+
+```bash
+# Did the protocol surface change?
+git diff cj-main...HEAD --stat -- supacode/Infrastructure/AgentHookSocketServer.swift \
+  SupacodeSettingsShared/BusinessLogic/AgentPresenceOSC.swift \
+  SupacodeSettingsShared/BusinessLogic/*ExtensionContent.swift \
+  SupacodeSettingsShared/BusinessLogic/*Installer.swift
+```
+
+If yes:
+1. Re-install the managed extensions so installed copies match the new `*ExtensionContent` (Settings → agent integrations should read "Installed", not "Outdated"). For pi, the managed file is `~/.pi/agent/extensions/supacode/index.ts` and must byte-match `PiExtensionContent.indexTs`.
+2. Check for **custom/unmanaged** extensions speaking app protocols (`rg -l SUPACODE_SOCKET_PATH ~/.pi/agent/extensions/` etc.) — these break silently. Prefer replacing with the managed extension (upstream pins its behavior in tests); only keep a custom one if it has features the managed one lacks, and update it to the new protocol.
+3. Add "agent presence badge on a NEW pi session" to the dogfood checklist below.
+
 ## 6. Install dev build for dogfooding
 
 ```bash
 make install-dev-build   # builds + copies to /Applications
 ```
 
-Tell the user exactly which features to validate: the kept fork features (scrollback persistence, in-app project browser ⌘⇧O, fork-worktree-from-branch, equalize-splits-on-split setting, upstream update checker for dev builds, dev menu-bar name / supacode-dev.app, compare-apps) plus anything you **skipped/re-implemented** in step 4. Sidebar folders + base-ref picker were dropped in prior syncs (upstream subsumed / rebuilt them) — call out any re-impl still pending.
+Tell the user exactly which features to validate: the kept fork features (scrollback persistence, in-app project browser ⌘⇧O, fork-worktree-from-branch, equalize-splits-on-split setting, upstream update checker for dev builds, dev menu-bar name / supacode-dev.app, compare-apps), the agent presence badge in a **new** pi session (see 5b), plus anything you **skipped/re-implemented** in step 4. Sidebar folders + base-ref picker were dropped in prior syncs (upstream subsumed / rebuilt them) — call out any re-impl still pending.
 
 ## 7. WAIT for user validation
 
