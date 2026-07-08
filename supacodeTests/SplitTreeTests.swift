@@ -263,6 +263,75 @@ struct SplitTreeTests {
     }
   }
 
+  @Test(.dependencies) func closeEqualizesRemainingSplitsWhenSettingEnabled() throws {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.equalizeSplitsOnSplit = true }
+
+    let state = WorktreeTerminalState(
+      runtime: GhosttyRuntime(),
+      worktree: makeWorktree(),
+      splitPreserveZoomOnNavigation: { false },
+    )
+    let tabId = state.createTab()!
+    let first = state.splitTree(for: tabId).root!.leftmostLeaf()
+
+    _ = state.performSplitAction(.newSplit(direction: .right), for: first.id)
+    let second = state.splitTree(for: tabId).leaves().first { $0.id != first.id }!
+    _ = state.performSplitAction(.newSplit(direction: .right), for: second.id)
+    let third = state.splitTree(for: tabId).leaves()
+      .first { $0.id != first.id && $0.id != second.id }!
+
+    // Weighted equalize while building leaves the top split off 0.5.
+    if case .split(let topSplit) = state.splitTree(for: tabId).root {
+      #expect(abs(topSplit.ratio - 0.5) > 0.01)
+    }
+
+    third.bridge.closeSurface(processAlive: false)
+
+    let tree = state.splitTree(for: tabId)
+    #expect(tree.leaves().count == 2)
+    if case .split(let topSplit) = tree.root {
+      #expect(abs(topSplit.ratio - 0.5) < 0.01)
+    }
+  }
+
+  @Test(.dependencies) func closeDoesNotEqualizeWhenSettingDisabled() throws {
+    @Shared(.settingsFile) var settingsFile
+    // Build a skewed tree with the setting on so the top split is off 0.5…
+    $settingsFile.withLock { $0.global.equalizeSplitsOnSplit = true }
+
+    let state = WorktreeTerminalState(
+      runtime: GhosttyRuntime(),
+      worktree: makeWorktree(),
+      splitPreserveZoomOnNavigation: { false },
+    )
+    let tabId = state.createTab()!
+    let first = state.splitTree(for: tabId).root!.leftmostLeaf()
+
+    _ = state.performSplitAction(.newSplit(direction: .right), for: first.id)
+    let second = state.splitTree(for: tabId).leaves().first { $0.id != first.id }!
+    _ = state.performSplitAction(.newSplit(direction: .right), for: second.id)
+    let third = state.splitTree(for: tabId).leaves()
+      .first { $0.id != first.id && $0.id != second.id }!
+
+    guard case .split(let skewedTop) = state.splitTree(for: tabId).root else {
+      Issue.record("Expected a split root")
+      return
+    }
+    let ratioBefore = skewedTop.ratio
+    #expect(abs(ratioBefore - 0.5) > 0.01)
+
+    // …then disable the setting: closing must leave the surviving ratio untouched.
+    $settingsFile.withLock { $0.global.equalizeSplitsOnSplit = false }
+    third.bridge.closeSurface(processAlive: false)
+
+    let tree = state.splitTree(for: tabId)
+    #expect(tree.leaves().count == 2)
+    if case .split(let topSplit) = tree.root {
+      #expect(abs(topSplit.ratio - ratioBefore) < 0.01)
+    }
+  }
+
   private func makeWorktreeFixture(preserveZoomOnNavigation: Bool) -> WorktreeFixture {
     let state = WorktreeTerminalState(
       runtime: GhosttyRuntime(),
