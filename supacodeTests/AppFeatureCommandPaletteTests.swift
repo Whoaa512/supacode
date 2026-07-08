@@ -48,6 +48,8 @@ struct AppFeatureCommandPaletteTests {
   @Test(.dependencies) func openRepositoryEntersBrowseMode() async {
     let store = TestStore(initialState: AppFeature.State()) {
       AppFeature()
+    } withDependencies: {
+      $0.fileSystemBrowseClient.listDirectory = { _ in [] }
     }
     store.exhaustivity = .off
 
@@ -142,10 +144,20 @@ struct AppFeatureCommandPaletteTests {
   @Test(.dependencies) func checkForUpdatesDispatchesUpdateAction() async {
     let store = TestStore(initialState: AppFeature.State()) {
       AppFeature()
+    } withDependencies: {
+      $0.date = .constant(Date(timeIntervalSince1970: 0))
+      $0.upstreamUpdateClient.checkForUpdates = { _, _, _ in nil }
     }
+    store.exhaustivity = .off
 
     await store.send(.commandPalette(.delegate(.checkForUpdates)))
-    await store.receive(\.updates.checkForUpdates)
+    // In DEBUG builds the palette routes update checks to the fork's upstream
+    // update checker; release builds use the Sparkle-backed updates feature.
+    #if DEBUG
+      await store.receive(\.upstreamUpdate.checkForUpdates)
+    #else
+      await store.receive(\.updates.checkForUpdates)
+    #endif
   }
 
   @Test(.dependencies) func ghosttyCommandDispatchesBindingActionToTerminalClient() async {
