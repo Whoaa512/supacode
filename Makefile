@@ -48,7 +48,7 @@ SELECT_DEVELOPER_DIR = DEVELOPER_DIR="$$(./scripts/select-developer-dir.sh)"; ex
 LOCAL_XCODEBUILD_FLAGS ?= $(shell xcodebuild -version 2>/dev/null | awk '/^Xcode 26\.[4-9]/{print "SWIFT_VERSION=5"}')
 
 .DEFAULT_GOAL := help
-.PHONY: doctor preflight build-ghostty-xcframework build-zmx generate-project generate-project-sources inspect-dependencies warm-cache build-app run-app compare-apps install-dev-build archive export-archive format lint check test bump-version bump-and-release log-stream
+.PHONY: doctor preflight build-ghostty-xcframework build-zmx smoke-zmx-replay generate-project generate-project-sources inspect-dependencies warm-cache build-app run-app compare-apps install-dev-build archive export-archive format lint check test bump-version bump-and-release log-stream
 
 ifdef CI
 TUIST_INSTALL_FLAGS := --force-resolved-versions
@@ -108,6 +108,9 @@ build-ghostty-xcframework: | preflight # Build ghostty framework
 
 build-zmx: | preflight # Build bundled zmx binary from ThirdParty/zmx submodule
 	./scripts/build-zmx.sh
+
+smoke-zmx-replay: build-zmx # Verify zmx scrollback state survives client kill + reattach
+	./scripts/smoke-zmx-scrollback-replay.sh
 
 inspect-dependencies: $(TUIST_INSTALL_STAMP) # Check for implicit Tuist dependencies
 	mise exec -- tuist inspect dependencies --only implicit
