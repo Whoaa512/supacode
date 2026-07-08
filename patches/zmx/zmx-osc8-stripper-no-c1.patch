@@ -1,0 +1,32 @@
+diff --git a/src/util.zig b/src/util.zig
+index 1ead461..3aab3aa 100644
+--- a/src/util.zig
++++ b/src/util.zig
+@@ -25,9 +25,7 @@ pub const Osc8Stripper = struct {
+     }
+ 
+     pub fn strip(self: *Osc8Stripper, alloc: std.mem.Allocator, input: []const u8) ![]const u8 {
+-        if (self.state == .ground and std.mem.indexOfScalar(u8, input, 0x1b) == null and
+-            std.mem.indexOfScalar(u8, input, 0x9d) == null)
+-        {
++        if (self.state == .ground and std.mem.indexOfScalar(u8, input, 0x1b) == null) {
+             return input;
+         }
+ 
+@@ -40,11 +38,11 @@ pub const Osc8Stripper = struct {
+                         try self.pending.append(alloc, byte);
+                         self.state = .esc;
+                     },
+-                    0x9d => {
+-                        self.pending.clearRetainingCapacity();
+-                        try self.pending.append(alloc, byte);
+-                        self.state = .osc;
+-                    },
++                    // NOTE: raw 0x9D (C1 OSC) is intentionally NOT treated as an
++                    // OSC introducer: in a UTF-8 stream 0x9D is a continuation
++                    // byte (e.g. the last byte of U+255D "╝"), and consuming it
++                    // here swallows subsequent output from the tracked state
++                    // until the next BEL/ST, corrupting scrollback replay.
+                     else => try self.output.append(alloc, byte),
+                 },
+                 .esc => {
