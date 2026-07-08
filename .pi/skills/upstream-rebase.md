@@ -87,7 +87,20 @@ When a conflict is **ambiguous** — doesn't match a documented pattern, both si
 make check          # swift-format + swiftlint (strict)
 make build-app      # Debug build via xcodebuild
 make test           # all tests; add tests for any reducer logic touched
+./scripts/test-select-developer-dir.sh   # fork's SDK-overlay fallthrough (upstream #468 clobbers it)
 ```
+
+**Fork-feature regression tests — these must be GREEN, by name.** Do not wave failures through as "pre-existing": in the 2026-07 sync the browse-mode and update-checker guards had rotted red and masked real risk. Run at least these suites and verify the named tests pass (via xcresulttool if needed; `-only-testing` only works at suite granularity with swift-testing):
+
+| Fork feature | Suite / test |
+|---|---|
+| Browse mode (⌘⇧O) + update checker | `AppFeatureCommandPaletteTests` — `openRepositoryEntersBrowseMode`, `checkForUpdatesDispatchesUpdateAction` |
+| Fork-worktree-from-branch | `RepositoriesFeatureTests` — `forkWorktree*` (4 tests) |
+| Auto-equalize setting (split + close gates) | `SplitTreeTests` — `newSplitEqualizes*`, `closeEqualizes*`, `closeDoesNotEqualize*` |
+| Scrollback persistence | `ScrollbackPersistenceTests` + `./scripts/smoke-zmx-scrollback-replay.sh` |
+| SDK-overlay Xcode fallthrough | `./scripts/test-select-developer-dir.sh` |
+
+Known true flake (ordering, passes in isolation): `settingsChangedPropagatesRepositorySettings`.
 
 Known pre-existing quirks (NOT introduced by the sync — verify against `cj-main` before chasing):
 - TCA + current Xcode strict concurrency can surface a single error in TCA itself; `SWIFT_VERSION=5` on the app target is the existing mitigation (Makefile auto-injects `LOCAL_XCODEBUILD_FLAGS=SWIFT_VERSION=5` on Xcode 26.4/26.5).
