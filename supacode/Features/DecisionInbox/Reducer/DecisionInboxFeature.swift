@@ -19,10 +19,13 @@ struct DecisionInboxFeature {
     /// the UI must subtract it itself). Kept as an `IdentifiedArray` keyed by
     /// candidate id so the list view diffs cheaply.
     var candidates: IdentifiedArrayOf<AttentionCandidate> = []
-    /// Candidate ids the user resolved (focused / copied / dismissed) that the
-    /// detector still reports. Pruned once the underlying candidate clears via a
-    /// real event, so a genuinely new signal for the same surface resurfaces.
-    var resolvedIDs: Set<String> = []
+    /// Snapshots of candidates the user resolved (focused / copied / dismissed)
+    /// that the detector still reports, keyed by id. Storing the whole candidate
+    /// lets us resurface a re-asked signal: `input_requested` updates in place
+    /// under the same id, so when the current candidate differs from the resolved
+    /// snapshot (e.g. a changed recommendation) we drop the marker and show it
+    /// again. Pruned once the underlying candidate clears via a real event.
+    var resolved: [String: AttentionCandidate] = [:]
     /// Whether the inbox popover is open.
     var isPresented = false
 
@@ -64,7 +67,7 @@ struct DecisionInboxFeature {
         guard let candidate = state.candidates[id: id] else { return .none }
         let sessionID = candidate.sessionID
         let resolution = Self.resolution(candidate, action: .focused, at: date.now)
-        Self.resolve(id, in: &state)
+        Self.resolve(candidate, in: &state)
         return .merge(
           .run { _ in client.persistResolution(resolution) },
           .send(.delegate(.focusSurface(sessionID: sessionID)))
@@ -74,7 +77,7 @@ struct DecisionInboxFeature {
         guard let candidate = state.candidates[id: id] else { return .none }
         let text = candidate.suggestedResponse
         let resolution = Self.resolution(candidate, action: .copied, at: date.now)
-        Self.resolve(id, in: &state)
+        Self.resolve(candidate, in: &state)
         return .run { _ in
           client.copyToPasteboard(text)
           client.persistResolution(resolution)
@@ -83,26 +86,30 @@ struct DecisionInboxFeature {
       case .dismissTapped(let id):
         guard let candidate = state.candidates[id: id] else { return .none }
         let resolution = Self.resolution(candidate, action: .dismissed, at: date.now)
-        Self.resolve(id, in: &state)
+        Self.resolve(candidate, in: &state)
         return .run { _ in client.persistResolution(resolution) }
       }
     }
   }
 
-  /// Rebuild the presentation list from the detector, subtracting resolved ids
-  /// and forgetting resolved ids the detector no longer reports (so a fresh
-  /// signal for the same surface can resurface).
+  /// Rebuild the presentation list from the detector, subtracting resolved
+  /// candidates. A resolved marker is kept only while its snapshot still matches
+  /// the detector's current candidate for that id: if the detector no longer
+  /// reports the id, or reports a changed candidate (a re-ask updated in place),
+  /// the marker is dropped so the fresh signal resurfaces.
   private static func reproject(_ state: inout State) {
     let all = state.detector.candidates
-    state.resolvedIDs.formIntersection(Set(all.map(\.id)))
+    let byID = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
+    state.resolved = state.resolved.filter { id, snapshot in byID[id] == snapshot }
     state.candidates = IdentifiedArray(
-      uniqueElements: all.filter { !state.resolvedIDs.contains($0.id) })
+      uniqueElements: all.filter { state.resolved[$0.id] == nil })
   }
 
-  /// Mark a candidate resolved and drop it from the visible list immediately.
-  private static func resolve(_ id: AttentionCandidate.ID, in state: inout State) {
-    state.resolvedIDs.insert(id)
-    state.candidates.remove(id: id)
+  /// Mark a candidate resolved (snapshotting its payload) and drop it from the
+  /// visible list immediately.
+  private static func resolve(_ candidate: AttentionCandidate, in state: inout State) {
+    state.resolved[candidate.id] = candidate
+    state.candidates.remove(id: candidate.id)
   }
 
   private static func resolution(
