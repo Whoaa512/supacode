@@ -21,7 +21,7 @@ struct DecisionInboxButton: View {
       .labelStyle(.iconOnly)
       .overlay(alignment: .topTrailing) {
         if store.unresolvedCount > 0 {
-          Text("\(store.unresolvedCount)")
+          Text(store.unresolvedCount > 99 ? "99+" : "\(store.unresolvedCount)")
             .font(.caption2.monospacedDigit())
             .foregroundStyle(.white)
             .padding(.horizontal, 4)
