@@ -21,10 +21,11 @@ struct DecisionInboxClient: Sendable {
 
 extension DecisionInboxClient: DependencyKey {
   /// `persistResolution` is overridden in `supacodeApp.makeStore(_:)` to reach
-  /// the manager's `AgentEventLog`; the placeholder no-ops so a dropped override
-  /// degrades to "history not recorded" rather than crashing a release build.
+  /// the manager's `AgentEventLog`; the placeholder genuinely no-ops so a dropped
+  /// override degrades to "history not recorded" rather than reporting an issue
+  /// or crashing a release build.
   static let liveValue = DecisionInboxClient(
-    persistResolution: unimplemented("DecisionInboxClient.persistResolution"),
+    persistResolution: { _ in },
     copyToPasteboard: { text in
       let pasteboard = NSPasteboard.general
       pasteboard.clearContents()
