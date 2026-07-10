@@ -3253,4 +3253,26 @@ struct WorktreeTerminalManagerTests {
     #expect(notificationCount.value == 0)
     #expect(manager.selectedWorktreeID == first)
   }
+
+  @Test func dispatchingHookEventPersistsToDurableLogAtIngest() async {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("wtm-ingest-tests/\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let stampedAt = Date(timeIntervalSince1970: 1_700_000_000)
+    let log = AgentEventLog(directory: directory)
+    let manager = WorktreeTerminalManager(
+      runtime: GhosttyRuntime(), agentEventLog: log, now: { stampedAt })
+    let surfaceID = UUID()
+
+    manager.dispatchHookEventForTesting(
+      AgentHookEvent(agent: "claude", event: "input_requested", surfaceID: surfaceID))
+    manager.dispatchHookEventForTesting(
+      AgentHookEvent(agent: "claude", event: "process_exited", surfaceID: surfaceID))
+    await log.flush()
+
+    let replayed = await log.replay(sessionKey: surfaceID.uuidString)
+    #expect(replayed.map(\.event) == ["input_requested", "process_exited"])
+    // No emitter `ts`, so the main-actor `now` stamps the ingest boundary.
+    #expect(replayed.allSatisfy { $0.timestamp == stampedAt })
+  }
 }

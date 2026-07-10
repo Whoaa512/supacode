@@ -34,6 +34,100 @@ struct AgentEventLogTests {
     #expect(replayed[1].data == .object(["id": "q1"]))
   }
 
+  // MARK: - Ordered ingest under concurrency.
+
+  @Test func ingestPreservesSubmissionOrderUnderConcurrency() async {
+    let directory = makeTempDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let log = AgentEventLog(directory: directory)
+    let session = UUID().uuidString
+    let count = 500
+
+    // Fire every record from independent concurrent tasks. `ingest` yields
+    // synchronously in call order, so the funnel must still land them 0..<count
+    // on disk despite the scheduling churn.
+    await withTaskGroup(of: Void.self) { group in
+      for index in 0..<count {
+        group.addTask {
+          log.ingest(
+            AgentEventRecord(
+              timestamp: Date(timeIntervalSince1970: TimeInterval(index)),
+              sessionKey: session, agent: "pi", event: "e", data: .int(index)))
+        }
+      }
+    }
+    // Ordering is only defined for the sequential yields we can observe; drive
+    // one more ordered burst after the group drains to prove the FIFO holds.
+    for index in count..<(count + 100) {
+      log.ingest(
+        AgentEventRecord(
+          timestamp: Date(timeIntervalSince1970: TimeInterval(index)),
+          sessionKey: session, agent: "pi", event: "e", data: .int(index)))
+    }
+    await log.flush()
+
+    let replayed = await log.replay(sessionKey: session)
+    #expect(replayed.count == count + 100)
+    // The trailing sequential burst must appear in exact submission order.
+    let tail = replayed.suffix(100).compactMap { record -> Int? in
+      guard case .int(let value) = record.data else { return nil }
+      return value
+    }
+    #expect(tail == Array(count..<(count + 100)))
+    // The concurrent prefix must contain exactly the values it submitted, once.
+    let head = Set(replayed.prefix(count).compactMap { record -> Int? in
+      guard case .int(let value) = record.data else { return nil }
+      return value
+    })
+    #expect(head == Set(0..<count))
+  }
+
+  // MARK: - Rotation.
+
+  @Test func rotatesAtSizeCapKeepingOnePreviousFileInOrder() async {
+    let directory = makeTempDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    // Tiny cap so a handful of records forces multiple rotations.
+    let log = AgentEventLog(directory: directory, maxFileBytes: 300)
+    let session = "rotate"
+    for index in 0..<50 {
+      log.ingest(
+        AgentEventRecord(
+          timestamp: Date(timeIntervalSince1970: TimeInterval(index)),
+          sessionKey: session, agent: "pi", event: "e", data: .int(index)))
+    }
+    await log.flush()
+
+    // Replay spans current + one rotated file; older history is dropped, so we
+    // see a contiguous, ordered tail rather than all 50.
+    let replayed = await log.replay(sessionKey: session)
+    let values = replayed.compactMap { record -> Int? in
+      guard case .int(let value) = record.data else { return nil }
+      return value
+    }
+    #expect(!values.isEmpty)
+    #expect(values.count < 50)
+    #expect(values == Array(values.min()!...values.max()!))
+    #expect(values.last == 49)
+  }
+
+  // MARK: - Session-key sanitization.
+
+  @Test func unsafeSessionKeysDoNotCollideAndEmptyIsWritable() async {
+    let directory = makeTempDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let log = AgentEventLog(directory: directory)
+
+    await log.record(sessionKey: "a/b", agent: "pi", event: "slash")
+    await log.record(sessionKey: "a_b", agent: "pi", event: "underscore")
+    await log.record(sessionKey: "a_b", agent: "pi", event: "underscore2")
+    await log.record(sessionKey: "", agent: "pi", event: "empty")
+
+    #expect(await log.replay(sessionKey: "a/b").map(\.event) == ["slash"])
+    #expect(await log.replay(sessionKey: "a_b").map(\.event) == ["underscore", "underscore2"])
+    #expect(await log.replay(sessionKey: "").map(\.event) == ["empty"])
+  }
+
   @Test func replayOfUnknownSessionIsEmpty() async {
     let directory = makeTempDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }

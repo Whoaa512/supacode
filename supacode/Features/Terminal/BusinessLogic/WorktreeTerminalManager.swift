@@ -55,6 +55,9 @@ final class WorktreeTerminalManager {
   /// surface. Nil only when Application Support can't be resolved; the ingest
   /// path degrades to no-logging rather than dropping events on the floor.
   @ObservationIgnored private let agentEventLog: AgentEventLog?
+  /// Stamps the ingest timestamp on the main actor so a reordered dispatch can
+  /// never rewrite when an event happened. Injected for deterministic tests.
+  @ObservationIgnored private let now: @Sendable () -> Date
   @ObservationIgnored @Dependency(\.zmxClient) private var zmxClient
   @ObservationIgnored @Dependency(\.analyticsClient) private var analyticsClient
   /// Serialized off-main writer that merges per-worktree layout changes into
@@ -167,8 +170,10 @@ final class WorktreeTerminalManager {
     agentEventLog: AgentEventLog? = AgentEventLog.applicationSupportDirectory().map {
       AgentEventLog(directory: $0)
     },
+    now: @escaping @Sendable () -> Date = { Date() },
   ) {
     self.agentEventLog = agentEventLog
+    self.now = now
     self.eventBufferCap = eventBufferCap
     self.runtime = runtime
     self.focusedSurfaceBackground = runtime.backgroundColor()
@@ -263,27 +268,19 @@ final class WorktreeTerminalManager {
   }
 
   /// Persists every incoming hook event (existing + new) to the durable log,
-  /// keyed by surface. Fire-and-forget onto the log actor so ingest never
-  /// blocks the main actor. The typed `input_requested` / `input_resolved`
-  /// payloads are decoded here purely to surface a shape mismatch in logs; the
-  /// raw payload is what gets persisted, so an unknown event is never dropped.
+  /// keyed by surface. Stamps the timestamp here on the main actor (preferring
+  /// the emitter's own `ts` when present) and hands a fully-formed record to the
+  /// log's ordered ingest, so writes land in submission order and the raw
+  /// payload is preserved verbatim — an unknown event is never dropped.
   private func persistHookEvent(_ event: AgentHookEvent) {
     guard let agentEventLog else { return }
-    switch event.eventName {
-    case .inputRequested:
-      _ = event.decodeData(InputRequested.self)
-    case .inputResolved:
-      _ = event.decodeData(InputResolved.self)
-    default:
-      break
-    }
-    let sessionKey = event.surfaceID.uuidString
-    let agent = event.agent
-    let name = event.event
-    let data = event.data
-    Task {
-      await agentEventLog.record(sessionKey: sessionKey, agent: agent, event: name, data: data)
-    }
+    let record = AgentEventRecord(
+      timestamp: event.timestamp ?? now(),
+      sessionKey: event.surfaceID.uuidString,
+      agent: event.agent,
+      event: event.event,
+      data: event.data)
+    agentEventLog.ingest(record)
   }
 
   #if DEBUG
@@ -291,6 +288,10 @@ final class WorktreeTerminalManager {
     /// resume removes its key only after it emits, so a non-zero count means a
     /// pending idle event has not yet landed in the stream.
     var pendingIdleHookCountForTesting: Int { pendingIdleHookEvents.count }
+
+    /// Drives a hook event through the real dispatch path (persist + apply) so
+    /// tests can assert the durable-log ingest wiring without spinning surfaces.
+    func dispatchHookEventForTesting(_ event: AgentHookEvent) { dispatchHookEvent(event) }
   #endif
 
   // MARK: - CLI queries.
