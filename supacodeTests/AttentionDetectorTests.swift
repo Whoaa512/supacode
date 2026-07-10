@@ -52,7 +52,8 @@ struct AttentionDetectorTests {
 
     let candidate = try #require(detector.candidates.first)
     #expect(detector.candidates.count == 1)
-    #expect(candidate.id == "q1")
+    #expect(candidate.id == "\(surfaceA.uuidString):q1")
+    #expect(candidate.requestID == "q1")
     #expect(candidate.sessionID == surfaceA)
     #expect(candidate.kind == .inputRequested)
     #expect(candidate.question == "Rebase or merge?")
@@ -87,7 +88,32 @@ struct AttentionDetectorTests {
           "input_resolved", surface: surfaceA, at: 11,
           data: .object(["id": "other", "choice": "yes"])))
 
-    #expect(detector.candidates.map(\.id) == ["q1"])
+    #expect(detector.candidates.map(\.requestID) == ["q1"])
+  }
+
+  @Test func inputResolvedWithoutPriorRequestIsNoOp() {
+    let detector = AttentionDetector().reducing(
+      event(
+        "input_resolved", surface: surfaceA, at: 11,
+        data: .object(["id": "q1", "choice": "yes"])))
+
+    #expect(detector.candidates.isEmpty)
+  }
+
+  @Test func candidateIDsNamespacedPerSurfaceForIdenticalPayloadIDs() {
+    let detector = AttentionDetector()
+      .reducing(
+        event(
+          "input_requested", surface: surfaceA, at: 5,
+          data: inputRequestedData(id: "shared", question: "A?")))
+      .reducing(
+        event(
+          "input_requested", surface: surfaceB, at: 6,
+          data: inputRequestedData(id: "shared", question: "B?")))
+
+    #expect(detector.candidates.count == 2)
+    #expect(detector.candidates[0].id != detector.candidates[1].id)
+    #expect(detector.candidates.allSatisfy { $0.requestID == "shared" })
   }
 
   @Test func reRequestUpdatesInPlace() {
@@ -160,7 +186,7 @@ struct AttentionDetectorTests {
       .reducing(event("busy", surface: surfaceA, at: 6))
       .reducing(event("idle", surface: surfaceA, at: 7))
 
-    #expect(detector.candidates.map(\.id) == ["q1"])
+    #expect(detector.candidates.map(\.requestID) == ["q1"])
   }
 
   // MARK: - notification.
@@ -198,6 +224,22 @@ struct AttentionDetectorTests {
     #expect(detector.candidates.isEmpty)
   }
 
+  @Test func newerNotificationReplacesOlder() {
+    let detector = AttentionDetector()
+      .reducing(
+        event(
+          "notification", surface: surfaceA, at: 8,
+          data: .object(["message": .string("first")])))
+      .reducing(
+        event(
+          "notification", surface: surfaceA, at: 9,
+          data: .object(["message": .string("second")])))
+
+    #expect(detector.candidates.count == 1)
+    #expect(detector.candidates.first?.question == "second")
+    #expect(detector.candidates.first?.occurredAt == at(9))
+  }
+
   @Test func sessionEndClearsNotification() {
     let detector = AttentionDetector()
       .reducing(
@@ -218,18 +260,53 @@ struct AttentionDetectorTests {
     #expect(detector.candidates.first?.kind == .processExited(failure: true))
   }
 
-  @Test func processExitedZeroIsCleanExit() {
+  @Test func processExitedZeroProducesNoCandidate() {
     let detector = AttentionDetector().reducing(
       event("process_exited", surface: surfaceA, at: 12, data: .object(["exit_code": .int(0)])))
 
-    #expect(detector.candidates.first?.kind == .processExited(failure: false))
+    #expect(detector.candidates.isEmpty)
   }
 
-  @Test func processExitedWithoutCodeIsCleanExit() {
+  @Test func processExitedWithoutCodeProducesNoCandidate() {
     let detector = AttentionDetector().reducing(
       event("process_exited", surface: surfaceA, at: 12, data: nil))
 
-    #expect(detector.candidates.first?.kind == .processExited(failure: false))
+    #expect(detector.candidates.isEmpty)
+  }
+
+  @Test func processExitedStringCodeIsFailure() {
+    let detector = AttentionDetector().reducing(
+      event(
+        "process_exited", surface: surfaceA, at: 12, data: .object(["exit_code": .string("1")])))
+
+    #expect(detector.candidates.first?.kind == .processExited(failure: true))
+  }
+
+  @Test func processExitedClearsLiveRequestsAndAwaiting() {
+    // A crash with no session_end must not leak the prompt the dead process was
+    // blocked on; only the failure candidate remains.
+    let detector = AttentionDetector()
+      .reducing(
+        event(
+          "input_requested", surface: surfaceA, at: 5,
+          data: inputRequestedData(id: "q1", question: "Go?")))
+      .reducing(event("awaiting_input", surface: surfaceA, at: 6))
+      .reducing(
+        event("process_exited", surface: surfaceA, at: 7, data: .object(["exit_code": .int(1)])))
+
+    #expect(detector.candidates.map(\.kind) == [.processExited(failure: true)])
+  }
+
+  @Test func cleanExitClearsLiveRequestsWithoutCandidate() {
+    let detector = AttentionDetector()
+      .reducing(
+        event(
+          "input_requested", surface: surfaceA, at: 5,
+          data: inputRequestedData(id: "q1", question: "Go?")))
+      .reducing(
+        event("process_exited", surface: surfaceA, at: 7, data: .object(["exit_code": .int(0)])))
+
+    #expect(detector.candidates.isEmpty)
   }
 
   // MARK: - unknown events ignored.
@@ -252,6 +329,50 @@ struct AttentionDetectorTests {
       event("session_start", surface: surfaceA, at: 1))
 
     #expect(detector.candidates.isEmpty)
+  }
+
+  // MARK: - awaiting suppressed by live input request.
+
+  @Test func awaitingSuppressedWhenInputRequestLive() {
+    let detector = AttentionDetector()
+      .reducing(event("awaiting_input", surface: surfaceA, at: 5))
+      .reducing(
+        event(
+          "input_requested", surface: surfaceA, at: 6,
+          data: inputRequestedData(id: "q1", question: "Go?")))
+
+    #expect(detector.candidates.map(\.kind) == [.inputRequested])
+  }
+
+  @Test func awaitingReappearsAfterRequestResolved() {
+    let detector = AttentionDetector()
+      .reducing(event("awaiting_input", surface: surfaceA, at: 5))
+      .reducing(
+        event(
+          "input_requested", surface: surfaceA, at: 6,
+          data: inputRequestedData(id: "q1", question: "Go?")))
+      .reducing(
+        event(
+          "input_resolved", surface: surfaceA, at: 7,
+          data: .object(["id": "q1", "choice": "yes"])))
+
+    #expect(detector.candidates.map(\.kind) == [.awaitingInput])
+  }
+
+  @Test func multipleLiveKindsOnOneSurface() {
+    let detector = AttentionDetector()
+      .reducing(
+        event(
+          "input_requested", surface: surfaceA, at: 5,
+          data: inputRequestedData(id: "q1", question: "Go?")))
+      .reducing(
+        event(
+          "notification", surface: surfaceA, at: 6,
+          data: .object(["message": .string("heads up")])))
+
+    #expect(detector.candidates.count == 2)
+    #expect(detector.candidates.contains { $0.kind == .inputRequested })
+    #expect(detector.candidates.contains { $0.kind == .notification })
   }
 
   // MARK: - cross-surface isolation.
@@ -278,7 +399,7 @@ struct AttentionDetectorTests {
           data: inputRequestedData(id: "b1", question: "B?")))
       .reducing(event("session_end", surface: surfaceA, at: 7))
 
-    #expect(detector.candidates.map(\.id) == ["b1"])
+    #expect(detector.candidates.map(\.requestID) == ["b1"])
   }
 
   // MARK: - ordering + projecting.
@@ -293,7 +414,7 @@ struct AttentionDetectorTests {
         data: inputRequestedData(id: "early", question: "early?")),
     ])
 
-    #expect(detector.candidates.map(\.id) == ["early", "late"])
+    #expect(detector.candidates.map(\.requestID) == ["early", "late"])
   }
 
   @Test func projectingMatchesSequentialReduce() {
