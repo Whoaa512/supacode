@@ -291,6 +291,9 @@ struct SupacodeApp: App {
           terminalManager.saveAllLayoutSnapshots(agentsBySurface: agentsBySurface)
         }
       )
+      values.decisionInboxClient.persistResolution = { resolution in
+        terminalManager.recordInboxResolution(resolution.eventRecord)
+      }
       values.worktreeInfoWatcher = WorktreeInfoWatcherClient(
         send: { command in
           worktreeInfoWatcher.handleCommand(command)
