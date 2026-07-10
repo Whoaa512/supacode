@@ -282,6 +282,11 @@ final class CommandPalettePanelHostView: NSView {
     // the focus task); the panel and its observer are kept for reuse.
     removeKeyMonitor()
     hostingView = nil
+    // Detach the SwiftUI hierarchy entirely: an ordered-out panel that keeps its
+    // hosting view leaves the palette's modifier-less arrow `.keyboardShortcut`
+    // buttons registered, and SwiftUI can keep matching them app-wide — eating
+    // plain ↑/↓ in every surface until the app restarts.
+    panel?.contentView = nil
     guard let panel, panel.isVisible else { return }
     let parent = panel.parent
     parent?.removeChildWindow(panel)
