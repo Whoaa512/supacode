@@ -15,6 +15,10 @@ public nonisolated enum AgentEventKind: String, Sendable {
   case inputResolved = "input_resolved"
   case artifactProduced = "artifact_produced"
   case processExited = "process_exited"
+  /// A decision-inbox card the user resolved (focused / copied / dismissed).
+  /// `input_resolved`-adjacent: it records the human's disposition of a
+  /// candidate, keyed by the originating surface, into the same durable log.
+  case inboxResolution = "inbox_resolution"
 }
 
 /// One durable line in the append-only event log. The `event` name is preserved

@@ -54,7 +54,7 @@ final class WorktreeTerminalManager {
   /// Durable append-only record of every incoming agent hook event, keyed by
   /// surface. Nil only when Application Support can't be resolved; the ingest
   /// path degrades to no-logging rather than dropping events on the floor.
-  @ObservationIgnored private let agentEventLog: AgentEventLog?
+  @ObservationIgnored private nonisolated let agentEventLog: AgentEventLog?
   /// Stamps the ingest timestamp on the main actor so a reordered dispatch can
   /// never rewrite when an event happened. Injected for deterministic tests.
   @ObservationIgnored private let now: @Sendable () -> Date
@@ -281,6 +281,14 @@ final class WorktreeTerminalManager {
       event: event.event,
       data: event.data)
     agentEventLog.ingest(record)
+  }
+
+  /// Appends a decision-inbox resolution to the same durable log the hook events
+  /// land in, so decision history shares one store. `nonisolated` so the inbox
+  /// client can persist from an off-main effect without hopping to the actor.
+  /// No-op when logging is unavailable.
+  nonisolated func recordInboxResolution(_ record: AgentEventRecord) {
+    agentEventLog?.ingest(record)
   }
 
   #if DEBUG
