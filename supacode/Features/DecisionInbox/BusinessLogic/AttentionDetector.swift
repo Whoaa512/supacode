@@ -20,6 +20,11 @@ nonisolated struct AttentionCandidate: Equatable, Identifiable, Sendable {
   }
 
   let id: String
+  /// Raw protocol payload id for `.inputRequested` candidates, used to route a
+  /// resolve back to the originating request. Nil for synthesized kinds. Note
+  /// `id` is namespaced by surface to avoid cross-surface collisions, so this is
+  /// the un-namespaced value the agent transport speaks.
+  let requestID: String?
   let sessionID: UUID
   let kind: Kind
   let question: String?
@@ -30,6 +35,7 @@ nonisolated struct AttentionCandidate: Equatable, Identifiable, Sendable {
 
   init(
     id: String,
+    requestID: String? = nil,
     sessionID: UUID,
     kind: Kind,
     question: String? = nil,
@@ -39,6 +45,7 @@ nonisolated struct AttentionCandidate: Equatable, Identifiable, Sendable {
     occurredAt: Date
   ) {
     self.id = id
+    self.requestID = requestID
     self.sessionID = sessionID
     self.kind = kind
     self.question = question
@@ -61,11 +68,13 @@ nonisolated struct AttentionCandidate: Equatable, Identifiable, Sendable {
 ///   id removes it. An `input_requested` without a decodable payload is ignored
 ///   (we never fabricate a question).
 /// - `awaiting_input` → a low-detail candidate for the surface; cleared by the
-///   next `busy` / `idle` / `session_end` on that surface.
+///   next `busy` / `idle` / `session_end` on that surface, and suppressed in the
+///   projection whenever a live `input_requested` already covers the same block.
 /// - `notification` with a decodable message → a candidate carrying the message;
 ///   coalesces per surface and clears on `session_end`.
-/// - `process_exited` → a candidate flagged as a failure when the payload's exit
-///   code is non-zero.
+/// - `process_exited` → surfaces a failure candidate only for a non-zero exit; a
+///   clean exit (code 0) surfaces nothing. Either way the surface's live input
+///   requests and awaiting flag are dropped (a dead process can't answer).
 /// - `session_end` → drops every candidate for that surface (the surface is gone).
 /// - any unrecognized event → state unchanged.
 nonisolated struct AttentionDetector: Equatable, Sendable {
@@ -89,7 +98,10 @@ nonisolated struct AttentionDetector: Equatable, Sendable {
 
     var all: [AttentionCandidate] {
       var result = Array(inputRequests.values)
-      if let awaiting { result.append(awaiting) }
+      // A live protocol request and a bare awaiting-input flag describe the same
+      // blocked block; the detailed request wins so we never show two cards for
+      // one prompt.
+      if let awaiting, inputRequests.isEmpty { result.append(awaiting) }
       if let notification { result.append(notification) }
       if let exited { result.append(exited) }
       return result
@@ -153,19 +165,28 @@ nonisolated struct AttentionDetector: Equatable, Sendable {
   /// durable-log-only events.
   private mutating func applyByRawKind(_ event: AgentHookEvent, timestamp: Date) {
     guard event.event == AgentEventKind.processExited.rawValue else { return }
-    let failure = Self.decodeExitFailure(event)
-    let candidate = AttentionCandidate(
-      id: "exited:\(event.surfaceID.uuidString)",
-      sessionID: event.surfaceID,
-      kind: .processExited(failure: failure),
-      occurredAt: timestamp)
-    surfaces[event.surfaceID, default: SurfaceState()].exited = candidate
+    // The process is gone: any prompt it was waiting on can never be answered, so
+    // drop its live requests and awaiting flag regardless of exit status.
+    var state = surfaces[event.surfaceID, default: SurfaceState()]
+    state.inputRequests.removeAll()
+    state.awaiting = nil
+    // A clean exit (code 0) is an unremarkable stop and surfaces nothing; only a
+    // non-zero/failure exit warrants a candidate the human should rank.
+    if Self.decodeExitFailure(event) {
+      state.exited = AttentionCandidate(
+        id: "exited:\(event.surfaceID.uuidString)",
+        sessionID: event.surfaceID,
+        kind: .processExited(failure: true),
+        occurredAt: timestamp)
+    }
+    surfaces[event.surfaceID] = state.isEmpty ? nil : state
   }
 
   private mutating func applyInputRequested(_ event: AgentHookEvent, timestamp: Date) {
     guard let requested = event.decodeData(InputRequested.self) else { return }
     let candidate = AttentionCandidate(
-      id: requested.id,
+      id: "\(event.surfaceID.uuidString):\(requested.id)",
+      requestID: requested.id,
       sessionID: event.surfaceID,
       kind: .inputRequested,
       question: requested.question,
@@ -236,6 +257,7 @@ nonisolated struct AttentionDetector: Equatable, Sendable {
       switch fields[key] {
       case .int(let value)?: return value != 0
       case .double(let value)?: return value != 0
+      case .string(let text)?: return Int(text).map { $0 != 0 } ?? false
       default: continue
       }
     }
