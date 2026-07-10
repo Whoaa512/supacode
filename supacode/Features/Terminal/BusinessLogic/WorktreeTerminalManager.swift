@@ -51,6 +51,10 @@ final class WorktreeTerminalManager {
   private var pendingIdleHookEvents: [IdleDebounceKey: Task<Void, Never>] = [:]
   @ObservationIgnored
   private let hookEventSleep: @Sendable (Duration) async throws -> Void
+  /// Durable append-only record of every incoming agent hook event, keyed by
+  /// surface. Nil only when Application Support can't be resolved; the ingest
+  /// path degrades to no-logging rather than dropping events on the floor.
+  @ObservationIgnored private let agentEventLog: AgentEventLog?
   @ObservationIgnored @Dependency(\.zmxClient) private var zmxClient
   @ObservationIgnored @Dependency(\.analyticsClient) private var analyticsClient
   /// Serialized off-main writer that merges per-worktree layout changes into
@@ -160,7 +164,11 @@ final class WorktreeTerminalManager {
     socketServer: AgentHookSocketServer? = nil,
     clock: C = ContinuousClock(),
     eventBufferCap: Int = WorktreeTerminalManager.defaultEventBufferCap,
+    agentEventLog: AgentEventLog? = AgentEventLog.applicationSupportDirectory().map {
+      AgentEventLog(directory: $0)
+    },
   ) {
+    self.agentEventLog = agentEventLog
     self.eventBufferCap = eventBufferCap
     self.runtime = runtime
     self.focusedSurfaceBackground = runtime.backgroundColor()
@@ -220,6 +228,7 @@ final class WorktreeTerminalManager {
   /// Holds `.idle` for a debounce window so PostToolUse / PreToolUse storms don't flap downstream UI.
   /// Applies the idle debounce before the OSC-sourced event lands in TCA.
   private func dispatchHookEvent(_ event: AgentHookEvent) {
+    persistHookEvent(event)
     guard let agent = SkillAgent(rawValue: event.agent) else {
       applyHookEvent(event)
       return
@@ -251,6 +260,30 @@ final class WorktreeTerminalManager {
 
   private func applyHookEvent(_ event: AgentHookEvent) {
     emit(.agentHookEventReceived(event))
+  }
+
+  /// Persists every incoming hook event (existing + new) to the durable log,
+  /// keyed by surface. Fire-and-forget onto the log actor so ingest never
+  /// blocks the main actor. The typed `input_requested` / `input_resolved`
+  /// payloads are decoded here purely to surface a shape mismatch in logs; the
+  /// raw payload is what gets persisted, so an unknown event is never dropped.
+  private func persistHookEvent(_ event: AgentHookEvent) {
+    guard let agentEventLog else { return }
+    switch event.eventName {
+    case .inputRequested:
+      _ = event.decodeData(InputRequested.self)
+    case .inputResolved:
+      _ = event.decodeData(InputResolved.self)
+    default:
+      break
+    }
+    let sessionKey = event.surfaceID.uuidString
+    let agent = event.agent
+    let name = event.event
+    let data = event.data
+    Task {
+      await agentEventLog.record(sessionKey: sessionKey, agent: agent, event: name, data: data)
+    }
   }
 
   #if DEBUG
