@@ -1,0 +1,103 @@
+{
+  "name": "pi-failures",
+  "agent": "pi",
+  "events": [
+    {
+      "source_event_id": "pi-1-tests",
+      "raw": {
+        "event": "notification",
+        "v": 1,
+        "agent": "pi",
+        "surface_id": "22222222-2222-2222-2222-222222222222",
+        "ts": "2024-01-02T09:00:00Z",
+        "data": {
+          "category": "tests_failed",
+          "question": "3 tests failed. Retry or inspect?",
+          "evidence": [
+            {
+              "id": "test-out-1",
+              "kind": "test_output",
+              "label": "vitest run (3 failing)",
+              "uri": "file:///tmp/vitest.log"
+            }
+          ]
+        }
+      },
+      "label": {
+        "attention_expected": true,
+        "expected_kind": "tests_failed",
+        "expects_evidence": true
+      }
+    },
+    {
+      "source_event_id": "pi-2-command",
+      "raw": {
+        "event": "notification",
+        "v": 1,
+        "agent": "pi",
+        "surface_id": "22222222-2222-2222-2222-222222222222",
+        "ts": "2024-01-02T09:01:00Z",
+        "data": {
+          "category": "command_failed",
+          "evidence": [
+            { "id": "cmd-1", "kind": "command_output", "label": "npm run build (exit 1)", "uri": null }
+          ]
+        }
+      },
+      "label": {
+        "attention_expected": true,
+        "expected_kind": "command_failed"
+      }
+    },
+    {
+      "source_event_id": "pi-3-permission",
+      "raw": {
+        "event": "notification",
+        "v": 1,
+        "agent": "pi",
+        "surface_id": "22222222-2222-2222-2222-222222222222",
+        "ts": "2024-01-02T09:02:00Z",
+        "data": {
+          "category": "permission",
+          "question": "Allow write to ~/.ssh/config?",
+          "options": [
+            { "id": "allow", "label": "Allow once" },
+            { "id": "deny", "label": "Deny" }
+          ]
+        }
+      },
+      "label": {
+        "attention_expected": true,
+        "expected_kind": "permission_requested",
+        "expects_actionable": true
+      }
+    },
+    {
+      "source_event_id": "pi-4-chatter",
+      "raw": {
+        "event": "notification",
+        "v": 1,
+        "agent": "pi",
+        "surface_id": "22222222-2222-2222-2222-222222222222",
+        "ts": "2024-01-02T09:03:00Z",
+        "data": { "category": "progress", "question": "Formatting files..." }
+      },
+      "label": { "attention_expected": false }
+    },
+    {
+      "source_event_id": "pi-5-crash",
+      "raw": {
+        "event": "session_end",
+        "v": 1,
+        "agent": "pi",
+        "surface_id": "22222222-2222-2222-2222-222222222222",
+        "ts": "2024-01-02T09:04:00Z",
+        "data": { "reason": "error", "exit_code": 137 }
+      },
+      "label": {
+        "attention_expected": true,
+        "expected_kind": "agent_exited_unexpectedly"
+      }
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "name": "dedup-and-order",
+  "agent": "pi",
+  "events": [
+    {
+      "source_event_id": "dup-await",
+      "raw": {
+        "event": "awaiting_input",
+        "v": 1,
+        "agent": "pi",
+        "surface_id": "33333333-3333-3333-3333-333333333333",
+        "ts": "2024-01-03T12:00:10Z",
+        "data": { "question": "Overwrite existing branch?" }
+      },
+      "label": {
+        "attention_expected": true,
+        "expected_kind": "explicit_input_requested",
+        "expects_actionable": true
+      }
+    },
+    {
+      "source_event_id": "early-start",
+      "raw": {
+        "event": "session_start",
+        "v": 1,
+        "agent": "pi",
+        "surface_id": "33333333-3333-3333-3333-333333333333",
+        "ts": "2024-01-03T12:00:00Z"
+      },
+      "label": { "attention_expected": false }
+    },
+    {
+      "source_event_id": "dup-await",
+      "raw": {
+        "event": "awaiting_input",
+        "v": 1,
+        "agent": "pi",
+        "surface_id": "33333333-3333-3333-3333-333333333333",
+        "ts": "2024-01-03T12:00:10Z",
+        "data": { "question": "Overwrite existing branch?" }
+      }
+    }
+  ]
+}

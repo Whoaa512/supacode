@@ -1,0 +1,85 @@
+{
+  "name": "claude-explicit-input",
+  "agent": "claude",
+  "events": [
+    {
+      "source_event_id": "claude-1-start",
+      "raw": {
+        "event": "session_start",
+        "v": 1,
+        "agent": "claude",
+        "surface_id": "11111111-1111-1111-1111-111111111111",
+        "ts": "2024-01-01T10:00:00Z"
+      },
+      "label": { "attention_expected": false }
+    },
+    {
+      "source_event_id": "claude-2-busy",
+      "raw": {
+        "event": "busy",
+        "v": 1,
+        "agent": "claude",
+        "surface_id": "11111111-1111-1111-1111-111111111111",
+        "ts": "2024-01-01T10:00:05Z"
+      },
+      "label": { "attention_expected": false }
+    },
+    {
+      "source_event_id": "claude-3-awaiting",
+      "raw": {
+        "event": "awaiting_input",
+        "v": 1,
+        "agent": "claude",
+        "surface_id": "11111111-1111-1111-1111-111111111111",
+        "ts": "2024-01-01T10:01:00Z",
+        "data": {
+          "question": "Migration will drop the legacy column. Proceed?",
+          "options": [
+            { "id": "yes", "label": "Run migration" },
+            { "id": "no", "label": "Skip for now" }
+          ],
+          "evidence": [
+            {
+              "id": "diff-1",
+              "kind": "diff",
+              "label": "0007_drop_legacy.sql",
+              "uri": "file:///repo/migrations/0007_drop_legacy.sql"
+            }
+          ]
+        }
+      },
+      "label": {
+        "attention_expected": true,
+        "expected_kind": "explicit_input_requested",
+        "expects_evidence": true,
+        "expects_actionable": true
+      }
+    },
+    {
+      "source_event_id": "claude-4-idle",
+      "raw": {
+        "event": "idle",
+        "v": 1,
+        "agent": "claude",
+        "surface_id": "11111111-1111-1111-1111-111111111111",
+        "ts": "2024-01-01T10:05:00Z"
+      },
+      "label": { "attention_expected": false }
+    },
+    {
+      "source_event_id": "claude-5-end",
+      "raw": {
+        "event": "session_end",
+        "v": 1,
+        "agent": "claude",
+        "surface_id": "11111111-1111-1111-1111-111111111111",
+        "ts": "2024-01-01T10:06:00Z",
+        "data": { "reason": "completed", "exit_code": 0 }
+      },
+      "label": {
+        "attention_expected": true,
+        "expected_kind": "agent_completed"
+      }
+    }
+  ]
+}
