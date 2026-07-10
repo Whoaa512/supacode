@@ -70,6 +70,7 @@ struct AppFeature {
   @ObservableState
   struct State: Equatable {
     var agentPresence = AgentPresenceFeature.State()
+    var decisionInbox = DecisionInboxFeature.State()
     var repositories: RepositoriesFeature.State
     var settings: SettingsFeature.State
     var updates = UpdatesFeature.State()
@@ -193,6 +194,7 @@ struct AppFeature {
 
   enum Action {
     case agentPresence(AgentPresenceFeature.Action)
+    case decisionInbox(DecisionInboxFeature.Action)
     case terminals(TerminalsFeature.Action)
     case applicationDidBecomeActive
     case applicationDidResignActive
@@ -325,6 +327,29 @@ struct AppFeature {
         )
 
       case .agentPresence:
+        return .none
+
+      case .decisionInbox(.delegate(.focusSurface(let sessionID))):
+        // The inbox knows only the surface id; resolve its worktree + tab here
+        // (the parent owns navigation), reusing the same focus path as
+        // jump-to-unread. First worktree whose terminal state hosts the surface
+        // wins — surface ids are globally unique across worktrees.
+        for repository in state.repositories.repositories {
+          for worktree in repository.worktrees {
+            guard let tabID = terminalClient.tabID(worktree.id, sessionID) else { continue }
+            return .merge(
+              .send(.repositories(.selectWorktree(worktree.id, focusTerminal: true))),
+              .run { _ in
+                await terminalClient.send(
+                  .focusSurface(worktree, tabID: tabID, surfaceID: sessionID))
+              }
+            )
+          }
+        }
+        appLogger.debug("decisionInbox focusSurface: surface \(sessionID) not found in any live worktree.")
+        return .none
+
+      case .decisionInbox:
         return .none
 
       case .scenePhaseChanged(let phase):
@@ -1479,7 +1504,13 @@ struct AppFeature {
         return .merge(presenceEffect, ackEffect)
 
       case .terminalEvent(.agentHookEventReceived(let event)):
-        return .send(.agentPresence(.hookEventReceived(event)))
+        // One subscription, fanned out to both projections: presence badges and
+        // the decision inbox both derive from the same event, never a parallel
+        // stream.
+        return .merge(
+          .send(.agentPresence(.hookEventReceived(event))),
+          .send(.decisionInbox(.hookEventReceived(event)))
+        )
 
       case .terminalEvent:
         return .none
@@ -1491,6 +1522,9 @@ struct AppFeature {
     }
     Scope(state: \.agentPresence, action: \.agentPresence) {
       AgentPresenceFeature()
+    }
+    Scope(state: \.decisionInbox, action: \.decisionInbox) {
+      DecisionInboxFeature()
     }
     Scope(state: \.repositories, action: \.repositories) {
       RepositoriesFeature()
