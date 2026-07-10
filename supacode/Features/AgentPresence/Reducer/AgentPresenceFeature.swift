@@ -204,7 +204,9 @@ struct AgentPresenceFeature {
       return applyActivity(.awaitingInput, event: event, key: key, into: &state) ? [event.surfaceID] : []
     case .idle:
       return applyActivity(.idle, event: event, key: key, into: &state) ? [event.surfaceID] : []
-    case .notification, .none:
+    case .notification, .inputRequested, .inputResolved, .none:
+      // Decision-inbox events are recorded to the durable event log at ingest;
+      // they don't drive the presence badge, so presence ignores them.
       return []
     }
   }
