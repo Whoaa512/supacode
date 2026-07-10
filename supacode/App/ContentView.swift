@@ -42,7 +42,13 @@ struct ContentView: View {
                 store: store.scope(state: \.upstreamUpdate, action: \.upstreamUpdate)
               )
             #endif
-            SidebarBottomCardView(store: store)
+            HStack(spacing: 0) {
+              SidebarBottomCardView(store: store)
+              DecisionInboxButton(
+                store: store.scope(state: \.decisionInbox, action: \.decisionInbox)
+              )
+              .padding(.trailing, 8)
+            }
           }
         }
     } detail: {
