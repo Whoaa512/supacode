@@ -7,14 +7,14 @@ private nonisolated let socketLogger = SupaLogger("AgentHookSocket")
 
 /// Lightweight Unix domain socket server for the Supacode CLI control protocol.
 ///
-/// Two message formats are supported, both JSON objects:
+/// Three message formats are supported, all JSON objects:
 /// - **Command**: a `"deeplink"` key wrapping a `supacode://` URL.
 /// - **Query**: a `"query"` key and optional parameters.
+/// - **Hook event**: a `"hook_event"` key wrapping structured local agent testimony.
 ///
-/// Agent presence and notifications no longer travel over the socket. Hooks emit
-/// them as OSC 3008 to the terminal (see `AgentPresenceOSC`), which also works
-/// over SSH where this socket can't be reached; the socket carries only the CLI
-/// control protocol.
+/// Presence and notifications use OSC 3008 so they also work over SSH. Structured
+/// decision payloads use this pid-scoped, same-user socket because OSC cannot
+/// carry their nested JSON. Hook events remain testimony, not lifecycle truth.
 @MainActor
 final class AgentHookSocketServer {
   private(set) var socketPath: String?

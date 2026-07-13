@@ -152,6 +152,31 @@ struct DecisionInboxFeatureTests {
     #expect(store.state.candidates[0].recommendation == "merge")
   }
 
+  @Test func dismissedNotificationDoesNotResurfaceForTimestampOnlyDuplicate() async {
+    let store = makeStore()
+    let first = AgentHookEvent(
+      agent: "claude", event: "notification", surfaceID: surfaceA,
+      timestamp: at(10), data: .object(["message": .string("Waiting for review")]))
+    await store.send(.hookEventReceived(first)) {
+      $0.detector = $0.detector.reducing(first)
+      $0.candidates = [$0.detector.candidates[0]]
+    }
+    let id = store.state.candidates[0].id
+    let dismissed = store.state.candidates[0]
+    await store.send(.dismissTapped(id: id)) {
+      $0.resolved = [id: dismissed]
+      $0.candidates = []
+    }
+
+    let duplicate = AgentHookEvent(
+      agent: "claude", event: "notification", surfaceID: surfaceA,
+      timestamp: at(20), data: .object(["message": .string("Waiting for review")]))
+    await store.send(.hookEventReceived(duplicate)) {
+      $0.detector = $0.detector.reducing(duplicate)
+    }
+    #expect(store.state.unresolvedCount == 0)
+  }
+
   @Test func resolvedMarkerPrunedWhenDetectorClearsCandidate() async {
     let store = makeStore()
     let request = inputRequested(surface: surfaceA, id: "q1", question: "Ship it?", at: 10)

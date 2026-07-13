@@ -139,6 +139,49 @@ struct AgentHookSocketServerTests {
     server.shutdown()
   }
 
+  @Test func integrationCLIForwardsNestedHookStdinAsSocketEnvelope() async throws {
+    let path = "/tmp/supacode-tests/\(UUID().uuidString)"
+    let surfaceID = UUID()
+    let server = AgentHookSocketServer(socketPathOverride: path)
+    let received = LockIsolated<AgentHookEvent?>(nil)
+    server.onHookEvent = { received.setValue($0) }
+
+    let executable = try #require(
+      Bundle.main.resourceURL?.appending(path: "bin/supacode", directoryHint: .notDirectory))
+    #expect(FileManager.default.isExecutableFile(atPath: executable.path()))
+    let process = Process()
+    process.executableURL = executable
+    process.arguments = ["integration", "event", "claude", "claude_decision_requested"]
+    process.environment = ProcessInfo.processInfo.environment.merging([
+      "SUPACODE_SOCKET_PATH": path,
+      "SUPACODE_SURFACE_ID": surfaceID.uuidString,
+    ]) { _, new in new }
+    let input = Pipe()
+    process.standardInput = input
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+
+    let status = try await withCheckedThrowingContinuation { continuation in
+      process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
+      do {
+        try process.run()
+        input.fileHandleForWriting.write(
+          Data(#"{"tool_input":{"questions":[{"question":"Ship?","options":[{"label":"Yes"}]}]}}"#.utf8))
+        try? input.fileHandleForWriting.close()
+      } catch {
+        continuation.resume(throwing: error)
+      }
+    }
+
+    #expect(status == 0)
+    #expect(received.value?.agent == "claude")
+    #expect(received.value?.event == "claude_decision_requested")
+    #expect(received.value?.surfaceID == surfaceID)
+    #expect(
+      received.value?.data?.objectValue?["tool_input"]?.objectValue?["questions"]?.arrayValue?.count == 1)
+    server.shutdown()
+  }
+
   @Test func hookEventWithoutHandlerGetsNotReadyResponse() async throws {
     let path = "/tmp/supacode-tests/\(UUID().uuidString)"
     let server = AgentHookSocketServer(socketPathOverride: path)

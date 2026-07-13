@@ -100,7 +100,9 @@ struct DecisionInboxFeature {
   private static func reproject(_ state: inout State) {
     let all = state.detector.candidates
     let byID = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
-    state.resolved = state.resolved.filter { id, snapshot in byID[id] == snapshot }
+    state.resolved = state.resolved.filter { id, snapshot in
+      byID[id]?.matchesResolvedSnapshot(snapshot) == true
+    }
     state.candidates = IdentifiedArray(
       uniqueElements: all.filter { state.resolved[$0.id] == nil })
   }
@@ -155,6 +157,21 @@ extension AttentionCandidate.Kind {
 }
 
 extension AttentionCandidate {
+  /// Protocol requests intentionally resurface on every re-ask, even with the
+  /// same text. Synthesized signals coalesce duplicate timestamps so a dismissed
+  /// notification or awaiting badge stays dismissed until its content changes.
+  fileprivate func matchesResolvedSnapshot(_ snapshot: Self) -> Bool {
+    guard kind != .inputRequested else { return self == snapshot }
+    return id == snapshot.id
+      && requestID == snapshot.requestID
+      && sessionID == snapshot.sessionID
+      && kind == snapshot.kind
+      && question == snapshot.question
+      && options == snapshot.options
+      && recommendation == snapshot.recommendation
+      && contextRefs == snapshot.contextRefs
+  }
+
   /// Text placed on the pasteboard by `Copy Suggested Response`: the
   /// recommendation when the agent gave one, else the question so the user has
   /// something to paste back. Empty only when the candidate carries neither.

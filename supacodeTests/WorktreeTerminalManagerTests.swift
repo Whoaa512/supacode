@@ -3276,7 +3276,7 @@ struct WorktreeTerminalManagerTests {
     #expect(replayed.allSatisfy { $0.timestamp == stampedAt })
   }
 
-  @Test func socketHookEventRunsClaudeAdapterThenPersistsProtocolEvent() async {
+  @Test func socketHookEventPersistsRawTestimonyBeforeClaudeProjection() async {
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent("wtm-socket-hook-tests/\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -3299,8 +3299,8 @@ struct WorktreeTerminalManagerTests {
     await log.flush()
 
     let replayed = await log.replay(sessionKey: surfaceID.uuidString)
-    // The raw marker was adapted into the protocol event before persistence.
-    #expect(replayed.map(\.event) == ["input_requested"])
+    #expect(replayed.map(\.event) == [ClaudeDecisionAdapter.requestedMarker])
+    #expect(replayed.first?.data == hook)
     server.shutdown()
   }
 }

@@ -228,20 +228,20 @@ final class WorktreeTerminalManager {
       }
       handler(resource, params, clientFD)
     }
-    // A structured hook event posted over the socket (e.g. a Claude decision)
-    // runs through the same dispatch path as an OSC-sourced event, so it
-    // persists to the durable log and feeds the detector unchanged. The adapter
-    // rewrites an agent-specific marker into the transport-agnostic protocol
-    // event; a passthrough (nil) dispatches the original.
+    // Preserve raw agent testimony in the durable log, then project it through
+    // the agent adapter for presentation. Derived protocol events must not
+    // replace the evidence needed to replay and tune extraction later.
     server.onHookEvent = { [weak self] event in
-      self?.dispatchHookEvent(ClaudeDecisionAdapter.adapt(event) ?? event)
+      guard let self else { return }
+      self.persistHookEvent(event)
+      self.dispatchHookEvent(ClaudeDecisionAdapter.adapt(event) ?? event, shouldPersist: false)
     }
   }
 
   /// Holds `.idle` for a debounce window so PostToolUse / PreToolUse storms don't flap downstream UI.
   /// Applies the idle debounce before the OSC-sourced event lands in TCA.
-  private func dispatchHookEvent(_ event: AgentHookEvent) {
-    persistHookEvent(event)
+  private func dispatchHookEvent(_ event: AgentHookEvent, shouldPersist: Bool = true) {
+    if shouldPersist { persistHookEvent(event) }
     guard let agent = SkillAgent(rawValue: event.agent) else {
       applyHookEvent(event)
       return
