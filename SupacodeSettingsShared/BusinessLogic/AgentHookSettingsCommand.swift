@@ -63,6 +63,24 @@ nonisolated enum AgentHookSettingsCommand {
     return "\(oscGuardExpr) && { \(steps.joined(separator: "; ")); } >/dev/null 2>&1 || true \(ownershipMarker)"
   }
 
+  /// Emits activity over OSC everywhere and forwards the hook's raw JSON stdin
+  /// over the local socket when available. The CLI builds the JSON envelope so
+  /// nested tool input never passes through shell escaping or flat-only awk.
+  static func structuredEventCommand(
+    event: String,
+    activityEvents: [HookEvent],
+    agent: SkillAgent
+  ) -> String {
+    precondition(!activityEvents.isEmpty, "structuredEventCommand needs an activity event.")
+    var steps: [String] = [AgentPresenceOSC.ttyResolveSnippet]
+    steps += activityEvents.map { AgentPresenceOSC.emitShell(event: $0, agent: agent) }
+    steps.append(
+      #"[ -n "${SUPACODE_SOCKET_PATH:-}" ] && command -v supacode >/dev/null 2>&1"#
+        + #" && supacode integration event \#(agent.rawValue) \#(event)"#
+    )
+    return "\(oscGuardExpr) && { \(steps.joined(separator: "; ")); } >/dev/null 2>&1 || true \(ownershipMarker)"
+  }
+
   /// Guard for the OSC command: a surface id present (the no-op-outside-Supacode
   /// gate). Fires both locally and over SSH; the pid suffix inside the presence
   /// emit is what's gated on the socket path, not the emission itself.

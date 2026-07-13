@@ -50,6 +50,30 @@ struct AgentHookCommandTests {
     #expect(second.objectValue?["matcher"]?.stringValue == "AskUserQuestion|ExitPlanMode")
     let secondCommand = try #require(Self.commandStrings(in: [second]).first)
     #expect(secondCommand.contains("event=awaiting_input"))
+    #expect(secondCommand.contains("supacode integration event claude claude_decision_requested"))
+  }
+
+  @Test func claudePostToolUseResolvesStructuredDecisionForPromptTools() throws {
+    let groups = try ClaudeHookSettings.hooksByEvent()
+    let postToolUse = try #require(groups["PostToolUse"])
+    #expect(postToolUse.count == 2)
+
+    let decisionGroup = try #require(postToolUse.last)
+    #expect(decisionGroup.objectValue?["matcher"]?.stringValue == "AskUserQuestion|ExitPlanMode")
+    let command = try #require(Self.commandStrings(in: [decisionGroup]).first)
+    #expect(command.contains("supacode integration event claude claude_decision_resolved"))
+    #expect(command.contains("event=idle"))
+  }
+
+  @Test func structuredEventCommandForwardsRawStdinOnlyOnLocalSocket() {
+    let command = AgentHookSettingsCommand.structuredEventCommand(
+      event: "claude_decision_requested",
+      activityEvents: [.awaitingInput],
+      agent: .claude)
+    #expect(command.contains(#"[ -n "${SUPACODE_SOCKET_PATH:-}" ]"#))
+    #expect(command.contains("event=awaiting_input"))
+    #expect(command.contains("supacode integration event claude claude_decision_requested"))
+    #expect(!command.contains("awk"))
   }
 
   private static func commandStrings(in groups: [JSONValue]) -> [String] {

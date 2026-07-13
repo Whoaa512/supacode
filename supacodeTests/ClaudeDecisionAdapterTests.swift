@@ -79,15 +79,15 @@ struct ClaudeDecisionAdapterTests {
   @Test func differentQuestionsGetDifferentIDs() throws {
     var otherHook = askUserQuestionHook().objectValue ?? [:]
     otherHook["tool_input"] = ["questions": [["question": "Different?", "options": [["label": "A"]]]]]
-    let a = try #require(
+    let first = try #require(
       ClaudeDecisionAdapter.adapt(
         markerEvent(event: ClaudeDecisionAdapter.requestedMarker, data: askUserQuestionHook())))
-    let b = try #require(
+    let second = try #require(
       ClaudeDecisionAdapter.adapt(
         markerEvent(event: ClaudeDecisionAdapter.requestedMarker, data: .object(otherHook))))
     #expect(
-      try #require(a.decodeData(InputRequested.self)).id
-        != #require(b.decodeData(InputRequested.self)).id)
+      try #require(first.decodeData(InputRequested.self)).id
+        != #require(second.decodeData(InputRequested.self)).id)
   }
 
   @Test func exitPlanModeBecomesInputRequested() throws {

@@ -33,8 +33,10 @@ private nonisolated struct ClaudeHooksPayload: Encodable {
     events: [.idle], forwardStdinAsNotification: false, agent: .claude)
   private static let awaitingInputAndNotify = AgentHookSettingsCommand.compositeCommand(
     events: [.awaitingInput], forwardStdinAsNotification: true, agent: .claude)
-  private static let awaitingInput = AgentHookSettingsCommand.compositeCommand(
-    events: [.awaitingInput], forwardStdinAsNotification: false, agent: .claude)
+  private static let decisionRequested = AgentHookSettingsCommand.structuredEventCommand(
+    event: "claude_decision_requested", activityEvents: [.awaitingInput], agent: .claude)
+  private static let decisionResolved = AgentHookSettingsCommand.structuredEventCommand(
+    event: "claude_decision_resolved", activityEvents: [.idle], agent: .claude)
   private static let idleAndNotify = AgentHookSettingsCommand.compositeCommand(
     events: [.idle], forwardStdinAsNotification: true, agent: .claude)
   private static let sessionStart = AgentHookSettingsCommand.compositeCommand(
@@ -54,11 +56,15 @@ private nonisolated struct ClaudeHooksPayload: Encodable {
       // Array-order: matched-by-name fires AFTER matcher-"", so awaiting wins.
       .init(
         matcher: Self.awaitingInputToolMatcher,
-        hooks: [.init(command: Self.awaitingInput, timeout: 5)]
+        hooks: [.init(command: Self.decisionRequested, timeout: 5)]
       ),
     ],
     "PostToolUse": [
-      .init(matcher: "", hooks: [.init(command: Self.idle, timeout: 5)])
+      .init(matcher: "", hooks: [.init(command: Self.idle, timeout: 5)]),
+      .init(
+        matcher: Self.awaitingInputToolMatcher,
+        hooks: [.init(command: Self.decisionResolved, timeout: 5)]
+      ),
     ],
     "Notification": [
       .init(matcher: "", hooks: [.init(command: Self.awaitingInputAndNotify, timeout: 10)])
