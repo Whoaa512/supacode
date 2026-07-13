@@ -228,6 +228,14 @@ final class WorktreeTerminalManager {
       }
       handler(resource, params, clientFD)
     }
+    // A structured hook event posted over the socket (e.g. a Claude decision)
+    // runs through the same dispatch path as an OSC-sourced event, so it
+    // persists to the durable log and feeds the detector unchanged. The adapter
+    // rewrites an agent-specific marker into the transport-agnostic protocol
+    // event; a passthrough (nil) dispatches the original.
+    server.onHookEvent = { [weak self] event in
+      self?.dispatchHookEvent(ClaudeDecisionAdapter.adapt(event) ?? event)
+    }
   }
 
   /// Holds `.idle` for a debounce window so PostToolUse / PreToolUse storms don't flap downstream UI.

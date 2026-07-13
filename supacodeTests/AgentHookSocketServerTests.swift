@@ -3,6 +3,7 @@ import Darwin
 import Foundation
 import Testing
 
+@testable import SupacodeSettingsShared
 @testable import supacode
 
 @MainActor
@@ -88,6 +89,67 @@ struct AgentHookSocketServerTests {
   @Test func rejectsJSONWithNeitherQueryNorDeeplink() {
     let json = #"{"foo":"bar"}"#
     #expect(AgentHookSocketServer.parse(data: Data(json.utf8)) == nil)
+  }
+
+  // MARK: - Hook-event message parsing.
+
+  @Test func parsesHookEventMessage() throws {
+    let surfaceID = UUID()
+    let json = """
+      {"hook_event":{"v":1,"agent":"claude","event":"input_requested",
+      "surface_id":"\(surfaceID.uuidString)",
+      "data":{"id":"abc","question":"Proceed?","options":["Yes","No"]}}}
+      """
+    let message = AgentHookSocketServer.parse(data: Data(json.utf8))
+
+    guard case .hookEvent(let event, _) = message else {
+      Issue.record("Expected hook-event message, got \(String(describing: message))")
+      return
+    }
+    #expect(event.event == "input_requested")
+    #expect(event.surfaceID == surfaceID)
+    #expect(event.decodeData(InputRequested.self)?.options == ["Yes", "No"])
+  }
+
+  @Test func hookEventTakesPrecedenceOverDeeplinkAndQuery() {
+    let json = #"{"hook_event":{"agent":"claude","event":"idle","surface_id":"\#(UUID().uuidString)"},"query":"repos"}"#
+    guard case .hookEvent = AgentHookSocketServer.parse(data: Data(json.utf8)) else {
+      Issue.record("Expected hook-event message to win over query.")
+      return
+    }
+  }
+
+  @Test func rejectsHookEventWithMalformedSurfaceID() {
+    let json = #"{"hook_event":{"agent":"claude","event":"idle","surface_id":"not-a-uuid"}}"#
+    #expect(AgentHookSocketServer.parse(data: Data(json.utf8)) == nil)
+  }
+
+  @Test func acceptLoopDispatchesHookEventAndAcks() async throws {
+    let path = "/tmp/supacode-tests/\(UUID().uuidString)"
+    let server = AgentHookSocketServer(socketPathOverride: path)
+    #expect(server.socketPath == path)
+    let received = LockIsolated<AgentHookEvent?>(nil)
+    server.onHookEvent = { received.setValue($0) }
+
+    let payload = #"{"hook_event":{"agent":"claude","event":"input_requested","surface_id":"\#(UUID().uuidString)"}}"#
+    let response = try #require(await Self.sendAndReceive(path: path, payload: payload))
+
+    #expect(response.contains(#""ok":true"#))
+    #expect(received.value?.event == "input_requested")
+    server.shutdown()
+  }
+
+  @Test func hookEventWithoutHandlerGetsNotReadyResponse() async throws {
+    let path = "/tmp/supacode-tests/\(UUID().uuidString)"
+    let server = AgentHookSocketServer(socketPathOverride: path)
+    #expect(server.socketPath == path)
+
+    let payload = #"{"hook_event":{"agent":"claude","event":"idle","surface_id":"\#(UUID().uuidString)"}}"#
+    let response = try #require(await Self.sendAndReceive(path: path, payload: payload))
+
+    #expect(response.contains(#""ok":false"#))
+    #expect(response.contains("Not ready."))
+    server.shutdown()
   }
 
   // MARK: - readPayload.

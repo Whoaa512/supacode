@@ -26,6 +26,13 @@ final class AgentHookSocketServer {
   var onCommand: ((URL, Int32) -> Void)?
   /// Query received from the CLI. Parameters: resource name, extra params, client FD for response.
   var onQuery: ((String, [String: String], Int32) -> Void)?
+  /// Structured agent hook event received from the CLI (`{"hook_event": {…}}`).
+  /// This is the only channel that carries a full `{id,question,options,…}`
+  /// decision payload from a local agent to the app: the OSC path can't (it is
+  /// flat-only and byte-capped), so a hook that wants to raise a structured
+  /// `input_requested`/`input_resolved` posts it here over the local socket. The
+  /// server acks with `ok:true`; the handler is fire-and-forget.
+  var onHookEvent: ((AgentHookEvent) -> Void)?
 
   /// `socketPathOverride` lets tests bind a unique path; the default is the
   /// pid-derived path the CLI discovers.
@@ -162,6 +169,13 @@ final class AgentHookSocketServer {
         return
       }
       handler(resource, params, clientFD)
+    case .hookEvent(let event, let clientFD):
+      guard let handler = server?.onHookEvent else {
+        sendCommandResponse(clientFD: clientFD, ok: false, error: "Not ready.")
+        return
+      }
+      handler(event)
+      sendCommandResponse(clientFD: clientFD, ok: true)
     }
   }
 
@@ -282,6 +296,8 @@ final class AgentHookSocketServer {
     case command(deeplinkURL: URL, clientFD: Int32)
     /// CLI query with the client FD kept open for writing data back.
     case query(resource: String, params: [String: String], clientFD: Int32)
+    /// Structured agent hook event with the client FD kept open for the ack.
+    case hookEvent(event: AgentHookEvent, clientFD: Int32)
   }
 
   /// Writes a JSON response with data to a client and closes the FD.
@@ -363,12 +379,15 @@ final class AgentHookSocketServer {
       return nil
     }
 
-    // Command/query messages keep the FD open so the handler can write a response.
+    // Command/query/hook-event messages keep the FD open so the handler (or the
+    // dispatcher, for hook events) can write a response.
     switch message {
     case .command(let url, _):
       return .command(deeplinkURL: url, clientFD: clientFD)
     case .query(let resource, let params, _):
       return .query(resource: resource, params: params, clientFD: clientFD)
+    case .hookEvent(let event, _):
+      return .hookEvent(event: event, clientFD: clientFD)
     }
   }
 
@@ -420,6 +439,11 @@ final class AgentHookSocketServer {
   /// Parses a CLI JSON message into a query or command. The placeholder
   /// `clientFD` of `-1` is replaced with the real FD in `acceptAndParse`.
   private nonisolated static func parseJSONMessage(data: Data) -> Message? {
+    // A structured hook event wins over deeplink/query: it is a distinct top-level
+    // shape (`hook_event` key) and never collides with the CLI control protocol.
+    if let envelope = try? JSONDecoder().decode(HookEventSocketEnvelope.self, from: data) {
+      return .hookEvent(event: envelope.hookEvent, clientFD: -1)
+    }
     guard let request = SocketCommandRequest(data: data) else {
       socketLogger.warning("Failed to decode CLI message payload")
       return nil
@@ -578,6 +602,17 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
         debugDescription: "`\(key.stringValue)` is not a valid UUID: \(raw).")
     }
     return uuid
+  }
+}
+
+/// Socket envelope wrapping a full `AgentHookEvent` under a `hook_event` key.
+/// Distinct top-level shape from the CLI control protocol so the two never
+/// collide on the same connection.
+private nonisolated struct HookEventSocketEnvelope: Decodable {
+  let hookEvent: AgentHookEvent
+
+  private enum CodingKeys: String, CodingKey {
+    case hookEvent = "hook_event"
   }
 }
 

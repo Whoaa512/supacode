@@ -3275,4 +3275,32 @@ struct WorktreeTerminalManagerTests {
     // No emitter `ts`, so the main-actor `now` stamps the ingest boundary.
     #expect(replayed.allSatisfy { $0.timestamp == stampedAt })
   }
+
+  @Test func socketHookEventRunsClaudeAdapterThenPersistsProtocolEvent() async {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("wtm-socket-hook-tests/\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let log = AgentEventLog(directory: directory)
+    let server = AgentHookSocketServer(socketPathOverride: "/tmp/supacode-tests/\(UUID().uuidString)")
+    let manager = WorktreeTerminalManager(
+      runtime: GhosttyRuntime(), socketServer: server, agentEventLog: log)
+    let surfaceID = UUID()
+    let hook: JSONValue = [
+      "session_id": "sess-socket",
+      "tool_name": "AskUserQuestion",
+      "tool_input": ["questions": [["question": "Ship it?", "options": [["label": "Yes"]]]]],
+    ]
+
+    // The socket accept loop installs `onHookEvent` via `configureSocketServer`.
+    server.onHookEvent?(
+      AgentHookEvent(
+        agent: "claude", event: ClaudeDecisionAdapter.requestedMarker, surfaceID: surfaceID,
+        data: hook))
+    await log.flush()
+
+    let replayed = await log.replay(sessionKey: surfaceID.uuidString)
+    // The raw marker was adapted into the protocol event before persistence.
+    #expect(replayed.map(\.event) == ["input_requested"])
+    server.shutdown()
+  }
 }
