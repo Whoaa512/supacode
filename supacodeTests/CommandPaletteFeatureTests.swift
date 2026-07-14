@@ -1886,6 +1886,8 @@ struct CommandPaletteFeatureTests {
     }
     // The activation delegate carries the focus — no dismissal echo.
     await store.receive(\.delegate.openSettings)
+  }
+
   // MARK: - Browse mode
 
   @Test func enterBrowseModeSetsModeAndLoadsDirectory() async {
