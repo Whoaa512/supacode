@@ -98,6 +98,7 @@ final class AgentHookSocketServer {
     // instead of running against state the owner is tearing down.
     onCommand = nil
     onQuery = nil
+    onHookEvent = nil
     if let socketPath {
       unlink(socketPath)
     }

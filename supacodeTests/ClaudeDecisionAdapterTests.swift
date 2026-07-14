@@ -10,8 +10,11 @@ struct ClaudeDecisionAdapterTests {
     AgentHookEvent(agent: "claude", event: event, surfaceID: UUID(), data: data)
   }
 
-  private func askUserQuestionHook(sessionID: String = "sess-1") -> JSONValue {
-    [
+  private func askUserQuestionHook(
+    sessionID: String = "sess-1",
+    toolUseID: String? = nil
+  ) -> JSONValue {
+    var hook: [String: JSONValue] = [
       "session_id": .string(sessionID),
       "hook_event_name": "PreToolUse",
       "tool_name": "AskUserQuestion",
@@ -28,6 +31,8 @@ struct ClaudeDecisionAdapterTests {
         ]
       ],
     ]
+    if let toolUseID { hook["tool_use_id"] = .string(toolUseID) }
+    return .object(hook)
   }
 
   @Test func nonMarkerEventPassesThrough() {
@@ -74,6 +79,22 @@ struct ClaudeDecisionAdapterTests {
     #expect(
       try #require(first.decodeData(InputRequested.self)).id
         == #require(second.decodeData(InputRequested.self)).id)
+  }
+
+  @Test func identicalConcurrentQuestionsUseDistinctToolInvocationIDs() throws {
+    let first = try #require(
+      ClaudeDecisionAdapter.adapt(
+        markerEvent(
+          event: ClaudeDecisionAdapter.requestedMarker,
+          data: askUserQuestionHook(toolUseID: "tool-1"))))
+    let second = try #require(
+      ClaudeDecisionAdapter.adapt(
+        markerEvent(
+          event: ClaudeDecisionAdapter.requestedMarker,
+          data: askUserQuestionHook(toolUseID: "tool-2"))))
+    #expect(
+      try #require(first.decodeData(InputRequested.self)).id
+        != #require(second.decodeData(InputRequested.self)).id)
   }
 
   @Test func differentQuestionsGetDifferentIDs() throws {

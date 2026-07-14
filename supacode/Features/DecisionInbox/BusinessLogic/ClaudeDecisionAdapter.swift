@@ -13,10 +13,9 @@ import SupacodeSettingsShared
 /// means a second adapter, not a change to the transport or the detector.
 ///
 /// A stable id correlates the PreToolUse request with its PostToolUse
-/// resolution: both hooks carry the same `session_id` + `tool_name` +
-/// `tool_input`, so a digest over those three is identical in both phases
-/// without holding any per-request state. Two identical questions in one session
-/// collide onto one id, which the inbox already tolerates (a re-ask resurfaces).
+/// resolution. Claude's `tool_use_id` uniquely identifies the invocation and
+/// is shared by both hooks. Older payloads fall back to a digest over the
+/// session, tool name, and canonical tool input.
 enum ClaudeDecisionAdapter {
   /// Marker event the CLI posts for a PreToolUse on AskUserQuestion / ExitPlanMode.
   static let requestedMarker = "claude_decision_requested"
@@ -121,8 +120,9 @@ enum ClaudeDecisionAdapter {
     hook: [String: JSONValue], toolName: String, surfaceID: UUID
   ) -> String {
     let sessionID = hook["session_id"]?.stringValue ?? surfaceID.uuidString
+    let invocationID = hook["tool_use_id"]?.stringValue
     let canonicalInput = canonicalJSON(hook["tool_input"])
-    let seed = "\(sessionID)\u{1F}\(toolName)\u{1F}\(canonicalInput)"
+    let seed = invocationID ?? "\(sessionID)\u{1F}\(toolName)\u{1F}\(canonicalInput)"
     let digest = SHA256.hash(data: Data(seed.utf8))
     return "cc-" + digest.prefix(16).map { String(format: "%02x", $0) }.joined()
   }

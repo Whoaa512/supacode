@@ -333,10 +333,12 @@ struct AgentHookSocketServerTests {
     let path = "/tmp/supacode-tests/\(UUID().uuidString)"
     let server = AgentHookSocketServer(socketPathOverride: path)
     #expect(server.socketPath == path)
+    server.onHookEvent = { _ in }
 
     server.shutdown()
 
     #expect(server.socketPath == nil)
+    #expect(server.onHookEvent == nil)
     #expect(!FileManager.default.fileExists(atPath: path))
     let response = await Self.sendAndReceive(path: path, payload: "{}")
     #expect(response == nil)
