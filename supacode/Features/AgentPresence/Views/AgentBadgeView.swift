@@ -61,10 +61,15 @@ struct AgentBadgeView: View {
       ? (resolvedScheme == .dark ? .black : .white)
       : (resolvedScheme == .dark ? .white : .black)
 
-    Image(agent.assetName)
-      // Force template on the red badge so a full-color mark still knocks out;
-      // `nil` elsewhere keeps each asset's own catalog intent.
-      .renderingMode(visual == .error ? .template : nil)
+    // Force template only on the red badge so a full-color mark still knocks
+    // out. Don't call `.renderingMode(nil)` for the rest: it does NOT mean
+    // "catalog default" — it strips the asset's template intent, rendering
+    // template SVGs (pi-mark et al) in their intrinsic black.
+    // swiftlint:disable:next accessibility_label_for_image - labeled below in the modifier chain
+    let mark = Image(agent.assetName)
+    let renderedMark = visual == .error ? mark.renderingMode(.template) : mark
+
+    renderedMark
       .resizable()
       .aspectRatio(contentMode: .fit)
       .accessibilityLabel(visual.describing(agent))
