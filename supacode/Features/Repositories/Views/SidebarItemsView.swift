@@ -663,7 +663,7 @@ private struct SidebarItemContextMenu: View {
       }
       if let singleRow = contextRows.first, !rowIsFolder, !singleRow.isMainWorktree {
         Button("Fork Worktree", systemImage: "arrow.triangle.branch") {
-          store.send(.forkWorktree(worktreeID: worktree.id, repositoryID: repositoryID))
+          store.send(.forkWorktree(worktreeID: singleRow.id, repositoryID: repositoryID))
         }
         .help("Create a new worktree branching from this one")
       }
