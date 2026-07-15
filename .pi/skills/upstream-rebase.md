@@ -163,6 +163,14 @@ git push origin cj-main
 git push origin cj-main-pre-rebase-$(date +%F) cj-main-v<version>-$(date +%F)
 ```
 
+## Learnings 2026-07-14
+
+- **⌘P switcher merge pattern:** upstream `PaletteMode{commands,worktreeSwitcher}` vs fork `Mode{search,browse}` → extend `PaletteMode` with `.browse`, map `.search`→`.commands`, fold browse reset into `resetForDismiss()`. Keep fork-worktree rows in ⌘⇧P as *actions*, drop fork's `worktreeSelect` rows (nav moved to ⌘P by upstream design). ⌘1 in the switcher is a designed no-op (row 1 = current worktree).
+- When merging conflicting test files by keeping both sides mechanically, watch for the **shared closing brace inside the conflict region** — count braces (`awk` delta) before building.
+- If a small batch of new upstream commits lands mid-sync, a plain `git rebase upstream/main` of the rebase branch is fine (conflicts are just context drift); no need for a fresh cut.
+- **Upstream #651 badge regression (fixed in fork `f1bd3c79`):** `AgentBadgeView` calls `.renderingMode(visual == .error ? .template : nil)` — but `renderingMode(nil)` is NOT "catalog default", it strips the asset's template intent, so template SVG marks (pi-mark) render intrinsic black on the dark badge. Fix: only apply `.renderingMode(.template)` on the error branch, leave the Image untouched otherwise. Drop the fork commit once upstream fixes it.
+- Known parallel-run flakes (pass isolated): `settingsChangedPropagatesRepositorySettings`, `deleteSocketDeeplinkFailsOnScriptCancellation`. macOS 26.5.1 reverted "mins"→"min"; upstream #674's formatter-derived `tenMinutes` handles it.
+
 ## 9. Update this skill / AGENTS.local.md
 
 If you learned a new keep/drop verdict, conflict pattern, or build quirk, append it here so the next sync is cheaper.
