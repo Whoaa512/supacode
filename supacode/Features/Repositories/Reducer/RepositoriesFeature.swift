@@ -343,8 +343,8 @@ struct RepositoriesFeature {
       roots: [URL]
     )
     case selectWorktree(Worktree.ID?, focusTerminal: Bool = false)
-    /// Branch-search palette pick: focus the repository's main worktree and
-    /// check the branch out there, but only when the working tree is clean.
+    /// Branch-search palette pick: focus the repository's main worktree. The
+    /// branch is only a search key; no checkout happens.
     case selectBranch(Repository.ID, branch: String)
     case selectWorktreeAtHotkeySlot(Int)
     case selectNextWorktree
@@ -3463,40 +3463,11 @@ struct RepositoriesFeature {
         }
         return .merge(effects)
 
-      case .selectBranch(let repositoryID, let branch):
+      case .selectBranch(let repositoryID, _):
         guard let repository = state.repositories[id: repositoryID],
           let mainWorktree = repository.worktrees.first(where: state.isMainWorktree)
         else { return .none }
-        let branchClient = gitClient(for: repository)
-        let rootURL = repository.rootURL
-        return .merge(
-          .send(.selectWorktree(mainWorktree.id, focusTerminal: true)),
-          .run { send in
-            let currentBranch = await branchClient.branchName(rootURL)
-            guard currentBranch != branch else { return }
-            if try await branchClient.hasUncommittedChanges(rootURL) {
-              let stayingOn = currentBranch ?? "the current branch"
-              await send(
-                .presentAlert(
-                  title: "Uncommitted Changes",
-                  message:
-                    "\(repository.name) has uncommitted changes on \(stayingOn); not switching to \(branch)."
-                )
-              )
-              return
-            }
-            try await branchClient.checkoutBranch(branch, rootURL)
-            await send(.showToast(.success("Checked out \(branch)")))
-            await send(.refreshWorktrees)
-          } catch: { error, send in
-            await send(
-              .presentAlert(
-                title: "Couldn't Check Out \(branch)",
-                message: error.localizedDescription
-              )
-            )
-          }
-        )
+        return .send(.selectWorktree(mainWorktree.id, focusTerminal: true))
 
       case .selectWorktreeAtHotkeySlot(let index):
         // Snapshot-driven menu items capture only the slot index, so the

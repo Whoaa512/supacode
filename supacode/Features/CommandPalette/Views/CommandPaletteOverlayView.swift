@@ -494,8 +494,8 @@ private struct CommandPaletteRowView: View {
     switch row.kind {
     case .worktreeSelect:
       base = "Switch to \(row.title)"
-    case .branchSelect(_, let branch):
-      base = "Check out \(branch) in this repository's main directory"
+    case .branchSelect:
+      base = "Go to \(row.subtitle ?? "this repository")'s main directory"
     case .checkForUpdates:
       base = "Check for Updates"
     case .openRepository:
