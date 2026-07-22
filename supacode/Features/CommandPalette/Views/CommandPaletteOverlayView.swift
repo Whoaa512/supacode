@@ -18,7 +18,7 @@ struct CommandPaletteOverlayView: View {
     // `CommandPalettePanel`, not this view.
     Group {
       switch store.mode {
-      case .commands, .worktreeSwitcher:
+      case .commands, .worktreeSwitcher, .branchSearch:
         CommandPaletteCard(
           query: $store.query,
           selectedIndex: $store.selectedIndex,
@@ -91,6 +91,8 @@ struct CommandPaletteOverlayView: View {
     switch store.mode {
     case .worktreeSwitcher:
       return "Go to worktree…"
+    case .branchSearch:
+      return "Go to branch…"
     case .commands, .browse:
       return "Search for actions…"
     }
@@ -289,7 +291,7 @@ private struct CommandPaletteRowView: View {
       .toggleCollapseRepository,
       .openPullRequest, .markPullRequestReady, .mergePullRequest, .closePullRequest, .copyFailingJobURL,
       .copyCiFailureLogs,
-      .rerunFailedJobs, .openFailingCheckDetails, .worktreeSelect,
+      .rerunFailedJobs, .openFailingCheckDetails, .worktreeSelect, .branchSelect,
       .customizeRepositoryAppearance, .customizeWorktreeAppearance:
       return nil
     case .forkWorktree:
@@ -351,7 +353,7 @@ private struct CommandPaletteRowView: View {
       return "arrow.counterclockwise"
     case .openFailingCheckDetails:
       return "exclamationmark.triangle"
-    case .worktreeSelect:
+    case .worktreeSelect, .branchSelect:
       return nil
     case .forkWorktree:
       return "arrow.triangle.branch"
@@ -387,7 +389,7 @@ private struct CommandPaletteRowView: View {
       .copyCiFailureLogs,
       .rerunFailedJobs, .openFailingCheckDetails:
       return true
-    case .worktreeSelect, .removeWorktree, .archiveWorktree, .forkWorktree:
+    case .worktreeSelect, .branchSelect, .removeWorktree, .archiveWorktree, .forkWorktree:
       return false
     case .renameBranch, .customizeRepositoryAppearance, .customizeWorktreeAppearance:
       return true
@@ -505,6 +507,8 @@ private struct CommandPaletteRowView: View {
     switch row.kind {
     case .worktreeSelect:
       base = "Switch to \(row.title)"
+    case .branchSelect(_, let branch):
+      base = "Check out \(branch) in this repository's main directory"
     case .checkForUpdates:
       base = "Check for Updates"
     case .openRepository:
