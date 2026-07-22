@@ -1083,7 +1083,8 @@ struct RepositoriesFeatureTests {
     }
 
     await store.send(
-      .forkWorktree(worktreeID: folderWorktree.id, repositoryID: folderRepo.id)) {
+      .forkWorktree(worktreeID: folderWorktree.id, repositoryID: folderRepo.id)
+    ) {
       $0.alert = expectedAlert
     }
   }
@@ -1113,7 +1114,8 @@ struct RepositoriesFeatureTests {
     }
 
     await store.send(
-      .forkWorktree(worktreeID: mainWorktree.id, repositoryID: repository.id)) {
+      .forkWorktree(worktreeID: mainWorktree.id, repositoryID: repository.id)
+    ) {
       $0.alert = expectedAlert
     }
   }
@@ -6905,6 +6907,86 @@ struct RepositoriesFeatureTests {
     state.selection = .archivedWorktrees
     state.dropStaleFailedRepositorySelection()
     #expect(state.selection == .archivedWorktrees)
+  }
+
+  @Test func selectBranchChecksOutWhenClean() async {
+    let main = makeWorktree(id: "/tmp/repo", name: "repo")
+    let repository = makeRepository(id: "/tmp/repo", worktrees: [main])
+    let checkedOut = LockIsolated<[String]>([])
+    let store = TestStore(
+      initialState: RepositoriesFeature.State(reconciledRepositories: [repository])
+    ) {
+      RepositoriesFeature()
+    } withDependencies: {
+      $0.sidebarStructureAutoRecompute = false
+      $0.gitClient.branchName = { _ in "main" }
+      $0.gitClient.hasUncommittedChanges = { _ in false }
+      $0.gitClient.checkoutBranch = { branch, _ in
+        checkedOut.withValue { $0.append(branch) }
+      }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.selectBranch(repository.id, branch: "feature"))
+    await store.receive(\.selectWorktree)
+    await store.receive(\.showToast) {
+      $0.statusToast = .success("Checked out feature")
+    }
+    #expect(checkedOut.value == ["feature"])
+    await store.skipReceivedActions()
+    await store.skipInFlightEffects()
+  }
+
+  @Test func selectBranchWithUncommittedChangesPresentsAlertWithoutCheckout() async {
+    let main = makeWorktree(id: "/tmp/repo", name: "repo")
+    let repository = makeRepository(id: "/tmp/repo", worktrees: [main])
+    let checkedOut = LockIsolated<[String]>([])
+    let store = TestStore(
+      initialState: RepositoriesFeature.State(reconciledRepositories: [repository])
+    ) {
+      RepositoriesFeature()
+    } withDependencies: {
+      $0.sidebarStructureAutoRecompute = false
+      $0.gitClient.branchName = { _ in "main" }
+      $0.gitClient.hasUncommittedChanges = { _ in true }
+      $0.gitClient.checkoutBranch = { branch, _ in
+        checkedOut.withValue { $0.append(branch) }
+      }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.selectBranch(repository.id, branch: "feature"))
+    await store.receive(\.presentAlert)
+    #expect(store.state.alert != nil)
+    #expect(checkedOut.value.isEmpty)
+    await store.skipReceivedActions()
+    await store.skipInFlightEffects()
+  }
+
+  @Test func selectBranchAlreadyCurrentOnlySelectsWorktree() async {
+    let main = makeWorktree(id: "/tmp/repo", name: "repo")
+    let repository = makeRepository(id: "/tmp/repo", worktrees: [main])
+    let checkedOut = LockIsolated<[String]>([])
+    let store = TestStore(
+      initialState: RepositoriesFeature.State(reconciledRepositories: [repository])
+    ) {
+      RepositoriesFeature()
+    } withDependencies: {
+      $0.sidebarStructureAutoRecompute = false
+      $0.gitClient.branchName = { _ in "main" }
+      $0.gitClient.checkoutBranch = { branch, _ in
+        checkedOut.withValue { $0.append(branch) }
+      }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.selectBranch(repository.id, branch: "main"))
+    await store.receive(\.selectWorktree) {
+      $0.selection = .worktree(main.id)
+    }
+    await store.skipReceivedActions()
+    await store.skipInFlightEffects()
+    #expect(checkedOut.value.isEmpty)
   }
 
   private func makeWorktree(

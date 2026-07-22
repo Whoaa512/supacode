@@ -2040,6 +2040,85 @@ struct CommandPaletteFeatureTests {
     }
     await store.receive(.delegate(.browseOpenNativePanel))
   }
+
+  @Test func branchSearchItems_listsLoadedBranchesPerRepository() {
+    let rootPath = "/tmp/repo-branches"
+    let main = makeWorktree(id: rootPath, name: "repo", repoRoot: rootPath)
+    let repository = makeRepository(rootPath: rootPath, name: "Repo", worktrees: [main])
+    let unloadedPath = "/tmp/repo-unloaded"
+    let unloaded = makeRepository(
+      rootPath: unloadedPath,
+      name: "Unloaded",
+      worktrees: [makeWorktree(id: unloadedPath, name: "unloaded", repoRoot: unloadedPath)]
+    )
+    let state = RepositoriesFeature.State(reconciledRepositories: [repository, unloaded])
+
+    let items = CommandPaletteFeature.branchSearchItems(
+      from: state,
+      branchesByRepository: [repository.id: ["cjw-feature", "main"]]
+    )
+
+    expectNoDifference(
+      items.map(\.id),
+      ["branch.\(repository.id).cjw-feature", "branch.\(repository.id).main"]
+    )
+    #expect(items.map(\.title) == ["cjw-feature", "main"])
+    #expect(items.allSatisfy { $0.subtitle == "Repo" })
+    #expect(items.first?.kind == .branchSelect(repository.id, branch: "cjw-feature"))
+  }
+
+  @Test func branchesLoadedStoresBranches() async {
+    let store = TestStore(initialState: CommandPaletteFeature.State()) {
+      CommandPaletteFeature()
+    }
+    let repositoryID = RepositoryID("/tmp/repo")
+
+    await store.send(.branchesLoaded([repositoryID: ["main", "dev"]])) {
+      $0.branchesByRepository = [repositoryID: ["main", "dev"]]
+    }
+  }
+
+  @Test func togglePresentInModeBranchSearchOpensAndCloses() async {
+    let store = TestStore(initialState: CommandPaletteFeature.State()) {
+      CommandPaletteFeature()
+    }
+
+    await store.send(.togglePresentInMode(.branchSearch)) {
+      $0.isPresented = true
+      $0.mode = .branchSearch
+    }
+    await store.send(.togglePresentInMode(.branchSearch))
+    await store.receive(.setPresented(false)) {
+      $0.isPresented = false
+      $0.mode = .commands
+    }
+    await store.receive(.delegate(.dismissedWithoutSelection))
+  }
+
+  @Test func activateBranchSelectItemDelegatesSelectBranch() async {
+    let repositoryID = RepositoryID("/tmp/repo")
+    var state = CommandPaletteFeature.State()
+    state.isPresented = true
+    state.mode = .branchSearch
+    let store = TestStore(initialState: state) {
+      CommandPaletteFeature()
+    } withDependencies: {
+      $0.date.now = Date(timeIntervalSince1970: 100)
+    }
+    let item = CommandPaletteItem(
+      id: "branch.\(repositoryID).feature",
+      title: "feature",
+      subtitle: "Repo",
+      kind: .branchSelect(repositoryID, branch: "feature")
+    )
+
+    await store.send(.activateItem(item)) {
+      $0.recencyByItemID[item.id] = 100
+      $0.isPresented = false
+      $0.mode = .commands
+    }
+    await store.receive(.delegate(.selectBranch(repositoryID, branch: "feature")))
+  }
 }
 
 private func makeWorktree(

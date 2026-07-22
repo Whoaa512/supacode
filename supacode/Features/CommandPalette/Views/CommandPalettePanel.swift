@@ -259,6 +259,9 @@ final class CommandPalettePanelHostView: NSView {
     if AppShortcuts.commandPalette.effective(from: overrides)?.matches(event) == true {
       return .commands
     }
+    if AppShortcuts.branchSearch.effective(from: overrides)?.matches(event) == true {
+      return .branchSearch
+    }
     return nil
   }
 

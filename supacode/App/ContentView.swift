@@ -195,7 +195,8 @@ private struct CommandPaletteOverlayHost: View {
         from: repositoriesStore.state,
         ghosttyCommands: ghosttyShortcuts.commandPaletteEntries,
         scripts: store.allScripts,
-        runningScriptIDs: store.runningScriptIDs
+        runningScriptIDs: store.runningScriptIDs,
+        branchesByRepository: paletteStore.branchesByRepository
       ),
       isPresented: paletteStore.isPresented
     )
