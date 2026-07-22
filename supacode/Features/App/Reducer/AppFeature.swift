@@ -354,6 +354,7 @@ struct AppFeature {
   @Dependency(NotificationSoundClient.self) private var notificationSoundClient
   @Dependency(SystemNotificationClient.self) private var systemNotificationClient
   @Dependency(TerminalClient.self) private var terminalClient
+  @Dependency(\.gitClient) private var gitClient
   @Dependency(WorktreeInfoWatcherClient.self) private var worktreeInfoWatcher
   @Dependency(\.date.now) private var now
   @Dependency(\.continuousClock) private var clock
@@ -1321,6 +1322,24 @@ struct AppFeature {
         case .upstreamUpdate:
           return .none
       #endif
+
+      case .commandPalette(.togglePresentInMode(.branchSearch)):
+        // Load fresh branch lists whenever the branch-search surface is
+        // toggled; on a toggle-to-close the refresh is harmlessly dropped
+        // into state for the next open.
+        let gitRepositories = state.repositories.repositories.filter(\.isGitRepository)
+        return .run { send in
+          var branches: [Repository.ID: [String]] = [:]
+          for repository in gitRepositories {
+            let client = repository.host.map(GitClientDependency.ssh(host:)) ?? gitClient
+            let inventory = try? await client.branchInventory(repository.rootURL, [])
+            branches[repository.id] = inventory?.localBranches ?? []
+          }
+          await send(.commandPalette(.branchesLoaded(branches)))
+        }
+
+      case .commandPalette(.delegate(.selectBranch(let repositoryID, let branch))):
+        return .send(.repositories(.selectBranch(repositoryID, branch: branch)))
 
       case .commandPalette(.delegate(.selectWorktree(let worktreeID))):
         // Always-focused-terminal: palette completion lands focus in the

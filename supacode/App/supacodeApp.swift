@@ -535,6 +535,12 @@ struct SupacodeApp: App {
         }
         .appKeyboardShortcut(AppShortcuts.commandPalette.effective(from: store.settings.shortcutOverrides))
         .help("Command Palette")
+        Button("Go to Branch") {
+          guard NSApp.currentEvent?.isAutoRepeatKeyDown != true else { return }
+          store.send(.commandPalette(.togglePresentInMode(.branchSearch)))
+        }
+        .appKeyboardShortcut(AppShortcuts.branchSearch.effective(from: store.settings.shortcutOverrides))
+        .help("Search local branches across all repositories")
       }
       UpdateCommands(store: store.scope(state: \.updates, action: \.updates))
       CommandGroup(replacing: .singleWindowList) {

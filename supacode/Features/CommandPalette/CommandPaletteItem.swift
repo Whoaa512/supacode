@@ -70,6 +70,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
     case openRepository
     case addRemoteRepository
     case worktreeSelect(Worktree.ID)
+    case branchSelect(Repository.ID, branch: String)
     case openSettings
     case newWorktree
     case forkWorktree(Worktree.ID, Repository.ID)
@@ -111,7 +112,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .rerunFailedJobs,
       .openFailingCheckDetails:
       true
-    case .worktreeSelect, .removeWorktree, .archiveWorktree, .forkWorktree:
+    case .worktreeSelect, .branchSelect, .removeWorktree, .archiveWorktree, .forkWorktree:
       false
     case .renameBranch:
       true
@@ -140,6 +141,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .rerunFailedJobs,
       .openFailingCheckDetails,
       .worktreeSelect,
+      .branchSelect,
       .removeWorktree,
       .archiveWorktree,
       .renameBranch,
@@ -174,6 +176,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .rerunFailedJobs,
       .openFailingCheckDetails,
       .worktreeSelect,
+      .branchSelect,
       .removeWorktree,
       .archiveWorktree,
       .renameBranch,

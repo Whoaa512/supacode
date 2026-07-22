@@ -21,6 +21,8 @@ enum GitOperation: String {
   case ignoredFileCount = "ignored_file_count"
   case untrackedFileCount = "untracked_file_count"
   case branchDelete = "branch_delete"
+  case checkout = "checkout"
+  case statusPorcelain = "status_porcelain"
   case branchRename = "branch_rename"
   case lineChanges = "line_changes"
   case remoteInfo = "remote_info"
@@ -438,6 +440,23 @@ struct GitClient {
       .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
       .filter { !$0.isEmpty }
     return Set(names)
+  }
+
+  nonisolated func checkoutBranch(_ branch: String, at worktreeURL: URL) async throws {
+    let path = worktreeURL.path(percentEncoded: false)
+    _ = try await runGit(
+      operation: .checkout,
+      arguments: ["-C", path, "checkout", branch]
+    )
+  }
+
+  nonisolated func hasUncommittedChanges(at worktreeURL: URL) async throws -> Bool {
+    let path = worktreeURL.path(percentEncoded: false)
+    let output = try await runGit(
+      operation: .statusPorcelain,
+      arguments: ["-C", path, "status", "--porcelain"]
+    )
+    return !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   // Failures (collision, invalid ref, missing source) surface as

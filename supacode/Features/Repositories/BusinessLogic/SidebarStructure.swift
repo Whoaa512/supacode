@@ -560,6 +560,7 @@ extension RepositoriesFeature.Action {
       .revealSelectedWorktreeInSidebar, .revealHoistedWorktreeInSidebar,
       .consumePendingSidebarReveal,
       .createRandomWorktree, .forkWorktree,
+      .selectBranch,
       .requestOpenRepository,
       .promptedWorktreeCreationDataLoaded, .promptedWorktreeBranchesLoaded,
       .startPromptedWorktreeCreation,

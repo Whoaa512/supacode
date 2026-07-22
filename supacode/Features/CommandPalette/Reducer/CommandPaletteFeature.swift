@@ -17,6 +17,7 @@ struct CommandPaletteFeature {
   enum PaletteMode: Equatable, Sendable {
     case commands
     case worktreeSwitcher
+    case branchSearch
     case browse
   }
 
@@ -38,6 +39,9 @@ struct CommandPaletteFeature {
     var query = ""
     var selectedIndex: Int?
     var recencyByItemID: [CommandPaletteItem.ID: TimeInterval] = [:]
+    /// Local branches per repository for `.branchSearch`, loaded by `AppFeature`
+    /// on presentation (it owns the repositories and the per-host git clients).
+    var branchesByRepository: [Repository.ID: [String]] = [:]
     var browse = BrowseState()
   }
 
@@ -58,6 +62,7 @@ struct CommandPaletteFeature {
     case updateSelection(itemsCount: Int, defaultIndex: Int)
     case resetSelection(itemsCount: Int, defaultIndex: Int)
     case moveSelection(SelectionMove, itemsCount: Int)
+    case branchesLoaded([Repository.ID: [String]])
     case pruneRecency([CommandPaletteItem.ID])
     case enterBrowseMode(basePath: URL?)
     case browseLoadDirectory(URL)
@@ -75,6 +80,7 @@ struct CommandPaletteFeature {
   @CasePathable
   enum Delegate: Equatable {
     case selectWorktree(Worktree.ID)
+    case selectBranch(Repository.ID, branch: String)
     case checkForUpdates
     case openSettings
     case newWorktree
@@ -202,6 +208,10 @@ struct CommandPaletteFeature {
             state.selectedIndex = 0
           }
         }
+        return .none
+
+      case .branchesLoaded(let branches):
+        state.branchesByRepository = branches
         return .none
 
       case .pruneRecency(let ids):
@@ -349,7 +359,7 @@ struct CommandPaletteFeature {
         // actions; scripts and PR actions surface once you type.
         let visibleItems = items.filter { $0.isGlobal && !$0.isRootAction }
         return prioritizeItems(items: visibleItems, recencyByID: recencyByID, now: now)
-      case .worktreeSwitcher:
+      case .worktreeSwitcher, .branchSearch:
         // The switcher is a navigation surface: every worktree row is visible
         // with no query, already ordered MRU-first via `priorityTier`.
         return prioritizeItems(items: items, recencyByID: recencyByID, now: now)
@@ -526,7 +536,8 @@ struct CommandPaletteFeature {
     from repositories: RepositoriesFeature.State,
     ghosttyCommands: [GhosttyCommand] = [],
     scripts: [ScriptDefinition] = [],
-    runningScriptIDs: Set<UUID> = []
+    runningScriptIDs: Set<UUID> = [],
+    branchesByRepository: [Repository.ID: [String]] = [:]
   ) -> [CommandPaletteItem] {
     switch mode {
     case .commands, .browse:
@@ -538,7 +549,48 @@ struct CommandPaletteFeature {
       )
     case .worktreeSwitcher:
       return worktreeSwitcherItems(from: repositories)
+    case .branchSearch:
+      return branchSearchItems(from: repositories, branchesByRepository: branchesByRepository)
     }
+  }
+
+  /// Branch-search rows: every local branch of every git repository, titled by
+  /// branch name with the repo name as subtitle so the fuzzy scorer can hit
+  /// either. Current-branch rows are flagged like the switcher's current
+  /// worktree so Enter with an empty query never lands on a no-op.
+  static func branchSearchItems(
+    from repositories: RepositoriesFeature.State,
+    branchesByRepository: [Repository.ID: [String]]
+  ) -> [CommandPaletteItem] {
+    var items: [CommandPaletteItem] = []
+    for repository in repositories.repositories where repository.isGitRepository {
+      guard let branches = branchesByRepository[repository.id] else { continue }
+      let section = repositories.sidebar.sections[repository.id]
+      let repositoryName = Repository.sidebarDisplayName(
+        custom: section?.title,
+        fallback: repository.name
+      )
+      let mainWorktree = repository.worktrees.first(where: repositories.isMainWorktree)
+      let currentBranch = mainWorktree.flatMap { repositories.sidebarItems[id: $0.id]?.branchName }
+      for branch in branches {
+        items.append(
+          CommandPaletteItem(
+            id: "branch.\(repository.id).\(branch)",
+            title: branch,
+            subtitle: repositoryName,
+            kind: .branchSelect(repository.id, branch: branch),
+            isCurrentWorktree: branch == currentBranch,
+            worktreeStyle: .init(
+              titleTint: nil,
+              repoTint: section?.color,
+              hostInfo: repository.host?.displayAuthority,
+              icon: .pullRequest(.branch, checkBadge: nil)
+            )
+          )
+        )
+      }
+    }
+    return items
   }
 
   /// Worktree switcher items. Order: `worktreeMRU` entries first in recency
@@ -930,6 +982,8 @@ private func delegateAction(for kind: CommandPaletteItem.Kind) -> CommandPalette
   switch kind {
   case .worktreeSelect(let id):
     return .selectWorktree(id)
+  case .branchSelect(let repositoryID, let branch):
+    return .selectBranch(repositoryID, branch: branch)
   case .checkForUpdates:
     return .checkForUpdates
   case .openSettings:
@@ -1019,6 +1073,7 @@ private func pullRequestDelegateAction(
   case .openFailingCheckDetails(let worktreeID):
     return .openFailingCheckDetails(worktreeID)
   case .worktreeSelect,
+    .branchSelect,
     .checkForUpdates,
     .openSettings,
     .newWorktree,
