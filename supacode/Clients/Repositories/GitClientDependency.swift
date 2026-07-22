@@ -83,8 +83,6 @@ struct GitClientDependency: Sendable {
   var removeWorktree: @Sendable (_ worktree: Worktree, _ deleteBranch: Bool) async throws -> URL
   var isBareRepository: @Sendable (_ repoRoot: URL) async throws -> Bool
   var branchName: @Sendable (URL) async -> String?
-  var checkoutBranch: @Sendable (_ branch: String, _ worktreeURL: URL) async throws -> Void
-  var hasUncommittedChanges: @Sendable (URL) async throws -> Bool
   var lineChanges: @Sendable (URL) async -> (added: Int, removed: Int)?
   /// Uncommitted status of a worktree for the files inspector. `nil` on a probe
   /// failure (caller keeps its last-good snapshot); an empty snapshot is clean.
@@ -280,10 +278,6 @@ extension GitClientDependency: DependencyKey {
         try await GitClient(shell: shell).isBareRepository(for: repoRoot)
       },
       branchName: { await GitClient(shell: shell).symbolicHeadBranch(at: $0) },
-      checkoutBranch: { branch, worktreeURL in
-        try await GitClient(shell: shell).checkoutBranch(branch, at: worktreeURL)
-      },
-      hasUncommittedChanges: { try await GitClient(shell: shell).hasUncommittedChanges(at: $0) },
       lineChanges: { await GitClient(shell: shell).lineChanges(at: $0) },
       fileStatus: { await GitClient(shell: shell).fileStatus(at: $0) },
       stageFile: { path, root in try await GitClient(shell: shell).stageFile(path, in: root) },
