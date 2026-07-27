@@ -890,10 +890,12 @@ final class WorktreeTerminalState {
     return true
   }
 
+  // ⌘⇧W is an explicit "I mean it" gesture, so it skips the running-process
+  // confirmation that the tab ✕ button and context menu still show.
   @discardableResult
   func closeFocusedTab() -> Bool {
     guard let tabId = tabManager.selectedTabId else { return false }
-    return requestCloseTab(tabId)
+    return requestCloseTabs([tabId], confirm: false)
   }
 
   @discardableResult
@@ -1036,7 +1038,7 @@ final class WorktreeTerminalState {
     pendingCloseConfirmation = nil
   }
 
-  private func requestCloseTabs(_ requestedTabIDs: [TerminalTabID]) -> Bool {
+  private func requestCloseTabs(_ requestedTabIDs: [TerminalTabID], confirm: Bool = true) -> Bool {
     let existingTabIDs = requestedTabIDs.filter { requested in
       tabManager.tabs.contains(where: { $0.id == requested })
     }
@@ -1045,7 +1047,7 @@ final class WorktreeTerminalState {
 
     @Shared(.settingsFile) var settingsFile
     let reasons = existingTabIDs.compactMap(closeConfirmationReason)
-    guard settingsFile.global.confirmCloseSurface, !reasons.isEmpty else {
+    guard confirm, settingsFile.global.confirmCloseSurface, !reasons.isEmpty else {
       for tabId in existingTabIDs {
         closeTab(tabId)
       }
@@ -2176,7 +2178,8 @@ final class WorktreeTerminalState {
       case GHOSTTY_ACTION_CLOSE_TAB_MODE_RIGHT:
         return self.requestCloseTabsToRight(of: tabId)
       default:
-        return self.requestCloseTab(tabId)
+        // Keybind close-tab (⌘⇧W) skips confirmation; scoped closes above keep it.
+        return self.requestCloseTabs([tabId], confirm: false)
       }
     }
     view.bridge.onGotoTab = { [weak self, weak view] target in

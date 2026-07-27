@@ -1317,6 +1317,24 @@ struct WorktreeTerminalManagerTests {
     #expect(!state.tabManager.tabs.contains(where: { $0.id == tabId }))
   }
 
+  @Test(.dependencies) func closeFocusedTabSkipsConfirmationEvenWithRunningProcess() {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.confirmCloseSurface = true }
+    let state = WorktreeTerminalState(
+      runtime: GhosttyRuntime(),
+      worktree: makeWorktree(),
+      surfaceNeedsCloseConfirmation: { _ in true }
+    )
+    guard let tabId = state.createTab(focusing: true) else {
+      Issue.record("Expected a tab")
+      return
+    }
+
+    #expect(state.closeFocusedTab())
+    #expect(state.pendingCloseConfirmation == nil)
+    #expect(!state.tabManager.tabs.contains(where: { $0.id == tabId }))
+  }
+
   @Test(.dependencies) func requestCloseTabClosesIdleTabWithoutConfirmation() {
     @Shared(.settingsFile) var settingsFile
     $settingsFile.withLock { $0.global.confirmCloseSurface = true }
