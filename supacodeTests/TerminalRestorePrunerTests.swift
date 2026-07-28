@@ -1,3 +1,4 @@
+import Dependencies
 import Foundation
 import Testing
 
@@ -184,8 +185,20 @@ struct RestorePruneEnsureInitialTabTests {
     )
   }
 
+  /// Builds a state whose zmx reads as bundled with a resolved (empty) live-session
+  /// probe, the configuration where restore pruning is active.
+  private func makePruningState(worktree: Worktree) -> WorktreeTerminalState {
+    withDependencies {
+      $0.zmxClient.isBundled = { true }
+    } operation: {
+      let state = WorktreeTerminalState(runtime: GhosttyRuntime(), worktree: worktree)
+      state.liveZmxSessionNamesProvider = { Set() }
+      return state
+    }
+  }
+
   @Test func fullyBareSnapshotRestoresNoTabs() {
-    let state = WorktreeTerminalState(runtime: GhosttyRuntime(), worktree: makeWorktree())
+    let state = makePruningState(worktree: makeWorktree())
     state.pendingLayoutSnapshot = snapshot(leafIDs: [UUID(), UUID()])
     state.scrollbackDataProvider = { _ in nil }
     var prunedFired = false
@@ -202,7 +215,7 @@ struct RestorePruneEnsureInitialTabTests {
   @Test func meaningfulScrollbackKeepsItsTabAndDropsBareOne() {
     let keep = UUID()
     let bare = UUID()
-    let state = WorktreeTerminalState(runtime: GhosttyRuntime(), worktree: makeWorktree())
+    let state = makePruningState(worktree: makeWorktree())
     state.pendingLayoutSnapshot = snapshot(leafIDs: [keep, bare])
     state.scrollbackDataProvider = { id in
       guard id == keep else { return nil }
@@ -221,7 +234,7 @@ struct RestorePruneEnsureInitialTabTests {
 
   @Test func untouchedSnapshotDoesNotFirePrunedCallback() {
     let keep = UUID()
-    let state = WorktreeTerminalState(runtime: GhosttyRuntime(), worktree: makeWorktree())
+    let state = makePruningState(worktree: makeWorktree())
     state.pendingLayoutSnapshot = snapshot(leafIDs: [keep])
     state.scrollbackDataProvider = { _ in
       Data((1...10).map { "line \($0)" }.joined(separator: "\n").utf8)
@@ -234,5 +247,37 @@ struct RestorePruneEnsureInitialTabTests {
     #expect(state.tabManager.tabs.count == 1)
     #expect(!prunedFired)
     state.closeAllSurfaces()
+  }
+
+  @Test func unbundledZmxSkipsPruningEntirely() {
+    // Default test zmxClient reads as not bundled; the legacy full restore runs.
+    let state = WorktreeTerminalState(runtime: GhosttyRuntime(), worktree: makeWorktree())
+    state.pendingLayoutSnapshot = snapshot(leafIDs: [UUID()])
+    state.scrollbackDataProvider = { _ in nil }
+    var prunedFired = false
+    state.onRestorePruned = { prunedFired = true }
+
+    state.ensureInitialTab(focusing: false)
+
+    #expect(state.tabManager.tabs.count == 1)
+    #expect(!prunedFired)
+    state.closeAllSurfaces()
+  }
+
+  @Test func liveBarePromptSessionIsPruned() {
+    let bareLive = UUID()
+    let state = withDependencies {
+      $0.zmxClient.isBundled = { true }
+    } operation: {
+      let state = WorktreeTerminalState(runtime: GhosttyRuntime(), worktree: makeWorktree())
+      state.liveZmxSessionNamesProvider = { [ZmxSessionID.make(surfaceID: bareLive)] }
+      return state
+    }
+    state.pendingLayoutSnapshot = snapshot(leafIDs: [bareLive])
+    state.scrollbackDataProvider = { _ in nil }
+
+    state.ensureInitialTab(focusing: false)
+
+    #expect(state.tabManager.tabs.isEmpty)
   }
 }

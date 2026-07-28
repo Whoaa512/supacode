@@ -1748,30 +1748,32 @@ final class WorktreeTerminalState {
     }
   }
 
-  /// Prunes bare surfaces (no live zmx session to reattach, no meaningful disk
-  /// scrollback to replay) from a launch-restore snapshot, deleting the pruned
-  /// surfaces' stale scrollback files. Conservative: skips pruning entirely for
-  /// remote worktrees (their sessions live host-side, invisible to the local
-  /// probe), when the zmx probe returned no signal, or when neither persistence
-  /// mechanism is active. Returns nil when nothing survives.
+  /// Prunes bare surfaces (trivial-or-missing disk scrollback, i.e. "just a
+  /// fresh shell") from a launch-restore snapshot, deleting their stale
+  /// scrollback files and killing any zmx session they still hold. Skips
+  /// pruning entirely for remote worktrees (their sessions live host-side,
+  /// invisible to the local probe), unbundled-zmx builds, an unresolved zmx
+  /// probe, or disabled scrollback persistence (no triviality signal without
+  /// dumps). Returns nil when nothing survives.
   private func prunedSnapshotForRestore(_ snapshot: TerminalLayoutSnapshot) -> TerminalLayoutSnapshot? {
     guard worktree.host == nil else { return snapshot }
-    let zmxBundled = zmxClient.isBundled()
-    let liveNames = liveZmxSessionNamesProvider()
+    // Without a bundled zmx (dev / test builds) sessions never survive relaunch,
+    // so "nothing to reattach" carries no signal; keep the legacy full restore.
+    guard zmxClient.isBundled() else { return snapshot }
     // nil = UNKNOWN probe; never prune on no signal (mirrors the orphan reaper).
-    if zmxBundled, liveNames == nil { return snapshot }
+    guard let liveNames = liveZmxSessionNamesProvider() else { return snapshot }
     @Shared(.settingsFile) var settingsFile
-    let scrollbackEnabled = settingsFile.global.persistScrollbackEnabled
-    // With both persistence mechanisms off, every restored surface is a fresh
-    // shell by design; pruning would wipe the user's tab structure instead.
-    guard zmxBundled || scrollbackEnabled else { return snapshot }
+    // Without scrollback dumps there is no "just a fresh shell" signal either;
+    // only live-vs-dead remains, and killing every dead surface's layout on the
+    // strength of that alone would wipe structure users expect back.
+    guard settingsFile.global.persistScrollbackEnabled else { return snapshot }
     let pruned = TerminalRestorePruner.prunedSnapshot(snapshot) { leaf in
       // A nil-id leaf has no session name and no scrollback file: always bare.
       guard let id = leaf.id else { return false }
-      if zmxBundled, liveNames?.contains(ZmxSessionID.make(surfaceID: id)) == true {
-        return true
-      }
-      guard scrollbackEnabled, let data = scrollbackDataProvider(id) else { return false }
+      // The disk dump decides for live sessions too: it is captured on quit and
+      // every 30s, so a trivial-or-missing dump means the session is a bare
+      // prompt nobody used, not worth resurrecting just because zmx kept it.
+      guard let data = scrollbackDataProvider(id) else { return false }
       return TerminalRestorePruner.isScrollbackMeaningful(data)
     }
     let keptIDs = Set(pruned?.allSurfaceIDs ?? [])
@@ -1785,6 +1787,10 @@ final class WorktreeTerminalState {
           at: SupacodePaths.scrollbackDirectory
             .appending(path: "\(id.uuidString).replay.vt", directoryHint: .notDirectory))
       }
+      // A pruned surface may still own a live zmx session (bare prompt kept
+      // alive across quit); kill it or it lingers until the orphan reap.
+      let prunedLive = prunedIDs.filter { liveNames.contains(ZmxSessionID.make(surfaceID: $0)) }
+      killZmxSessions(forSurfaceIDs: prunedLive)
     }
     return pruned
   }
