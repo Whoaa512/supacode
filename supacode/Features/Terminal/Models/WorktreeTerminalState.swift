@@ -214,6 +214,13 @@ final class WorktreeTerminalState {
   /// Closure that reads the manager's current live zmx session names at restore time.
   /// Lazy read ensures a worktree selected after the probe completes sees the fresh set.
   @ObservationIgnored var liveZmxSessionNamesProvider: () -> Set<String>? = { nil }
+  /// Reads a surface's persisted scrollback dump for the restore-prune
+  /// decision. Injectable so tests exercise pruning without touching the real
+  /// scrollback directory.
+  @ObservationIgnored var scrollbackDataProvider: (UUID) -> Data? = { surfaceID in
+    FileManager.default.contents(
+      atPath: SupacodePaths.scrollbackFileURL(for: surfaceID).path(percentEncoded: false))
+  }
   /// When a custom (hook / OSC 3008) notification last committed per surface.
   /// Stored as a monotonic instant so the suppression window and the OSC-9 hold
   /// share one clock source and can't desync on an NTP step / manual clock change.
@@ -303,6 +310,10 @@ final class WorktreeTerminalState {
   var onRunningScriptsChanged: (() -> Void)?
   var onCommandPaletteToggle: (() -> Void)?
   var onSetupScriptConsumed: (() -> Void)?
+  /// Fires when launch restore pruned bare surfaces from the persisted layout,
+  /// so the manager rewrites layouts.json (a fully-pruned worktree deletes its
+  /// key instead of resurrecting the dropped surfaces next launch).
+  var onRestorePruned: (() -> Void)?
   /// Forwarded to the manager so it can emit a `surfacesClosed` event into TCA.
   var onSurfacesClosed: ((Set<UUID>) -> Void)?
   /// Fires when a tab hibernates. Manager cancels the debounced idle hooks for
@@ -454,7 +465,17 @@ final class WorktreeTerminalState {
 
     if let snapshot = pendingLayoutSnapshot {
       pendingLayoutSnapshot = nil
-      restoreFromSnapshot(snapshot, focusing: focusing)
+      let pruned = prunedSnapshotForRestore(snapshot)
+      if pruned != snapshot {
+        onRestorePruned?()
+      }
+      guard let pruned else {
+        // Every persisted surface was a bare shell with nothing to reattach or
+        // replay; restoring would only mint fresh shells, so start with no tabs.
+        layoutLogger.info("Skipping restore for worktree \(worktree.id): nothing worth restoring.")
+        return
+      }
+      restoreFromSnapshot(pruned, focusing: focusing)
       return
     }
     let setupScript = pendingSetupScript ? repositorySettings.setupScript : nil
@@ -1725,6 +1746,47 @@ final class WorktreeTerminalState {
         )
       )
     }
+  }
+
+  /// Prunes bare surfaces (no live zmx session to reattach, no meaningful disk
+  /// scrollback to replay) from a launch-restore snapshot, deleting the pruned
+  /// surfaces' stale scrollback files. Conservative: skips pruning entirely for
+  /// remote worktrees (their sessions live host-side, invisible to the local
+  /// probe), when the zmx probe returned no signal, or when neither persistence
+  /// mechanism is active. Returns nil when nothing survives.
+  private func prunedSnapshotForRestore(_ snapshot: TerminalLayoutSnapshot) -> TerminalLayoutSnapshot? {
+    guard worktree.host == nil else { return snapshot }
+    let zmxBundled = zmxClient.isBundled()
+    let liveNames = liveZmxSessionNamesProvider()
+    // nil = UNKNOWN probe; never prune on no signal (mirrors the orphan reaper).
+    if zmxBundled, liveNames == nil { return snapshot }
+    @Shared(.settingsFile) var settingsFile
+    let scrollbackEnabled = settingsFile.global.persistScrollbackEnabled
+    // With both persistence mechanisms off, every restored surface is a fresh
+    // shell by design; pruning would wipe the user's tab structure instead.
+    guard zmxBundled || scrollbackEnabled else { return snapshot }
+    let pruned = TerminalRestorePruner.prunedSnapshot(snapshot) { leaf in
+      // A nil-id leaf has no session name and no scrollback file: always bare.
+      guard let id = leaf.id else { return false }
+      if zmxBundled, liveNames?.contains(ZmxSessionID.make(surfaceID: id)) == true {
+        return true
+      }
+      guard scrollbackEnabled, let data = scrollbackDataProvider(id) else { return false }
+      return TerminalRestorePruner.isScrollbackMeaningful(data)
+    }
+    let keptIDs = Set(pruned?.allSurfaceIDs ?? [])
+    let prunedIDs = snapshot.allSurfaceIDs.filter { !keptIDs.contains($0) }
+    if !prunedIDs.isEmpty {
+      layoutLogger.info(
+        "Pruning \(prunedIDs.count) bare surface(s) from restore for worktree \(worktree.id)")
+      for id in prunedIDs {
+        try? FileManager.default.removeItem(at: SupacodePaths.scrollbackFileURL(for: id))
+        try? FileManager.default.removeItem(
+          at: SupacodePaths.scrollbackDirectory
+            .appending(path: "\(id.uuidString).replay.vt", directoryHint: .notDirectory))
+      }
+    }
+    return pruned
   }
 
   private func restoreFromSnapshot(_ snapshot: TerminalLayoutSnapshot, focusing: Bool) {

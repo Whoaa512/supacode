@@ -676,6 +676,12 @@ final class WorktreeTerminalManager {
     state.onSetupScriptConsumed = { [weak self] in
       self?.emit(.setupScriptConsumed(worktreeID: worktree.id))
     }
+    // A restore prune must reach disk even when nothing was restored (no
+    // onTabCreated fires then): the flush captures the post-prune truth, and a
+    // fully-pruned worktree deletes its layouts.json key.
+    state.onRestorePruned = { [weak self] in
+      self?.markLayoutDirty(worktreeID: worktree.id)
+    }
     state.onTabProjectionChanged = { [weak self] projection in
       self?.emit(.tabProjectionChanged(worktreeID: worktree.id, projection))
       self?.markLayoutDirty(worktreeID: worktree.id)
