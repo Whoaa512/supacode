@@ -773,6 +773,22 @@ final class WorktreeTerminalState {
     worktree.host
   }
 
+  /// Display name for session-browser style listings.
+  var worktreeName: String {
+    worktree.name
+  }
+
+  /// True while the tab is hibernated (surfaces torn down, zmx sessions kept).
+  func isTabDormant(_ tabId: TerminalTabID) -> Bool {
+    dormantTabLayouts[tabId] != nil
+  }
+
+  /// Screen text of a live surface for preview rendering; nil for dormant or
+  /// unknown surfaces (they have no live view to read).
+  func screenPreview(for surfaceID: UUID) -> String? {
+    surfaces[surfaceID]?.screenPreviewContents()
+  }
+
   // Standardized to match `loadFailuresByID` keys (built from `standardizedFileURL.path`)
   // so prune protection lines up.
   var repositoryID: Repository.ID {

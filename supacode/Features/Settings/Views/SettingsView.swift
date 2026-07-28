@@ -140,6 +140,8 @@ private struct SettingsSidebarView: View {
         .tag(SettingsSection.shortcuts)
       Label("Global Scripts", systemImage: "terminal")
         .tag(SettingsSection.scripts)
+      Label("Terminal Sessions", systemImage: "macwindow.on.rectangle")
+        .tag(SettingsSection.terminalSessions)
       Label("Updates", systemImage: "arrow.down.circle")
         .tag(SettingsSection.updates)
 
@@ -181,6 +183,8 @@ private struct SettingsDetailView: View {
   let selectedRepositorySummary: SettingsRepositorySummary?
   @Bindable var settingsStore: StoreOf<SettingsFeature>
   let updatesStore: StoreOf<UpdatesFeature>
+  let appStore: StoreOf<AppFeature>
+  let terminalManager: WorktreeTerminalManager
 
   var body: some View {
     switch selection {
@@ -201,6 +205,8 @@ private struct SettingsDetailView: View {
     case .scripts:
       GlobalScriptsSettingsView(store: settingsStore)
         .navigationTitle("Global Scripts")
+    case .terminalSessions:
+      TerminalSessionsSettingsView(store: appStore, terminalManager: terminalManager)
     case .repository:
       if let repository = selectedRepositorySummary {
         if let repositorySettingsStore = settingsStore.scope(
@@ -252,10 +258,12 @@ private struct SettingsDetailView: View {
 struct SettingsView: View {
   @Bindable var store: StoreOf<AppFeature>
   @Bindable var settingsStore: StoreOf<SettingsFeature>
+  let terminalManager: WorktreeTerminalManager
   @State private var expandedRepositories: Set<String> = []
 
-  init(store: StoreOf<AppFeature>) {
+  init(store: StoreOf<AppFeature>, terminalManager: WorktreeTerminalManager) {
     self.store = store
+    self.terminalManager = terminalManager
     settingsStore = store.scope(state: \.settings, action: \.settings)
   }
 
@@ -283,7 +291,9 @@ struct SettingsView: View {
         selection: selection,
         selectedRepositorySummary: selectedRepositorySummary,
         settingsStore: settingsStore,
-        updatesStore: updatesStore
+        updatesStore: updatesStore,
+        appStore: store,
+        terminalManager: terminalManager
       )
     }
     .toolbar {
