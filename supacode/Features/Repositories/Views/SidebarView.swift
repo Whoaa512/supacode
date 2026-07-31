@@ -7,6 +7,15 @@ struct SidebarView: View {
   @Bindable var store: StoreOf<RepositoriesFeature>
   let terminalManager: WorktreeTerminalManager
   @Shared(.settingsFile) private var settingsFile
+  /// Raw string storage (AppStorage-native); mapped to `SidebarTab` for the picker.
+  @Shared(.sidebarTab) private var sidebarTabRawValue: String
+
+  private var sidebarTab: Binding<SidebarTab> {
+    Binding(
+      get: { SidebarTab(rawValue: sidebarTabRawValue) ?? .worktrees },
+      set: { newTab in $sidebarTabRawValue.withLock { $0 = newTab.rawValue } }
+    )
+  }
 
   var body: some View {
     let state = store.state
@@ -17,10 +26,31 @@ struct SidebarView: View {
     let deleteTargets = state.sidebarSelectionSlice.deleteTargets
     let openRepo = AppShortcuts.openRepository.effective(from: settingsFile.global.shortcutOverrides)
 
-    return SidebarListView(
-      store: store,
-      terminalManager: terminalManager
-    )
+    return VStack(spacing: 0) {
+      Picker("Sidebar Panel", selection: sidebarTab) {
+        ForEach(SidebarTab.allCases, id: \.self) { tab in
+          Text(tab.title).tag(tab)
+        }
+      }
+      .pickerStyle(.segmented)
+      .labelsHidden()
+      .controlSize(.small)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 6)
+      .help(sidebarTab.wrappedValue.help)
+
+      Divider()
+
+      switch sidebarTab.wrappedValue {
+      case .worktrees:
+        SidebarListView(
+          store: store,
+          terminalManager: terminalManager
+        )
+      case .agents:
+        AgentDashboardListView(store: store)
+      }
+    }
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
         Menu {
