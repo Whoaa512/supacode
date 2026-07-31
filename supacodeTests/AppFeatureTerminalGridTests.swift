@@ -112,7 +112,49 @@ struct AppFeatureTerminalGridTests {
     #expect(tiles.map(\.surfaceID) == [surfaceA, surfaceB, surfaceC])
     #expect(tiles.map(\.tabTitle) == ["tab-1", "tab-1", "tab-2"])
     #expect(tiles.allSatisfy { $0.directoryName == "alpha-dir" })
-    #expect(tiles.map(\.isDormant) == [false, true, false])
+    #expect(tiles.map(\.kind) == [.live, .dormant, .live])
+  }
+
+  @Test func snoozedTilesComeFromPersistedLayoutsAndSkipLiveOrMissingWorktrees() {
+    let liveWorktree = makeWorktree(id: "/tmp/repo/live", name: "live")
+    let snoozedWorktree = makeWorktree(id: "/tmp/repo/snoozed", name: "snoozed")
+    let tabID = UUID()
+    let surfaceID = UUID()
+    let snapshot = TerminalLayoutSnapshot(
+      tabs: [
+        .init(
+          id: tabID, title: "agent", customTitle: "my agent", icon: nil, tintColor: nil,
+          layout: .leaf(.init(id: surfaceID, workingDirectory: nil)), focusedLeafIndex: 0)
+      ],
+      selectedTabIndex: 0
+    )
+    let worktrees = [liveWorktree.id: liveWorktree, snoozedWorktree.id: snoozedWorktree]
+
+    let tiles = TerminalGridOverviewView.snoozedTiles(
+      layouts: [
+        liveWorktree.id.rawValue: snapshot,
+        snoozedWorktree.id.rawValue: snapshot,
+        "/tmp/repo/deleted": snapshot,
+      ],
+      excludingWorktreeIDs: [liveWorktree.id],
+      worktreeLookup: { worktrees[$0] }
+    )
+
+    #expect(tiles.count == 1)
+    #expect(tiles.first?.worktreeID == snoozedWorktree.id)
+    #expect(tiles.first?.directoryName == "snoozed")
+    #expect(tiles.first?.tabTitle == "my agent")
+    #expect(tiles.first?.tabID == TerminalTabID(rawValue: tabID))
+    #expect(tiles.first?.surfaceID == surfaceID)
+    #expect(tiles.first?.kind == .snoozed)
+  }
+
+  @Test func scrollbackPreviewStripsEscapesAndNormalizesLineEndings() {
+    let raw = "\u{1b}[32mgreen\u{1b}[0m line\r\nnext\rprogress\u{1b}]0;title\u{07}done"
+
+    let visible = ScrollbackPreview.strippedVisibleText(raw)
+
+    #expect(visible == "green line\nnext\nprogressdone")
   }
 
   // MARK: - Helpers.
