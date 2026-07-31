@@ -149,16 +149,27 @@ struct AppFeatureTerminalGridTests {
     #expect(tiles.first?.kind == .snoozed)
   }
 
-  @Test func columnCountFillsWideScreensAndRespectsNarrowOnes() {
-    // Few tiles on a big monitor: one row, tiles grow to fill.
-    #expect(TerminalGridOverviewView.columnCount(tileCount: 2, width: 2500) == 2)
-    #expect(TerminalGridOverviewView.columnCount(tileCount: 5, width: 2500) == 5)
-    // Many tiles: near-square layout instead of a thin strip.
-    #expect(TerminalGridOverviewView.columnCount(tileCount: 12, width: 2500) == 4)
-    // 14" laptop width: min tile width caps the column count.
-    #expect(TerminalGridOverviewView.columnCount(tileCount: 12, width: 1200) == 3)
-    #expect(TerminalGridOverviewView.columnCount(tileCount: 2, width: 500) == 1)
-    #expect(TerminalGridOverviewView.columnCount(tileCount: 0, width: 2500) == 1)
+  @Test func columnCountGrowsWithWidthLikeAResponsiveHomePage() {
+    // 14" laptop full screen: baseline three across.
+    #expect(TerminalGridOverviewView.columnCount(width: 1500) == 3)
+    // Wider monitors: a column appears only when it fits at the ideal width,
+    // so tiles grow between breakpoints.
+    #expect(TerminalGridOverviewView.columnCount(width: 2000) == 4)
+    #expect(TerminalGridOverviewView.columnCount(width: 2500) == 5)
+    // Narrow windows: the minimum tile width wins over the 3-column baseline.
+    #expect(TerminalGridOverviewView.columnCount(width: 700) == 2)
+    #expect(TerminalGridOverviewView.columnCount(width: 400) == 1)
+  }
+
+  @Test func ansiStyledTextColorsRunsAndResets() {
+    let styled = AnsiStyledText.attributedString(
+      from: "plain \u{1b}[32mgreen\u{1b}[0m \u{1b}[38;5;196mred256\u{1b}[39m tail")
+
+    let runs = styled.runs.map {
+      (String(styled[$0.range].characters), $0.foregroundColor != nil)
+    }
+    #expect(String(styled.characters) == "plain green red256 tail")
+    #expect(runs.map(\.1) == [false, true, false, true, false])
   }
 
   @Test func scrollbackPreviewStripsEscapesAndNormalizesLineEndings() {

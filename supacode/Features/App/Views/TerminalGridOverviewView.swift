@@ -21,20 +21,25 @@ struct TerminalGridOverviewView: View {
   @FocusState private var isGridFocused: Bool
   @Shared(.layouts) private var layouts: [String: TerminalLayoutSnapshot] = [:]
 
-  private static let tileMinWidth: CGFloat = 340
   private static let gridSpacing: CGFloat = 16
   private static let previewLineLimit = 40
+  /// A new column only appears once every column can be at least this wide,
+  /// so between breakpoints the existing tiles grow to absorb the width.
+  private static let idealTileWidth: CGFloat = 440
+  /// Floor below which the minimum-column rule yields to keep tiles legible.
+  private static let minimumTileWidth: CGFloat = 300
+  /// YouTube-home baseline: never fewer than this many across (unless the
+  /// window is too narrow for them at `minimumTileWidth`).
+  private static let minimumColumns = 3
 
-  /// Exposé-style fill: few tiles spread across one row and grow; many tiles
-  /// settle into a near-square layout, and narrow windows fall back to
-  /// whatever fits `tileMinWidth`. Never more columns than tiles, so a big
-  /// monitor with two sessions shows two big tiles instead of a sparse strip.
-  static func columnCount(tileCount: Int, width: CGFloat) -> Int {
-    guard tileCount > 0 else { return 1 }
-    let maxByWidth = max(1, Int(width / tileMinWidth))
-    guard tileCount > maxByWidth else { return tileCount }
-    let nearSquare = Int(Double(tileCount).squareRoot().rounded(.up))
-    return max(1, min(maxByWidth, nearSquare))
+  /// YouTube-style responsive columns: at least `minimumColumns` across,
+  /// tiles grow with the window, and another column appears only when it
+  /// fits at `idealTileWidth`. Independent of tile count so the grid reads
+  /// the same with 2 sessions or 20.
+  static func columnCount(width: CGFloat) -> Int {
+    let byIdealWidth = Int(width / idealTileWidth)
+    let byMinimumWidth = max(1, Int(width / minimumTileWidth))
+    return max(1, min(max(byIdealWidth, minimumColumns), byMinimumWidth))
   }
 
   var body: some View {
@@ -126,15 +131,19 @@ struct TerminalGridOverviewView: View {
         LazyVGrid(
           columns: Array(
             repeating: GridItem(.flexible(), spacing: Self.gridSpacing),
-            count: Self.columnCount(tileCount: tiles.count, width: containerWidth)
+            count: Self.columnCount(width: containerWidth)
           ),
           spacing: Self.gridSpacing
         ) {
+          let background = terminalManager.ghosttyRuntime.backgroundColor()
+          let foreground: Color = background.isLightColor ? .black : .white
           ForEach(tiles) { tile in
             TerminalGridTileView(
               tile: tile,
               isSelected: tile.id == selectedSurfaceID,
               previewText: previewText(for: tile),
+              terminalBackground: Color(nsColor: background),
+              terminalForeground: foreground,
               onJump: { jump(to: tile) },
               onCloseSurface: tile.kind == .snoozed ? nil : { closeSurface(tile) }
             )
@@ -168,7 +177,7 @@ struct TerminalGridOverviewView: View {
       return .ignored
     }
     let currentIndex = tiles.firstIndex { $0.id == selectedSurfaceID } ?? 0
-    let columnCount = Self.columnCount(tileCount: tiles.count, width: containerWidth)
+    let columnCount = Self.columnCount(width: containerWidth)
 
     switch press.key {
     case .rightArrow:
@@ -223,7 +232,7 @@ struct TerminalGridOverviewView: View {
 
   // MARK: - Previews.
 
-  private func previewText(for tile: Tile) -> String? {
+  private func previewText(for tile: Tile) -> AttributedString? {
     switch tile.kind {
     case .live:
       let contents =
@@ -233,7 +242,7 @@ struct TerminalGridOverviewView: View {
         lines.removeLast()
       }
       guard !lines.isEmpty else { return nil }
-      return lines.suffix(Self.previewLineLimit).joined(separator: "\n")
+      return AttributedString(lines.suffix(Self.previewLineLimit).joined(separator: "\n"))
     case .dormant, .snoozed:
       return diskPreviewCache.tail(for: tile.surfaceID, maxLines: Self.previewLineLimit)
     }
@@ -241,15 +250,17 @@ struct TerminalGridOverviewView: View {
 
   @MainActor
   final class DiskPreviewCache {
-    private var previews: [UUID: String] = [:]
+    private var previews: [UUID: AttributedString?] = [:]
 
-    func tail(for surfaceID: UUID, maxLines: Int) -> String? {
+    func tail(for surfaceID: UUID, maxLines: Int) -> AttributedString? {
       if let cached = previews[surfaceID] {
-        return cached.isEmpty ? nil : cached
+        return cached
       }
-      let tail = ScrollbackPreview.tail(surfaceID: surfaceID, maxLines: maxLines)
-      previews[surfaceID] = tail ?? ""
-      return tail
+      let styled = ScrollbackPreview.tail(
+        surfaceID: surfaceID, maxLines: maxLines, keepingSGRStyles: true
+      ).map(AnsiStyledText.attributedString(from:))
+      previews[surfaceID] = styled
+      return styled
     }
   }
 
@@ -355,7 +366,9 @@ struct TerminalGridOverviewView: View {
 private struct TerminalGridTileView: View {
   let tile: TerminalGridOverviewView.Tile
   let isSelected: Bool
-  let previewText: String?
+  let previewText: AttributedString?
+  let terminalBackground: Color
+  let terminalForeground: Color
   let onJump: () -> Void
   let onCloseSurface: (() -> Void)?
 
@@ -383,10 +396,13 @@ private struct TerminalGridTileView: View {
   private var tileContent: some View {
     VStack(alignment: .leading, spacing: 6) {
       breadcrumb
-      preview
-        .frame(maxWidth: .infinity)
+      // The theme-colored rectangle owns the tile's size (grid width × fixed
+      // aspect); the preview text lives in an overlay so its natural size
+      // can never inflate the layout, and overflow clips at the tile edge.
+      terminalBackground
         .aspectRatio(1.6, contentMode: .fit)
-        .background(.black)
+        .frame(maxWidth: .infinity)
+        .overlay(alignment: .bottomLeading) { preview }
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
           RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -457,15 +473,14 @@ private struct TerminalGridTileView: View {
     if let previewText {
       // fixedSize keeps long lines on one line (clipped right) like a real
       // terminal. Bottom-aligned so the tail (prompt, latest output) is
-      // always visible and overflow clips the oldest lines at the top.
+      // always visible; SGR-colored runs carry their own colors and the
+      // theme foreground fills the rest.
       Text(previewText)
         .font(.system(size: previewFontSize, design: .monospaced))
-        .foregroundStyle(.white)
-        .opacity(isAsleep ? 0.5 : 0.9)
+        .foregroundStyle(terminalForeground)
+        .opacity(isAsleep ? 0.55 : 0.95)
         .fixedSize(horizontal: true, vertical: true)
         .padding(10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-        .clipped()
     } else {
       VStack(spacing: 6) {
         Image(systemName: isAsleep ? "moon.zzz" : "terminal")
@@ -474,8 +489,8 @@ private struct TerminalGridTileView: View {
         Text(isAsleep ? "Asleep" : "No output")
           .font(.caption)
       }
-      .foregroundStyle(.white.opacity(0.4))
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .foregroundStyle(terminalForeground.opacity(0.5))
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
   }
 }

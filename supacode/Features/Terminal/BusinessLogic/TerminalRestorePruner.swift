@@ -13,10 +13,12 @@ enum ScrollbackPreview {
   /// while bounding the per-tile cost of multi-megabyte scrollbacks.
   static let tailByteLimit = 64 * 1024
 
-  /// Last `maxLines` visible lines of a surface's scrollback dump, VT escape
-  /// sequences stripped and trailing blank lines trimmed. Nil when no dump
-  /// exists or nothing visible survives stripping.
-  static func tail(surfaceID: UUID, maxLines: Int) -> String? {
+  /// Last `maxLines` visible lines of a surface's scrollback dump, trailing
+  /// blank lines trimmed. Non-styling escape sequences are always stripped;
+  /// `keepingSGRStyles` retains color/style (SGR) sequences so thumbnails can
+  /// render the terminal's theming. Nil when no dump exists or nothing
+  /// visible survives stripping.
+  static func tail(surfaceID: UUID, maxLines: Int, keepingSGRStyles: Bool = false) -> String? {
     let url = SupacodePaths.scrollbackFileURL(for: surfaceID)
     guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
     defer { try? handle.close() }
@@ -32,9 +34,13 @@ enum ScrollbackPreview {
     guard let data, !data.isEmpty,
       let text = String(bytes: data, encoding: .utf8)
     else { return nil }
-    let visible = strippedVisibleText(text)
+    let visible = visibleText(text, keepingSGRStyles: keepingSGRStyles)
     var lines = visible.split(separator: "\n", omittingEmptySubsequences: false)
-    while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty {
+    // Blankness ignores retained SGR sequences: a line of pure styling
+    // resets is still visually blank.
+    while let last = lines.last,
+      strippedVisibleText(String(last)).trimmingCharacters(in: .whitespaces).isEmpty
+    {
       lines.removeLast()
     }
     guard !lines.isEmpty else { return nil }
@@ -44,6 +50,10 @@ enum ScrollbackPreview {
   /// Plain text with VT escape sequences removed and carriage returns
   /// normalized to newlines.
   static func strippedVisibleText(_ text: String) -> String {
+    visibleText(text, keepingSGRStyles: false)
+  }
+
+  private static func visibleText(_ text: String, keepingSGRStyles: Bool) -> String {
     var result = String.UnicodeScalarView()
     result.reserveCapacity(text.unicodeScalars.count)
     var scalars = text.unicodeScalars.makeIterator()
@@ -51,7 +61,7 @@ enum ScrollbackPreview {
     while let scalar = scalars.next() {
       switch scalar {
       case "\u{1b}":
-        TerminalRestorePruner.skipEscapeSequence(&scalars)
+        consumeEscapeSequence(&scalars, into: &result, keepingSGRStyles: keepingSGRStyles)
         previousWasCR = false
       case "\r":
         result.append("\n")
@@ -66,6 +76,45 @@ enum ScrollbackPreview {
       }
     }
     return String(result)
+  }
+
+  /// Consumes one escape sequence after a seen ESC. When keeping SGR styles,
+  /// a CSI sequence with final byte `m` is re-emitted verbatim; everything
+  /// else (cursor moves, OSC titles, single-char escapes) is dropped.
+  private static func consumeEscapeSequence(
+    _ scalars: inout String.UnicodeScalarView.Iterator,
+    into result: inout String.UnicodeScalarView,
+    keepingSGRStyles: Bool
+  ) {
+    guard let introducer = scalars.next() else { return }
+    switch introducer {
+    case "[":
+      // CSI: parameter/intermediate bytes 0x20-0x3F, final byte 0x40-0x7E.
+      var body = String.UnicodeScalarView()
+      while let byte = scalars.next() {
+        if byte.value >= 0x40, byte.value <= 0x7E {
+          if keepingSGRStyles, byte == "m" {
+            result.append("\u{1b}")
+            result.append("[")
+            result.append(contentsOf: body)
+            result.append("m")
+          }
+          return
+        }
+        body.append(byte)
+      }
+    case "]":
+      // OSC: terminated by BEL or ST (ESC \).
+      var previousWasEscape = false
+      while let byte = scalars.next() {
+        if byte == "\u{07}" { return }
+        if previousWasEscape, byte == "\\" { return }
+        previousWasEscape = byte == "\u{1b}"
+      }
+    default:
+      // Single-character escape (RIS, DECSC, charset selection, ...).
+      return
+    }
   }
 }
 
