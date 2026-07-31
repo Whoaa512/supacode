@@ -10,6 +10,12 @@ struct CommandPaletteBrowseView: View {
     store.browse.directoryURL.path(percentEncoded: false)
   }
 
+  private static let keyboardHints = "↵ open · ⇥ complete · ⌘↵ open folder · ⌘↑ up"
+  private static let keyboardHintsHelp = """
+    ↵ opens a repository or enters a folder · ⇥ completes the path · \
+    ⌘↵ opens the folder itself · ⌘↑ goes up one level
+    """
+
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       browseHeader
@@ -106,13 +112,6 @@ struct CommandPaletteBrowseView: View {
       }
       .buttonStyle(.plain)
       .keyboardShortcut(.init("n"), modifiers: [.control])
-      Button {
-        store.send(.browseNavigateUp)
-      } label: {
-        Color.clear
-      }
-      .buttonStyle(.plain)
-      .keyboardShortcut(.leftArrow, modifiers: [.command])
     }
     .frame(width: 0, height: 0)
     .accessibilityHidden(true)
@@ -174,18 +173,19 @@ struct CommandPaletteBrowseView: View {
       Button {
         store.send(.browseOpenNativePanel)
       } label: {
-        Label("Open in Finder", systemImage: "folder")
+        Label("Choose Folder…", systemImage: "folder")
           .font(.caption)
       }
       .buttonStyle(.plain)
       .foregroundStyle(.secondary)
-      .help("Fall back to the native file picker")
+      .help("Fall back to the native macOS open panel to pick a folder")
 
       Spacer()
 
-      Text("↵ open · ⇥ complete · ⌘↵ open folder · ⌘← up")
+      Text(Self.keyboardHints)
         .font(.caption2)
         .foregroundStyle(.quaternary)
+        .help(Self.keyboardHintsHelp)
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 8)
