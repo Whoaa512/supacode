@@ -165,9 +165,10 @@ final class CommandPalettePanelHostView: NSView {
     guard keyMonitor == nil else { return }
     keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
       guard let self, let panel = self.panel, panel.isKeyWindow else { return event }
-      // Browse mode owns Tab (path completion) and ⌘↵ (open the highlighted folder even
-      // when it isn't a git repo). Both must be matched before the field or the app menu
-      // sees them: Tab would otherwise move focus and ⌘↵ would beep below.
+      // Browse mode owns Tab (path completion), ⌘↵ (open the highlighted folder even when
+      // it isn't a git repo) and ⌘↑ (up one level). All must be matched before the field or
+      // the app menu sees them: Tab would otherwise move focus and the ⌘ chords would fall
+      // through to field editing or a beep below.
       if self.store.mode == .browse, let browseAction = Self.browseKeyAction(for: event) {
         self.store.send(browseAction)
         return nil
@@ -220,12 +221,16 @@ final class CommandPalettePanelHostView: NSView {
     }
   }
 
-  // Tab (keyCode 48) and ⌘↵ (keyCode 36), the two browse keys SwiftUI can't bind:
-  // `.keyboardShortcut(.tab)` never fires because Tab is focus navigation.
+  // The browse keys SwiftUI can't bind: Tab (48) because `.keyboardShortcut(.tab)` never
+  // fires under focus navigation, and the ⌘ chords because this monitor would otherwise
+  // route them to field editing first. Return (36) and numpad Enter (76) both count.
+  // ⌘↑ rather than ⌘← for up-one-level: ⌘← is the field's beginning-of-line.
   private static func browseKeyAction(for event: NSEvent) -> CommandPaletteFeature.Action? {
     let modifiers = Self.coreModifiers(of: event)
     if event.keyCode == 48, modifiers.isEmpty { return .browseAutocomplete }
-    if event.keyCode == 36, modifiers == .command { return .browseForceOpen }
+    guard modifiers == .command else { return nil }
+    if event.keyCode == 36 || event.keyCode == 76 { return .browseForceOpen }
+    if event.keyCode == 126 { return .browseNavigateUp }
     return nil
   }
 
