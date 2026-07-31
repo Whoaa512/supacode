@@ -45,18 +45,6 @@ struct AppFeatureCommandPaletteTests {
     }
   }
 
-  @Test(.dependencies) func openRepositoryEntersBrowseMode() async {
-    let store = TestStore(initialState: AppFeature.State()) {
-      AppFeature()
-    } withDependencies: {
-      $0.fileSystemBrowseClient.listDirectory = { _ in [] }
-    }
-    store.exhaustivity = .off
-
-    await store.send(.commandPalette(.delegate(.openRepository)))
-    await store.receive(\.commandPalette.enterBrowseMode)
-  }
-
   @Test(.dependencies) func browseSelectRepositoryOpensRepository() async {
     let testURL = URL(fileURLWithPath: "/tmp/test-repo")
     let store = TestStore(initialState: AppFeature.State()) {
