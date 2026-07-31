@@ -149,6 +149,18 @@ struct AppFeatureTerminalGridTests {
     #expect(tiles.first?.kind == .snoozed)
   }
 
+  @Test func columnCountFillsWideScreensAndRespectsNarrowOnes() {
+    // Few tiles on a big monitor: one row, tiles grow to fill.
+    #expect(TerminalGridOverviewView.columnCount(tileCount: 2, width: 2500) == 2)
+    #expect(TerminalGridOverviewView.columnCount(tileCount: 5, width: 2500) == 5)
+    // Many tiles: near-square layout instead of a thin strip.
+    #expect(TerminalGridOverviewView.columnCount(tileCount: 12, width: 2500) == 4)
+    // 14" laptop width: min tile width caps the column count.
+    #expect(TerminalGridOverviewView.columnCount(tileCount: 12, width: 1200) == 3)
+    #expect(TerminalGridOverviewView.columnCount(tileCount: 2, width: 500) == 1)
+    #expect(TerminalGridOverviewView.columnCount(tileCount: 0, width: 2500) == 1)
+  }
+
   @Test func scrollbackPreviewStripsEscapesAndNormalizesLineEndings() {
     let raw = "\u{1b}[32mgreen\u{1b}[0m line\r\nnext\rprogress\u{1b}]0;title\u{07}done"
 

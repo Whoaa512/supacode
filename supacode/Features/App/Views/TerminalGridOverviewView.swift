@@ -12,7 +12,7 @@ struct TerminalGridOverviewView: View {
   let terminalManager: WorktreeTerminalManager
 
   @State private var selectedSurfaceID: UUID?
-  @State private var columnCount = 3
+  @State private var containerWidth: CGFloat = 1200
   /// Disk-tail previews for dormant / snoozed surfaces. Their dumps can't
   /// change while dormant, so one read per surface per modal presentation.
   /// Reference-typed: filled lazily during render, which a `@State` dict
@@ -23,7 +23,19 @@ struct TerminalGridOverviewView: View {
 
   private static let tileMinWidth: CGFloat = 340
   private static let gridSpacing: CGFloat = 16
-  private static let previewLineLimit = 14
+  private static let previewLineLimit = 40
+
+  /// Exposé-style fill: few tiles spread across one row and grow; many tiles
+  /// settle into a near-square layout, and narrow windows fall back to
+  /// whatever fits `tileMinWidth`. Never more columns than tiles, so a big
+  /// monitor with two sessions shows two big tiles instead of a sparse strip.
+  static func columnCount(tileCount: Int, width: CGFloat) -> Int {
+    guard tileCount > 0 else { return 1 }
+    let maxByWidth = max(1, Int(width / tileMinWidth))
+    guard tileCount > maxByWidth else { return tileCount }
+    let nearSquare = Int(Double(tileCount).squareRoot().rounded(.up))
+    return max(1, min(maxByWidth, nearSquare))
+  }
 
   var body: some View {
     TimelineView(.periodic(from: .now, by: 1.0)) { _ in
@@ -114,7 +126,7 @@ struct TerminalGridOverviewView: View {
         LazyVGrid(
           columns: Array(
             repeating: GridItem(.flexible(), spacing: Self.gridSpacing),
-            count: columnCount
+            count: Self.columnCount(tileCount: tiles.count, width: containerWidth)
           ),
           spacing: Self.gridSpacing
         ) {
@@ -132,7 +144,7 @@ struct TerminalGridOverviewView: View {
         .padding(.horizontal, 24)
         .padding(.bottom, 16)
         .onGeometryChange(for: CGFloat.self, of: \.size.width) { width in
-          columnCount = max(1, Int(width / Self.tileMinWidth))
+          containerWidth = width
         }
       }
       .onChange(of: selectedSurfaceID) { _, newValue in
@@ -156,6 +168,7 @@ struct TerminalGridOverviewView: View {
       return .ignored
     }
     let currentIndex = tiles.firstIndex { $0.id == selectedSurfaceID } ?? 0
+    let columnCount = Self.columnCount(tileCount: tiles.count, width: containerWidth)
 
     switch press.key {
     case .rightArrow:
@@ -347,8 +360,15 @@ private struct TerminalGridTileView: View {
   let onCloseSurface: (() -> Void)?
 
   @State private var isHovering = false
+  @State private var tileWidth: CGFloat = 340
 
   private var isAsleep: Bool { tile.kind != .live }
+
+  /// Terminal-ish density at any tile size: bigger tiles get bigger type
+  /// instead of a postage stamp of caption text in a sea of black.
+  private var previewFontSize: CGFloat {
+    min(15, max(10, tileWidth / 42))
+  }
 
   var body: some View {
     Button(action: onJump) {
@@ -364,7 +384,8 @@ private struct TerminalGridTileView: View {
     VStack(alignment: .leading, spacing: 6) {
       breadcrumb
       preview
-        .frame(maxWidth: .infinity, minHeight: 180, maxHeight: 180, alignment: .topLeading)
+        .frame(maxWidth: .infinity)
+        .aspectRatio(1.6, contentMode: .fit)
         .background(.black)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
@@ -376,6 +397,9 @@ private struct TerminalGridTileView: View {
         )
         .overlay(alignment: .topTrailing) { previewBadges }
         .shadow(color: .black.opacity(isSelected ? 0.35 : 0.15), radius: isSelected ? 8 : 4, y: 2)
+        .onGeometryChange(for: CGFloat.self, of: \.size.width) { width in
+          tileWidth = width
+        }
     }
     .contentShape(Rectangle())
   }
@@ -431,15 +455,16 @@ private struct TerminalGridTileView: View {
   @ViewBuilder
   private var preview: some View {
     if let previewText {
-      // fixedSize keeps long lines on one line (clipped right), matching how
-      // a terminal looks instead of soft-wrapping into paragraph soup.
+      // fixedSize keeps long lines on one line (clipped right) like a real
+      // terminal. Bottom-aligned so the tail (prompt, latest output) is
+      // always visible and overflow clips the oldest lines at the top.
       Text(previewText)
-        .font(.caption2.monospaced())
+        .font(.system(size: previewFontSize, design: .monospaced))
         .foregroundStyle(.white)
         .opacity(isAsleep ? 0.5 : 0.9)
         .fixedSize(horizontal: true, vertical: true)
         .padding(10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         .clipped()
     } else {
       VStack(spacing: 6) {
