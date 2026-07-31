@@ -5,6 +5,8 @@ import SwiftUI
 
 struct TerminalCommands: Commands {
   let ghosttyShortcuts: GhosttyShortcutManager
+  @Shared(.settingsFile) private var settingsFile
+  @FocusedValue(\.toggleTerminalGridAction) private var toggleTerminalGridAction
   @FocusedValue(\.newTerminalAction) private var newTerminalAction
   @FocusedValue(\.splitTerminalAction) private var splitTerminalAction
   @FocusedValue(\.startSearchAction) private var startSearchAction
@@ -31,6 +33,17 @@ struct TerminalCommands: Commands {
         .ghosttyKeyboardShortcut(direction.ghosttyBinding, in: ghosttyShortcuts)
         .disabled(splitTerminalAction?.isEnabled != true)
       }
+
+      Divider()
+
+      let gridShortcut = AppShortcuts.terminalGridOverview.effective(
+        from: settingsFile.global.shortcutOverrides)
+      Button("Terminal Grid Overview", systemImage: "square.grid.2x2") {
+        toggleTerminalGridAction?()
+      }
+      .appKeyboardShortcut(gridShortcut)
+      .help("Toggle the terminal grid overview (\(gridShortcut?.display ?? "none"))")
+      .disabled(toggleTerminalGridAction?.isEnabled != true)
     }
     CommandGroup(after: .textEditing) {
       Button("Find...") {
@@ -104,6 +117,19 @@ private struct TerminalTabSelectionItems: View {
 
 private struct NewTerminalActionKey: FocusedValueKey {
   typealias Value = FocusedAction<Void>
+}
+
+private struct ToggleTerminalGridActionKey: FocusedValueKey {
+  typealias Value = FocusedAction<Void>
+}
+
+extension FocusedValues {
+  /// Scene action: gates on app-wide surface presence (or an already-open
+  /// grid, so the toggle can still close it after the last surface dies).
+  var toggleTerminalGridAction: FocusedAction<Void>? {
+    get { self[ToggleTerminalGridActionKey.self] }
+    set { self[ToggleTerminalGridActionKey.self] = newValue }
+  }
 }
 
 extension FocusedValues {
