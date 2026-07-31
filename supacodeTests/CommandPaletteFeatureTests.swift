@@ -1234,14 +1234,15 @@ struct CommandPaletteFeatureTests {
     store.dependencies.date = .constant(now)
 
     await store.send(.activateItem(item)) {
+      $0.recencyByItemID[item.id] = now.timeIntervalSince1970
+    }
+    await store.receive(.enterBrowseMode(basePath: nil)) {
       $0.mode = .browse
       $0.query = ""
       $0.selectedIndex = nil
-      $0.recencyByItemID[item.id] = now.timeIntervalSince1970
     }
-    await store.receive(.enterBrowseMode(basePath: nil))
     await store.receive(.browsePathQueryChanged("~/")) {
-      $0.browse.pathQuery = "~/"
+      $0.browse.setPathQuery("~/")
       $0.browse.isLoading = true
     }
     await store.receive(.browseDirectoryLoaded(directory: homePath, entries: [])) {
@@ -1934,7 +1935,7 @@ struct CommandPaletteFeatureTests {
       $0.mode = .browse
     }
     await store.receive(.browsePathQueryChanged("/tmp/test/")) {
-      $0.browse.pathQuery = "/tmp/test/"
+      $0.browse.setPathQuery("/tmp/test/")
       $0.browse.isLoading = true
     }
     await store.receive(.browseDirectoryLoaded(directory: testPath, entries: entries)) {
@@ -1963,7 +1964,7 @@ struct CommandPaletteFeatureTests {
 
     // The directory is unchanged, so no reload — only the leaf filter narrows the rows.
     await store.send(.browsePathQueryChanged("/tmp/al")) {
-      $0.browse.pathQuery = "/tmp/al"
+      $0.browse.setPathQuery("/tmp/al")
       $0.browse.filteredEntries = [entries[0], entries[2]]
       $0.browse.selectedIndex = 0
     }
@@ -1983,7 +1984,7 @@ struct CommandPaletteFeatureTests {
     }
 
     await store.send(.browsePathQueryChanged("/tmp/supac")) {
-      $0.browse.pathQuery = "/tmp/supac"
+      $0.browse.setPathQuery("/tmp/supac")
       $0.browse.filteredEntries = []
       $0.browse.selectedIndex = nil
     }
@@ -2023,11 +2024,12 @@ struct CommandPaletteFeatureTests {
     await store.send(.browseAutocomplete)
     // Tab only rewrites the path: the repository is browsed into, never opened.
     await store.receive(.browsePathQueryChanged("/tmp/my-repo/")) {
-      $0.browse.pathQuery = "/tmp/my-repo/"
+      $0.browse.setPathQuery("/tmp/my-repo/")
       $0.browse.isLoading = true
       $0.browse.entries = []
       $0.browse.filteredEntries = []
       $0.browse.selectedIndex = nil
+      $0.browse.loadedDirectory = nil
     }
     await store.receive(
       .browseDirectoryLoaded(directory: URL(fileURLWithPath: "/tmp/my-repo"), entries: [])
@@ -2071,11 +2073,12 @@ struct CommandPaletteFeatureTests {
     await store.send(.browseSubmit)
     await store.receive(.browseNavigate(folder))
     await store.receive(.browsePathQueryChanged("/tmp/subdir/")) {
-      $0.browse.pathQuery = "/tmp/subdir/"
+      $0.browse.setPathQuery("/tmp/subdir/")
       $0.browse.isLoading = true
       $0.browse.entries = []
       $0.browse.filteredEntries = []
       $0.browse.selectedIndex = nil
+      $0.browse.loadedDirectory = nil
     }
     await store.receive(
       .browseDirectoryLoaded(directory: URL(fileURLWithPath: "/tmp/subdir"), entries: [])
@@ -2130,23 +2133,245 @@ struct CommandPaletteFeatureTests {
 
     await store.send(.browseNavigateUp)
     await store.receive(.browsePathQueryChanged("/tmp/")) {
-      $0.browse.pathQuery = "/tmp/"
+      $0.browse.setPathQuery("/tmp/")
       $0.browse.filteredEntries = entries
       $0.browse.selectedIndex = 0
     }
 
     await store.send(.browseNavigateUp)
     await store.receive(.browsePathQueryChanged("/")) {
-      $0.browse.pathQuery = "/"
+      $0.browse.setPathQuery("/")
       $0.browse.isLoading = true
       $0.browse.entries = []
       $0.browse.filteredEntries = []
       $0.browse.selectedIndex = nil
+      $0.browse.loadedDirectory = nil
     }
     await store.receive(.browseDirectoryLoaded(directory: URL(fileURLWithPath: "/"), entries: [])) {
       $0.browse.isLoading = false
       $0.browse.loadedDirectory = URL(fileURLWithPath: "/")
     }
+  }
+
+  @Test func browseReturningToADirectoryMidLoadStartsAFreshLoad() async {
+    // Repro for the stuck-spinner bug: "~/co" → "~/code/" → backspace to "~/co" while the
+    // "~/code" load is still in flight. The stale `loadedDirectory` made the reducer think
+    // home was already listed, so no reload started and the spinner never cleared.
+    let home = BrowsePath.directoryURL(of: "~/")
+    let code = BrowsePath.directoryURL(of: "~/code/")
+    let codeEntry = DirectoryEntry(
+      name: "code",
+      fullPath: home.appending(path: "code").path(percentEncoded: false),
+      isGitRepo: false
+    )
+    let clock = TestClock()
+    let store = TestStore(initialState: CommandPaletteFeature.State()) {
+      CommandPaletteFeature()
+    } withDependencies: {
+      $0.continuousClock = clock
+      $0.fileSystemBrowseClient.listDirectory = { url in url == home ? [codeEntry] : [] }
+      $0.fileSystemBrowseClient.searchDirectories = { _, _, _ in [] }
+    }
+
+    await store.send(.browsePathQueryChanged("~/co")) {
+      $0.browse.setPathQuery("~/co")
+      $0.browse.isLoading = true
+    }
+    await store.receive(.browseDirectoryLoaded(directory: home, entries: [codeEntry])) {
+      $0.browse.isLoading = false
+      $0.browse.loadedDirectory = home
+      $0.browse.entries = [codeEntry]
+      $0.browse.filteredEntries = [codeEntry]
+      $0.browse.selectedIndex = 0
+    }
+    await clock.advance(by: CommandPaletteFeature.browseSearchDebounce)
+    await store.receive(.browseSearchResultsLoaded(directory: home, query: "co", results: []))
+
+    // Descend: the home listing is dropped along with its identity.
+    await store.send(.browsePathQueryChanged("~/code/")) {
+      $0.browse.setPathQuery("~/code/")
+      $0.browse.isLoading = true
+      $0.browse.entries = []
+      $0.browse.filteredEntries = []
+      $0.browse.selectedIndex = nil
+      $0.browse.loadedDirectory = nil
+    }
+    await store.receive(.browseDirectoryLoaded(directory: code, entries: [])) {
+      $0.browse.isLoading = false
+      $0.browse.loadedDirectory = code
+    }
+
+    // Backspace back to home: a reload must start, and it must finish.
+    await store.send(.browsePathQueryChanged("~/co")) {
+      $0.browse.setPathQuery("~/co")
+      $0.browse.isLoading = true
+      $0.browse.loadedDirectory = nil
+    }
+    await store.receive(.browseDirectoryLoaded(directory: home, entries: [codeEntry])) {
+      $0.browse.isLoading = false
+      $0.browse.loadedDirectory = home
+      $0.browse.entries = [codeEntry]
+      $0.browse.filteredEntries = [codeEntry]
+      $0.browse.selectedIndex = 0
+    }
+    await clock.advance(by: CommandPaletteFeature.browseSearchDebounce)
+    await store.receive(.browseSearchResultsLoaded(directory: home, query: "co", results: []))
+    #expect(store.state.browse.isLoading == false)
+    #expect(store.state.browse.filteredEntries == [codeEntry])
+  }
+
+  @Test func browseLateSearchResultsKeepTheArrowKeySelection() async {
+    let alpha = DirectoryEntry(name: "target-alpha", fullPath: "/tmp/target-alpha", isGitRepo: false)
+    let beta = DirectoryEntry(name: "target-beta", fullPath: "/tmp/target-beta", isGitRepo: true)
+    let nested = DirectoryEntry(name: "target-deep", fullPath: "/tmp/nest/target-deep", isGitRepo: true)
+    var state = Self.browseState(pathQuery: "/tmp/target", entries: [alpha, beta])
+    state.browse.selectedIndex = 1
+    let store = TestStore(initialState: state) {
+      CommandPaletteFeature()
+    }
+
+    // Nested results arrive after the user has already arrowed onto `target-beta`.
+    await store.send(
+      .browseSearchResultsLoaded(
+        directory: URL(fileURLWithPath: "/tmp"),
+        query: "target",
+        results: [nested]
+      )
+    ) {
+      $0.browse.searchResults = [nested]
+      $0.browse.filteredEntries = [alpha, beta, nested]
+      $0.browse.selectedIndex = 1
+    }
+    #expect(store.state.browse.selectedEntry == beta)
+  }
+
+  @Test func browseSelectionFallsBackToTheTopRowWhenItsEntryDisappears() async {
+    let alpha = DirectoryEntry(name: "alpha", fullPath: "/tmp/alpha", isGitRepo: false)
+    let beta = DirectoryEntry(name: "beta", fullPath: "/tmp/beta", isGitRepo: false)
+    var state = Self.browseState(pathQuery: "/tmp/", entries: [alpha, beta])
+    state.browse.selectedIndex = 1
+    let clock = TestClock()
+    let store = TestStore(initialState: state) {
+      CommandPaletteFeature()
+    } withDependencies: {
+      $0.continuousClock = clock
+      $0.fileSystemBrowseClient.searchDirectories = { _, _, _ in [] }
+    }
+
+    await store.send(.browsePathQueryChanged("/tmp/al")) {
+      $0.browse.setPathQuery("/tmp/al")
+      $0.browse.filteredEntries = [alpha]
+      $0.browse.selectedIndex = 0
+    }
+    await clock.advance(by: CommandPaletteFeature.browseSearchDebounce)
+    await store.receive(
+      .browseSearchResultsLoaded(directory: URL(fileURLWithPath: "/tmp"), query: "al", results: [])
+    )
+  }
+
+  @Test func browseSubmitWithATypedLeafAndNoMatchDoesNothing() async {
+    // Enter must not open the directory the user was only filtering inside of.
+    let store = TestStore(initialState: Self.browseState(pathQuery: "/tmp/nomatch", entries: [])) {
+      CommandPaletteFeature()
+    }
+
+    await store.send(.browseSubmit)
+    #expect(store.state.isPresented)
+  }
+
+  @Test func browseSubmitWithNoLeafAndNoSelectionOpensTheBrowsedDirectory() async {
+    let store = TestStore(initialState: Self.browseState(pathQuery: "/tmp/subdir/", entries: [])) {
+      CommandPaletteFeature()
+    }
+
+    await store.send(.browseSubmit)
+    await store.receive(.browseForceOpen)
+    await store.receive(.browseSelectRepository(URL(fileURLWithPath: "/tmp/subdir"))) {
+      $0.isPresented = false
+      $0.mode = .commands
+      $0.browse = CommandPaletteFeature.BrowseState()
+    }
+    await store.receive(.delegate(.browseSelectRepository(URL(fileURLWithPath: "/tmp/subdir"))))
+  }
+
+  @Test func browseRowsRankPrefixMatchesBeforeSubstringMatchesAcrossDirectAndNested() {
+    let directPrefix = DirectoryEntry(name: "supacode", fullPath: "/tmp/supacode", isGitRepo: true)
+    let directSubstring = DirectoryEntry(name: "my-supacode", fullPath: "/tmp/my-supacode", isGitRepo: false)
+    let nestedPrefix = DirectoryEntry(name: "supacode-cli", fullPath: "/tmp/n/supacode-cli", isGitRepo: true)
+    let nestedSubstring = DirectoryEntry(name: "old-supacode", fullPath: "/tmp/n/old-supacode", isGitRepo: false)
+
+    let rows = CommandPaletteFeature.browseRows(
+      entries: [directSubstring, directPrefix],
+      searchResults: [nestedSubstring, nestedPrefix],
+      leaf: "supa"
+    )
+
+    // One rule for both sources: every prefix match, then every substring match.
+    #expect(rows == [directPrefix, nestedPrefix, directSubstring, nestedSubstring])
+  }
+
+  @Test func browseRowsIncludeDirectSubstringMatches() {
+    let entry = DirectoryEntry(name: "my-supacode", fullPath: "/tmp/my-supacode", isGitRepo: false)
+
+    #expect(
+      CommandPaletteFeature.browseRows(entries: [entry], searchResults: [], leaf: "supa") == [entry]
+    )
+  }
+
+  @Test func browseRowsRevealHiddenDirectoriesOnlyWhenTheLeafStartsWithADot() {
+    let hidden = DirectoryEntry(name: ".config", fullPath: "/tmp/.config", isGitRepo: false)
+    let visible = DirectoryEntry(name: "config", fullPath: "/tmp/config", isGitRepo: false)
+    let entries = [hidden, visible]
+
+    #expect(
+      CommandPaletteFeature.browseRows(entries: entries, searchResults: [], leaf: "") == [visible]
+    )
+    #expect(
+      CommandPaletteFeature.browseRows(entries: entries, searchResults: [], leaf: "con") == [visible]
+    )
+    // The dot is part of the needle, so it also narrows to names containing it.
+    #expect(
+      CommandPaletteFeature.browseRows(entries: entries, searchResults: [], leaf: ".") == [hidden]
+    )
+    #expect(
+      CommandPaletteFeature.browseRows(entries: entries, searchResults: [], leaf: ".con") == [hidden]
+    )
+  }
+
+  @Test func browseRowsAreCappedAtTheRowLimit() {
+    let limit = CommandPaletteFeature.browseRowLimit
+    let entries = (0..<(limit + 25)).map {
+      DirectoryEntry(name: "repo-\($0)", fullPath: "/tmp/repo-\($0)", isGitRepo: false)
+    }
+
+    #expect(CommandPaletteFeature.browseRows(entries: entries, searchResults: [], leaf: "").count == limit)
+    #expect(CommandPaletteFeature.browseRows(entries: entries, searchResults: [], leaf: "repo").count == limit)
+  }
+
+  @Test func browseLeafOfOneCharacterSkipsTheNestedSearch() async {
+    // `browseSearchMinimumLeafLength` is 2: a single character matches nearly everything
+    // and the direct listing already covers it, so no debounced search may be scheduled.
+    let entry = DirectoryEntry(name: "alpha", fullPath: "/tmp/alpha", isGitRepo: false)
+    var state = Self.browseState(pathQuery: "/tmp/al", entries: [entry])
+    state.browse.searchResults = [
+      DirectoryEntry(name: "nested-al", fullPath: "/tmp/n/nested-al", isGitRepo: false)
+    ]
+    let clock = TestClock()
+    let store = TestStore(initialState: state) {
+      CommandPaletteFeature()
+    } withDependencies: {
+      $0.continuousClock = clock
+      $0.fileSystemBrowseClient.searchDirectories = { _, _, _ in
+        Issue.record("A one-character leaf must not trigger a nested search.")
+        return []
+      }
+    }
+
+    await store.send(.browsePathQueryChanged("/tmp/a")) {
+      $0.browse.setPathQuery("/tmp/a")
+      $0.browse.searchResults = []
+    }
+    await clock.advance(by: CommandPaletteFeature.browseSearchDebounce)
   }
 
   /// Browse state as it looks mid-session: presented, in browse mode, with `pathQuery`'s
@@ -2158,7 +2383,7 @@ struct CommandPaletteFeatureTests {
     var state = CommandPaletteFeature.State()
     state.isPresented = true
     state.mode = .browse
-    state.browse.pathQuery = pathQuery
+    state.browse.setPathQuery(pathQuery)
     state.browse.loadedDirectory = BrowsePath.directoryURL(of: pathQuery)
     state.browse.entries = entries
     state.browse.filteredEntries = CommandPaletteFeature.browseRows(
