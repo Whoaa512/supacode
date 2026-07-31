@@ -120,6 +120,19 @@ struct ContentView: View {
       store.send(.requestTerminateAllTerminalSessions)
     }
     .focusedSceneAction(
+      \.toggleTerminalGridAction,
+      enabled: store.hasAnyTerminalSurface || store.isTerminalGridPresented
+    ) {
+      store.send(.setTerminalGridPresented(!store.isTerminalGridPresented))
+    }
+    .overlay {
+      if store.isTerminalGridPresented {
+        TerminalGridOverviewView(store: store, terminalManager: terminalManager)
+          .transition(.opacity)
+      }
+    }
+    .animation(.easeOut(duration: 0.15), value: store.isTerminalGridPresented)
+    .focusedSceneAction(
       \.revealInSidebarAction,
       enabled: repositoriesStore.selectedWorktreeID != nil
     ) {
