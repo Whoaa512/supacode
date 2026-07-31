@@ -1774,8 +1774,9 @@ final class WorktreeTerminalState {
   /// scrollback files and killing any zmx session they still hold. Skips
   /// pruning entirely for remote worktrees (their sessions live host-side,
   /// invisible to the local probe), unbundled-zmx builds, an unresolved zmx
-  /// probe, or disabled scrollback persistence (no triviality signal without
-  /// dumps). Returns nil when nothing survives.
+  /// probe, the restore-pruning setting off (the default), or disabled
+  /// scrollback persistence (no triviality signal without dumps). Returns nil
+  /// when nothing survives.
   private func prunedSnapshotForRestore(_ snapshot: TerminalLayoutSnapshot) -> TerminalLayoutSnapshot? {
     guard worktree.host == nil else { return snapshot }
     // Without a bundled zmx (dev / test builds) sessions never survive relaunch,
@@ -1784,6 +1785,8 @@ final class WorktreeTerminalState {
     // nil = UNKNOWN probe; never prune on no signal (mirrors the orphan reaper).
     guard let liveNames = liveZmxSessionNamesProvider() else { return snapshot }
     @Shared(.settingsFile) var settingsFile
+    // Pruning deletes layout structure the user may expect back; opt-in only.
+    guard settingsFile.global.restoreSurfacePruningEnabled else { return snapshot }
     // Without scrollback dumps there is no "just a fresh shell" signal either;
     // only live-vs-dead remains, and killing every dead surface's layout on the
     // strength of that alone would wipe structure users expect back.

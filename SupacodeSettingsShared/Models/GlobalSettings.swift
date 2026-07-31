@@ -111,6 +111,11 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   /// inactivity and reconnect when viewed. On by default.
   public var terminalHibernationEnabled: Bool
   public var persistScrollbackEnabled: Bool
+  /// When true, launch restore prunes "bare shell" surfaces (no live zmx
+  /// session worth reattaching, trivial-or-missing scrollback) instead of
+  /// restoring them as fresh prompts. Off by default: pruning deletes layout
+  /// structure, so it stays opt-in.
+  public var restoreSurfacePruningEnabled: Bool
 
   public static let `default` = GlobalSettings(
     appearanceMode: .dark,
@@ -149,7 +154,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     terminateSessionsOnQuit: false,
     remoteSessionPersistenceEnabled: true,
     appVisibility: .dockAndMenuBar,
-    persistScrollbackEnabled: true
+    persistScrollbackEnabled: true,
+    restoreSurfacePruningEnabled: false
   )
 
   public init(
@@ -190,7 +196,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     remoteSessionPersistenceEnabled: Bool = true,
     appVisibility: AppVisibility = .dockAndMenuBar,
     terminalHibernationEnabled: Bool = true,
-    persistScrollbackEnabled: Bool = true
+    persistScrollbackEnabled: Bool = true,
+    restoreSurfacePruningEnabled: Bool = false
   ) {
     self.appearanceMode = appearanceMode
     self.defaultEditorID = defaultEditorID
@@ -230,6 +237,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.appVisibility = appVisibility
     self.terminalHibernationEnabled = terminalHibernationEnabled
     self.persistScrollbackEnabled = persistScrollbackEnabled
+    self.restoreSurfacePruningEnabled = restoreSurfacePruningEnabled
   }
 
   /// Keys for reading renamed settings fields that no longer
@@ -413,5 +421,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     persistScrollbackEnabled =
       try container.decodeIfPresent(Bool.self, forKey: .persistScrollbackEnabled)
       ?? true
+    restoreSurfacePruningEnabled =
+      try container.decodeIfPresent(Bool.self, forKey: .restoreSurfacePruningEnabled)
+      ?? Self.default.restoreSurfacePruningEnabled
   }
 }

@@ -83,6 +83,7 @@ public struct SettingsFeature {
     public var appVisibility: AppVisibility
     public var terminalHibernationEnabled: Bool
     public var persistScrollbackEnabled: Bool
+    public var restoreSurfacePruningEnabled: Bool
     public var cliInstallState = CLIInstallState.checking
     /// Installed editors in menu order, resolved once off the picker's body.
     public var installedOpenActions: [OpenWorktreeAction]
@@ -140,6 +141,7 @@ public struct SettingsFeature {
       appVisibility = settings.appVisibility
       terminalHibernationEnabled = settings.terminalHibernationEnabled
       persistScrollbackEnabled = settings.persistScrollbackEnabled
+      restoreSurfacePruningEnabled = settings.restoreSurfacePruningEnabled
       defaultWorktreeBaseDirectoryPath =
         SupacodePaths.normalizedWorktreeBaseDirectoryPath(settings.defaultWorktreeBaseDirectoryPath) ?? ""
     }
@@ -185,7 +187,8 @@ public struct SettingsFeature {
         remoteSessionPersistenceEnabled: remoteSessionPersistenceEnabled,
         appVisibility: appVisibility,
         terminalHibernationEnabled: terminalHibernationEnabled,
-        persistScrollbackEnabled: persistScrollbackEnabled
+        persistScrollbackEnabled: persistScrollbackEnabled,
+        restoreSurfacePruningEnabled: restoreSurfacePruningEnabled
       )
     }
   }
@@ -326,6 +329,7 @@ public struct SettingsFeature {
         state.appVisibility = normalizedSettings.appVisibility
         state.terminalHibernationEnabled = normalizedSettings.terminalHibernationEnabled
         state.persistScrollbackEnabled = normalizedSettings.persistScrollbackEnabled
+        state.restoreSurfacePruningEnabled = normalizedSettings.restoreSurfacePruningEnabled
         state.defaultWorktreeBaseDirectoryPath = normalizedSettings.defaultWorktreeBaseDirectoryPath ?? ""
         state.syncGlobalDefaults(from: normalizedSettings)
         synchronizeRepositorySelection(for: &state)

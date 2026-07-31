@@ -1,5 +1,8 @@
 import Dependencies
+import DependenciesTestSupport
 import Foundation
+import Sharing
+import SupacodeSettingsShared
 import Testing
 
 @testable import supacode
@@ -156,7 +159,7 @@ struct TerminalRestorePrunerTests {
 
 // Serialized: spins real GhosttyRuntime surfaces like the other terminal suites.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .dependencies)
 struct RestorePruneEnsureInitialTabTests {
   private func makeWorktree(id: String = "/tmp/repo/wt-prune") -> Worktree {
     Worktree(
@@ -188,7 +191,9 @@ struct RestorePruneEnsureInitialTabTests {
   /// Builds a state whose zmx reads as bundled with a resolved (empty) live-session
   /// probe, the configuration where restore pruning is active.
   private func makePruningState(worktree: Worktree) -> WorktreeTerminalState {
-    withDependencies {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.restoreSurfacePruningEnabled = true }
+    return withDependencies {
       $0.zmxClient.isBundled = { true }
     } operation: {
       let state = WorktreeTerminalState(runtime: GhosttyRuntime(), worktree: worktree)
@@ -266,6 +271,8 @@ struct RestorePruneEnsureInitialTabTests {
 
   @Test func liveBarePromptSessionIsPruned() {
     let bareLive = UUID()
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.restoreSurfacePruningEnabled = true }
     let state = withDependencies {
       $0.zmxClient.isBundled = { true }
     } operation: {
@@ -279,5 +286,26 @@ struct RestorePruneEnsureInitialTabTests {
     state.ensureInitialTab(focusing: false)
 
     #expect(state.tabManager.tabs.isEmpty)
+  }
+
+  @Test func pruningSettingOffByDefaultRestoresBareSnapshotUntouched() {
+    // No settings mutation: the default has restoreSurfacePruningEnabled off.
+    let state = withDependencies {
+      $0.zmxClient.isBundled = { true }
+    } operation: {
+      let state = WorktreeTerminalState(runtime: GhosttyRuntime(), worktree: makeWorktree())
+      state.liveZmxSessionNamesProvider = { Set() }
+      return state
+    }
+    state.pendingLayoutSnapshot = snapshot(leafIDs: [UUID(), UUID()])
+    state.scrollbackDataProvider = { _ in nil }
+    var prunedFired = false
+    state.onRestorePruned = { prunedFired = true }
+
+    state.ensureInitialTab(focusing: false)
+
+    #expect(state.tabManager.tabs.count == 2)
+    #expect(!prunedFired)
+    state.closeAllSurfaces()
   }
 }

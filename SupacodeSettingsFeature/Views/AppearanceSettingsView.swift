@@ -160,6 +160,11 @@ public struct AppearanceSettingsView: View {
             SupacodePaths.purgeAllScrollbackFiles()
           }
         }
+        Toggle(isOn: $store.restoreSurfacePruningEnabled) {
+          Text("Prune empty terminals on restore")
+          Text("Skip restoring terminals that were just a bare prompt. Requires scrollback persistence.")
+        }
+        .disabled(!store.persistScrollbackEnabled)
       }
     }
     .formStyle(.grouped)
