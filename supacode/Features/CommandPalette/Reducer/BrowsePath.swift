@@ -3,8 +3,9 @@ import Foundation
 /// Path-text plumbing for the palette's browse mode. The query field *is* the path, so
 /// every navigation is a string transform: `~/code/sup` browses `~/code` and filters the
 /// listing on the leaf `sup`, and a trailing `/` means "I'm inside this directory".
-/// The one filesystem touch is `resolve`'s existing-directory check for a slash-less
-/// query, so `~` on its own lists the home directory instead of filtering it to nothing.
+/// Every transform is a pure string operation — no filesystem probes, so a bare
+/// `Library` filters the home listing instead of jumping to whatever the process CWD
+/// happens to resolve it against. `~` alone is the sole slash-less directory.
 enum BrowsePath {
   /// A query split into the directory being listed and the partially typed name in it.
   struct Resolved: Equatable {
@@ -13,15 +14,14 @@ enum BrowsePath {
   }
 
   /// Splits `query` at its last separator. A slash-less query is a leaf typed against
-  /// `~/` (`code` filters the home listing) unless it is itself an existing directory
-  /// (`~`), in which case it *is* the directory being browsed.
+  /// `~/` (`code` filters the home listing); bare `~` *is* the home directory.
   static func resolve(_ query: String) -> Resolved {
     let trimmed = query.trimmingCharacters(in: .whitespaces)
     guard let lastSeparator = trimmed.lastIndex(of: "/") else {
-      guard !trimmed.isEmpty, directoryExists(atPath: expand(trimmed)) else {
+      guard trimmed == "~" else {
         return Resolved(directoryText: "~/", leaf: trimmed)
       }
-      return Resolved(directoryText: ensureTrailingSlash(trimmed), leaf: "")
+      return Resolved(directoryText: "~/", leaf: "")
     }
     return Resolved(
       directoryText: String(trimmed[...lastSeparator]),
@@ -73,12 +73,6 @@ enum BrowsePath {
 
   static func abbreviate(_ path: String) -> String {
     (path as NSString).abbreviatingWithTildeInPath
-  }
-
-  private static func directoryExists(atPath path: String) -> Bool {
-    var isDirectory: ObjCBool = false
-    let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
-    return exists && isDirectory.boolValue
   }
 
   private static func usesTilde(_ query: String) -> Bool {
