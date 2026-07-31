@@ -289,6 +289,13 @@ final class GhosttySurfaceView: NSView, Identifiable {
     }
   }
 
+  /// Current screen text for lightweight previews (settings' session browser).
+  /// Served through the 500ms cache so bursts of preview renders don't hammer
+  /// the ghostty text extraction.
+  func screenPreviewContents() -> String {
+    cachedScreenContents.get()
+  }
+
   func writeScrollback(to path: String) -> Bool {
     guard let surface else { return false }
     return path.withCString { cPath in

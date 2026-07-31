@@ -319,6 +319,10 @@ struct AppFeature {
     case selectTerminalTabAtIndex(Int)
     case splitTerminal(TerminalSplitMenuDirection)
     case jumpToLatestUnread
+    /// Settings session browser: jump to a surface (select worktree + focus).
+    case focusTerminalSurface(worktreeID: Worktree.ID, tabID: TerminalTabID, surfaceID: UUID)
+    /// Settings session browser: close a surface (its tab closes when it was the last one).
+    case closeTerminalSurface(worktreeID: Worktree.ID, tabID: TerminalTabID, surfaceID: UUID)
     case menuBarWorktreeSelected(worktreeID: Worktree.ID)
     case markAllNotificationsRead
     case runScript
@@ -953,6 +957,23 @@ struct AppFeature {
             await terminalClient.markNotificationRead(location.worktreeID, location.notificationID)
           }
         )
+
+      case .focusTerminalSurface(let worktreeID, let tabID, let surfaceID):
+        guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
+        // Same shape as jumpToLatestUnread: `focusSurface` carries the worktree
+        // explicitly, so it doesn't depend on `selectWorktree` landing first.
+        return .merge(
+          .send(.repositories(.selectWorktree(worktreeID, focusTerminal: true))),
+          .run { _ in
+            await terminalClient.send(.focusSurface(worktree, tabID: tabID, surfaceID: surfaceID))
+          }
+        )
+
+      case .closeTerminalSurface(let worktreeID, let tabID, let surfaceID):
+        guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
+        return .run { _ in
+          await terminalClient.send(.destroySurface(worktree, tabID: tabID, surfaceID: surfaceID))
+        }
 
       case .menuBarWorktreeSelected(let worktreeID):
         // The menu snapshots its rows when it opens, so the worktree can be

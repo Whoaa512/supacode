@@ -9,6 +9,7 @@ public enum SettingsSection: Hashable {
   case updates
   case github
   case scripts
+  case terminalSessions
   case repository(String)
   case repositoryScripts(String)
 

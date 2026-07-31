@@ -676,6 +676,12 @@ final class WorktreeTerminalManager {
     state.onSetupScriptConsumed = { [weak self] in
       self?.emit(.setupScriptConsumed(worktreeID: worktree.id))
     }
+    // A restore prune must reach disk even when nothing was restored (no
+    // onTabCreated fires then): the flush captures the post-prune truth, and a
+    // fully-pruned worktree deletes its layouts.json key.
+    state.onRestorePruned = { [weak self] in
+      self?.markLayoutDirty(worktreeID: worktree.id)
+    }
     state.onTabProjectionChanged = { [weak self] projection in
       self?.emit(.tabProjectionChanged(worktreeID: worktree.id, projection))
       self?.markLayoutDirty(worktreeID: worktree.id)
@@ -957,6 +963,51 @@ final class WorktreeTerminalManager {
 
   func stateIfExists(for worktreeID: Worktree.ID) -> WorktreeTerminalState? {
     states[worktreeID]
+  }
+
+  // MARK: - Session browser
+
+  struct SessionSurfaceOverview: Identifiable, Equatable {
+    let id: UUID
+    let isDormant: Bool
+  }
+
+  struct SessionTabOverview: Identifiable, Equatable {
+    let id: TerminalTabID
+    let title: String
+    let surfaces: [SessionSurfaceOverview]
+  }
+
+  struct SessionWorktreeOverview: Identifiable, Equatable {
+    let id: Worktree.ID
+    let name: String
+    let tabs: [SessionTabOverview]
+  }
+
+  /// Snapshot of every worktree that currently owns terminal surfaces (live or
+  /// dormant), for the settings session browser. Sorted by name then id so
+  /// non-deterministic `states` iteration can't reorder the grid between renders.
+  func sessionOverviews() -> [SessionWorktreeOverview] {
+    states.compactMap { worktreeID, state -> SessionWorktreeOverview? in
+      guard state.hasAnySurface else { return nil }
+      let tabs = state.tabManager.tabs.compactMap { tab -> SessionTabOverview? in
+        let isDormant = state.isTabDormant(tab.id)
+        let surfaces = state.surfaceIDs(inTab: tab.id).map {
+          SessionSurfaceOverview(id: $0, isDormant: isDormant)
+        }
+        guard !surfaces.isEmpty else { return nil }
+        return SessionTabOverview(id: tab.id, title: tab.displayTitle, surfaces: surfaces)
+      }
+      guard !tabs.isEmpty else { return nil }
+      return SessionWorktreeOverview(id: worktreeID, name: state.worktreeName, tabs: tabs)
+    }
+    .sorted { ($0.name, $0.id.rawValue) < ($1.name, $1.id.rawValue) }
+  }
+
+  /// Screen text of a live surface for preview rendering; nil when the surface
+  /// is dormant or gone.
+  func screenPreview(worktreeID: Worktree.ID, surfaceID: UUID) -> String? {
+    states[worktreeID]?.screenPreview(for: surfaceID)
   }
 
   func isBlockingScriptRunning(kind: BlockingScriptKind, for worktreeID: Worktree.ID) -> Bool {

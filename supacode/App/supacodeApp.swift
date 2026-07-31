@@ -615,7 +615,7 @@ struct SupacodeApp: App {
       }
     }
     Window("\(WindowTitle.appName) Settings", id: WindowID.settings) {
-      SettingsView(store: store)
+      SettingsView(store: store, terminalManager: terminalManager)
         .environment(ghosttyShortcuts)
         .environment(commandKeyObserver)
         .toolbarBackground(.hidden, for: .windowToolbar)

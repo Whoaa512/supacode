@@ -125,6 +125,7 @@ extension AppFeature.Action {
       .openWorktree, .openWorktreeFailed, .requestQuit,
       .requestTerminateAllTerminalSessions, .newTerminal,
       .selectTerminalTabAtIndex, .splitTerminal, .jumpToLatestUnread,
+      .focusTerminalSurface, .closeTerminalSurface,
       .menuBarWorktreeSelected, .markAllNotificationsRead, .runScript, .runNamedScript,
       .manageRepositoryScripts,
       .stopScript, .stopRunScripts, .closeTab, .closeSurface,
