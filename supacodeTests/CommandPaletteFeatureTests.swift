@@ -1224,7 +1224,7 @@ struct CommandPaletteFeatureTests {
       subtitle: nil,
       kind: .openRepository
     )
-    let homePath = FileManager.default.homeDirectoryForCurrentUser
+    let homePath = BrowsePath.directoryURL(of: "~/")
     let store = TestStore(initialState: state) {
       CommandPaletteFeature()
     } withDependencies: {
@@ -1238,14 +1238,15 @@ struct CommandPaletteFeatureTests {
       $0.query = ""
       $0.selectedIndex = nil
       $0.recencyByItemID[item.id] = now.timeIntervalSince1970
-      $0.browse = CommandPaletteFeature.BrowseState(currentPath: homePath)
     }
-    await store.receive(.browseLoadDirectory(homePath)) {
+    await store.receive(.enterBrowseMode(basePath: nil))
+    await store.receive(.browsePathQueryChanged("~/")) {
+      $0.browse.pathQuery = "~/"
       $0.browse.isLoading = true
     }
-    await store.receive(.browseDirectoryLoaded([])) {
+    await store.receive(.browseDirectoryLoaded(directory: homePath, entries: [])) {
       $0.browse.isLoading = false
-      $0.browse.selectedIndex = nil
+      $0.browse.loadedDirectory = homePath
     }
   }
 
@@ -1888,13 +1889,39 @@ struct CommandPaletteFeatureTests {
     await store.receive(\.delegate.openSettings)
   }
 
+  // MARK: - Browse path helpers
+
+  @Test func browsePathSplitsDirectoryAndLeaf() {
+    #expect(BrowsePath.directoryText(of: "/tmp/code/sup") == "/tmp/code/")
+    #expect(BrowsePath.leaf(of: "/tmp/code/sup") == "sup")
+    #expect(BrowsePath.directoryText(of: "/tmp/code/") == "/tmp/code/")
+    #expect(BrowsePath.leaf(of: "/tmp/code/") == "")
+    // No separator at all: treat the text as a leaf typed against the home directory.
+    #expect(BrowsePath.directoryText(of: "code") == "~/")
+    #expect(BrowsePath.leaf(of: "code") == "code")
+  }
+
+  @Test func browsePathDescendingKeepsPathStyle() {
+    #expect(BrowsePath.descending(into: "/tmp/code/app", from: "/tmp/code/ap") == "/tmp/code/app/")
+    let home = FileManager.default.homeDirectoryForCurrentUser.path(percentEncoded: false)
+    let nested = home.hasSuffix("/") ? home + "code" : home + "/code"
+    #expect(BrowsePath.descending(into: nested, from: "~/co") == "~/code/")
+  }
+
+  @Test func browsePathParentClearsLeafBeforeChangingDirectory() {
+    #expect(BrowsePath.parent(of: "/tmp/code/sup") == "/tmp/code/")
+    #expect(BrowsePath.parent(of: "/tmp/code/") == "/tmp/")
+    #expect(BrowsePath.parent(of: "/") == nil)
+  }
+
   // MARK: - Browse mode
 
-  @Test func enterBrowseModeSetsModeAndLoadsDirectory() async {
+  @Test func enterBrowseModeSetsPathQueryAndLoadsDirectory() async {
     let testPath = URL(fileURLWithPath: "/tmp/test")
     let entries = [
       DirectoryEntry(name: "project-a", fullPath: "/tmp/test/project-a", isGitRepo: true),
       DirectoryEntry(name: "docs", fullPath: "/tmp/test/docs", isGitRepo: false),
+      DirectoryEntry(name: ".hidden", fullPath: "/tmp/test/.hidden", isGitRepo: false),
     ]
     let store = TestStore(initialState: CommandPaletteFeature.State()) {
       CommandPaletteFeature()
@@ -1905,64 +1932,124 @@ struct CommandPaletteFeatureTests {
     await store.send(.enterBrowseMode(basePath: testPath)) {
       $0.isPresented = true
       $0.mode = .browse
-      $0.browse.currentPath = testPath
     }
-    await store.receive(.browseLoadDirectory(testPath)) {
+    await store.receive(.browsePathQueryChanged("/tmp/test/")) {
+      $0.browse.pathQuery = "/tmp/test/"
       $0.browse.isLoading = true
     }
-    await store.receive(.browseDirectoryLoaded(entries)) {
+    await store.receive(.browseDirectoryLoaded(directory: testPath, entries: entries)) {
       $0.browse.isLoading = false
+      $0.browse.loadedDirectory = testPath
       $0.browse.entries = entries
-      $0.browse.filteredEntries = entries
+      // Hidden directories stay out of the listing until the typed leaf starts with ".".
+      $0.browse.filteredEntries = [entries[0], entries[1]]
       $0.browse.selectedIndex = 0
     }
   }
 
-  @Test func browseNavigateDescendsIntoNonGitDirectory() async {
-    let entry = DirectoryEntry(name: "subdir", fullPath: "/tmp/subdir", isGitRepo: false)
-    let parentPath = URL(fileURLWithPath: "/tmp")
-    var state = CommandPaletteFeature.State()
-    state.isPresented = true
-    state.mode = .browse
-    state.browse.currentPath = parentPath
-    state.browse.entries = [entry]
-    state.browse.filteredEntries = [entry]
+  @Test func browsePathQueryFiltersLoadedEntriesByLeafPrefix() async {
+    let entries = [
+      DirectoryEntry(name: "alpha", fullPath: "/tmp/alpha", isGitRepo: false),
+      DirectoryEntry(name: "beta", fullPath: "/tmp/beta", isGitRepo: false),
+      DirectoryEntry(name: "album", fullPath: "/tmp/album", isGitRepo: false),
+    ]
+    let clock = TestClock()
+    let store = TestStore(initialState: Self.browseState(pathQuery: "/tmp/", entries: entries)) {
+      CommandPaletteFeature()
+    } withDependencies: {
+      $0.continuousClock = clock
+      $0.fileSystemBrowseClient.searchDirectories = { _, _, _ in [] }
+    }
 
+    // The directory is unchanged, so no reload — only the leaf filter narrows the rows.
+    await store.send(.browsePathQueryChanged("/tmp/al")) {
+      $0.browse.pathQuery = "/tmp/al"
+      $0.browse.filteredEntries = [entries[0], entries[2]]
+      $0.browse.selectedIndex = 0
+    }
+    await clock.advance(by: CommandPaletteFeature.browseSearchDebounce)
+    await store.receive(.browseSearchResultsLoaded(directory: URL(fileURLWithPath: "/tmp"), query: "al", results: []))
+  }
+
+  @Test func browseNestedSearchAppendsMatchesAfterDebounce() async {
+    let clock = TestClock()
+    let nested = DirectoryEntry(name: "supacode", fullPath: "/tmp/code/supacode", isGitRepo: true)
+    let entries = [DirectoryEntry(name: "code", fullPath: "/tmp/code", isGitRepo: false)]
+    let store = TestStore(initialState: Self.browseState(pathQuery: "/tmp/", entries: entries)) {
+      CommandPaletteFeature()
+    } withDependencies: {
+      $0.continuousClock = clock
+      $0.fileSystemBrowseClient.searchDirectories = { _, _, _ in [nested] }
+    }
+
+    await store.send(.browsePathQueryChanged("/tmp/supac")) {
+      $0.browse.pathQuery = "/tmp/supac"
+      $0.browse.filteredEntries = []
+      $0.browse.selectedIndex = nil
+    }
+    await clock.advance(by: CommandPaletteFeature.browseSearchDebounce)
+    await store.receive(
+      .browseSearchResultsLoaded(directory: URL(fileURLWithPath: "/tmp"), query: "supac", results: [nested])
+    ) {
+      $0.browse.searchResults = [nested]
+      $0.browse.filteredEntries = [nested]
+      $0.browse.selectedIndex = 0
+    }
+  }
+
+  @Test func browseSearchResultsForStalePathQueryAreIgnored() async {
+    let nested = DirectoryEntry(name: "supacode", fullPath: "/tmp/code/supacode", isGitRepo: true)
+    let store = TestStore(initialState: Self.browseState(pathQuery: "/tmp/other", entries: [])) {
+      CommandPaletteFeature()
+    }
+
+    await store.send(
+      .browseSearchResultsLoaded(directory: URL(fileURLWithPath: "/tmp"), query: "supac", results: [nested])
+    )
+  }
+
+  @Test func browseAutocompleteCompletesPathWithoutOpening() async {
+    let repo = DirectoryEntry(name: "my-repo", fullPath: "/tmp/my-repo", isGitRepo: true)
+    var state = Self.browseState(pathQuery: "/tmp/my", entries: [repo])
+    state.browse.filteredEntries = [repo]
+    state.browse.selectedIndex = 0
     let store = TestStore(initialState: state) {
       CommandPaletteFeature()
     } withDependencies: {
+      $0.continuousClock = TestClock()
       $0.fileSystemBrowseClient.listDirectory = { _ in [] }
     }
 
-    await store.send(.browseNavigate(entry)) {
-      $0.browse.pathHistory = [parentPath]
-    }
-    await store.receive(.browseLoadDirectory(URL(fileURLWithPath: "/tmp/subdir"))) {
+    await store.send(.browseAutocomplete)
+    // Tab only rewrites the path: the repository is browsed into, never opened.
+    await store.receive(.browsePathQueryChanged("/tmp/my-repo/")) {
+      $0.browse.pathQuery = "/tmp/my-repo/"
       $0.browse.isLoading = true
-      $0.browse.currentPath = URL(fileURLWithPath: "/tmp/subdir")
-      $0.browse.filterQuery = ""
-    }
-    await store.receive(.browseDirectoryLoaded([])) {
-      $0.browse.isLoading = false
       $0.browse.entries = []
       $0.browse.filteredEntries = []
       $0.browse.selectedIndex = nil
     }
+    await store.receive(
+      .browseDirectoryLoaded(directory: URL(fileURLWithPath: "/tmp/my-repo"), entries: [])
+    ) {
+      $0.browse.isLoading = false
+      $0.browse.loadedDirectory = URL(fileURLWithPath: "/tmp/my-repo")
+    }
   }
 
-  @Test func browseNavigateGitRepoSelectsRepository() async {
-    let entry = DirectoryEntry(name: "my-repo", fullPath: "/tmp/my-repo", isGitRepo: true)
-    var state = CommandPaletteFeature.State()
-    state.isPresented = true
-    state.mode = .browse
-    state.browse.entries = [entry]
-    state.browse.filteredEntries = [entry]
-
+  @Test func browseSubmitOpensHighlightedGitRepository() async {
+    let repo = DirectoryEntry(name: "my-repo", fullPath: "/tmp/my-repo", isGitRepo: true)
+    var state = Self.browseState(pathQuery: "/tmp/", entries: [repo])
+    state.browse.filteredEntries = [repo]
+    state.browse.selectedIndex = 0
     let store = TestStore(initialState: state) {
       CommandPaletteFeature()
     }
 
-    await store.send(.browseNavigate(entry)) {
+    await store.send(.browseSubmit)
+    await store.receive(.browseNavigate(repo))
+    await store.receive(.browseOpenEntry(repo))
+    await store.receive(.browseSelectRepository(URL(fileURLWithPath: "/tmp/my-repo"))) {
       $0.isPresented = false
       $0.mode = .commands
       $0.browse = CommandPaletteFeature.BrowseState()
@@ -1970,58 +2057,117 @@ struct CommandPaletteFeatureTests {
     await store.receive(.delegate(.browseSelectRepository(URL(fileURLWithPath: "/tmp/my-repo"))))
   }
 
-  @Test func browseFilterChangedFiltersEntries() async {
-    let entries = [
-      DirectoryEntry(name: "alpha", fullPath: "/alpha", isGitRepo: false),
-      DirectoryEntry(name: "beta", fullPath: "/beta", isGitRepo: false),
-      DirectoryEntry(name: "gamma", fullPath: "/gamma", isGitRepo: false),
-    ]
-    var state = CommandPaletteFeature.State()
-    state.isPresented = true
-    state.mode = .browse
-    state.browse.entries = entries
-    state.browse.filteredEntries = entries
-
-    let store = TestStore(initialState: state) {
-      CommandPaletteFeature()
-    }
-
-    await store.send(.browseFilterChanged("al")) {
-      $0.browse.filterQuery = "al"
-      $0.browse.filteredEntries = [entries[0]]
-      $0.browse.selectedIndex = 0
-    }
-  }
-
-  @Test func browseNavigateUpGoesToParent() async {
-    let parentPath = URL(fileURLWithPath: "/tmp")
-    let childPath = URL(fileURLWithPath: "/tmp/child")
-    var state = CommandPaletteFeature.State()
-    state.isPresented = true
-    state.mode = .browse
-    state.browse.currentPath = childPath
-    state.browse.pathHistory = [parentPath]
-
+  @Test func browseSubmitDescendsIntoPlainFolder() async {
+    let folder = DirectoryEntry(name: "subdir", fullPath: "/tmp/subdir", isGitRepo: false)
+    var state = Self.browseState(pathQuery: "/tmp/", entries: [folder])
+    state.browse.filteredEntries = [folder]
+    state.browse.selectedIndex = 0
     let store = TestStore(initialState: state) {
       CommandPaletteFeature()
     } withDependencies: {
       $0.fileSystemBrowseClient.listDirectory = { _ in [] }
     }
 
-    await store.send(.browseNavigateUp) {
-      $0.browse.pathHistory = []
-    }
-    await store.receive(.browseLoadDirectory(parentPath)) {
+    await store.send(.browseSubmit)
+    await store.receive(.browseNavigate(folder))
+    await store.receive(.browsePathQueryChanged("/tmp/subdir/")) {
+      $0.browse.pathQuery = "/tmp/subdir/"
       $0.browse.isLoading = true
-      $0.browse.currentPath = parentPath
-      $0.browse.filterQuery = ""
-    }
-    await store.receive(.browseDirectoryLoaded([])) {
-      $0.browse.isLoading = false
       $0.browse.entries = []
       $0.browse.filteredEntries = []
       $0.browse.selectedIndex = nil
     }
+    await store.receive(
+      .browseDirectoryLoaded(directory: URL(fileURLWithPath: "/tmp/subdir"), entries: [])
+    ) {
+      $0.browse.isLoading = false
+      $0.browse.loadedDirectory = URL(fileURLWithPath: "/tmp/subdir")
+    }
+  }
+
+  @Test func browseForceOpenOpensHighlightedPlainFolder() async {
+    let folder = DirectoryEntry(name: "subdir", fullPath: "/tmp/subdir", isGitRepo: false)
+    var state = Self.browseState(pathQuery: "/tmp/", entries: [folder])
+    state.browse.filteredEntries = [folder]
+    state.browse.selectedIndex = 0
+    let store = TestStore(initialState: state) {
+      CommandPaletteFeature()
+    }
+
+    await store.send(.browseForceOpen)
+    await store.receive(.browseOpenEntry(folder))
+    await store.receive(.browseSelectRepository(URL(fileURLWithPath: "/tmp/subdir"))) {
+      $0.isPresented = false
+      $0.mode = .commands
+      $0.browse = CommandPaletteFeature.BrowseState()
+    }
+    await store.receive(.delegate(.browseSelectRepository(URL(fileURLWithPath: "/tmp/subdir"))))
+  }
+
+  @Test func browseForceOpenWithoutSelectionOpensBrowsedDirectory() async {
+    let store = TestStore(initialState: Self.browseState(pathQuery: "/tmp/subdir/", entries: [])) {
+      CommandPaletteFeature()
+    }
+
+    await store.send(.browseForceOpen)
+    await store.receive(.browseSelectRepository(URL(fileURLWithPath: "/tmp/subdir"))) {
+      $0.isPresented = false
+      $0.mode = .commands
+      $0.browse = CommandPaletteFeature.BrowseState()
+    }
+    await store.receive(.delegate(.browseSelectRepository(URL(fileURLWithPath: "/tmp/subdir"))))
+  }
+
+  @Test func browseNavigateUpClearsTypedLeafThenGoesToParent() async {
+    let entries = [DirectoryEntry(name: "child", fullPath: "/tmp/child", isGitRepo: false)]
+    let store = TestStore(initialState: Self.browseState(pathQuery: "/tmp/ch", entries: entries)) {
+      CommandPaletteFeature()
+    } withDependencies: {
+      $0.continuousClock = TestClock()
+      $0.fileSystemBrowseClient.listDirectory = { _ in [] }
+      $0.fileSystemBrowseClient.searchDirectories = { _, _, _ in [] }
+    }
+
+    await store.send(.browseNavigateUp)
+    await store.receive(.browsePathQueryChanged("/tmp/")) {
+      $0.browse.pathQuery = "/tmp/"
+      $0.browse.filteredEntries = entries
+      $0.browse.selectedIndex = 0
+    }
+
+    await store.send(.browseNavigateUp)
+    await store.receive(.browsePathQueryChanged("/")) {
+      $0.browse.pathQuery = "/"
+      $0.browse.isLoading = true
+      $0.browse.entries = []
+      $0.browse.filteredEntries = []
+      $0.browse.selectedIndex = nil
+    }
+    await store.receive(.browseDirectoryLoaded(directory: URL(fileURLWithPath: "/"), entries: [])) {
+      $0.browse.isLoading = false
+      $0.browse.loadedDirectory = URL(fileURLWithPath: "/")
+    }
+  }
+
+  /// Browse state as it looks mid-session: presented, in browse mode, with `pathQuery`'s
+  /// directory already listed so a query change exercises filtering instead of a reload.
+  private static func browseState(
+    pathQuery: String,
+    entries: [DirectoryEntry]
+  ) -> CommandPaletteFeature.State {
+    var state = CommandPaletteFeature.State()
+    state.isPresented = true
+    state.mode = .browse
+    state.browse.pathQuery = pathQuery
+    state.browse.loadedDirectory = BrowsePath.directoryURL(of: pathQuery)
+    state.browse.entries = entries
+    state.browse.filteredEntries = CommandPaletteFeature.browseRows(
+      entries: entries,
+      searchResults: [],
+      leaf: BrowsePath.leaf(of: pathQuery)
+    )
+    state.browse.selectedIndex = state.browse.filteredEntries.isEmpty ? nil : 0
+    return state
   }
 
   @Test func browseOpenNativePanelClosesAndDelegates() async {

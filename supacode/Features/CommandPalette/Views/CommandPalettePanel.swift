@@ -165,6 +165,13 @@ final class CommandPalettePanelHostView: NSView {
     guard keyMonitor == nil else { return }
     keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
       guard let self, let panel = self.panel, panel.isKeyWindow else { return event }
+      // Browse mode owns Tab (path completion) and ⌘↵ (open the highlighted folder even
+      // when it isn't a git repo). Both must be matched before the field or the app menu
+      // sees them: Tab would otherwise move focus and ⌘↵ would beep below.
+      if self.store.mode == .browse, let browseAction = Self.browseKeyAction(for: event) {
+        self.store.send(browseAction)
+        return nil
+      }
       if panel.performKeyEquivalent(with: event) { return nil }
       // Drive the palette's navigation / activation shortcuts (⌘1..⌘5, arrow
       // keys, ⌃P / ⌃N) here: in-view `.keyboardShortcut` buttons don't fire
@@ -211,6 +218,15 @@ final class CommandPalettePanelHostView: NSView {
       }
       return event
     }
+  }
+
+  // Tab (keyCode 48) and ⌘↵ (keyCode 36), the two browse keys SwiftUI can't bind:
+  // `.keyboardShortcut(.tab)` never fires because Tab is focus navigation.
+  private static func browseKeyAction(for event: NSEvent) -> CommandPaletteFeature.Action? {
+    let modifiers = Self.coreModifiers(of: event)
+    if event.keyCode == 48, modifiers.isEmpty { return .browseAutocomplete }
+    if event.keyCode == 36, modifiers == .command { return .browseForceOpen }
+    return nil
   }
 
   private static func dispatchFieldEditingAction(for event: NSEvent) -> Bool {
