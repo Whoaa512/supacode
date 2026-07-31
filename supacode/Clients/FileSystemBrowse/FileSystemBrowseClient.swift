@@ -1,6 +1,9 @@
 import Dependencies
 import DependenciesMacros
 import Foundation
+import SupacodeSettingsShared
+
+private nonisolated let fileSystemBrowseLogger = SupaLogger("FileSystemBrowse")
 
 struct DirectoryEntry: Identifiable, Equatable, Sendable {
   var id: String { fullPath }
@@ -68,11 +71,16 @@ extension FileSystemBrowseClient: DependencyKey {
     var visited = 0
 
     for depth in 1...maxDepth {
+      // The walk is synchronous, so the caller's cancellation (a keystroke superseding
+      // this search) only lands if we check for it between frontiers. The same guard
+      // stops descending once either cap is hit, not just the current frontier.
+      try Task.checkCancellation()
+      guard visited < searchVisitLimit, matches.count < searchResultLimit else { break }
       var next: [URL] = []
       for directory in frontier {
         guard visited < searchVisitLimit, matches.count < searchResultLimit else { break }
         visited += 1
-        let children = (try? childDirectories(of: directory)) ?? []
+        let children = Self.childDirectoriesLoggingFailure(of: directory)
         for child in children where !child.name.hasPrefix(".") {
           if child.name.lowercased().contains(needle) {
             matches.append(child)
@@ -98,6 +106,19 @@ extension FileSystemBrowseClient: DependencyKey {
         return left.offset < right.offset
       }
       .map(\.element)
+  }
+
+  /// An unreadable directory mid-walk is expected (permissions, races) and must not abort
+  /// the whole search, but it should not vanish silently either.
+  private static func childDirectoriesLoggingFailure(of url: URL) -> [DirectoryEntry] {
+    do {
+      return try childDirectories(of: url)
+    } catch {
+      fileSystemBrowseLogger.debug(
+        "Skipping unreadable directory \(url.path(percentEncoded: false)): \(error)"
+      )
+      return []
+    }
   }
 
   static let testValue = FileSystemBrowseClient()
