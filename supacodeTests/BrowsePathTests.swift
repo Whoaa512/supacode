@@ -6,7 +6,7 @@ import Testing
 @Suite struct BrowsePathTests {
   private static var homePath: String { FileManager.default.homeDirectoryForCurrentUser.path }
 
-  @Test func slashlessQueryThatIsAnExistingDirectoryBecomesTheDirectory() {
+  @Test func bareTildeBecomesTheHomeDirectory() {
     // Bare "~" used to resolve to directory "~/" with leaf "~", so every row was
     // filtered out and the list came up empty.
     let resolved = BrowsePath.resolve("~")
@@ -30,10 +30,18 @@ import Testing
     #expect(BrowsePath.resolve(" /tmp/ ").leaf.isEmpty)
   }
 
-  @Test func slashlessQueryThatIsNotADirectoryStaysALeafAgainstHome() {
+  @Test func slashlessQueryStaysALeafAgainstHome() {
     let resolved = BrowsePath.resolve("definitely-not-a-real-directory")
     #expect(resolved.directoryText == "~/")
     #expect(resolved.leaf == "definitely-not-a-real-directory")
+  }
+
+  @Test func slashlessQueryMatchingACwdRelativeDirectoryStaysALeaf() {
+    // "Library" exists at both "/" (a Finder-launched app's CWD) and "~". Resolving
+    // via the filesystem sent the picker to /Library; it must filter home instead.
+    let resolved = BrowsePath.resolve("Library")
+    #expect(resolved.directoryText == "~/")
+    #expect(resolved.leaf == "Library")
   }
 
   @Test func queryWithSeparatorSplitsAtTheLastOne() {
