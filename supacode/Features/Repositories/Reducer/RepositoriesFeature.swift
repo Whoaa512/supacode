@@ -203,6 +203,11 @@ struct RepositoriesFeature {
     /// in the recompute helper keeps a no-op rebuild from invalidating
     /// SwiftUI when the user-visible layout didn't actually change.
     var sidebarStructure: SidebarStructure = .placeholder
+    /// Single source of truth the Agents sidebar tab renders against. Same
+    /// cached-structure contract as `sidebarStructure`: built in the reducer's
+    /// post-reduce hook and Equatable-diffed before publish, so the view body
+    /// never touches `sidebarItems[id:]`.
+    var agentDashboardStructure: AgentDashboardStructure = .empty
     /// Cached projection of the focused row's display fields. The detail body
     /// reads this directly instead of `sidebarItems[id: id]` so per-leaf agent
     /// / notification mutations on the focused row don't invalidate the

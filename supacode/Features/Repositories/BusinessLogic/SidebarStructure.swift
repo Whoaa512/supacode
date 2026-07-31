@@ -626,6 +626,10 @@ extension RepositoriesFeature.State {
   mutating func applyCacheRecomputes(_ invalidations: CacheInvalidations) {
     if invalidations.contains(.sidebarStructure) {
       recomputeSidebarStructureIfChanged()
+      // The Agents tab shares every input of the sidebar structure (per-row
+      // agent snapshots, titles, branch names, lifecycle), so it rides the same
+      // bit instead of adding one every action arm would have to classify.
+      recomputeAgentDashboardStructureIfChanged()
     }
     if invalidations.contains(.selectedWorktreeSlice) {
       recomputeSelectedWorktreeSliceIfChanged()
