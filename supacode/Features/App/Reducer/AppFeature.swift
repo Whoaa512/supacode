@@ -163,6 +163,8 @@ struct AppFeature {
     // Cached aggregate from the terminal manager; flips only on the global
     // any-surface boundary so menu / action gates avoid sidebarItems iteration.
     var hasAnyTerminalSurface: Bool = false
+    /// Full-screen terminal grid overview modal visibility.
+    var isTerminalGridPresented: Bool = false
     var lastKnownSystemNotificationsEnabled: Bool
     var lastKnownAgentPresenceBadgesEnabled: Bool
     var lastKnownAppVisibility: AppVisibility
@@ -323,6 +325,12 @@ struct AppFeature {
     case focusTerminalSurface(worktreeID: Worktree.ID, tabID: TerminalTabID, surfaceID: UUID)
     /// Settings session browser: close a surface (its tab closes when it was the last one).
     case closeTerminalSurface(worktreeID: Worktree.ID, tabID: TerminalTabID, surfaceID: UUID)
+    /// Close an entire tab (all its surfaces) from the terminal grid overview.
+    case closeTerminalTab(worktreeID: Worktree.ID, tabID: TerminalTabID)
+    /// Show / hide the full-screen terminal grid overview.
+    case setTerminalGridPresented(Bool)
+    /// Grid overview: dismiss the modal and jump to the chosen surface.
+    case terminalGridJumpToSurface(worktreeID: Worktree.ID, tabID: TerminalTabID, surfaceID: UUID)
     case menuBarWorktreeSelected(worktreeID: Worktree.ID)
     case markAllNotificationsRead
     case runScript
@@ -974,6 +982,21 @@ struct AppFeature {
         return .run { _ in
           await terminalClient.send(.destroySurface(worktree, tabID: tabID, surfaceID: surfaceID))
         }
+
+      case .closeTerminalTab(let worktreeID, let tabID):
+        guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
+        return .run { _ in
+          await terminalClient.send(.destroyTab(worktree, tabID: tabID))
+        }
+
+      case .setTerminalGridPresented(let isPresented):
+        state.isTerminalGridPresented = isPresented
+        return .none
+
+      case .terminalGridJumpToSurface(let worktreeID, let tabID, let surfaceID):
+        state.isTerminalGridPresented = false
+        return .send(
+          .focusTerminalSurface(worktreeID: worktreeID, tabID: tabID, surfaceID: surfaceID))
 
       case .menuBarWorktreeSelected(let worktreeID):
         // The menu snapshots its rows when it opens, so the worktree can be

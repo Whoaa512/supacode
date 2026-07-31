@@ -778,6 +778,11 @@ final class WorktreeTerminalState {
     worktree.name
   }
 
+  /// Directory basename for breadcrumb labels in session browsers.
+  var worktreeDirectoryName: String {
+    worktree.workingDirectory.lastPathComponent
+  }
+
   /// True while the tab is hibernated (surfaces torn down, zmx sessions kept).
   func isTabDormant(_ tabId: TerminalTabID) -> Bool {
     dormantTabLayouts[tabId] != nil

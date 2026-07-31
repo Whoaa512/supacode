@@ -981,6 +981,9 @@ final class WorktreeTerminalManager {
   struct SessionWorktreeOverview: Identifiable, Equatable {
     let id: Worktree.ID
     let name: String
+    /// Last path component of the working directory; the primary breadcrumb
+    /// label since it's what users recognize faster than the worktree name.
+    let directoryName: String
     let tabs: [SessionTabOverview]
   }
 
@@ -999,7 +1002,12 @@ final class WorktreeTerminalManager {
         return SessionTabOverview(id: tab.id, title: tab.displayTitle, surfaces: surfaces)
       }
       guard !tabs.isEmpty else { return nil }
-      return SessionWorktreeOverview(id: worktreeID, name: state.worktreeName, tabs: tabs)
+      return SessionWorktreeOverview(
+        id: worktreeID,
+        name: state.worktreeName,
+        directoryName: state.worktreeDirectoryName,
+        tabs: tabs
+      )
     }
     .sorted { ($0.name, $0.id.rawValue) < ($1.name, $1.id.rawValue) }
   }
