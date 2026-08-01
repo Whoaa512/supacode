@@ -452,6 +452,7 @@ extension RepositoriesFeature.Action {
     // without rewriting persisted drag order.
     case .sidebarGroupingTogglesChanged, .sidebarNestByBranchChanged,
       .sidebarSectionSortChanged,
+      .sidebarAgentsGroupByStateChanged,
       .repositoryExpansionChanged, .branchNestExpansionChanged,
       .setAllSidebarGroupsExpanded,
       .setMoveNotifiedWorktreeToTop,

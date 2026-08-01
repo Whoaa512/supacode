@@ -383,6 +383,10 @@ struct RepositoriesFeature {
     /// structure so repo/folder sections follow the selected sort. Does not
     /// rewrite `sidebar.sections`.
     case sidebarSectionSortChanged
+    /// Fired by `AgentDashboardListView.onChange` whenever
+    /// `@Shared(.sidebarAgentsGroupByState)` mutates, so the post-reduce hook
+    /// rebuilds the cached `agentDashboardStructure` with the new projection.
+    case sidebarAgentsGroupByStateChanged
     case setOpenPanelPresented(Bool)
     case requestAddRemoteRepository
     case requestEditRemoteRepository(Repository.ID)
@@ -3581,6 +3585,11 @@ struct RepositoriesFeature {
       case .sidebarGroupingTogglesChanged:
         // No-op handler: the post-reduce hook reads the grouping toggles and
         // rebuilds `sidebarStructure`.
+        return .none
+
+      case .sidebarAgentsGroupByStateChanged:
+        // No-op handler: the post-reduce hook reads `sidebarAgentsGroupByState`
+        // and rebuilds `agentDashboardStructure` with (or without) sections.
         return .none
 
       case .sidebarNestByBranchChanged:

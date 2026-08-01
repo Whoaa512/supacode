@@ -1,11 +1,12 @@
+import ComposableArchitecture
 import Foundation
 import IdentifiedCollections
 import OrderedCollections
 import SupacodeSettingsShared
 
 /// Sidebar-facing agent state. Ordered by triage urgency: the raw value is the
-/// sort rank. `done` is reserved for Phase 2 (done-until-seen) and is never
-/// produced yet; `unknown` covers agents with no hook-reported activity.
+/// sort rank. `done` is an idle agent whose last turn finished while its surface
+/// was unfocused; `unknown` covers agents with no hook-reported activity.
 enum AgentDashboardState: Int, Comparable, Sendable {
   case blocked = 0
   case working = 1
@@ -24,6 +25,16 @@ enum AgentDashboardState: Int, Comparable, Sendable {
     case .idle: .idle
     }
   }
+
+  /// Same mapping, promoting a finished-but-unseen turn to `done`.
+  static func from(_ instance: AgentPresenceFeature.AgentInstance) -> Self {
+    let state = from(instance.activity)
+    guard state == .idle, instance.isDoneUnseen else { return state }
+    return .done
+  }
+
+  /// State order used by the grouped Agents panel and the Spaces rollup.
+  static let triageOrder: [Self] = [.blocked, .working, .done, .idle, .unknown]
 
   var title: String {
     switch self {
@@ -88,16 +99,51 @@ struct AgentDashboardEntry: Identifiable, Equatable, Sendable {
 /// post-reduce hook (`recomputeAgentDashboardStructureIfChanged()`) and
 /// Equatable-diffed before publish, exactly like `SidebarStructure`.
 struct AgentDashboardStructure: Equatable, Sendable {
+  /// One section of the grouped projection. Only non-empty states get a section.
+  struct Section: Identifiable, Equatable, Sendable {
+    let state: AgentDashboardState
+    let entries: [AgentDashboardEntry]
+
+    var id: AgentDashboardState { state }
+    var title: String { state.title }
+    var count: Int { entries.count }
+  }
+
+  /// One repository in the Spaces panel, with its agents rolled up to the worst
+  /// state across every worktree it owns.
+  struct SpaceEntry: Identifiable, Equatable, Sendable {
+    let id: Repository.ID
+    let title: String
+    let tint: RepositoryColor?
+    let worktreeCount: Int
+    /// `nil` when the repository hosts no tracked agent, so the row shows no icon.
+    let state: AgentDashboardState?
+  }
+
   var entries: [AgentDashboardEntry] = []
+  /// Grouped projection, empty when the group-by-state toggle is off (or when
+  /// there is nothing to group). The view treats "empty" as "render flat".
+  var sections: [Section] = []
+  var spaces: [SpaceEntry] = []
 
   static let empty = AgentDashboardStructure()
+
+  /// Groups already-sorted entries into triage-ordered sections, omitting empty ones.
+  static func sections(from entries: [AgentDashboardEntry]) -> [Section] {
+    let byState = Dictionary(grouping: entries, by: \.state)
+    return AgentDashboardState.triageOrder.compactMap { state in
+      guard let entries = byState[state], !entries.isEmpty else { return nil }
+      return Section(state: state, entries: entries)
+    }
+  }
 }
 
 extension RepositoriesFeature.State {
   /// Equatable-diffs the freshly-built dashboard against the cached one so a
   /// no-op rebuild doesn't invalidate SwiftUI observation.
   mutating func recomputeAgentDashboardStructureIfChanged() {
-    let new = computeAgentDashboardStructure()
+    @Shared(.sidebarAgentsGroupByState) var groupByState
+    let new = computeAgentDashboardStructure(groupByState: groupByState)
     if new != agentDashboardStructure {
       agentDashboardStructure = new
     }
@@ -105,16 +151,20 @@ extension RepositoriesFeature.State {
 
   /// Flat cross-repo agent list. Per-leaf reads on `sidebarItems[id:]` belong
   /// here, in the reducer, never in a view body.
-  func computeAgentDashboardStructure() -> AgentDashboardStructure {
+  func computeAgentDashboardStructure(groupByState: Bool = false) -> AgentDashboardStructure {
     let archived = archivedWorktreeIDSet
     var entries: [AgentDashboardEntry] = []
     var repositoryTitles: [Repository.ID: String] = [:]
+    var worktreeCounts: [Repository.ID: Int] = [:]
+    var worstStateByRepository: [Repository.ID: AgentDashboardState] = [:]
 
     for id in sidebarItems.ids {
-      guard let item = sidebarItems[id: id], !item.agents.isEmpty else { continue }
+      guard let item = sidebarItems[id: id] else { continue }
       // Same exclusions the Active rail applies: a winding-down or orphaned row
       // has nothing actionable behind its agent badge.
       guard !archived.contains(id), !item.lifecycle.isTerminating, !item.isMissing else { continue }
+      worktreeCounts[item.repositoryID, default: 0] += 1
+      guard !item.agents.isEmpty else { continue }
 
       let repositoryTitle: String
       if let cached = repositoryTitles[item.repositoryID] {
@@ -132,7 +182,7 @@ extension RepositoriesFeature.State {
       // row carrying the most urgent state so the List keeps unique ids.
       var worstByAgent: [SkillAgent: (state: AgentDashboardState, hasError: Bool)] = [:]
       for instance in item.agents {
-        let state = AgentDashboardState.from(instance.activity)
+        let state = AgentDashboardState.from(instance)
         let previous = worstByAgent[instance.agent]
         worstByAgent[instance.agent] = (
           state: min(state, previous?.state ?? state),
@@ -141,6 +191,8 @@ extension RepositoriesFeature.State {
       }
 
       for (agent, worst) in worstByAgent {
+        worstStateByRepository[item.repositoryID] = min(
+          worst.state, worstStateByRepository[item.repositoryID] ?? worst.state)
         entries.append(
           AgentDashboardEntry(
             id: AgentDashboardEntry.EntryID(worktreeID: id, agent: agent),
@@ -158,6 +210,23 @@ extension RepositoriesFeature.State {
       }
     }
 
-    return AgentDashboardStructure(entries: entries.sorted(by: AgentDashboardEntry.ordersBefore))
+    let sorted = entries.sorted(by: AgentDashboardEntry.ordersBefore)
+    return AgentDashboardStructure(
+      entries: sorted,
+      sections: groupByState ? AgentDashboardStructure.sections(from: sorted) : [],
+      spaces: orderedRepositoryIDs().map { repositoryID in
+        AgentDashboardStructure.SpaceEntry(
+          id: repositoryID,
+          title: repositoryTitles[repositoryID]
+            ?? Repository.sidebarDisplayName(
+              custom: sidebar.sections[repositoryID]?.title,
+              fallback: repositoryName(for: repositoryID) ?? repositoryID.rawValue
+            ),
+          tint: sidebar.sections[repositoryID]?.color,
+          worktreeCount: worktreeCounts[repositoryID] ?? 0,
+          state: worstStateByRepository[repositoryID]
+        )
+      }
+    )
   }
 }
