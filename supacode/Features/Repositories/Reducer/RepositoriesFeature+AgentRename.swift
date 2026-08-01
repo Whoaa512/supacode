@@ -12,7 +12,8 @@ extension RepositoriesFeature {
       case .requestRenameAgent(let entryID):
         guard let entry = state.agentDashboardStructure.entries.first(where: { $0.id == entryID }) else {
           repositoriesLogger.warning(
-            "requestRenameAgent dropped: no dashboard entry for wt=\(entryID.worktreeID) agent=\(entryID.agent.rawValue)"
+            "requestRenameAgent dropped: no dashboard entry for wt=\(entryID.worktreeID) "
+              + "agent=\(entryID.agent.rawValue)"
           )
           return .none
         }

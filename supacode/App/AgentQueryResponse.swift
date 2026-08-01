@@ -25,7 +25,7 @@ enum AgentQueryResponse {
     presence: AgentPresenceFeature.State,
     repositories: RepositoriesFeature.State
   ) -> [[String: String]] {
-    var rows: [(state: AgentDashboardState, title: String, agent: String, fields: [String: String])] = []
+    var rows: [Row] = []
     for (key, record) in presence.records {
       guard let worktreeID = repositories.surfaceToItemID[key.surfaceID],
         let item = repositories.sidebarItems[id: worktreeID]
@@ -40,7 +40,7 @@ enum AgentQueryResponse {
         fallback: repositories.repositoryName(for: item.repositoryID) ?? item.repositoryID.rawValue
       )
       rows.append(
-        (
+        Row(
           state: state,
           title: title,
           agent: key.agent.rawValue,
@@ -67,6 +67,14 @@ enum AgentQueryResponse {
         }
       }
       .map(\.fields)
+  }
+
+  /// One sorted row: the sort keys, plus the wire fields they order.
+  private struct Row {
+    let state: AgentDashboardState
+    let title: String
+    let agent: String
+    let fields: [String: String]
   }
 
   /// Mirrors `AppFeature.percentEncodedID`: a returned id must round-trip as a
