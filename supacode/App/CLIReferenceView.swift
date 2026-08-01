@@ -27,6 +27,7 @@ struct CLIReferenceView: View {
       CLISection(title: "Worktree", rows: Self.worktreeRows)
       CLISection(title: "Tab", rows: Self.tabRows)
       CLISection(title: "Surface", rows: Self.surfaceRows)
+      CLISection(title: "Agent", rows: Self.agentRows)
       CLISection(title: "Repository", rows: Self.repoRows)
       CLISection(title: "Settings", rows: Self.settingsRows)
       CLISection(title: "Socket", rows: Self.socketRows)
@@ -125,6 +126,27 @@ struct CLIReferenceView: View {
     .init(
       command: "supacode surface close [-w <id>] [-t <id>] [-s <id>]",
       description: "Close a surface."
+    ),
+  ]
+
+  private static let agentRows: [CLIEntry] = [
+    .init(
+      command: "supacode agent list [--json]",
+      description:
+        "List running agents: name, kind, state, repo, branch, worktree ID. "
+        + "Blocked rows are underlined."
+    ),
+    .init(
+      command: "supacode agent rename <target> <name> | --clear [--agent <kind>]",
+      description:
+        "Name a running agent ([a-z][a-z0-9_-]*, unique among live agents). "
+        + "Target is a name, worktree ID, or branch."
+    ),
+    .init(
+      command: "supacode agent wait <target> [--until <state>]... [--timeout <seconds>]",
+      description:
+        "Block until the agent reaches a state (default idle, done, or blocked), "
+        + "then print its row as JSON."
     ),
   ]
 

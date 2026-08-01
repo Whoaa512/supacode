@@ -28,6 +28,7 @@ struct DeeplinkReferenceView: View {
       DeeplinkSection(title: "General", rows: Self.generalRows)
       DeeplinkSection(title: "Worktree Actions", rows: Self.worktreeRows)
       DeeplinkSection(title: "Tab & Surface", rows: Self.tabSurfaceRows)
+      DeeplinkSection(title: "Agent", rows: Self.agentRows)
       DeeplinkSection(title: "Repository", rows: Self.repoRows)
       DeeplinkSection(title: "Settings", rows: Self.settingsRows)
     }
@@ -65,6 +66,16 @@ struct DeeplinkReferenceView: View {
       url: "supacode://worktree/<worktree_id>/appearance",
       description: "Update title/tint overrides. Omitted fields are preserved; empty title clears; color=none clears.",
       params: "?title=<title>&color=<red|orange|yellow|green|teal|blue|purple|%23RRGGBB|none>"
+    ),
+  ]
+
+  private static let agentRows: [DeeplinkEntry] = [
+    .init(
+      url: "supacode://agent/<worktree_id>/<agent_kind>/rename",
+      description:
+        "Name a running agent. Omit or empty `name` to clear it; names must match [a-z][a-z0-9_-]* "
+        + "and be unique among live agents.",
+      params: "?name=<name>"
     ),
   ]
 
