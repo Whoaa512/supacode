@@ -231,7 +231,6 @@ extension RepositoriesFeature.State {
     let archived = archivedWorktreeIDSet
     var entries: [AgentDashboardEntry] = []
     var repositoryTitles: [Repository.ID: String] = [:]
-    var worktreeCounts: [Repository.ID: Int] = [:]
     var worstStateByRepository: [Repository.ID: AgentDashboardState] = [:]
 
     for id in sidebarItems.ids {
@@ -239,7 +238,6 @@ extension RepositoriesFeature.State {
       // Same exclusions the Active rail applies: a winding-down or orphaned row
       // has nothing actionable behind its agent badge.
       guard !archived.contains(id), !item.lifecycle.isTerminating, !item.isMissing else { continue }
-      worktreeCounts[item.repositoryID, default: 0] += 1
       guard !item.agents.isEmpty else { continue }
 
       let repositoryTitle: String
@@ -309,7 +307,12 @@ extension RepositoriesFeature.State {
               fallback: repositoryName(for: repositoryID) ?? repositoryID.rawValue
             ),
           tint: sidebar.sections[repositoryID]?.color,
-          worktreeCount: worktreeCounts[repositoryID] ?? 0,
+          // Counted from the repository model, not per-row lifecycle: a
+          // transient archiving/deleting flip must not churn the cached
+          // structure in flows that don't touch the dashboard (see
+          // RepositoriesFeatureTests archive/delete script coverage).
+          worktreeCount: repositories[id: repositoryID]?.worktrees
+            .count { !$0.isMissing && !archived.contains($0.id) } ?? 0,
           state: worstStateByRepository[repositoryID]
         )
       }
