@@ -336,6 +336,111 @@ struct RepositoriesFeatureAgentDashboardTests {
     }
   }
 
+  // MARK: - Agent names.
+
+  @Test func nameReplacesTheAgentKindInTheRowTitle() {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    var state = makeState(worktrees: [alpha])
+    setAgents(&state, id: alpha.id, [.init(agent: .claude, activity: .busy, name: "reviewer")])
+
+    let entry = state.computeAgentDashboardStructure().entries.first
+    #expect(entry?.name == "reviewer")
+    #expect(entry?.displayName == "reviewer")
+    // The kind moves to the subtitle so a named row still says what it runs.
+    #expect(entry?.subtitle == "dash-repo · alpha · Claude Code")
+  }
+
+  @Test func unnamedRowsKeepTheAgentDisplayName() {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    var state = makeState(worktrees: [alpha])
+    setAgents(&state, id: alpha.id, [.init(agent: .claude, activity: .busy)])
+
+    let entry = state.computeAgentDashboardStructure().entries.first
+    #expect(entry?.displayName == "Claude Code")
+    #expect(entry?.subtitle == "dash-repo · alpha")
+  }
+
+  @Test func collapsedSurfacesShareTheFirstName() {
+    // One agent kind on two surfaces of a worktree renders as one row, so the
+    // named instance's name must survive the collapse.
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    var state = makeState(worktrees: [alpha])
+    setAgents(
+      &state,
+      id: alpha.id,
+      [
+        .init(agent: .claude, activity: .idle),
+        .init(agent: .claude, activity: .busy, name: "reviewer"),
+      ]
+    )
+
+    let entries = state.computeAgentDashboardStructure().entries
+    #expect(entries.count == 1)
+    #expect(entries.first?.name == "reviewer")
+    #expect(entries.first?.state == .working)
+  }
+
+  @Test func requestRenameAgentSeedsTheSheetWithOtherLiveNames() async {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    let bravo = makeWorktree(id: "/tmp/dash-repo/bravo", name: "bravo")
+    var state = makeState(worktrees: [alpha, bravo])
+    setAgents(&state, id: alpha.id, [.init(agent: .claude, activity: .busy, name: "reviewer")])
+    setAgents(&state, id: bravo.id, [.init(agent: .codex, activity: .busy, name: "builder")])
+    state.agentDashboardStructure = state.computeAgentDashboardStructure()
+
+    let entryID = AgentDashboardEntry.EntryID(worktreeID: alpha.id, agent: .claude)
+    let store = TestStore(initialState: state) { RepositoriesFeature() }
+    store.exhaustivity = .off
+
+    await store.send(.requestRenameAgent(entryID))
+
+    let sheet = store.state.agentRename
+    #expect(sheet?.name == "reviewer")
+    #expect(sheet?.agent == .claude)
+    // Its own name is excluded, so re-saving it unchanged stays valid.
+    #expect(sheet?.takenNames == ["builder"])
+    #expect(sheet?.canSave == true)
+  }
+
+  @Test func renameSheetRejectsInvalidAndDuplicateNames() {
+    var sheet = AgentRenameFeature.State(
+      worktreeID: WorktreeID("/tmp/dash-repo/alpha"),
+      agent: .claude,
+      subject: "Claude Code in alpha",
+      takenNames: ["builder"],
+      name: "Reviewer"
+    )
+    #expect(!sheet.canSave)
+
+    sheet.name = "builder"
+    #expect(sheet.validationError == "Another running agent already uses that name.")
+
+    sheet.name = " reviewer "
+    #expect(sheet.canSave)
+    #expect(sheet.resolvedName == "reviewer")
+
+    // Empty input is the clear gesture, not an error.
+    sheet.name = "  "
+    #expect(sheet.canSave)
+    #expect(sheet.resolvedName == nil)
+  }
+
+  @Test func renameSheetSaveDelegatesUpward() async {
+    let state = AgentRenameFeature.State(
+      worktreeID: WorktreeID("/tmp/dash-repo/alpha"),
+      agent: .claude,
+      subject: "Claude Code in alpha",
+      takenNames: [],
+      name: "reviewer"
+    )
+    let store = TestStore(initialState: state) { AgentRenameFeature() }
+
+    await store.send(.saveButtonTapped)
+    await store.receive(
+      .delegate(.save(worktreeID: state.worktreeID, agent: .claude, name: "reviewer"))
+    )
+  }
+
   @Test func groupByStateChangedActionInvalidatesSidebarStructure() {
     #expect(
       RepositoriesFeature.Action.sidebarAgentsGroupByStateChanged.cacheInvalidations
