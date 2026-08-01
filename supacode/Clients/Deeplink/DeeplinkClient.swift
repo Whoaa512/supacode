@@ -54,6 +54,8 @@ private nonisolated enum DeeplinkParser {
       return .worktree(id: id, action: action, background: parseBoolFlag("background", from: queryItems))
     case "repo":
       return parseRepo(pathSegments: pathSegments, queryItems: queryItems)
+    case "agent":
+      return parseAgent(pathSegments: pathSegments, queryItems: queryItems)
     case "help":
       return .help
     case "settings":
@@ -101,6 +103,30 @@ private nonisolated enum DeeplinkParser {
       logger.warning("Ignoring unrecognized \(name) value: \(item.value ?? "nil")")
     }
     return false
+  // MARK: - Agent.
+
+  private static func parseAgent(
+    pathSegments: [String],
+    queryItems: [URLQueryItem]
+  ) -> Deeplink? {
+    // Expected: <percent-encoded-worktree-id>/<agent-kind>/rename[?name=...].
+    guard pathSegments.count >= 3 else {
+      logger.warning("Agent deeplink missing worktree id, agent kind, or action")
+      return nil
+    }
+    guard let rawWorktreeID = pathSegments[0].removingPercentEncoding, !rawWorktreeID.isEmpty else {
+      logger.warning("Failed to percent-decode worktree ID in agent deeplink")
+      return nil
+    }
+    let worktreeID = WorktreeID(rawWorktreeID.hasSuffix("/") ? String(rawWorktreeID.dropLast()) : rawWorktreeID)
+    guard pathSegments[2] == "rename" else {
+      logger.warning("Unrecognized agent action: \(pathSegments[2])")
+      return nil
+    }
+    // An omitted or empty `name` clears the agent's name.
+    let raw = queryItems.first { $0.name == "name" }?.value ?? ""
+    let name = raw.isEmpty ? nil : raw
+    return .agent(worktreeID: worktreeID, agent: pathSegments[1], action: .rename(name: name))
   }
 
   // MARK: - Worktree.

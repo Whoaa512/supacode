@@ -298,6 +298,7 @@ struct RepositoriesFeature {
     @Presents var worktreeCreationPrompt: WorktreeCreationPromptFeature.State?
     @Presents var repositoryCustomization: RepositoryCustomizationFeature.State?
     @Presents var worktreeCustomization: WorktreeCustomizationFeature.State?
+    @Presents var agentRename: AgentRenameFeature.State?
     @Presents var renameBranchPrompt: RenameBranchFeature.State?
     @Presents var remoteConnectionForm: RemoteConnectionFormFeature.State?
     @Presents var cloneRepositoryForm: CloneRepositoryFormFeature.State?
@@ -618,6 +619,9 @@ struct RepositoriesFeature {
     /// `nil` clears the field; omit-vs-clear was already resolved upstream in `AppFeature`.
     case setWorktreeAppearance(Worktree.ID, Repository.ID, title: String?, color: RepositoryColor?)
     case requestRenameBranch(Worktree.ID, Repository.ID)
+    /// Agents-tab context menu: present the rename sheet for one dashboard row.
+    case requestRenameAgent(AgentDashboardEntry.EntryID)
+    case agentRename(PresentationAction<AgentRenameFeature.Action>)
     case contextMenuOpenWorktree(Worktree.ID, OpenWorktreeAction)
     case worktreeCreationPrompt(PresentationAction<WorktreeCreationPromptFeature.Action>)
     case repositoryCustomization(PresentationAction<RepositoryCustomizationFeature.Action>)
@@ -684,6 +688,9 @@ struct RepositoriesFeature {
       focusing: Bool = true
     )
     case selectTerminalTab(Worktree.ID, tabId: TabID)
+    /// The parent owns `AgentPresenceFeature`, so it resolves the presence key
+    /// for this (worktree, agent) pair and applies the rename.
+    case renameAgent(worktreeID: Worktree.ID, agent: SkillAgent, name: String?)
   }
 
   @Dependency(AnalyticsClient.self) private var analyticsClient
@@ -4728,6 +4735,10 @@ struct RepositoriesFeature {
       case .repositoryCustomization:
         return .none
 
+      case .requestRenameAgent, .agentRename:
+        // Handled by `agentRenameReducer` below, for the same type-checker reason.
+        return .none
+
       case .requestCustomizeWorktree,
         .setWorktreeAppearance,
         .worktreeCustomization:
@@ -4839,6 +4850,10 @@ struct RepositoriesFeature {
     Self.worktreeCustomizationReducer
       .ifLet(\.$worktreeCustomization, action: \.worktreeCustomization) {
         WorktreeCustomizationFeature()
+      }
+    Self.agentRenameReducer
+      .ifLet(\.$agentRename, action: \.agentRename) {
+        AgentRenameFeature()
       }
     // Dedicated reducer + chained `ifLet` so the form's child reducer runs
     // before the delegate handler nils the presented state (mirrors the

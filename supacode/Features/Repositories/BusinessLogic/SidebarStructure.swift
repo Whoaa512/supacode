@@ -632,6 +632,7 @@ extension RepositoriesFeature.Action {
       .openRepositorySettings, .requestCustomizeRepository,
       .requestCustomizeWorktree,
       .requestRenameBranch,
+      .requestRenameAgent, .agentRename,
       .contextMenuOpenWorktree,
       .worktreeCreationPrompt,
       .delegate:

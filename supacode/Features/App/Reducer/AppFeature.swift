@@ -746,6 +746,8 @@ struct AppFeature {
             )
           )
         )
+      case .repositories(.delegate(.renameAgent(let worktreeID, let agent, let name))):
+        return renameAgentEffect(worktreeID: worktreeID, agent: agent, name: name, state: state).effect
 
       case .repositories(.delegate(.openWorktreeInApp(let worktreeID, let action))):
         guard let worktree = state.repositories.worktree(for: worktreeID) else {
@@ -2459,6 +2461,9 @@ struct AppFeature {
         worktreeID: worktreeID, action: action, source: source, responseFD: responseFD,
         timeoutSeconds: timeoutSeconds, state: &state, background: background
       )
+    case .agent(let worktreeID, let rawAgent, let agentAction):
+      return handleAgentDeeplink(
+        worktreeID: worktreeID, agent: rawAgent, action: agentAction, state: &state)
     case .repoOpen(let path):
       return .send(.repositories(.openRepositories([path])))
     case .repoWorktreeNew(
