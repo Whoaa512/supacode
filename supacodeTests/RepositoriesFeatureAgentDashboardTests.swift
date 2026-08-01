@@ -13,13 +13,14 @@ import Testing
 struct RepositoriesFeatureAgentDashboardTests {
   private let repoRoot = URL(fileURLWithPath: "/tmp/dash-repo")
 
-  private func makeWorktree(id: String, name: String) -> Worktree {
+  private func makeWorktree(id: String, name: String, isMissing: Bool = false) -> Worktree {
     Worktree(
       id: WorktreeID(id),
       name: name,
       detail: "",
       workingDirectory: URL(fileURLWithPath: id),
-      repositoryRootURL: repoRoot
+      repositoryRootURL: repoRoot,
+      isMissing: isMissing
     )
   }
 
@@ -297,7 +298,7 @@ struct RepositoriesFeatureAgentDashboardTests {
 
   @Test func spacesWorktreeCountExcludesMissingRows() {
     let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
-    let bravo = makeWorktree(id: "/tmp/dash-repo/bravo", name: "bravo")
+    let bravo = makeWorktree(id: "/tmp/dash-repo/bravo", name: "bravo", isMissing: true)
     var state = makeState(worktrees: [alpha, bravo])
     state.sidebarItems[id: bravo.id]?.isMissing = true
 
