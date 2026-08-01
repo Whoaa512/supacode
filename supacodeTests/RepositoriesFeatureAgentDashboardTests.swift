@@ -49,7 +49,8 @@ struct RepositoriesFeatureAgentDashboardTests {
     let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
     let state = makeState(worktrees: [alpha])
 
-    #expect(state.computeAgentDashboardStructure() == .empty)
+    // `spaces` still lists the repository, so compare the agent list only.
+    #expect(state.computeAgentDashboardStructure().entries.isEmpty)
   }
 
   // MARK: - Activity mapping.
@@ -179,7 +180,7 @@ struct RepositoriesFeatureAgentDashboardTests {
     setAgents(&state, id: alpha.id, [.init(agent: .claude, activity: .busy)])
     state.sidebarItems[id: alpha.id]?.lifecycle = .deleting
 
-    #expect(state.computeAgentDashboardStructure() == .empty)
+    #expect(state.computeAgentDashboardStructure().entries.isEmpty)
   }
 
   @Test func missingRowsAreExcluded() {
@@ -188,7 +189,119 @@ struct RepositoriesFeatureAgentDashboardTests {
     setAgents(&state, id: alpha.id, [.init(agent: .claude, activity: .busy)])
     state.sidebarItems[id: alpha.id]?.isMissing = true
 
-    #expect(state.computeAgentDashboardStructure() == .empty)
+    #expect(state.computeAgentDashboardStructure().entries.isEmpty)
+  }
+
+  // MARK: - Done-until-seen.
+
+  @Test func idleAgentWithUnseenFinishMapsToDone() {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    var state = makeState(worktrees: [alpha])
+    setAgents(&state, id: alpha.id, [.init(agent: .claude, activity: .idle, isDoneUnseen: true)])
+
+    #expect(state.computeAgentDashboardStructure().entries.first?.state == .done)
+  }
+
+  @Test func doneUnseenOnlyPromotesIdleAgents() {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    var state = makeState(worktrees: [alpha])
+    setAgents(&state, id: alpha.id, [.init(agent: .claude, activity: .busy, isDoneUnseen: true)])
+
+    #expect(state.computeAgentDashboardStructure().entries.first?.state == .working)
+  }
+
+  @Test func doneSortsAfterWorkingAndBeforeIdle() {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    let bravo = makeWorktree(id: "/tmp/dash-repo/bravo", name: "bravo")
+    let charlie = makeWorktree(id: "/tmp/dash-repo/charlie", name: "charlie")
+    var state = makeState(worktrees: [alpha, bravo, charlie])
+    setAgents(&state, id: alpha.id, [.init(agent: .claude, activity: .idle)])
+    setAgents(&state, id: bravo.id, [.init(agent: .claude, activity: .idle, isDoneUnseen: true)])
+    setAgents(&state, id: charlie.id, [.init(agent: .claude, activity: .busy)])
+
+    let entries = state.computeAgentDashboardStructure().entries
+    #expect(entries.map(\.state) == [.working, .done, .idle])
+  }
+
+  // MARK: - Grouped projection.
+
+  @Test func flatModeProducesNoSections() {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    var state = makeState(worktrees: [alpha])
+    setAgents(&state, id: alpha.id, [.init(agent: .claude, activity: .busy)])
+
+    #expect(state.computeAgentDashboardStructure(groupByState: false).sections.isEmpty)
+  }
+
+  @Test func groupedModeOrdersSectionsAndOmitsEmptyOnes() {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    let bravo = makeWorktree(id: "/tmp/dash-repo/bravo", name: "bravo")
+    let charlie = makeWorktree(id: "/tmp/dash-repo/charlie", name: "charlie")
+    var state = makeState(worktrees: [alpha, bravo, charlie])
+    setAgents(&state, id: alpha.id, [.init(agent: .claude, activity: .idle, isDoneUnseen: true)])
+    setAgents(&state, id: bravo.id, [.init(agent: .claude, activity: .awaitingInput)])
+    setAgents(
+      &state,
+      id: charlie.id,
+      [.init(agent: .claude, activity: .busy), .init(agent: .codex, activity: .busy)]
+    )
+
+    let sections = state.computeAgentDashboardStructure(groupByState: true).sections
+    #expect(sections.map(\.state) == [.blocked, .working, .done])
+    #expect(sections.map(\.count) == [1, 2, 1])
+    #expect(sections.last?.entries.map(\.worktreeID) == [alpha.id])
+  }
+
+  @Test func groupedModeWithNoAgentsHasNoSections() {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    let state = makeState(worktrees: [alpha])
+
+    #expect(state.computeAgentDashboardStructure(groupByState: true).sections.isEmpty)
+  }
+
+  // MARK: - Spaces panel.
+
+  @Test func spacesListsRepositoryWithWorktreeCountAndNoStateWhenAgentless() {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    let bravo = makeWorktree(id: "/tmp/dash-repo/bravo", name: "bravo")
+    let state = makeState(worktrees: [alpha, bravo])
+
+    let spaces = state.computeAgentDashboardStructure().spaces
+    #expect(spaces.map(\.title) == ["dash-repo"])
+    #expect(spaces.first?.worktreeCount == 2)
+    #expect(spaces.first?.state == nil)
+  }
+
+  @Test func spacesRollUpWorstStateAcrossWorktrees() {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    let bravo = makeWorktree(id: "/tmp/dash-repo/bravo", name: "bravo")
+    var state = makeState(worktrees: [alpha, bravo])
+    setAgents(&state, id: alpha.id, [.init(agent: .claude, activity: .idle)])
+    setAgents(&state, id: bravo.id, [.init(agent: .claude, activity: .busy)])
+
+    #expect(state.computeAgentDashboardStructure().spaces.first?.state == .working)
+
+    setAgents(&state, id: alpha.id, [.init(agent: .claude, activity: .awaitingInput)])
+    #expect(state.computeAgentDashboardStructure().spaces.first?.state == .blocked)
+  }
+
+  @Test func spacesRollupPrefersDoneOverIdle() {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    let bravo = makeWorktree(id: "/tmp/dash-repo/bravo", name: "bravo")
+    var state = makeState(worktrees: [alpha, bravo])
+    setAgents(&state, id: alpha.id, [.init(agent: .claude, activity: .idle)])
+    setAgents(&state, id: bravo.id, [.init(agent: .claude, activity: .idle, isDoneUnseen: true)])
+
+    #expect(state.computeAgentDashboardStructure().spaces.first?.state == .done)
+  }
+
+  @Test func spacesWorktreeCountExcludesMissingRows() {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    let bravo = makeWorktree(id: "/tmp/dash-repo/bravo", name: "bravo")
+    var state = makeState(worktrees: [alpha, bravo])
+    state.sidebarItems[id: bravo.id]?.isMissing = true
+
+    #expect(state.computeAgentDashboardStructure().spaces.first?.worktreeCount == 1)
   }
 
   // MARK: - Cache wiring.
@@ -201,5 +314,32 @@ struct RepositoriesFeatureAgentDashboardTests {
     state.applyCacheRecomputes(.sidebarStructure)
 
     #expect(state.agentDashboardStructure.entries.map(\.agent) == [.claude])
+  }
+
+  /// `defaultAppStorage = .inMemory` so the toggle write doesn't leak into the
+  /// process-global UserDefaults the rest of the suite reads.
+  @Test func groupByStateToggleDrivesRecompute() async {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    var state = makeState(worktrees: [alpha])
+    setAgents(&state, id: alpha.id, [.init(agent: .claude, activity: .busy)])
+
+    await withDependencies {
+      $0.defaultAppStorage = .inMemory
+    } operation: {
+      @Shared(.sidebarAgentsGroupByState) var groupByState
+      state.applyCacheRecomputes(.sidebarStructure)
+      #expect(state.agentDashboardStructure.sections.isEmpty)
+
+      $groupByState.withLock { $0 = true }
+      state.applyCacheRecomputes(.sidebarStructure)
+      #expect(state.agentDashboardStructure.sections.map(\.state) == [.working])
+    }
+  }
+
+  @Test func groupByStateChangedActionInvalidatesSidebarStructure() {
+    #expect(
+      RepositoriesFeature.Action.sidebarAgentsGroupByStateChanged.cacheInvalidations
+        == .sidebarStructure
+    )
   }
 }

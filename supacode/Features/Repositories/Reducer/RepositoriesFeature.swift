@@ -308,6 +308,10 @@ struct RepositoriesFeature {
     /// sort that nesting forces shows up in `slotByID` / `hotkeySlots` (which
     /// the view reads to assign ⌃1..⌃0 hotkeys).
     case sidebarNestByBranchChanged
+    /// Fired by `AgentDashboardListView.onChange` whenever
+    /// `@Shared(.sidebarAgentsGroupByState)` mutates, so the post-reduce hook
+    /// rebuilds the cached `agentDashboardStructure` with the new projection.
+    case sidebarAgentsGroupByStateChanged
     case setOpenPanelPresented(Bool)
     case requestAddRemoteRepository
     case requestEditRemoteRepository(Repository.ID)
@@ -3069,6 +3073,11 @@ struct RepositoriesFeature {
             $dismissedAt.withLock { $0 = now }
           }
         }
+        return .none
+
+      case .sidebarAgentsGroupByStateChanged:
+        // No-op handler: the post-reduce hook reads `sidebarAgentsGroupByState`
+        // and rebuilds `agentDashboardStructure` with (or without) sections.
         return .none
 
       case .sidebarNestByBranchChanged:
