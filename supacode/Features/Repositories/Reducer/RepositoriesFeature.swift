@@ -132,6 +132,11 @@ struct RepositoriesFeature {
     var autoDeleteArchivedWorktreesAfterDays: AutoDeletePeriod?
     var mergedWorktreeAction: MergedWorktreeAction?
     var moveNotifiedWorktreeToTop = false
+    /// Agents-tab row layout, mirrored down from `AppFeature` on every settings
+    /// change. Mirrored rather than read from `@Shared(.settingsFile)` in the
+    /// recompute: that key seeds defaults on read, so touching it from the
+    /// post-reduce hook mutates shared state on every action.
+    var agentsSidebar: AgentsSidebarSettings = .default
     /// Installed editors in menu order, mirrored down from `AppFeature` so the
     /// sidebar context menu never probes LaunchServices while building.
     var installedOpenActions: [OpenWorktreeAction] = []
@@ -313,6 +318,10 @@ struct RepositoriesFeature {
     /// `@Shared(.sidebarAgentsGroupByState)` mutates, so the post-reduce hook
     /// rebuilds the cached `agentDashboardStructure` with the new projection.
     case sidebarAgentsGroupByStateChanged
+    /// Fired when `settingsFile.global.agentsSidebar` changes (file edit or the
+    /// Settings editor), so the post-reduce hook re-resolves every row's
+    /// configured segments.
+    case agentsSidebarRowsChanged(AgentsSidebarSettings)
     case setOpenPanelPresented(Bool)
     case requestAddRemoteRepository
     case requestEditRemoteRepository(Repository.ID)
@@ -3085,6 +3094,11 @@ struct RepositoriesFeature {
       case .sidebarAgentsGroupByStateChanged:
         // No-op handler: the post-reduce hook reads `sidebarAgentsGroupByState`
         // and rebuilds `agentDashboardStructure` with (or without) sections.
+        return .none
+
+      case .agentsSidebarRowsChanged(let config):
+        // The post-reduce hook re-resolves every row's segments from this.
+        state.agentsSidebar = config
         return .none
 
       case .sidebarNestByBranchChanged:

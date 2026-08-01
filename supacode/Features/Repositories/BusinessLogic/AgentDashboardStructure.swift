@@ -57,6 +57,28 @@ enum AgentDashboardState: Int, Comparable, Sendable {
   }
 }
 
+/// One resolved token of a configurable Agents-tab row. `kind` carries the
+/// styling role so the view stays a dumb renderer; `.stateIcon` has no text and
+/// draws the entry's state glyph.
+struct AgentRowSegment: Equatable, Sendable {
+  enum Kind: Equatable, Sendable {
+    case stateIcon
+    /// The agent's name-or-kind: the row's headline.
+    case agent
+    case agentKind
+    case repo
+    case branch
+    case worktree
+    case stateText
+    case metadata
+  }
+
+  let kind: Kind
+  let text: String
+
+  static let stateIcon = AgentRowSegment(kind: .stateIcon, text: "")
+}
+
 /// One agent on one worktree. Every display field is resolved reducer-side so
 /// the Agents-tab view body never reads `sidebarItems[id:]` (see AGENTS.md,
 /// "Sidebar performance").
@@ -72,9 +94,9 @@ struct AgentDashboardEntry: Identifiable, Equatable, Sendable {
   let agent: SkillAgent
   /// User-assigned name (`supacode agent rename`). `nil` for an unnamed agent.
   let name: String?
-  /// The agent's `summary` metadata token, rendered as an extra caption line.
-  /// Display-only: it never participates in `state` or the Spaces rollup.
-  let summary: String?
+  /// Display-only metadata tokens. They never participate in `state` or the
+  /// Spaces rollup; `$<key>` row tokens resolve against them.
+  let metadata: [String: String]
   let state: AgentDashboardState
   let worktreeID: SidebarItemID
   let repositoryID: Repository.ID
@@ -85,6 +107,13 @@ struct AgentDashboardEntry: Identifiable, Equatable, Sendable {
   let branchName: String
   let repoTint: RepositoryColor?
   let hasError: Bool
+  /// Resolved custom row layout, or empty when the config is the default — in
+  /// which case the view renders its built-in title/subtitle/caption layout.
+  var rowLines: [[AgentRowSegment]] = []
+
+  /// The agent's `summary` metadata token, rendered as a caption by the built-in
+  /// layout.
+  var summary: String? { metadata[AgentPresenceFeature.summaryToken] }
 
   /// Primary row text: the custom name wins, so a renamed agent reads as the
   /// thing the user addresses over the CLI.
@@ -99,6 +128,27 @@ struct AgentDashboardEntry: Identifiable, Equatable, Sendable {
 
   /// Triage order: state rank first, then worktree title (case-insensitive),
   /// then the agent raw value as a deterministic final tie-break.
+  /// Resolves one configured line, dropping segments whose text came back empty
+  /// (an unreported `$token`) so a fully-empty line can be dropped by the caller.
+  func resolvedLine(_ tokens: [String]) -> [AgentRowSegment] {
+    tokens.compactMap { raw in
+      if let key = AgentRowToken.metadataKey(of: raw) {
+        guard let value = metadata[key], !value.isEmpty else { return nil }
+        return AgentRowSegment(kind: .metadata, text: value)
+      }
+      guard let token = AgentRowToken(rawValue: raw) else { return nil }
+      return switch token {
+      case .stateIcon: .stateIcon
+      case .agent: AgentRowSegment(kind: .agent, text: displayName)
+      case .agentKind: AgentRowSegment(kind: .agentKind, text: agent.displayName)
+      case .repo: AgentRowSegment(kind: .repo, text: repositoryTitle)
+      case .branch: AgentRowSegment(kind: .branch, text: branchName)
+      case .worktree: AgentRowSegment(kind: .worktree, text: title)
+      case .stateText: AgentRowSegment(kind: .stateText, text: state.title)
+      }
+    }
+  }
+
   static func ordersBefore(_ lhs: Self, _ rhs: Self) -> Bool {
     if lhs.state != rhs.state { return lhs.state < rhs.state }
     switch lhs.title.localizedCaseInsensitiveCompare(rhs.title) {
@@ -158,7 +208,7 @@ private struct AgentRollup {
   let state: AgentDashboardState
   let hasError: Bool
   let name: String?
-  let summary: String?
+  let metadata: [String: String]
 }
 
 extension RepositoriesFeature.State {
@@ -166,7 +216,7 @@ extension RepositoriesFeature.State {
   /// no-op rebuild doesn't invalidate SwiftUI observation.
   mutating func recomputeAgentDashboardStructureIfChanged() {
     @Shared(.sidebarAgentsGroupByState) var groupByState
-    let new = computeAgentDashboardStructure(groupByState: groupByState)
+    let new = computeAgentDashboardStructure(groupByState: groupByState, rowConfig: agentsSidebar)
     if new != agentDashboardStructure {
       agentDashboardStructure = new
     }
@@ -174,7 +224,10 @@ extension RepositoriesFeature.State {
 
   /// Flat cross-repo agent list. Per-leaf reads on `sidebarItems[id:]` belong
   /// here, in the reducer, never in a view body.
-  func computeAgentDashboardStructure(groupByState: Bool = false) -> AgentDashboardStructure {
+  func computeAgentDashboardStructure(
+    groupByState: Bool = false,
+    rowConfig: AgentsSidebarSettings = .default
+  ) -> AgentDashboardStructure {
     let archived = archivedWorktreeIDSet
     var entries: [AgentDashboardEntry] = []
     var repositoryTitles: [Repository.ID: String] = [:]
@@ -213,29 +266,33 @@ extension RepositoriesFeature.State {
           // First named instance wins; the collapse is per (worktree, agent), so
           // two surfaces of the same kind share one row and one name.
           name: previous?.name ?? instance.name,
-          summary: previous?.summary ?? instance.summary
+          metadata: (previous?.metadata).flatMap { $0.isEmpty ? nil : $0 } ?? instance.metadata
         )
       }
 
       for (agent, worst) in worstByAgent {
         worstStateByRepository[item.repositoryID] = min(
           worst.state, worstStateByRepository[item.repositoryID] ?? worst.state)
-        entries.append(
-          AgentDashboardEntry(
-            id: AgentDashboardEntry.EntryID(worktreeID: id, agent: agent),
-            agent: agent,
-            name: worst.name,
-            summary: worst.summary,
-            state: worst.state,
-            worktreeID: id,
-            repositoryID: item.repositoryID,
-            title: title,
-            repositoryTitle: repositoryTitle,
-            branchName: item.branchName,
-            repoTint: item.customTint ?? item.repositoryAccent,
-            hasError: worst.hasError
-          )
+        var entry = AgentDashboardEntry(
+          id: AgentDashboardEntry.EntryID(worktreeID: id, agent: agent),
+          agent: agent,
+          name: worst.name,
+          metadata: worst.metadata,
+          state: worst.state,
+          worktreeID: id,
+          repositoryID: item.repositoryID,
+          title: title,
+          repositoryTitle: repositoryTitle,
+          branchName: item.branchName,
+          repoTint: item.customTint ?? item.repositoryAccent,
+          hasError: worst.hasError
         )
+        // Only a customized config resolves segments; the default config leaves
+        // `rowLines` empty so the view keeps its built-in layout verbatim.
+        if let lines = rowConfig.rows(forAgentKind: agent.rawValue) {
+          entry.rowLines = lines.map(entry.resolvedLine).filter { !$0.isEmpty }
+        }
+        entries.append(entry)
       }
     }
 

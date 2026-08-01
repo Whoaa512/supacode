@@ -101,6 +101,27 @@ private struct AgentDashboardRowView: View {
 
   var body: some View {
     HStack(spacing: 8) {
+      if entry.rowLines.isEmpty {
+        builtInLayout
+      } else {
+        AgentDashboardConfiguredRowView(entry: entry)
+      }
+      Spacer(minLength: 0)
+      if let tint = entry.repoTint {
+        Circle()
+          .fill(tint.color)
+          .frame(width: 6, height: 6)
+          .accessibilityHidden(true)
+      }
+    }
+    .contentShape(.rect)
+    .accessibilityElement(children: .combine)
+  }
+
+  /// The layout the Agents tab shipped with, kept as the default-config path so
+  /// an untouched `supacode.json` renders exactly as before.
+  private var builtInLayout: some View {
+    HStack(spacing: 8) {
       Image(systemName: entry.state.systemImage)
         .foregroundStyle(AgentDashboardStateStyle.style(for: entry.state, hasError: entry.hasError))
         .accessibilityLabel(entry.state.title)
@@ -125,16 +146,43 @@ private struct AgentDashboardRowView: View {
             .truncationMode(.tail)
         }
       }
-      Spacer(minLength: 0)
-      if let tint = entry.repoTint {
-        Circle()
-          .fill(tint.color)
-          .frame(width: 6, height: 6)
-          .accessibilityHidden(true)
+    }
+  }
+}
+
+/// Renders `entry.rowLines` verbatim: the first line is the headline, the rest
+/// are captions. Segment kinds only pick styling — order and content are the
+/// user's `agentsSidebar.rows` config, already resolved reducer-side.
+private struct AgentDashboardConfiguredRowView: View {
+  let entry: AgentDashboardEntry
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 1) {
+      ForEach(Array(entry.rowLines.enumerated()), id: \.offset) { index, line in
+        HStack(spacing: 6) {
+          ForEach(Array(line.enumerated()), id: \.offset) { _, segment in
+            segmentView(segment, isHeadline: index == 0)
+          }
+        }
       }
     }
-    .contentShape(.rect)
-    .accessibilityElement(children: .combine)
+  }
+
+  @ViewBuilder
+  private func segmentView(_ segment: AgentRowSegment, isHeadline: Bool) -> some View {
+    switch segment.kind {
+    case .stateIcon:
+      Image(systemName: entry.state.systemImage)
+        .foregroundStyle(AgentDashboardStateStyle.style(for: entry.state, hasError: entry.hasError))
+        .accessibilityLabel(entry.state.title)
+    default:
+      Text(segment.text)
+        .font(isHeadline ? .body : .caption)
+        .monospaced(segment.kind == .branch || segment.kind == .worktree)
+        .foregroundStyle(isHeadline ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+        .lineLimit(1)
+        .truncationMode(.middle)
+    }
   }
 }
 

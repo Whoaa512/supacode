@@ -446,7 +446,7 @@ extension RepositoriesFeature.Action {
     // Sidebar layout toggles only. `setMoveNotifiedWorktreeToTop` re-sorts the
     // highlight sections (unread float), so a runtime toggle must recompute.
     case .sidebarGroupingTogglesChanged, .sidebarNestByBranchChanged,
-      .sidebarAgentsGroupByStateChanged,
+      .sidebarAgentsGroupByStateChanged, .agentsSidebarRowsChanged,
       .repositoryExpansionChanged, .branchNestExpansionChanged,
       .setAllSidebarGroupsExpanded,
       .setMoveNotifiedWorktreeToTop,
