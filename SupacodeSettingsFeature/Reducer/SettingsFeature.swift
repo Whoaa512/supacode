@@ -83,6 +83,13 @@ public struct SettingsFeature {
     public var appVisibility: AppVisibility
     public var terminalHibernationEnabled: Bool
     public var persistScrollbackEnabled: Bool
+    /// Agents-tab row layout as editable text: one row per line, tokens
+    /// separated by spaces. Round-trips through `AgentsSidebarSettings`, so
+    /// unsupported tokens are dropped on persist exactly as a file edit would be.
+    public var agentsSidebarRowsText: String
+    /// Per-agent overrides are file-only (`global.agentsSidebar.rowsByAgent`);
+    /// held here so editing the shared rows can't discard them.
+    public var agentsSidebarRowsByAgent: [String: [[String]]]
     public var cliInstallState = CLIInstallState.checking
     /// Installed editors in menu order, resolved once off the picker's body.
     public var installedOpenActions: [OpenWorktreeAction]
@@ -93,6 +100,15 @@ public struct SettingsFeature {
     public var repositorySummaries: [SettingsRepositorySummary] = []
     public var repositorySettings: RepositorySettingsFeature.State?
     @Presents public var alert: AlertState<Alert>?
+
+    /// The editor's text plus the file-only per-agent overrides, as the value
+    /// that gets persisted and mirrored into the Agents tab.
+    public var agentsSidebar: AgentsSidebarSettings {
+      AgentsSidebarSettings(
+        rows: AgentsSidebarSettings.rows(fromText: agentsSidebarRowsText),
+        rowsByAgent: agentsSidebarRowsByAgent
+      )
+    }
 
     /// True when at least one notification delivery channel (macOS banner or
     /// the fallback sound) can fire, so surface-mute has something to mute.
@@ -140,6 +156,8 @@ public struct SettingsFeature {
       appVisibility = settings.appVisibility
       terminalHibernationEnabled = settings.terminalHibernationEnabled
       persistScrollbackEnabled = settings.persistScrollbackEnabled
+      agentsSidebarRowsText = settings.agentsSidebar.rowsText
+      agentsSidebarRowsByAgent = settings.agentsSidebar.rowsByAgent
       defaultWorktreeBaseDirectoryPath =
         SupacodePaths.normalizedWorktreeBaseDirectoryPath(settings.defaultWorktreeBaseDirectoryPath) ?? ""
     }
@@ -185,7 +203,8 @@ public struct SettingsFeature {
         remoteSessionPersistenceEnabled: remoteSessionPersistenceEnabled,
         appVisibility: appVisibility,
         terminalHibernationEnabled: terminalHibernationEnabled,
-        persistScrollbackEnabled: persistScrollbackEnabled
+        persistScrollbackEnabled: persistScrollbackEnabled,
+        agentsSidebar: agentsSidebar
       )
     }
   }
@@ -202,6 +221,8 @@ public struct SettingsFeature {
     case updateShortcut(id: AppShortcutID, override: AppShortcutOverride?)
     case toggleShortcutEnabled(id: AppShortcutID, enabled: Bool)
     case resetAllShortcuts
+    /// Restores the built-in Agents-tab row layout, dropping per-agent overrides.
+    case resetAgentsSidebarRows
     case requestAutoDeleteDaysChange(AutoDeletePeriod?)
     case resolvedAutoDeleteAffectedCount(AutoDeletePeriod, affectedCount: Int)
     case cliInstallChecked(installed: Bool)
@@ -326,6 +347,8 @@ public struct SettingsFeature {
         state.appVisibility = normalizedSettings.appVisibility
         state.terminalHibernationEnabled = normalizedSettings.terminalHibernationEnabled
         state.persistScrollbackEnabled = normalizedSettings.persistScrollbackEnabled
+        state.agentsSidebarRowsText = normalizedSettings.agentsSidebar.rowsText
+        state.agentsSidebarRowsByAgent = normalizedSettings.agentsSidebar.rowsByAgent
         state.defaultWorktreeBaseDirectoryPath = normalizedSettings.defaultWorktreeBaseDirectoryPath ?? ""
         state.syncGlobalDefaults(from: normalizedSettings)
         synchronizeRepositorySelection(for: &state)
@@ -362,6 +385,12 @@ public struct SettingsFeature {
 
       case .setAutomatedActionPolicy(let policy):
         state.automatedActionPolicy = policy
+        state.syncGlobalDefaults(from: state.globalSettings)
+        return persist(state)
+
+      case .resetAgentsSidebarRows:
+        state.agentsSidebarRowsText = AgentsSidebarSettings.default.rowsText
+        state.agentsSidebarRowsByAgent = [:]
         state.syncGlobalDefaults(from: state.globalSettings)
         return persist(state)
 

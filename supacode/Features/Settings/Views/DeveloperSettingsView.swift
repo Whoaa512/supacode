@@ -28,6 +28,7 @@ struct DeveloperSettingsView: View {
       } footer: {
         Text("These features require the per-agent enhancements installed below.")
       }
+      AgentsSidebarRowsSection(store: store)
       Section {
         ForEach(SkillAgent.allCases, id: \.self) { agent in
           AgentIntegrationRow(
@@ -64,6 +65,33 @@ struct DeveloperSettingsView: View {
     .padding(.leading, -8)
     .padding(.trailing, -6)
     .navigationTitle("Developer")
+  }
+}
+
+// MARK: - Agents sidebar row layout.
+
+/// File ↔ UI duality for `global.agentsSidebar.rows` in `supacode.json`: this
+/// editor writes the same key a hand edit does, one row per line.
+private struct AgentsSidebarRowsSection: View {
+  @Bindable var store: StoreOf<SettingsFeature>
+
+  var body: some View {
+    Section {
+      TextEditor(text: $store.agentsSidebarRowsText)
+        .font(.body.monospaced())
+        .frame(minHeight: 64)
+        .accessibilityLabel("Agents tab row layout")
+      Button("Reset to Defaults") { store.send(.resetAgentsSidebarRows) }
+        .help("Restore the built-in Agents-tab layout and drop per-agent overrides")
+    } header: {
+      Text("Agents Tab Rows")
+    } footer: {
+      Text(
+        "One row per line, tokens separated by spaces. Supported: \(AgentRowToken.help). "
+          + "Unsupported tokens are ignored. Per-agent overrides live in "
+          + "`global.agentsSidebar.rowsByAgent` in `supacode.json`."
+      )
+    }
   }
 }
 
