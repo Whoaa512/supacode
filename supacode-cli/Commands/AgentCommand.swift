@@ -10,6 +10,10 @@ struct AgentCommand: ParsableCommand {
       List.self,
       Rename.self,
       Wait.self,
+      Prompt.self,
+      SendKeys.self,
+      Read.self,
+      ReportMetadata.self,
     ],
     defaultSubcommand: List.self
   )
@@ -32,6 +36,31 @@ extension AgentCommand {
 
     /// Column order for human-readable output and the JSON row.
     static let all = [name, agent, state, activity, repo, branch, worktreeTitle, worktreeID]
+
+    /// Metadata tokens arrive flattened as `token.<key>` (see
+    /// `AgentQueryResponse.Key.tokenPrefix`).
+    static let tokenPrefix = "token."
+  }
+
+  /// Mirrors `AgentKeySequence` (app side); keep in sync. Validated here too so
+  /// a typo fails before the app is contacted.
+  nonisolated enum KeyNames {
+    static let named: Set<String> = [
+      "enter", "return", "esc", "escape", "tab", "backspace", "space",
+      "up", "down", "left", "right", "home", "end", "pageup", "pagedown",
+    ]
+
+    static let help = named.sorted().joined(separator: ", ") + ", ctrl+<letter>"
+
+    static func isValid(_ rawName: String) -> Bool {
+      let name = rawName.lowercased()
+      if named.contains(name) { return true }
+      guard name.count == 6, name.hasPrefix("ctrl") else { return false }
+      let separator = name[name.index(name.startIndex, offsetBy: 4)]
+      guard separator == "+" || separator == "-" else { return false }
+      guard let letter = name.last else { return false }
+      return letter.isASCII && letter.isLetter
+    }
   }
 
   /// Mirrors `AgentDashboardState.wireValue` (app side); keep in sync.
@@ -124,8 +153,13 @@ extension AgentCommand {
   /// Single-line JSON with a fixed key order, so `agent wait` output is diffable
   /// without pulling in a JSON dependency on the read side.
   static func jsonLine(_ row: [String: String]) -> String {
-    let fields = Key.all.map { key in
+    var fields = Key.all.map { key in
       "\"\(key)\":\(quoted(row[key] ?? ""))"
+    }
+    // Metadata tokens trail the fixed columns, sorted, so a new token can't
+    // reorder the stable prefix.
+    for key in row.keys.filter({ $0.hasPrefix(Key.tokenPrefix) }).sorted() {
+      fields.append("\"\(key)\":\(quoted(row[key] ?? ""))")
     }
     return "{\(fields.joined(separator: ","))}"
   }
@@ -138,6 +172,69 @@ extension AgentCommand {
       .replacing("\t", with: "\\t")
       .replacing("\r", with: "\\r")
     return "\"\(escaped)\""
+  }
+
+  /// Queries `agents` once and resolves the target to a single row.
+  static func resolvedRow(
+    target: String,
+    agentKind: String?,
+    timeoutSeconds: Int
+  ) throws -> [String: String] {
+    let rows = try QueryDispatcher.query(resource: "agents", timeoutSeconds: timeoutSeconds)
+    return try resolve(target: target, agentKind: agentKind, in: rows)
+  }
+
+  /// Poll interval for every agent-state wait. Presence state is push-updated
+  /// app-side, so this only bounds how stale the CLI's view can be.
+  static let pollInterval: TimeInterval = 0.5
+
+  /// Per-poll socket read budget. Deliberately not the caller's `--timeout`:
+  /// that is the wait deadline, which can legitimately be hours.
+  static let queryTimeoutSeconds = 30
+
+  /// Polls the `agents` query until `isSatisfied` accepts the target's row.
+  /// Shared by `agent wait` and `agent prompt --wait`, so both agree on how a
+  /// vanished agent and a blown deadline are reported.
+  static func pollForRow(
+    target: String,
+    agentKind: String?,
+    deadline: Date,
+    interval: TimeInterval = AgentCommand.pollInterval,
+    timedOut: (String) -> Error,
+    isSatisfied: ([String: String]) -> Bool
+  ) throws -> [String: String] {
+    // A name that resolved once and then stops resolving means the agent
+    // exited; that is a different failure from a target that never existed.
+    var everResolved = false
+    while true {
+      let rows = try QueryDispatcher.query(resource: "agents", timeoutSeconds: queryTimeoutSeconds)
+      do {
+        let row = try resolve(target: target, agentKind: agentKind, in: rows)
+        everResolved = true
+        if isSatisfied(row) { return row }
+      } catch TargetError.notFound(let target) where everResolved {
+        throw TargetError.notRunning(target)
+      }
+      guard Date().addingTimeInterval(interval) < deadline else { throw timedOut(target) }
+      Thread.sleep(forTimeInterval: interval)
+    }
+  }
+
+  static func state(of row: [String: String]) -> AgentState {
+    AgentState(rawValue: row[Key.state] ?? "") ?? .unknown
+  }
+
+  /// Parses `key=value` token arguments. Rejects an empty key so a stray `=x`
+  /// can't create an unaddressable token.
+  static func parsedTokens(_ values: [String]) throws -> [String: String] {
+    var tokens: [String: String] = [:]
+    for raw in values {
+      guard let separator = raw.firstIndex(of: "="), separator != raw.startIndex else {
+        throw ValidationError("Invalid --token '\(raw)'. Expected key=value.")
+      }
+      tokens[String(raw[raw.startIndex..<separator])] = String(raw[raw.index(after: separator)...])
+    }
+    return tokens
   }
 
   static func parsedStates(_ values: [String]) throws -> Set<AgentState> {
@@ -233,14 +330,6 @@ extension AgentCommand {
     @Option(name: .long, help: "Agent kind, to disambiguate a worktree running several agents.")
     var agent: String?
 
-    /// Poll interval. Presence state is push-updated app-side, so this only
-    /// bounds how stale the CLI's view can be.
-    private static let pollInterval: TimeInterval = 0.5
-
-    /// Per-poll socket read budget. Deliberately not `--timeout`: that flag is
-    /// the wait deadline here, which can legitimately be hours.
-    private static let queryTimeoutSeconds = 30
-
     func validate() throws {
       guard timeout >= 0 else { throw ValidationError("--timeout cannot be negative.") }
       _ = try AgentCommand.parsedStates(until)
@@ -248,33 +337,252 @@ extension AgentCommand {
 
     func run() throws {
       let wanted = try AgentCommand.parsedStates(until)
-      let deadline = timeout > 0 ? Date().addingTimeInterval(TimeInterval(timeout)) : Date.distantFuture
-      // A name that resolved once and then stops resolving means the agent
-      // exited; that is a different failure from a target that never existed.
-      var everResolved = false
+      let row = try AgentCommand.pollForSettled(
+        target: target, agentKind: agent, wanted: wanted, timeout: timeout)
+      print(AgentCommand.jsonLine(row))
+    }
+  }
 
-      while true {
-        let rows = try QueryDispatcher.query(
-          resource: "agents", timeoutSeconds: Self.queryTimeoutSeconds)
-        do {
-          let row = try AgentCommand.resolve(target: target, agentKind: agent, in: rows)
-          everResolved = true
-          let state = AgentState(rawValue: row[Key.state] ?? "") ?? .unknown
-          if wanted.contains(state) {
-            print(AgentCommand.jsonLine(row))
-            return
-          }
-        } catch AgentCommand.TargetError.notFound(let target) where everResolved {
-          throw AgentCommand.TargetError.notRunning(target)
-        }
-        guard Date().addingTimeInterval(Self.pollInterval) < deadline else {
-          let states = wanted.map(\.rawValue).sorted().joined(separator: "|")
-          throw SocketClient.Error.responseError(
-            "Timed out after \(timeout)s waiting for '\(target)' to reach \(states)."
+  /// Waits for the target to reach one of `wanted`. Shared by `agent wait` and
+  /// the second phase of `agent prompt --wait`.
+  static func pollForSettled(
+    target: String,
+    agentKind: String?,
+    wanted: Set<AgentState>,
+    timeout: Int
+  ) throws -> [String: String] {
+    let deadline = timeout > 0 ? Date().addingTimeInterval(TimeInterval(timeout)) : Date.distantFuture
+    return try pollForRow(
+      target: target,
+      agentKind: agentKind,
+      deadline: deadline,
+      timedOut: { target in
+        let states = wanted.map(\.rawValue).sorted().joined(separator: "|")
+        return SocketClient.Error.responseError(
+          "Timed out after \(timeout)s waiting for '\(target)' to reach \(states)."
+        )
+      },
+      isSatisfied: { wanted.contains(state(of: $0)) }
+    )
+  }
+}
+
+// MARK: - Phase 4 subcommands.
+
+extension AgentCommand {
+  struct Prompt: ParsableCommand {
+    static let configuration = CommandConfiguration(
+      abstract: "Type a prompt into a running agent, optionally waiting for the turn to finish."
+    )
+
+    @Argument(help: "Agent name, worktree ID, or branch.")
+    var target: String
+
+    @Argument(help: "Prompt text.")
+    var text: String
+
+    @Flag(name: .long, help: "Type the prompt without submitting it.")
+    var noSubmit = false
+
+    @Flag(name: .long, help: "Block until the agent starts the turn and then settles.")
+    var wait = false
+
+    @Option(
+      name: .long,
+      help: "With --wait, state to settle on, repeatable: \(AgentState.allValues). Defaults to idle, done, and blocked."
+    )
+    var until: [String] = []
+
+    @Option(name: .long, help: "With --wait, give up after this many seconds. 0 waits indefinitely.")
+    var timeout: Int = 900
+
+    @Option(
+      name: .long,
+      help: "With --wait, seconds to allow for the agent to start working before reporting a stall."
+    )
+    var stallTimeout: Int = 5
+
+    @Option(name: .long, help: "Agent kind, to disambiguate a worktree running several agents.")
+    var agent: String?
+
+    func validate() throws {
+      guard !text.isEmpty else { throw ValidationError("Prompt text cannot be empty.") }
+      guard timeout >= 0 else { throw ValidationError("--timeout cannot be negative.") }
+      guard stallTimeout > 0 else { throw ValidationError("--stall-timeout must be positive.") }
+      _ = try AgentCommand.parsedStates(until)
+    }
+
+    func run() throws {
+      let wanted = try AgentCommand.parsedStates(until)
+      let row = try AgentCommand.resolvedRow(
+        target: target, agentKind: agent, timeoutSeconds: AgentCommand.queryTimeoutSeconds)
+      let kind = row[Key.agent] ?? ""
+      try Dispatcher.dispatch(
+        deeplinkURL: DeeplinkURLBuilder.agentPrompt(
+          worktreeID: row[Key.worktreeID] ?? "",
+          agent: kind,
+          text: text,
+          submit: !noSubmit
+        ),
+        timeoutSeconds: AgentCommand.queryTimeoutSeconds
+      )
+      guard wait else { return }
+      // Require an observed transition into `working` first: without it, an
+      // agent that never picked the prompt up would look instantly "settled"
+      // and the wait would succeed against the previous turn's state.
+      try waitForTurnToStart(kind: kind)
+      let settled = try AgentCommand.pollForSettled(
+        target: target, agentKind: kind, wanted: wanted, timeout: timeout)
+      print(AgentCommand.jsonLine(settled))
+    }
+
+    /// Polls faster than the settle wait: a short turn can pass through
+    /// `working` quickly, and missing it would report a false stall.
+    private func waitForTurnToStart(kind: String) throws {
+      _ = try AgentCommand.pollForRow(
+        target: target,
+        agentKind: kind,
+        deadline: Date().addingTimeInterval(TimeInterval(stallTimeout)),
+        interval: 0.25,
+        timedOut: { target in
+          SocketClient.Error.responseError(
+            "agent_prompt_stalled: '\(target)' did not start working within \(stallTimeout)s."
           )
-        }
-        Thread.sleep(forTimeInterval: Self.pollInterval)
+        },
+        isSatisfied: { AgentCommand.state(of: $0) == .working }
+      )
+    }
+  }
+
+  struct SendKeys: ParsableCommand {
+    static let configuration = CommandConfiguration(
+      commandName: "send-keys",
+      abstract: "Send key sequences to a running agent: \(KeyNames.help)."
+    )
+
+    @Argument(help: "Agent name, worktree ID, or branch.")
+    var target: String
+
+    @Argument(help: "Key names, in order: \(KeyNames.help).")
+    var keys: [String]
+
+    @Option(name: .long, help: "Agent kind, to disambiguate a worktree running several agents.")
+    var agent: String?
+
+    @OptionGroup var timeoutOption: TimeoutOption
+
+    func validate() throws {
+      guard !keys.isEmpty else { throw ValidationError("Pass at least one key name.") }
+      for key in keys where !KeyNames.isValid(key) {
+        throw ValidationError("Unknown key '\(key)'. Supported: \(KeyNames.help).")
       }
+    }
+
+    func run() throws {
+      let row = try AgentCommand.resolvedRow(
+        target: target, agentKind: agent, timeoutSeconds: timeoutOption.timeout)
+      try Dispatcher.dispatch(
+        deeplinkURL: DeeplinkURLBuilder.agentSendKeys(
+          worktreeID: row[Key.worktreeID] ?? "",
+          agent: row[Key.agent] ?? "",
+          keys: keys.map { $0.lowercased() }
+        ),
+        timeoutSeconds: timeoutOption.timeout
+      )
+    }
+  }
+
+  struct Read: ParsableCommand {
+    static let configuration = CommandConfiguration(
+      abstract: "Print the tail of the terminal screen hosting an agent."
+    )
+
+    @Argument(help: "Agent name, worktree ID, or branch.")
+    var target: String
+
+    @Option(name: .long, help: "Lines to print from the bottom of the screen.")
+    var lines: Int = 80
+
+    @Option(name: .long, help: "Agent kind, to disambiguate a worktree running several agents.")
+    var agent: String?
+
+    @OptionGroup var timeoutOption: TimeoutOption
+
+    func validate() throws {
+      guard lines > 0 else { throw ValidationError("--lines must be positive.") }
+    }
+
+    func run() throws {
+      let row = try AgentCommand.resolvedRow(
+        target: target, agentKind: agent, timeoutSeconds: timeoutOption.timeout)
+      let text = try AgentCommand.readScreen(
+        worktreeID: row[Key.worktreeID] ?? "",
+        agentKind: row[Key.agent],
+        lines: lines,
+        timeoutSeconds: timeoutOption.timeout
+      )
+      print(text)
+    }
+  }
+
+  /// Screen text of one surface. Without `agentKind` the app reads the
+  /// worktree's focused surface, which is what `terminal wait-output` watches.
+  static func readScreen(
+    worktreeID: String,
+    agentKind: String?,
+    lines: Int,
+    timeoutSeconds: Int
+  ) throws -> String {
+    var params = ["worktreeID": worktreeID, "lines": String(lines)]
+    if let agentKind, !agentKind.isEmpty { params["agent"] = agentKind }
+    let rows = try QueryDispatcher.query(
+      resource: "agentRead", params: params, timeoutSeconds: timeoutSeconds)
+    guard let text = rows.first?["text"] else {
+      throw SocketClient.Error.responseError("Supacode returned no screen text.")
+    }
+    return text
+  }
+
+  struct ReportMetadata: ParsableCommand {
+    static let configuration = CommandConfiguration(
+      commandName: "report-metadata",
+      abstract: "Attach display-only tokens to a running agent (never affects its state)."
+    )
+
+    @Argument(help: "Agent name, worktree ID, or branch.")
+    var target: String
+
+    @Option(name: .long, help: "Token as key=value. Repeatable, up to 8 tokens per agent.")
+    var token: [String] = []
+
+    @Flag(name: .long, help: "Drop the agent's existing tokens first.")
+    var clear = false
+
+    @Option(name: .long, help: "Agent kind, to disambiguate a worktree running several agents.")
+    var agent: String?
+
+    @OptionGroup var timeoutOption: TimeoutOption
+
+    func validate() throws {
+      guard clear || !token.isEmpty else {
+        throw ValidationError("Pass at least one --token, or --clear.")
+      }
+      _ = try AgentCommand.parsedTokens(token)
+    }
+
+    func run() throws {
+      let tokens = try AgentCommand.parsedTokens(token)
+      let row = try AgentCommand.resolvedRow(
+        target: target, agentKind: agent, timeoutSeconds: timeoutOption.timeout)
+      try Dispatcher.dispatch(
+        deeplinkURL: DeeplinkURLBuilder.agentMetadata(
+          worktreeID: row[Key.worktreeID] ?? "",
+          agent: row[Key.agent] ?? "",
+          tokens: tokens,
+          clear: clear
+        ),
+        timeoutSeconds: timeoutOption.timeout
+      )
     }
   }
 }
