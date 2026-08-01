@@ -92,7 +92,7 @@ private nonisolated enum DeeplinkParser {
     pathSegments: [String],
     queryItems: [URLQueryItem]
   ) -> Deeplink? {
-    // Expected: <percent-encoded-worktree-id>/<agent-kind>/rename[?name=...].
+    // Expected: <percent-encoded-worktree-id>/<agent-kind>/<action>[?...].
     guard pathSegments.count >= 3 else {
       logger.warning("Agent deeplink missing worktree id, agent kind, or action")
       return nil
@@ -102,14 +102,55 @@ private nonisolated enum DeeplinkParser {
       return nil
     }
     let worktreeID = WorktreeID(rawWorktreeID.hasSuffix("/") ? String(rawWorktreeID.dropLast()) : rawWorktreeID)
-    guard pathSegments[2] == "rename" else {
-      logger.warning("Unrecognized agent action: \(pathSegments[2])")
+    guard let action = parseAgentAction(pathSegments[2], queryItems: queryItems) else { return nil }
+    return .agent(worktreeID: worktreeID, agent: pathSegments[1], action: action)
+  }
+
+  private static func parseAgentAction(
+    _ rawAction: String,
+    queryItems: [URLQueryItem]
+  ) -> Deeplink.AgentAction? {
+    switch rawAction {
+    case "rename":
+      // An omitted or empty `name` clears the agent's name.
+      let raw = queryItems.first { $0.name == "name" }?.value ?? ""
+      return .rename(name: raw.isEmpty ? nil : raw)
+    case "prompt":
+      guard let text = queryItems.first(where: { $0.name == "text" })?.value, !text.isEmpty else {
+        logger.warning("Agent prompt deeplink missing text")
+        return nil
+      }
+      // Submitting is the common case, so only an explicit `false` opts out.
+      let submit = queryItems.first { $0.name == "submit" }?.value.map { $0 != "false" } ?? true
+      return .prompt(text: text, submit: submit)
+    case "send-keys":
+      let keys = (queryItems.first { $0.name == "keys" }?.value ?? "")
+        .split(separator: ",", omittingEmptySubsequences: true)
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { !$0.isEmpty }
+      guard !keys.isEmpty else {
+        logger.warning("Agent send-keys deeplink missing keys")
+        return nil
+      }
+      return .sendKeys(keys: keys)
+    case "metadata":
+      // Every query item is a token except the two reserved names: `clear` is
+      // the verb, and `timeout` is the CLI's socket budget.
+      let reserved: Set<String> = ["clear", "timeout"]
+      var tokens: [String: String] = [:]
+      for item in queryItems where !reserved.contains(item.name) {
+        tokens[item.name] = item.value ?? ""
+      }
+      let clear = queryItems.contains { $0.name == "clear" && $0.value != "false" }
+      guard clear || !tokens.isEmpty else {
+        logger.warning("Agent metadata deeplink carried neither tokens nor clear")
+        return nil
+      }
+      return .metadata(tokens: tokens, clear: clear)
+    default:
+      logger.warning("Unrecognized agent action: \(rawAction)")
       return nil
     }
-    // An omitted or empty `name` clears the agent's name.
-    let raw = queryItems.first { $0.name == "name" }?.value ?? ""
-    let name = raw.isEmpty ? nil : raw
-    return .agent(worktreeID: worktreeID, agent: pathSegments[1], action: .rename(name: name))
   }
 
   // MARK: - Worktree.

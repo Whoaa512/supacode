@@ -24,6 +24,14 @@ enum Deeplink: Equatable, Sendable {
   enum AgentAction: Equatable, Sendable {
     /// `nil` clears the agent's name.
     case rename(name: String?)
+    /// Types `text` into the agent's surface. `submit` also sends the enter
+    /// sequence, which is what makes the agent start the turn.
+    case prompt(text: String, submit: Bool)
+    /// Raw key names (see `AgentKeySequence`), sent in order.
+    case sendKeys(keys: [String])
+    /// Display-only metadata tokens. `clear` drops every token; otherwise the
+    /// listed tokens are merged over the existing ones.
+    case metadata(tokens: [String: String], clear: Bool)
   }
 
   enum WorktreeAction: Equatable, Sendable {
