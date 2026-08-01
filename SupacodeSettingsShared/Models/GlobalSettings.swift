@@ -111,6 +111,9 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   /// inactivity and reconnect when viewed. On by default.
   public var terminalHibernationEnabled: Bool
   public var persistScrollbackEnabled: Bool
+  /// Row layout for the sidebar's Agents tab. Hand-editable in `supacode.json`;
+  /// the Developer settings pane writes the same keys.
+  public var agentsSidebar: AgentsSidebarSettings
 
   public static let `default` = GlobalSettings(
     appearanceMode: .dark,
@@ -149,7 +152,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     terminateSessionsOnQuit: false,
     remoteSessionPersistenceEnabled: true,
     appVisibility: .dockAndMenuBar,
-    persistScrollbackEnabled: true
+    persistScrollbackEnabled: true,
+    agentsSidebar: .default
   )
 
   public init(
@@ -190,7 +194,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     remoteSessionPersistenceEnabled: Bool = true,
     appVisibility: AppVisibility = .dockAndMenuBar,
     terminalHibernationEnabled: Bool = true,
-    persistScrollbackEnabled: Bool = true
+    persistScrollbackEnabled: Bool = true,
+    agentsSidebar: AgentsSidebarSettings = .default
   ) {
     self.appearanceMode = appearanceMode
     self.defaultEditorID = defaultEditorID
@@ -230,6 +235,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.appVisibility = appVisibility
     self.terminalHibernationEnabled = terminalHibernationEnabled
     self.persistScrollbackEnabled = persistScrollbackEnabled
+    self.agentsSidebar = agentsSidebar
   }
 
   /// Keys for reading renamed settings fields that no longer
@@ -413,5 +419,10 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     persistScrollbackEnabled =
       try container.decodeIfPresent(Bool.self, forKey: .persistScrollbackEnabled)
       ?? true
+    // `AgentsSidebarSettings` swallows its own malformed input, so a bad row
+    // config can't throw here and reset every other global to its default.
+    agentsSidebar =
+      try container.decodeIfPresent(AgentsSidebarSettings.self, forKey: .agentsSidebar)
+      ?? Self.default.agentsSidebar
   }
 }
