@@ -388,7 +388,7 @@ struct RepositoriesFeatureAgentDashboardTests {
     setAgents(
       &state,
       id: alpha.id,
-      [.init(agent: .claude, activity: .busy, name: "reviewer", summary: "fixing tests")]
+      [.init(agent: .claude, activity: .busy, name: "reviewer", metadata: ["summary": "fixing tests"])]
     )
 
     let entry = state.computeAgentDashboardStructure().entries.first
@@ -414,7 +414,7 @@ struct RepositoriesFeatureAgentDashboardTests {
       id: alpha.id,
       [
         .init(agent: .claude, activity: .idle),
-        .init(agent: .claude, activity: .busy, summary: "second surface"),
+        .init(agent: .claude, activity: .busy, metadata: ["summary": "second surface"]),
       ]
     )
 
@@ -489,5 +489,158 @@ struct RepositoriesFeatureAgentDashboardTests {
       RepositoriesFeature.Action.sidebarAgentsGroupByStateChanged.cacheInvalidations
         == .sidebarStructure
     )
+  }
+
+  @Test func agentsSidebarRowsChangedActionInvalidatesSidebarStructure() {
+    #expect(
+      RepositoriesFeature.Action.agentsSidebarRowsChanged(.default).cacheInvalidations
+        == .sidebarStructure
+    )
+  }
+
+  // MARK: - Configurable rows.
+
+  /// One busy, named Claude agent on `alpha` with two metadata tokens.
+  private func stateForRowConfig() -> RepositoriesFeature.State {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    var state = makeState(worktrees: [alpha])
+    state.sidebarItems[id: alpha.id]?.branchName = "feature/dash"
+    setAgents(
+      &state,
+      id: alpha.id,
+      [
+        .init(
+          agent: .claude,
+          activity: .busy,
+          name: "reviewer",
+          metadata: ["summary": "fixing tests", "model": "opus"]
+        )
+      ]
+    )
+    return state
+  }
+
+  private func rowTexts(_ entry: AgentDashboardEntry?) -> [[String]] {
+    (entry?.rowLines ?? []).map { line in line.map(\.text) }
+  }
+
+  @Test func defaultConfigResolvesNoRowLinesSoTheBuiltInLayoutRenders() {
+    let entry = stateForRowConfig()
+      .computeAgentDashboardStructure(rowConfig: .default)
+      .entries.first
+    #expect(entry?.rowLines.isEmpty == true)
+  }
+
+  @Test func rowsChangedActionStoresTheConfigAndDrivesTheRecompute() async {
+    let store = TestStore(initialState: stateForRowConfig()) { RepositoriesFeature() }
+    store.exhaustivity = .off
+
+    await store.send(.agentsSidebarRowsChanged(AgentsSidebarSettings(rows: [["branch"]])))
+
+    #expect(store.state.agentsSidebar.rows == [["branch"]])
+    #expect(rowTexts(store.state.agentDashboardStructure.entries.first) == [["feature/dash"]])
+  }
+
+  @Test func customRowsResolveEveryTokenInOrder() {
+    let config = AgentsSidebarSettings(
+      rows: [
+        ["state_icon", "agent", "state_text"],
+        ["agent_kind", "repo", "branch", "worktree"],
+      ]
+    )
+    let entry = stateForRowConfig()
+      .computeAgentDashboardStructure(rowConfig: config)
+      .entries.first
+
+    #expect(rowTexts(entry) == [["", "reviewer", "Working"], ["Claude Code", "dash-repo", "feature/dash", "alpha"]])
+    #expect(entry?.rowLines.first?.first?.kind == .stateIcon)
+    #expect(entry?.rowLines.first?.last?.kind == .stateText)
+  }
+
+  @Test func metadataTokensResolveAndUnreportedOnesDropTheirLine() {
+    let config = AgentsSidebarSettings(rows: [["agent"], ["$summary", "$model"], ["$missing"]])
+    let entry = stateForRowConfig()
+      .computeAgentDashboardStructure(rowConfig: config)
+      .entries.first
+
+    // The all-empty `$missing` line is dropped rather than rendering blank.
+    #expect(rowTexts(entry) == [["reviewer"], ["fixing tests", "opus"]])
+    #expect(entry?.rowLines.last?.first?.kind == .metadata)
+  }
+
+  @Test func unknownTokensAreDroppedAndAnAllUnknownConfigFallsBackToDefaults() {
+    let config = AgentsSidebarSettings(rows: [["agent", "pull_request"], ["nonsense", "$"]])
+    #expect(config.rows == [["agent"]])
+
+    let entry = stateForRowConfig()
+      .computeAgentDashboardStructure(rowConfig: config)
+      .entries.first
+    #expect(rowTexts(entry) == [["reviewer"]])
+
+    // Nothing supported survives, so the config is the built-in layout again.
+    #expect(AgentsSidebarSettings(rows: [["nope"]]).rows == AgentsSidebarSettings.defaultRows)
+  }
+
+  @Test func perAgentOverrideWinsOverSharedRowsAndOverTheDefaults() {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    let bravo = makeWorktree(id: "/tmp/dash-repo/bravo", name: "bravo")
+    var state = makeState(worktrees: [alpha, bravo])
+    setAgents(&state, id: alpha.id, [.init(agent: .claude, activity: .busy)])
+    setAgents(&state, id: bravo.id, [.init(agent: .codex, activity: .busy)])
+
+    // Shared rows stay default, so only the overridden kind resolves segments.
+    let config = AgentsSidebarSettings(rowsByAgent: ["claude": [["branch"]]])
+    let entries = state.computeAgentDashboardStructure(rowConfig: config).entries
+    let claude = entries.first { $0.agent == .claude }
+    let codex = entries.first { $0.agent == .codex }
+
+    #expect(rowTexts(claude) == [["alpha"]])
+    #expect(codex?.rowLines.isEmpty == true)
+
+    // With shared rows customized too, the override still wins for its kind.
+    let both = AgentsSidebarSettings(rows: [["repo"]], rowsByAgent: ["claude": [["branch"]]])
+    let overridden = both.computeRowsForTesting()
+    #expect(overridden == ["claude": [["branch"]], "codex": [["repo"]]])
+  }
+
+  @Test func malformedConfigFallsBackToTheDefaults() throws {
+    let decoded = try JSONDecoder().decode(
+      GlobalSettings.self,
+      from: Data(
+        """
+        {"appearanceMode":"dark","updatesAutomaticallyCheckForUpdates":true,\
+        "updatesAutomaticallyDownloadUpdates":false,"analyticsEnabled":true,\
+        "crashReportsEnabled":true,"githubIntegrationEnabled":true,\
+        "deleteBranchOnDeleteWorktree":true,"promptForWorktreeCreation":true,\
+        "moveNotifiedWorktreeToTop":false,"agentsSidebar":{"rows":"not-an-array"}}
+        """.utf8)
+    )
+    #expect(decoded.agentsSidebar == .default)
+    #expect(decoded.agentsSidebar.isDefault)
+
+    // A row config that isn't even an object can't take the whole file down.
+    let scalar = try JSONDecoder().decode(
+      AgentsSidebarSettings.self, from: Data("\"nope\"".utf8))
+    #expect(scalar == .default)
+  }
+
+  @Test func rowsRoundTripThroughTheSettingsEditorTextForm() {
+    let config = AgentsSidebarSettings(rows: [["state_icon", "agent"], ["$summary"]])
+    #expect(config.rowsText == "state_icon agent\n$summary")
+    let reparsed = AgentsSidebarSettings(rows: AgentsSidebarSettings.rows(fromText: config.rowsText))
+    #expect(reparsed == config)
+    // Blank lines and stray whitespace collapse rather than producing empty rows.
+    let messy = AgentsSidebarSettings(rows: AgentsSidebarSettings.rows(fromText: "repo  branch\n\n  \nagent"))
+    #expect(messy.rows == [["repo", "branch"], ["agent"]])
+  }
+}
+
+extension AgentsSidebarSettings {
+  /// Per-kind resolution for the two kinds the override test uses, so the test
+  /// asserts on `rows(forAgentKind:)` without repeating the call twice.
+  fileprivate func computeRowsForTesting() -> [String: [[String]]] {
+    ["claude", "codex"].reduce(into: [:]) { result, kind in
+      if let rows = rows(forAgentKind: kind) { result[kind] = rows }
+    }
   }
 }

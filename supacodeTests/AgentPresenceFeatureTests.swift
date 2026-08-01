@@ -1347,6 +1347,103 @@ struct AgentPresenceFeatureTests {
     AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: surfaceID)
   }
 
+  // MARK: - Explain diagnostics.
+
+  @Test func hookEventsRecordTheLastEventNameAndItsOwnTimestamp() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    let stamp = Date(timeIntervalSince1970: 1_700_000_000)
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+
+    harness.send(
+      .hookEventReceived(
+        AgentHookEvent(
+          agent: SkillAgent.claude.rawValue, event: "busy", surfaceID: surfaceID,
+          pid: getpid(), timestamp: stamp)
+      )
+    )
+
+    let record = harness.state.records[key(surfaceID)]
+    #expect(record?.lastEventName == "busy")
+    #expect(record?.lastEventAt == stamp)
+    #expect(record?.lastTransition == "idle\u{2192}busy")
+  }
+
+  @Test func anEventWithoutATimestampReportsNoneRatherThanTheLocalClock() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+
+    #expect(harness.state.records[key(surfaceID)]?.lastEventAt == nil)
+    #expect(harness.state.records[key(surfaceID)]?.lastEventName == "busy")
+  }
+
+  @Test func aDroppedEventUpdatesTheEventNameButNotTheTransition() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.hookEventReceived(makeEvent(.idle, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    // A repeat of the state the record already holds changes no activity.
+    harness.send(.hookEventReceived(makeEvent(.idle, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+
+    let record = harness.state.records[key(surfaceID)]
+    #expect(record?.lastEventName == "idle")
+    #expect(record?.lastTransition == "busy\u{2192}idle")
+  }
+
+  // MARK: - Explain query payload.
+
+  @Test func explainRowCarriesDiagnosticsStateAndTokens() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    let stamp = Date(timeIntervalSince1970: 1_700_000_000)
+    let pid = getpid()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(
+      .hookEventReceived(
+        AgentHookEvent(
+          agent: SkillAgent.claude.rawValue, event: "idle", surfaceID: surfaceID,
+          pid: pid, timestamp: stamp)
+      )
+    )
+    harness.send(.renameAgent(key: key(surfaceID), name: "reviewer"))
+    harness.send(.reportMetadata(key: key(surfaceID), tokens: ["summary": "fixing tests"], clear: false))
+
+    let row = AgentExplainQueryResponse.row(key: key(surfaceID), presence: harness.state)
+    #expect(row?[AgentExplainQueryResponse.Key.agent] == "claude")
+    #expect(row?[AgentExplainQueryResponse.Key.name] == "reviewer")
+    #expect(row?[AgentExplainQueryResponse.Key.activity] == "idle")
+    // The turn finished on an unfocused surface, so the dashboard reads `done`.
+    #expect(row?[AgentExplainQueryResponse.Key.dashboardState] == "done")
+    #expect(row?[AgentExplainQueryResponse.Key.isDoneUnseen] == "true")
+    #expect(row?[AgentExplainQueryResponse.Key.lastEvent] == "idle")
+    #expect(row?[AgentExplainQueryResponse.Key.lastEventAt] == stamp.formatted(.iso8601))
+    #expect(row?[AgentExplainQueryResponse.Key.lastTransition] == "busy\u{2192}idle")
+    #expect(row?[AgentExplainQueryResponse.Key.pids] == String(pid))
+    #expect(row?[AgentExplainQueryResponse.Key.source] == "hook")
+    #expect(row?["token.summary"] == "fixing tests")
+  }
+
+  @Test func explainRowIsNilForAnAgentThatIsNoLongerRunning() {
+    let harness = Harness()
+    #expect(AgentExplainQueryResponse.row(key: key(UUID()), presence: harness.state) == nil)
+  }
+
+  @Test func explainRowReportsEmptyDiagnosticsBeforeAnyTransition() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+
+    let row = AgentExplainQueryResponse.row(key: key(surfaceID), presence: harness.state)
+    #expect(row?[AgentExplainQueryResponse.Key.lastEvent] == "session_start")
+    #expect(row?[AgentExplainQueryResponse.Key.lastEventAt] == "")
+    #expect(row?[AgentExplainQueryResponse.Key.lastTransition] == "")
+    #expect(row?[AgentExplainQueryResponse.Key.dashboardState] == "idle")
+  }
+
   // MARK: - Helpers.
 
   /// Direct-reducer harness mirroring the singleton's sync API. The sweep timer

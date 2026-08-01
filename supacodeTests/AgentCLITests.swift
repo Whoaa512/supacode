@@ -44,6 +44,22 @@ struct AgentCLITests {
     ]
   }
 
+  /// Fixture `agentExplain` reply. `pids` is deliberately empty so the report's
+  /// "unset reads as `-`" branch is covered.
+  private static let explainRow: [String: String] = [
+    "agent": "claude",
+    "name": "reviewer",
+    "activity": "idle",
+    "dashboardState": "done",
+    "isDoneUnseen": "true",
+    "lastEvent": "idle",
+    "lastEventAt": "2023-11-14T22:13:20Z",
+    "lastTransition": "busy\u{2192}idle",
+    "pids": "",
+    "source": "hook",
+    "token.summary": "fixing tests",
+  ]
+
   // MARK: - list.
 
   @Test(.timeLimit(.minutes(3)))
@@ -331,6 +347,51 @@ struct AgentCLITests {
     }
   }
 
+  // MARK: - explain.
+
+  @Test(.timeLimit(.minutes(3)))
+  func explainPrintsALabelledReportJoinedWithTheWorktreeRow() async throws {
+    try await withFixture(rows: [Self.row(name: "reviewer", state: "done")]) { cli, resources, _ in
+      let output = try await cli(["agent", "explain", "reviewer"]).succeeding()
+      #expect(output.contains("Name             reviewer"))
+      #expect(output.contains("Dashboard state  done"))
+      #expect(output.contains("Last transition  busy\u{2192}idle"))
+      #expect(output.contains("Last event at    2023-11-14T22:13:20Z"))
+      #expect(output.contains("State source     hook"))
+      // Unreported diagnostics read as `-` rather than vanishing.
+      #expect(output.contains("PIDs             -"))
+      // Worktree context comes from the `agents` row the target resolved against.
+      #expect(output.contains("Branch           alpha"))
+      #expect(output.contains("$summary         fixing tests"))
+      #expect(resources.value == ["agents", "agentExplain"])
+    }
+  }
+
+  @Test(.timeLimit(.minutes(3)))
+  func explainJsonEmitsTheRawRowWithAStableKeyOrder() async throws {
+    try await withFixture(rows: [Self.row(name: "reviewer")]) { cli, _, _ in
+      let output = try await cli(["agent", "explain", "reviewer", "--json"]).succeeding()
+      #expect(
+        output == """
+          {"agent":"claude","name":"reviewer","activity":"idle","dashboardState":"done",\
+          "isDoneUnseen":"true","lastEvent":"idle","lastEventAt":"2023-11-14T22:13:20Z",\
+          "lastTransition":"busy\u{2192}idle","pids":"","source":"hook","token.summary":"fixing tests"}
+
+          """
+      )
+    }
+  }
+
+  @Test(.timeLimit(.minutes(3)))
+  func explainFailsWithoutQueryingWhenTheTargetIsUnknown() async throws {
+    try await withFixture(rows: [Self.row()]) { cli, resources, _ in
+      let missing = try await cli(["agent", "explain", "nope"])
+      #expect(missing.exitCode != 0)
+      #expect(missing.standardError.contains("No running agent matches 'nope'"))
+      #expect(resources.value == ["agents"])
+    }
+  }
+
   // MARK: - terminal wait-output.
 
   @Test(.timeLimit(.minutes(3)))
@@ -422,6 +483,10 @@ struct AgentCLITests {
     let agentPolls = LockIsolated(0)
     server.onQuery = { resource, params, clientFD in
       resources.withValue { $0.append(resource) }
+      if resource == "agentExplain" {
+        AgentHookSocketServer.sendQueryResponse(clientFD: clientFD, data: [Self.explainRow])
+        return
+      }
       guard resource == "agents" else {
         let lines = AgentReadQueryResponse.lineCount(params["lines"])
         AgentHookSocketServer.sendQueryResponse(
@@ -444,7 +509,7 @@ struct AgentCLITests {
     }
 
     try await body({ try await Self.runCLI(arguments: $0, socketPath: socketPath) }, resources, deeplinks)
-    #expect(resources.value.allSatisfy { ["agents", "agentRead"].contains($0) })
+    #expect(resources.value.allSatisfy { ["agents", "agentRead", "agentExplain"].contains($0) })
   }
 
   private static func runCLI(arguments: [String], socketPath: String) async throws -> Run {
