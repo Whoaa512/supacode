@@ -14,9 +14,17 @@ enum Deeplink: Equatable, Sendable {
     worktreeName: String?,
     worktreePath: String?
   )
+  /// `agent/<worktree-id>/<agent-kind>/<action>`. The kind stays a raw string so
+  /// the parser doesn't have to know the `SkillAgent` roster.
+  case agent(worktreeID: Worktree.ID, agent: String, action: AgentAction)
   case settings(section: DeeplinkSettingsSection?)
   case settingsRepo(repositoryID: Repository.ID)
   case settingsRepoScripts(repositoryID: Repository.ID)
+
+  enum AgentAction: Equatable, Sendable {
+    /// `nil` clears the agent's name.
+    case rename(name: String?)
+  }
 
   enum WorktreeAction: Equatable, Sendable {
     case select

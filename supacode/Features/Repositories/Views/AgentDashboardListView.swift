@@ -73,7 +73,13 @@ struct AgentDashboardListView: View {
       AgentDashboardRowView(entry: entry)
     }
     .buttonStyle(.plain)
-    .help("Focus \(entry.agent.displayName) in \(entry.title) — \(entry.state.title)")
+    .help("Focus \(entry.displayName) in \(entry.title) — \(entry.state.title)")
+    .contextMenu {
+      Button(entry.name == nil ? "Name Agent…" : "Rename Agent…") {
+        store.send(.requestRenameAgent(entry.id))
+      }
+      .help("Give this agent a name `supacode agent` can address")
+    }
   }
 
   /// Jumping to a repository means leaving the Agents tab: expand the repo's
@@ -99,8 +105,9 @@ private struct AgentDashboardRowView: View {
         .foregroundStyle(AgentDashboardStateStyle.style(for: entry.state, hasError: entry.hasError))
         .accessibilityLabel(entry.state.title)
       VStack(alignment: .leading, spacing: 1) {
-        Text(entry.agent.displayName)
+        Text(entry.displayName)
           .font(.body)
+          .monospaced(entry.name != nil)
           .lineLimit(1)
         Text(entry.subtitle)
           .font(.caption)

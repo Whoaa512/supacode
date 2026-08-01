@@ -420,6 +420,12 @@ struct SupacodeApp: App {
       handleWorktreeStatusQuery(params: params, repos: repos, clientFD: clientFD, store: store)
     case "worktreeAppearance":
       handleWorktreeAppearanceQuery(params: params, repos: repos, clientFD: clientFD, store: store)
+    case "agents":
+      AgentHookSocketServer.sendQueryResponse(
+        clientFD: clientFD,
+        data: AgentQueryResponse.rows(
+          presence: store.agentPresence, repositories: store.repositories)
+      )
     case "scripts":
       handleScriptsQuery(params: params, repos: repos, clientFD: clientFD, store: store)
     default:

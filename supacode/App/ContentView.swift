@@ -101,6 +101,11 @@ struct ContentView: View {
       WorktreeCustomizationView(store: customizationStore)
     }
     .sheet(
+      item: $repositoriesStore.scope(state: \.agentRename, action: \.agentRename)
+    ) { renameStore in
+      AgentRenameView(store: renameStore)
+    }
+    .sheet(
       item: $repositoriesStore.scope(
         state: \.renameBranchPrompt,
         action: \.renameBranchPrompt

@@ -635,6 +635,9 @@ struct AppFeature {
         }
         return .merge(effects)
 
+      case .repositories(.delegate(.renameAgent(let worktreeID, let agent, let name))):
+        return renameAgentEffect(worktreeID: worktreeID, agent: agent, name: name, state: state).effect
+
       case .repositories(.delegate(.openWorktreeInApp(let worktreeID, let action))):
         guard let worktree = state.repositories.worktree(for: worktreeID) else {
           appLogger.warning("openWorktreeInApp: worktree \(worktreeID) not found, ignoring.")
@@ -2089,6 +2092,9 @@ struct AppFeature {
         worktreeID: worktreeID, action: action, source: source, responseFD: responseFD,
         timeoutSeconds: timeoutSeconds, state: &state
       )
+    case .agent(let worktreeID, let rawAgent, let agentAction):
+      return handleAgentDeeplink(
+        worktreeID: worktreeID, agent: rawAgent, action: agentAction, state: &state)
     case .repoOpen(let path):
       return .send(.repositories(.openRepositories([path])))
     case .repoWorktreeNew(
