@@ -149,6 +149,14 @@ struct AgentDashboardStructure: Equatable, Sendable {
   }
 }
 
+/// The worst state across every surface running one agent kind in one worktree,
+/// which is what a single dashboard row reports.
+private struct AgentRollup {
+  let state: AgentDashboardState
+  let hasError: Bool
+  let name: String?
+}
+
 extension RepositoriesFeature.State {
   /// Equatable-diffs the freshly-built dashboard against the cached one so a
   /// no-op rebuild doesn't invalidate SwiftUI observation.
@@ -191,11 +199,11 @@ extension RepositoriesFeature.State {
 
       // The same agent can run on two surfaces of one worktree. Collapse to one
       // row carrying the most urgent state so the List keeps unique ids.
-      var worstByAgent: [SkillAgent: (state: AgentDashboardState, hasError: Bool, name: String?)] = [:]
+      var worstByAgent: [SkillAgent: AgentRollup] = [:]
       for instance in item.agents {
         let state = AgentDashboardState.from(instance)
         let previous = worstByAgent[instance.agent]
-        worstByAgent[instance.agent] = (
+        worstByAgent[instance.agent] = AgentRollup(
           state: min(state, previous?.state ?? state),
           hasError: (previous?.hasError ?? false) || instance.activity == .error,
           // First named instance wins; the collapse is per (worktree, agent), so

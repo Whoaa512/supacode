@@ -27,6 +27,16 @@ nonisolated enum DeeplinkURLBuilder {
     return url
   }
 
+  // MARK: - Agent.
+
+  /// A `nil` name clears the agent's name (the app reads an absent or empty
+  /// `name` as "clear").
+  static func agentRename(worktreeID: String, agent: String, name: String?) -> String {
+    var url = "supacode://agent/\(worktreeID)/\(agent)/rename"
+    if let name { url += "?name=\(percentEncodeQueryValue(name))" }
+    return url
+  }
+
   // MARK: - Script.
 
   static func scriptRun(worktreeID: String, scriptID: String) -> String {
