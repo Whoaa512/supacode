@@ -380,6 +380,49 @@ struct RepositoriesFeatureAgentDashboardTests {
     #expect(entries.first?.state == .working)
   }
 
+  // MARK: - Metadata tokens.
+
+  @Test func summaryTokenRidesOntoTheEntryWithoutTouchingState() {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    var state = makeState(worktrees: [alpha])
+    setAgents(
+      &state,
+      id: alpha.id,
+      [.init(agent: .claude, activity: .busy, name: "reviewer", summary: "fixing tests")]
+    )
+
+    let entry = state.computeAgentDashboardStructure().entries.first
+    #expect(entry?.summary == "fixing tests")
+    // A token is display-only: state and the Spaces rollup ignore it.
+    #expect(entry?.state == .working)
+    #expect(state.computeAgentDashboardStructure().spaces.first?.state == .working)
+  }
+
+  @Test func rowsWithoutASummaryTokenCarryNoCaption() {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    var state = makeState(worktrees: [alpha])
+    setAgents(&state, id: alpha.id, [.init(agent: .claude, activity: .busy)])
+
+    #expect(state.computeAgentDashboardStructure().entries.first?.summary == nil)
+  }
+
+  @Test func collapsedSurfacesShareTheFirstSummary() {
+    let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
+    var state = makeState(worktrees: [alpha])
+    setAgents(
+      &state,
+      id: alpha.id,
+      [
+        .init(agent: .claude, activity: .idle),
+        .init(agent: .claude, activity: .busy, summary: "second surface"),
+      ]
+    )
+
+    let entries = state.computeAgentDashboardStructure().entries
+    #expect(entries.count == 1)
+    #expect(entries.first?.summary == "second surface")
+  }
+
   @Test func requestRenameAgentSeedsTheSheetWithOtherLiveNames() async {
     let alpha = makeWorktree(id: "/tmp/dash-repo/alpha", name: "alpha")
     let bravo = makeWorktree(id: "/tmp/dash-repo/bravo", name: "bravo")
