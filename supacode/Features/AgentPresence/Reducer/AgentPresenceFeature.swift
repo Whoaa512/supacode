@@ -38,6 +38,9 @@ struct AgentPresenceFeature {
     /// surface. Only meaningful on `.idle`; the Agents dashboard maps it to
     /// `done` so a finished turn reads differently from a never-started one.
     var isDoneUnseen = false
+    /// User-assigned name (`supacode agent rename`, sidebar context menu).
+    /// Ephemeral: it dies with the record, so `nil` is the common case.
+    var name: String?
 
     /// The avatar group flips contrast on awaiting-input instances.
     var awaitingInput: Bool { activity == .awaitingInput }
@@ -91,6 +94,10 @@ struct AgentPresenceFeature {
     case stop
     case surfaceClosed(UUID)
     case surfacesClosed(Set<UUID>)
+    /// Assigns (or with `nil`, clears) the user-facing name of one live agent.
+    /// Invalid or already-taken names are dropped; callers that need to report
+    /// the failure validate with `validate(name:)` / `isNameTaken` first.
+    case renameAgent(key: PresenceKey, name: String?)
     /// The user focused these surfaces, so the states parked on them (`error`,
     /// `awaitingInput`) return to `idle`.
     case clearAttention(surfaces: Set<UUID>)
@@ -120,6 +127,9 @@ struct AgentPresenceFeature {
     /// Needed because focus only arrives as a *change*: without it, a turn that
     /// finishes on the already-focused surface would latch as `done` forever.
     var focusedSurfaceIDs: Set<UUID> = []
+    /// User-assigned agent names, keyed like `records`. Never persisted: a name
+    /// addresses a running agent, so it must not outlive one.
+    var nameByKey: [PresenceKey: String] = [:]
   }
 
   /// Period between liveness sweeps. Cost scales with active sessions, not
@@ -136,6 +146,7 @@ struct AgentPresenceFeature {
 
       case .hookEventReceived(let event):
         let changed = Self.apply(event: event, into: &state)
+        Self.pruneNames(in: &state)
         return Self.surfacesChangedEffect(changed)
 
       case .livenessSweepTick:
@@ -151,6 +162,7 @@ struct AgentPresenceFeature {
 
       case .livenessSweepResult(let snapshot, let alive):
         let changed = Self.applyLiveness(delta: alive, snapshot: snapshot, into: &state)
+        Self.pruneNames(in: &state)
         return Self.surfacesChangedEffect(changed)
 
       case .start:
@@ -171,6 +183,10 @@ struct AgentPresenceFeature {
       case .surfacesClosed(let ids):
         Self.drop(surfaces: ids, from: &state)
         return Self.surfacesChangedEffect(ids)
+
+      case .renameAgent(let key, let name):
+        guard Self.rename(key: key, to: name, into: &state) else { return .none }
+        return Self.surfacesChangedEffect([key.surfaceID])
 
       case .clearAttention(let surfaces):
         let changed = Self.clearAttention(on: surfaces, into: &state)
@@ -344,6 +360,41 @@ struct AgentPresenceFeature {
     state.focusedSurfaceIDs.subtract(surfaces)
     for id in surfaces { state.bySurface.removeValue(forKey: id) }
     state.records = state.records.filter { !surfaces.contains($0.key.surfaceID) }
+    pruneNames(in: &state)
+  }
+
+  // MARK: - Names.
+
+  /// `^[a-z][a-z0-9_-]{0,31}$`, spelled out so the hot path skips NSRegularExpression.
+  nonisolated static func validate(name: String) -> Bool {
+    guard (1...32).contains(name.count) else { return false }
+    guard let first = name.first, first.isASCII, first.isLetter, first.isLowercase else { return false }
+    return name.dropFirst().allSatisfy { character in
+      guard character.isASCII else { return false }
+      return (character.isLetter && character.isLowercase) || character.isNumber
+        || character == "_" || character == "-"
+    }
+  }
+
+  /// Applies a validated rename. Returns whether anything changed, so the
+  /// caller only emits `surfacesChanged` on a real edit.
+  static func rename(key: PresenceKey, to name: String?, into state: inout State) -> Bool {
+    // Naming a dead agent would leak a name no `agent list` row can clear.
+    guard state.records[key] != nil else { return false }
+    guard let name else { return state.nameByKey.removeValue(forKey: key) != nil }
+    guard validate(name: name), !state.isNameTaken(name, excluding: key) else { return false }
+    guard state.nameByKey[key] != name else { return false }
+    state.nameByKey[key] = name
+    return true
+  }
+
+  /// Drops names whose record is gone. A name addresses a *running* agent, so
+  /// every record-removal path funnels through here.
+  private static func pruneNames(in state: inout State) {
+    guard !state.nameByKey.isEmpty else { return }
+    let live = state.nameByKey.filter { state.records[$0.key] != nil }
+    guard live.count != state.nameByKey.count else { return }
+    state.nameByKey = live
   }
 
   /// Pure liveness check; returns only keys whose alive subset diverges from the snapshot.
@@ -474,6 +525,29 @@ extension AgentPresenceFeature.State {
 }
 
 extension AgentPresenceFeature.State {
+  /// Whether `name` already addresses another live agent. Case-sensitive: names
+  /// are validated lowercase, so a case-insensitive check would be dead code.
+  func isNameTaken(_ name: String, excluding key: AgentPresenceFeature.PresenceKey? = nil) -> Bool {
+    nameByKey.contains { $0.key != key && $0.value == name }
+  }
+
+  /// The live agent addressed by `name`, if any.
+  func presenceKey(forName name: String) -> AgentPresenceFeature.PresenceKey? {
+    nameByKey.first { $0.value == name }?.key
+  }
+
+  /// The canonical record for one (worktree, agent) pair. The Agents dashboard
+  /// collapses every surface of a worktree into one row, so naming that row
+  /// targets the first live record in surface order.
+  func presenceKey(
+    agent: SkillAgent,
+    across surfaceIDs: some Sequence<UUID>
+  ) -> AgentPresenceFeature.PresenceKey? {
+    surfaceIDs.lazy
+      .map { AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: $0) }
+      .first { records[$0] != nil }
+  }
+
   /// Agents on a single surface. Empty when badges are disabled by the user.
   func agents(forSurface id: UUID, badgesEnabled: Bool) -> Set<SkillAgent> {
     guard badgesEnabled else { return [] }
@@ -494,10 +568,12 @@ extension AgentPresenceFeature.State {
       .flatMap { surfaceID -> [AgentPresenceFeature.AgentInstance] in
         (bySurface[surfaceID] ?? []).map { agent in
           let record = records[AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: surfaceID)]
+          let key = AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: surfaceID)
           return AgentPresenceFeature.AgentInstance(
             agent: agent,
             activity: record?.activity ?? .idle,
-            isDoneUnseen: record?.isDoneUnseen ?? false
+            isDoneUnseen: record?.isDoneUnseen ?? false,
+            name: nameByKey[key]
           )
         }
       }
