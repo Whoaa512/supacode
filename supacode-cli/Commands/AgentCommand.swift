@@ -14,6 +14,7 @@ struct AgentCommand: ParsableCommand {
       SendKeys.self,
       Read.self,
       ReportMetadata.self,
+      Explain.self,
     ],
     defaultSubcommand: List.self
   )
@@ -40,6 +41,40 @@ extension AgentCommand {
     /// Metadata tokens arrive flattened as `token.<key>` (see
     /// `AgentQueryResponse.Key.tokenPrefix`).
     static let tokenPrefix = "token."
+  }
+
+  /// Socket wire keys of the `agentExplain` query. Mirrors
+  /// `AgentExplainQueryResponse.Key` (app side); keep in sync.
+  nonisolated enum ExplainKey {
+    static let agent = "agent"
+    static let name = "name"
+    static let activity = "activity"
+    static let dashboardState = "dashboardState"
+    static let isDoneUnseen = "isDoneUnseen"
+    static let lastEvent = "lastEvent"
+    static let lastEventAt = "lastEventAt"
+    static let lastTransition = "lastTransition"
+    static let pids = "pids"
+    static let source = "source"
+
+    static let all = [
+      agent, name, activity, dashboardState, isDoneUnseen, lastEvent, lastEventAt,
+      lastTransition, pids, source,
+    ]
+
+    /// Report label per key, in print order.
+    static let labels: [(key: String, label: String)] = [
+      (name, "Name"),
+      (agent, "Agent"),
+      (dashboardState, "Dashboard state"),
+      (activity, "Hook activity"),
+      (isDoneUnseen, "Done, unseen"),
+      (lastEvent, "Last event"),
+      (lastEventAt, "Last event at"),
+      (lastTransition, "Last transition"),
+      (pids, "PIDs"),
+      (source, "State source"),
+    ]
   }
 
   /// Mirrors `AgentKeySequence` (app side); keep in sync. Validated here too so
@@ -152,8 +187,8 @@ extension AgentCommand {
 
   /// Single-line JSON with a fixed key order, so `agent wait` output is diffable
   /// without pulling in a JSON dependency on the read side.
-  static func jsonLine(_ row: [String: String]) -> String {
-    var fields = Key.all.map { key in
+  static func jsonLine(_ row: [String: String], keys: [String] = Key.all) -> String {
+    var fields = keys.map { key in
       "\"\(key)\":\(quoted(row[key] ?? ""))"
     }
     // Metadata tokens trail the fixed columns, sorted, so a new token can't
@@ -541,6 +576,75 @@ extension AgentCommand {
       throw SocketClient.Error.responseError("Supacode returned no screen text.")
     }
     return text
+  }
+
+  struct Explain: ParsableCommand {
+    static let configuration = CommandConfiguration(
+      abstract: "Report why an agent is in its current state: hook activity, last event, seen status."
+    )
+
+    @Argument(help: "Agent name, worktree ID, or branch.")
+    var target: String
+
+    @Flag(name: .long, help: "Print the raw row as JSON instead of a report.")
+    var json = false
+
+    @Option(name: .long, help: "Agent kind, to disambiguate a worktree running several agents.")
+    var agent: String?
+
+    @OptionGroup var timeoutOption: TimeoutOption
+
+    func run() throws {
+      let row = try AgentCommand.resolvedRow(
+        target: target, agentKind: agent, timeoutSeconds: timeoutOption.timeout)
+      let explained = try AgentCommand.explain(
+        worktreeID: row[Key.worktreeID] ?? "",
+        agentKind: row[Key.agent] ?? "",
+        timeoutSeconds: timeoutOption.timeout
+      )
+      guard !json else {
+        print(AgentCommand.jsonLine(explained, keys: ExplainKey.all))
+        return
+      }
+      print(AgentCommand.explainReport(explained, worktreeRow: row))
+    }
+  }
+
+  static func explain(
+    worktreeID: String,
+    agentKind: String,
+    timeoutSeconds: Int
+  ) throws -> [String: String] {
+    let rows = try QueryDispatcher.query(
+      resource: "agentExplain",
+      params: ["worktreeID": worktreeID, "agent": agentKind],
+      timeoutSeconds: timeoutSeconds
+    )
+    guard let row = rows.first else {
+      throw SocketClient.Error.responseError("Supacode returned no explanation for '\(agentKind)'.")
+    }
+    return row
+  }
+
+  /// Human-readable report. Unset diagnostics print as `-` rather than being
+  /// omitted, so the reader can tell "never reported" from "key I forgot about".
+  static func explainReport(_ row: [String: String], worktreeRow: [String: String]) -> String {
+    var lines: [String] = []
+    for (key, label) in ExplainKey.labels {
+      let value = row[key] ?? ""
+      lines.append("\(label.padding(toLength: 16, withPad: " ", startingAt: 0)) \(value.isEmpty ? "-" : value)")
+    }
+    for (label, key) in [("Repo", Key.repo), ("Branch", Key.branch), ("Worktree", Key.worktreeTitle)] {
+      let value = worktreeRow[key] ?? ""
+      guard !value.isEmpty else { continue }
+      lines.append("\(label.padding(toLength: 16, withPad: " ", startingAt: 0)) \(value)")
+    }
+    let tokens = row.keys.filter { $0.hasPrefix(Key.tokenPrefix) }.sorted()
+    for token in tokens {
+      let label = "$" + token.dropFirst(Key.tokenPrefix.count)
+      lines.append("\(label.padding(toLength: 16, withPad: " ", startingAt: 0)) \(row[token] ?? "")")
+    }
+    return lines.joined(separator: "\n")
   }
 
   struct ReportMetadata: ParsableCommand {
