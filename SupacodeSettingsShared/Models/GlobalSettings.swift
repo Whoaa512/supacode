@@ -182,6 +182,11 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   public var hoverFocusMode: HoverFocusMode
   /// System-wide chord that toggles the app; nil (the default) leaves it unbound.
   public var globalToggleVisibilityHotkey: AppShortcutOverride?
+  /// Persist terminal scrollback to disk across relaunches.
+  public var persistScrollbackEnabled: Bool
+  /// Row layout for the sidebar's Agents tab. Hand-editable in `supacode.json`;
+  /// the Developer settings pane writes the same keys.
+  public var agentsSidebar: AgentsSidebarSettings
 
   public static let `default` = GlobalSettings(
     appearanceMode: .dark,
@@ -225,7 +230,9 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     terminateSessionsOnQuit: false,
     remoteSessionPersistenceEnabled: true,
     appVisibility: .dockAndMenuBar,
-    chromeTextSize: .default
+    chromeTextSize: .default,
+    persistScrollbackEnabled: true,
+    agentsSidebar: .default
   )
 
   public init(
@@ -274,7 +281,9 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     chromeTextSize: ChromeTextSize = .default,
     automaticRepositoryRefreshEnabled: Bool = true,
     hoverFocusMode: HoverFocusMode = .never,
-    globalToggleVisibilityHotkey: AppShortcutOverride? = nil
+    globalToggleVisibilityHotkey: AppShortcutOverride? = nil,
+    persistScrollbackEnabled: Bool = true,
+    agentsSidebar: AgentsSidebarSettings = .default
   ) {
     self.appearanceMode = appearanceMode
     self.defaultEditorID = defaultEditorID
@@ -322,6 +331,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.automaticRepositoryRefreshEnabled = automaticRepositoryRefreshEnabled
     self.hoverFocusMode = hoverFocusMode
     self.globalToggleVisibilityHotkey = globalToggleVisibilityHotkey
+    self.persistScrollbackEnabled = persistScrollbackEnabled
+    self.agentsSidebar = agentsSidebar
   }
 
   /// Keys for reading renamed settings fields that no longer
@@ -554,6 +565,14 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     globalToggleVisibilityHotkey =
       ((try? container.decodeIfPresent(AppShortcutOverride.self, forKey: .globalToggleVisibilityHotkey)) ?? nil)
       ?? Self.default.globalToggleVisibilityHotkey
+    persistScrollbackEnabled =
+      try container.decodeIfPresent(Bool.self, forKey: .persistScrollbackEnabled)
+      ?? true
+    // `AgentsSidebarSettings` swallows its own malformed input, so a bad row
+    // config can't throw here and reset every other global to its default.
+    agentsSidebar =
+      try container.decodeIfPresent(AgentsSidebarSettings.self, forKey: .agentsSidebar)
+      ?? Self.default.agentsSidebar
   }
 }
 
