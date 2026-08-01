@@ -12,12 +12,8 @@ extension AppFeature {
     name: String?,
     state: State
   ) -> (effect: Effect<Action>, error: String?) {
-    guard let surfaceIDs = state.repositories.sidebarItems[id: worktreeID]?.surfaceIDs else {
-      return (.none, "Worktree not found: \(worktreeID.rawValue)")
-    }
-    guard let key = state.agentPresence.presenceKey(agent: agent, across: surfaceIDs) else {
-      return (.none, "No running \(agent.rawValue) agent in \(worktreeID.rawValue).")
-    }
+    let resolved = agentPresenceKey(worktreeID: worktreeID, agent: agent, state: state)
+    guard let key = resolved.key else { return (.none, resolved.error) }
     if let name {
       guard AgentPresenceFeature.validate(name: name) else {
         return (
@@ -46,10 +42,30 @@ extension AppFeature {
     switch action {
     case .rename(let name):
       let outcome = renameAgentEffect(worktreeID: worktreeID, agent: agent, name: name, state: state)
-      guard let error = outcome.error else { return outcome.effect }
-      state.alert = Self.agentCommandAlert(error)
-      return .none
+      return apply(outcome: outcome, state: &state)
+    case .prompt(let text, let submit):
+      let error = promptAgent(
+        worktreeID: worktreeID, agent: agent, text: text, submit: submit, state: state)
+      return apply(outcome: (.none, error), state: &state)
+    case .sendKeys(let keys):
+      let error = sendKeysToAgent(worktreeID: worktreeID, agent: agent, keys: keys, state: state)
+      return apply(outcome: (.none, error), state: &state)
+    case .metadata(let tokens, let clear):
+      let outcome = reportAgentMetadata(
+        worktreeID: worktreeID, agent: agent, tokens: tokens, clear: clear, state: state)
+      return apply(outcome: outcome, state: &state)
     }
+  }
+
+  /// Raises the failure as an alert (the socket ack reads it) or returns the
+  /// success effect.
+  private func apply(
+    outcome: (effect: Effect<Action>, error: String?),
+    state: inout State
+  ) -> Effect<Action> {
+    guard let error = outcome.error else { return outcome.effect }
+    state.alert = Self.agentCommandAlert(error)
+    return .none
   }
 
   /// Alert doubles as the socket-ack failure signal, so the CLI gets ok=false.
