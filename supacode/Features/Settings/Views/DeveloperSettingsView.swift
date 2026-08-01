@@ -23,6 +23,13 @@ struct DeveloperSettingsView: View {
           Text("Agent badges")
           Text("Show an icon in the sidebar and tab while a coding agent is running in that surface.")
         }
+        Toggle(isOn: $store.resumeAgentsOnRestore) {
+          Text("Offer to resume dead agent sessions")
+          Text(
+            "Remember the native session id of an agent whose process didn't survive, so "
+              + "`supacode agent resume` can relaunch it. Supacode never types the resume "
+              + "command on its own.")
+        }
       } header: {
         Text("Coding Agents")
       } footer: {

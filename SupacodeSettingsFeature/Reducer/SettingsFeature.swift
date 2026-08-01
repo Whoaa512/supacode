@@ -75,6 +75,7 @@ public struct SettingsFeature {
     public var globalScripts: [ScriptDefinition]
     public var richAgentNotificationsEnabled: Bool
     public var agentPresenceBadgesEnabled: Bool
+    public var resumeAgentsOnRestore: Bool
     public var autoUpdateAgentIntegrationsEnabled: Bool
     public var confirmQuitMode: ConfirmQuitMode
     public var confirmCloseSurface: Bool
@@ -148,6 +149,7 @@ public struct SettingsFeature {
       globalScripts = settings.globalScripts
       richAgentNotificationsEnabled = settings.richAgentNotificationsEnabled
       agentPresenceBadgesEnabled = settings.agentPresenceBadgesEnabled
+      resumeAgentsOnRestore = settings.resumeAgentsOnRestore
       autoUpdateAgentIntegrationsEnabled = settings.autoUpdateAgentIntegrationsEnabled
       confirmQuitMode = settings.confirmQuitMode
       confirmCloseSurface = settings.confirmCloseSurface
@@ -204,7 +206,8 @@ public struct SettingsFeature {
         appVisibility: appVisibility,
         terminalHibernationEnabled: terminalHibernationEnabled,
         persistScrollbackEnabled: persistScrollbackEnabled,
-        agentsSidebar: agentsSidebar
+        agentsSidebar: agentsSidebar,
+        resumeAgentsOnRestore: resumeAgentsOnRestore
       )
     }
   }
@@ -339,6 +342,7 @@ public struct SettingsFeature {
         state.globalScripts = normalizedSettings.globalScripts
         state.richAgentNotificationsEnabled = normalizedSettings.richAgentNotificationsEnabled
         state.agentPresenceBadgesEnabled = normalizedSettings.agentPresenceBadgesEnabled
+        state.resumeAgentsOnRestore = normalizedSettings.resumeAgentsOnRestore
         state.autoUpdateAgentIntegrationsEnabled = normalizedSettings.autoUpdateAgentIntegrationsEnabled
         state.confirmQuitMode = normalizedSettings.confirmQuitMode
         state.confirmCloseSurface = normalizedSettings.confirmCloseSurface
