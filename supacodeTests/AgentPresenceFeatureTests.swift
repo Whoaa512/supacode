@@ -1009,6 +1009,115 @@ struct AgentPresenceFeatureTests {
     #expect(instances.first?.activity == .error)
   }
 
+  // MARK: - Metadata tokens.
+
+  @Test func metadataMergesAcrossReportsAndSurfacesTheSummaryToken() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+
+    harness.send(.reportMetadata(key: key(surfaceID), tokens: ["summary": "fixing tests"], clear: false))
+    harness.send(.reportMetadata(key: key(surfaceID), tokens: ["model": "opus"], clear: false))
+
+    #expect(harness.state.metadataByKey[key(surfaceID)] == ["summary": "fixing tests", "model": "opus"])
+    let instance = harness.state.agents(across: [surfaceID], badgesEnabled: true).first
+    #expect(instance?.summary == "fixing tests")
+    // Tokens are display-only: the activity the dashboard reads is untouched.
+    #expect(instance?.activity == .idle)
+  }
+
+  @Test func metadataClearDropsEveryToken() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(
+      .reportMetadata(key: key(surfaceID), tokens: ["summary": "x", "model": "y"], clear: false))
+
+    harness.send(.reportMetadata(key: key(surfaceID), tokens: [:], clear: true))
+
+    #expect(harness.state.metadataByKey.isEmpty)
+    #expect(harness.state.agents(across: [surfaceID], badgesEnabled: true).first?.summary == nil)
+  }
+
+  @Test func metadataOnAnAgentWithNoRecordIsDropped() {
+    var harness = Harness()
+    harness.send(.reportMetadata(key: key(UUID()), tokens: ["summary": "x"], clear: false))
+
+    #expect(harness.state.metadataByKey.isEmpty)
+  }
+
+  @Test func disposingTheRecordClearsItsMetadata() {
+    var harness = Harness()
+    let closed = UUID()
+    let ended = UUID()
+    let reaped = UUID()
+    let pid = getpid()
+    for (surfaceID, recordPid) in [(closed, pid), (ended, pid), (reaped, makeDeadPid())] {
+      harness.send(
+        .hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: recordPid)))
+      harness.send(.reportMetadata(key: key(surfaceID), tokens: ["summary": "x"], clear: false))
+    }
+    #expect(harness.state.metadataByKey.count == 3)
+
+    harness.send(.surfaceClosed(closed))
+    harness.send(.hookEventReceived(makeEvent(.sessionEnd, agent: .claude, surfaceID: ended, pid: pid)))
+    harness.livenessSweep()
+
+    #expect(harness.state.metadataByKey.isEmpty)
+  }
+
+  @Test(
+    arguments: [
+      ["Summary": "x"],
+      ["sum mary": "x"],
+      ["": "x"],
+      ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "x"],
+      ["summary": String(repeating: "x", count: 121)],
+    ]
+  )
+  func metadataRejectsInvalidTokens(tokens: [String: String]) {
+    #expect(AgentPresenceFeature.validate(tokens: tokens) != nil)
+
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.reportMetadata(key: key(surfaceID), tokens: tokens, clear: false))
+
+    #expect(harness.state.metadataByKey.isEmpty)
+  }
+
+  @Test func metadataRejectsMoreThanEightTokensEvenAcrossReports() {
+    let overLimit = Dictionary(uniqueKeysWithValues: (0..<9).map { ("token\($0)", "x") })
+    #expect(AgentPresenceFeature.validate(tokens: overLimit) != nil)
+
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    let atLimit = Dictionary(uniqueKeysWithValues: (0..<8).map { ("token\($0)", "x") })
+    harness.send(.reportMetadata(key: key(surfaceID), tokens: atLimit, clear: false))
+    #expect(harness.state.metadataByKey[key(surfaceID)]?.count == 8)
+
+    harness.send(.reportMetadata(key: key(surfaceID), tokens: ["ninth": "x"], clear: false))
+
+    #expect(harness.state.metadataByKey[key(surfaceID)]?.count == 8)
+    #expect(harness.state.metadataByKey[key(surfaceID)]?["ninth"] == nil)
+  }
+
+  @Test func metadataIsNotPersistedWithTheAgentRecord() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.reportMetadata(key: key(surfaceID), tokens: ["summary": "x"], clear: false))
+
+    var restored = Harness()
+    restored.restoreFromLayouts([
+      makeLayout(surfaces: [(id: surfaceID, agents: harness.state.agentsBySurface()[surfaceID] ?? [])])
+    ])
+
+    #expect(restored.state.records[key(surfaceID)] != nil)
+    #expect(restored.state.metadataByKey.isEmpty)
+  }
+
   // MARK: - Agent names.
 
   @Test func renameAssignsAndClearsAName() {
