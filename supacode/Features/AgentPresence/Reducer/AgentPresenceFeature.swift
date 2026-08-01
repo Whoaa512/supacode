@@ -86,12 +86,28 @@ struct AgentPresenceFeature {
     var lastEventAt: Date?
     /// `"busy→idle"` for the last activity flip this record made.
     var lastTransition: String?
+    /// The agent's native session id, as last reported by a hook event that
+    /// carried one. Unlike the diagnostics above this IS persisted: it is the
+    /// only thing that makes a dead session resumable after a relaunch. Sticky
+    /// on purpose — an event without a ref never clears an established one.
+    var sessionRef: String?
+  }
+
+  /// A session whose process didn't survive: the record was persisted with pids,
+  /// every one of them was dead at restore, and it carried a resumable ref.
+  /// Deliberately NOT a `PresenceRecord`: a candidate is not a live agent, so it
+  /// must never reach a badge, `agent list`, or a state rollup.
+  nonisolated struct ResumeCandidate: Equatable, Sendable {
+    let sessionRef: String
+    /// The activity the session was in when the app went away. Display only.
+    let lastActivity: Activity
   }
 
   nonisolated struct RestoredRecord: Sendable {
     let alivePids: Set<pid_t>
     let activity: Activity
     var isDoneUnseen = false
+    var sessionRef: String?
   }
 
   // `nonisolated` is load-bearing here. Without it the @Reducer macro
@@ -120,8 +136,13 @@ struct AgentPresenceFeature {
     case clearAttention(surfaces: Set<UUID>)
     /// Stage records for the off-main liveness pass. Apply lands as
     /// `restoreFromSnapshotChecked` so `kill(2)` never runs on the main actor.
+    /// The resume command was typed into the candidate's surface, so the offer is
+    /// spent. Dropped rather than kept pending: the relaunched agent re-reports
+    /// its own session ref, and a lingering offer would type the command twice.
+    case resumeCandidateConsumed(key: PresenceKey)
     case restoreFromSnapshot(staged: [PresenceKey: StagedRestore])
-    case restoreFromSnapshotChecked(records: [PresenceKey: RestoredRecord])
+    case restoreFromSnapshotChecked(
+      records: [PresenceKey: RestoredRecord], resumeCandidates: [PresenceKey: ResumeCandidate])
 
     enum Delegate: Equatable, Sendable {
       /// Surfaces whose presence record was added, removed, or had its activity flip.
@@ -151,6 +172,11 @@ struct AgentPresenceFeature {
     /// (`supacode agent report-metadata`). Same lifetime as `nameByKey`:
     /// ephemeral, never persisted, never authoritative for state.
     var metadataByKey: [PresenceKey: [String: String]] = [:]
+    /// Sessions that died with the last app run and can be relaunched by their
+    /// native resume command. Populated only at restore; dropped as soon as a
+    /// live record appears for the same key, because the agent came back on its
+    /// own and resuming again would fork the session.
+    var resumeCandidates: [PresenceKey: ResumeCandidate] = [:]
   }
 
   /// Period between liveness sweeps. Cost scales with active sessions, not
@@ -217,20 +243,39 @@ struct AgentPresenceFeature {
         let changed = Self.clearAttention(on: surfaces, into: &state)
         return Self.surfacesChangedEffect(changed)
 
+      case .resumeCandidateConsumed(let key):
+        state.resumeCandidates.removeValue(forKey: key)
+        return .none
+
       case .restoreFromSnapshot(let staged):
         guard !staged.isEmpty else { return .none }
+        @Shared(.settingsFile) var settingsFile
+        let offersResume = settingsFile.global.resumeAgentsOnRestore
         return .run { send in
-          let checked = staged.compactMapValues { stage -> RestoredRecord? in
+          var checked: [PresenceKey: RestoredRecord] = [:]
+          var candidates: [PresenceKey: ResumeCandidate] = [:]
+          for (key, stage) in staged {
             let alive = stage.pids.filter { Self.isAlive($0) }
-            guard !alive.isEmpty else { return nil }
-            return RestoredRecord(
-              alivePids: alive, activity: stage.activity, isDoneUnseen: stage.isDoneUnseen)
+            guard alive.isEmpty else {
+              checked[key] = RestoredRecord(
+                alivePids: alive, activity: stage.activity, isDoneUnseen: stage.isDoneUnseen,
+                sessionRef: stage.sessionRef)
+              continue
+            }
+            // Every pid dead + a resumable ref is exactly the "the process didn't
+            // survive" signal. Resumability is checked here so an agent kind with
+            // no resume CLI never becomes a candidate the user can't act on.
+            guard offersResume, let ref = stage.sessionRef,
+              AgentResumeCommand.command(agent: key.agent, sessionRef: ref) != nil
+            else { continue }
+            candidates[key] = ResumeCandidate(sessionRef: ref, lastActivity: stage.activity)
           }
-          guard !checked.isEmpty else { return }
-          await send(.restoreFromSnapshotChecked(records: checked))
+          guard !checked.isEmpty || !candidates.isEmpty else { return }
+          await send(.restoreFromSnapshotChecked(records: checked, resumeCandidates: candidates))
         }
 
-      case .restoreFromSnapshotChecked(let records):
+      case .restoreFromSnapshotChecked(let records, let candidates):
+        state.resumeCandidates.merge(candidates) { existing, _ in existing }
         let changed = Self.applyRestore(records: records, into: &state)
         return Self.surfacesChangedEffect(changed)
       }
@@ -254,12 +299,18 @@ struct AgentPresenceFeature {
     let key = PresenceKey(agent: agent, surfaceID: event.surfaceID)
     let before = state.records[key]?.activity
     let changed = apply(event: event, into: &state)
+    // A live record means the agent is running, so any resume offer for it is
+    // stale: it either came back on its own or the user already resumed it.
+    if state.records[key] != nil { state.resumeCandidates.removeValue(forKey: key) }
     guard var record = state.records[key] else { return changed }
     record.lastEventName = event.event
     record.lastEventAt = event.timestamp
     if let before, before != record.activity {
       record.lastTransition = "\(before.rawValue)→\(record.activity.rawValue)"
     }
+    // Sticky: only a reported ref overwrites, so the events that don't carry one
+    // (every tool call) can't erase the session we'd resume.
+    if let sessionRef = event.sessionRef { record.sessionRef = sessionRef }
     state.records[key] = record
     return changed
   }
@@ -405,6 +456,9 @@ struct AgentPresenceFeature {
     state.focusedSurfaceIDs.subtract(surfaces)
     for id in surfaces { state.bySurface.removeValue(forKey: id) }
     state.records = state.records.filter { !surfaces.contains($0.key.surfaceID) }
+    // A resume offer is scoped to the surface that hosted the session; closing it
+    // takes the offer with it, since there is nowhere left to type the command.
+    state.resumeCandidates = state.resumeCandidates.filter { !surfaces.contains($0.key.surfaceID) }
     pruneEphemeral(in: &state)
   }
 
@@ -549,6 +603,7 @@ struct AgentPresenceFeature {
     let pids: Set<pid_t>
     let activity: Activity
     var isDoneUnseen = false
+    var sessionRef: String?
   }
 
   /// Build the staged-restore dict from persisted layouts. No `kill(2)` here;
@@ -561,13 +616,30 @@ struct AgentPresenceFeature {
       for (surfaceID, records) in layout.allAgentRecords() {
         for record in records {
           guard let agent = SkillAgent(rawValue: record.agent) else { continue }
+          // A record already proven dead in an earlier restore carries the flag
+          // instead of pids, so it stays a candidate across any number of
+          // relaunches until the user resumes it or closes the surface. Staged
+          // with no pids so the liveness pass classifies it as dead again.
+          if record.resumeCandidate == true, record.pids.isEmpty {
+            staged[PresenceKey(agent: agent, surfaceID: surfaceID)] =
+              StagedRestore(
+                pids: [], activity: Activity(rawValue: record.activity) ?? .idle,
+                isDoneUnseen: record.doneUnseen ?? false,
+                sessionRef: AgentPresenceOSC.sanitizedSessionRef(record.sessionRef))
+            continue
+          }
           // Pid-less OSC records aren't restore-durable: they persist with no
           // pid, so they drop here and re-seed on the next OSC event post-relaunch.
+          // They can't be resume candidates either: with no pid there is nothing
+          // to prove dead, and the agent may still be running on the far side of
+          // an SSH connection.
           let pids = Set(record.pids.filter { $0 > 0 })
           guard !pids.isEmpty else { continue }
           let activity = Activity(rawValue: record.activity) ?? .idle
           staged[PresenceKey(agent: agent, surfaceID: surfaceID)] =
-            StagedRestore(pids: pids, activity: activity, isDoneUnseen: record.doneUnseen ?? false)
+            StagedRestore(
+              pids: pids, activity: activity, isDoneUnseen: record.doneUnseen ?? false,
+              sessionRef: AgentPresenceOSC.sanitizedSessionRef(record.sessionRef))
         }
       }
     }
@@ -590,7 +662,10 @@ struct AgentPresenceFeature {
       if state.records[key] != nil { continue }
       // Restored records always have alive pids (pid-less OSC records are dropped in stageRestore).
       state.records[key] = PresenceRecord(
-        activity: record.activity, isDoneUnseen: record.isDoneUnseen, pids: record.alivePids)
+        activity: record.activity, isDoneUnseen: record.isDoneUnseen, pids: record.alivePids,
+        sessionRef: record.sessionRef)
+      // A live record wins: resuming an agent that survived would fork its session.
+      state.resumeCandidates.removeValue(forKey: key)
       dirtySurfaces.insert(key.surfaceID)
     }
     for surfaceID in dirtySurfaces { rebuildPresence(forSurface: surfaceID, in: &state) }
@@ -614,16 +689,31 @@ struct AgentPresenceFeature {
 extension AgentPresenceFeature.State {
   /// Sorted output so the persisted JSON stays diff-stable.
   func agentsBySurface() -> [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]] {
-    guard !records.isEmpty else { return [:] }
+    guard !records.isEmpty || !resumeCandidates.isEmpty else { return [:] }
     var result: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]] = [:]
     for (key, record) in records {
       let entry = TerminalLayoutSnapshot.SurfaceAgentRecord(
         agent: key.agent.rawValue,
         pids: record.pids.sorted(),
         activity: record.activity.rawValue,
-        doneUnseen: record.isDoneUnseen ? true : nil
+        doneUnseen: record.isDoneUnseen ? true : nil,
+        sessionRef: record.sessionRef
       )
       result[key.surfaceID, default: []].append(entry)
+    }
+    // Unresumed candidates persist too, flagged so the next restore reads them as
+    // already-dead rather than as a pid-less SSH agent.
+    for (key, candidate) in resumeCandidates where records[key] == nil {
+      result[key.surfaceID, default: []].append(
+        TerminalLayoutSnapshot.SurfaceAgentRecord(
+          agent: key.agent.rawValue,
+          pids: [],
+          activity: candidate.lastActivity.rawValue,
+          doneUnseen: nil,
+          sessionRef: candidate.sessionRef,
+          resumeCandidate: true
+        )
+      )
     }
     for (id, entries) in result {
       result[id] = entries.sorted { $0.agent < $1.agent }
@@ -642,6 +732,18 @@ extension AgentPresenceFeature.State {
   /// are validated lowercase, so a case-insensitive check would be dead code.
   func isNameTaken(_ name: String, excluding key: AgentPresenceFeature.PresenceKey? = nil) -> Bool {
     nameByKey.contains { $0.key != key && $0.value == name }
+  }
+
+  /// The resume candidate for one (worktree, agent) pair, in surface order, or
+  /// nil when no surface of that worktree has a resumable dead session.
+  func resumeCandidate(
+    agent: SkillAgent,
+    across surfaceIDs: some Sequence<UUID>
+  ) -> (key: AgentPresenceFeature.PresenceKey, candidate: AgentPresenceFeature.ResumeCandidate)? {
+    surfaceIDs.lazy
+      .map { AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: $0) }
+      .compactMap { key in resumeCandidates[key].map { (key: key, candidate: $0) } }
+      .first
   }
 
   /// The live agent addressed by `name`, if any.

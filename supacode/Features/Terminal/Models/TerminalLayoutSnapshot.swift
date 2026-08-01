@@ -99,6 +99,16 @@ struct TerminalLayoutSnapshot: Codable, Equatable, Sendable {
     /// state). Optional so layouts written before it decode unchanged, and only
     /// written when true so the persisted JSON stays small.
     var doneUnseen: Bool?
+    /// The agent's native session id, so a session whose process didn't survive
+    /// stays resumable (`claude --resume`, `pi --session`, `codex resume`).
+    /// Optional so layouts written before it decode unchanged.
+    var sessionRef: String?
+    /// True for a record that is already a resume candidate: the process was
+    /// proven dead in an earlier restore, so it has no pids left to check.
+    /// Without this flag a pid-less record is indistinguishable from an
+    /// SSH-attached agent that is still running, which restore must not offer to
+    /// resume. Only written when true.
+    var resumeCandidate: Bool?
   }
 
 }
