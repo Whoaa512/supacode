@@ -46,6 +46,10 @@ extension AgentCommand {
     /// Metadata tokens arrive flattened as `token.<key>` (see
     /// `AgentQueryResponse.Key.tokenPrefix`).
     static let tokenPrefix = "token."
+
+    /// Keys dropped from the JSON row when empty, so optional fields don't
+    /// churn the stable output shape consumers already parse.
+    static let omittedWhenEmpty: Set<String> = [sessionRef]
   }
 
   /// Socket wire keys of the `agentResumeCandidates` query. Mirrors
@@ -212,9 +216,15 @@ extension AgentCommand {
 
   /// Single-line JSON with a fixed key order, so `agent wait` output is diffable
   /// without pulling in a JSON dependency on the read side.
-  static func jsonLine(_ row: [String: String], keys: [String] = Key.all) -> String {
-    var fields = keys.map { key in
-      "\"\(key)\":\(quoted(row[key] ?? ""))"
+  static func jsonLine(
+    _ row: [String: String],
+    keys: [String] = Key.all,
+    omitEmpty: Set<String> = Key.omittedWhenEmpty
+  ) -> String {
+    var fields = keys.compactMap { key -> String? in
+      let value = row[key] ?? ""
+      if value.isEmpty, omitEmpty.contains(key) { return nil }
+      return "\"\(key)\":\(quoted(value))"
     }
     // Metadata tokens trail the fixed columns, sorted, so a new token can't
     // reorder the stable prefix.
@@ -628,7 +638,7 @@ extension AgentCommand {
         timeoutSeconds: timeoutOption.timeout
       )
       guard !json else {
-        print(AgentCommand.jsonLine(explained, keys: ExplainKey.all))
+        print(AgentCommand.jsonLine(explained, keys: ExplainKey.all, omitEmpty: []))
         return
       }
       print(AgentCommand.explainReport(explained, worktreeRow: row))
