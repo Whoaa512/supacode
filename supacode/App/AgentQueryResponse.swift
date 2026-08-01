@@ -92,6 +92,63 @@ enum AgentQueryResponse {
   }
 }
 
+/// Builds the `supacode agent explain` payload: everything Supacode knows about
+/// one presence record, including the diagnostics no other query exposes.
+enum AgentExplainQueryResponse {
+  /// Socket wire keys. `AgentCommand.ExplainKey` reads the same literals; keep
+  /// both sides in sync (the CLI stays dependency-light, so no shared module).
+  enum Key {
+    static let agent = "agent"
+    static let name = "name"
+    static let activity = "activity"
+    static let dashboardState = "dashboardState"
+    static let isDoneUnseen = "isDoneUnseen"
+    static let lastEvent = "lastEvent"
+    static let lastEventAt = "lastEventAt"
+    static let lastTransition = "lastTransition"
+    static let pids = "pids"
+    static let source = "source"
+    static let tokenPrefix = AgentQueryResponse.Key.tokenPrefix
+
+    static let all = [
+      agent, name, activity, dashboardState, isDoneUnseen, lastEvent, lastEventAt,
+      lastTransition, pids, source,
+    ]
+  }
+
+  /// Hooks are the only state authority (see the plan's architectural
+  /// decisions), so the source is constant — it exists so the CLI report can
+  /// say where the state came from without the reader having to know.
+  static let source = "hook"
+
+  /// A single row, or nil when the record is gone (the agent exited mid-query).
+  static func row(
+    key: AgentPresenceFeature.PresenceKey,
+    presence: AgentPresenceFeature.State
+  ) -> [String: String]? {
+    guard let record = presence.records[key] else { return nil }
+    let state = AgentDashboardState.from(
+      AgentPresenceFeature.AgentInstance(
+        agent: key.agent, activity: record.activity, isDoneUnseen: record.isDoneUnseen)
+    )
+    return [
+      Key.agent: key.agent.rawValue,
+      Key.name: presence.nameByKey[key] ?? "",
+      Key.activity: record.activity.rawValue,
+      Key.dashboardState: state.wireValue,
+      Key.isDoneUnseen: record.isDoneUnseen ? "true" : "false",
+      Key.lastEvent: record.lastEventName ?? "",
+      Key.lastEventAt: record.lastEventAt?.formatted(.iso8601) ?? "",
+      Key.lastTransition: record.lastTransition ?? "",
+      Key.pids: record.pids.sorted().map(String.init).joined(separator: ","),
+      Key.source: source,
+    ].merging(
+      (presence.metadataByKey[key] ?? [:]).map { ("\(Key.tokenPrefix)\($0.key)", $0.value) },
+      uniquingKeysWith: { _, token in token }
+    )
+  }
+}
+
 extension AgentDashboardState {
   /// Stable CLI spelling. Distinct from `title` so renaming a section header
   /// can't silently break `agent wait --until`.

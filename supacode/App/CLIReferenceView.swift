@@ -171,6 +171,12 @@ struct CLIReferenceView: View {
         "Attach display-only tokens (max 8, key ≤ 32 chars lowercase, value ≤ 120 chars). "
         + "The `summary` token renders in the Agents tab; tokens never affect state or waits."
     ),
+    .init(
+      command: "supacode agent explain <target> [--json]",
+      description:
+        "Report the agent's dashboard state, raw hook activity, last hook event and timestamp, "
+        + "last transition, seen status, PIDs, and metadata tokens."
+    ),
   ]
 
   private static let terminalRows: [CLIEntry] = [
