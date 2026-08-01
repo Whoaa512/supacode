@@ -129,15 +129,18 @@ Agents panel with worst-state rollup per repo/worktree.
 
 Name registry in presence state (validation, uniqueness, exit-clears).
 Sidebar context-menu rename. supacode-cli: `agent list`, `agent rename`,
-`agent wait --until <state>` (repeatable), `agent read --lines N`.
-CLI targets accept unique live name or surface/worktree ID.
+`agent wait --until <state>` (repeatable).
+CLI targets accept unique live name or worktree ID / branch.
+
+`agent read` is deferred to Phase 4, where the terminal-text plumbing it needs
+(`terminal wait-output`) is already in scope.
 
 ### Acceptance criteria
 
-- [ ] VC6 end-to-end via CLI against a running app
-- [ ] `agent wait` returns immediately when state already matches; honors `--timeout`
-- [ ] `agent read` returns stripped-ANSI text by default
-- [ ] `make build-app` green
+- [x] VC6 end-to-end via CLI against a running app
+- [x] `agent wait` returns immediately when state already matches; honors `--timeout`
+- [ ] `agent read` returns stripped-ANSI text by default (moved to Phase 4)
+- [x] `make build-app` green
 
 ---
 
@@ -149,7 +152,8 @@ CLI targets accept unique live name or surface/worktree ID.
 
 `agent start` (launch supported agent kind in an existing worktree surface,
 return after ready), `agent prompt [--wait]` (bracketed-paste aware, stall
-detection), `agent send-keys`, `terminal wait-output --regex`. Metadata
+detection), `agent send-keys`, `agent read --lines N` (deferred from Phase 3),
+`terminal wait-output --regex`. Metadata
 channel: `agent report-metadata --token k=v [--ttl-ms]`, stored ephemerally,
 never authoritative for state.
 
