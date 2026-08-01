@@ -28,6 +28,7 @@ struct CLIReferenceView: View {
       CLISection(title: "Tab", rows: Self.tabRows)
       CLISection(title: "Surface", rows: Self.surfaceRows)
       CLISection(title: "Agent", rows: Self.agentRows)
+      CLISection(title: "Terminal", rows: Self.terminalRows)
       CLISection(title: "Repository", rows: Self.repoRows)
       CLISection(title: "Settings", rows: Self.settingsRows)
       CLISection(title: "Socket", rows: Self.socketRows)
@@ -147,6 +148,37 @@ struct CLIReferenceView: View {
       description:
         "Block until the agent reaches a state (default idle, done, or blocked), "
         + "then print its row as JSON."
+    ),
+    .init(
+      command: "supacode agent prompt <target> <text> [--no-submit] [--wait] [--until <state>]...",
+      description:
+        "Type a prompt into a running agent and submit it. With --wait, block until the agent "
+        + "starts the turn (else fail as agent_prompt_stalled) and then settles."
+    ),
+    .init(
+      command: "supacode agent send-keys <target> <key>...",
+      description:
+        "Send keys: enter, esc, tab, backspace, space, up, down, left, right, home, end, "
+        + "pageup, pagedown, ctrl+<letter>."
+    ),
+    .init(
+      command: "supacode agent read <target> [--lines <n>]",
+      description: "Print the tail of the terminal screen hosting the agent (default 80 lines)."
+    ),
+    .init(
+      command: "supacode agent report-metadata <target> --token key=value [--clear]",
+      description:
+        "Attach display-only tokens (max 8, key ≤ 32 chars lowercase, value ≤ 120 chars). "
+        + "The `summary` token renders in the Agents tab; tokens never affect state or waits."
+    ),
+  ]
+
+  private static let terminalRows: [CLIEntry] = [
+    .init(
+      command: "supacode terminal wait-output <target> --regex <pattern> | --text <literal>",
+      description:
+        "Poll the worktree's focused terminal every 500ms until a line matches, then print it. "
+        + "Target is an agent name, worktree ID, or branch; defaults to $SUPACODE_WORKTREE_ID."
     ),
   ]
 

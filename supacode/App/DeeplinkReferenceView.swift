@@ -77,6 +77,27 @@ struct DeeplinkReferenceView: View {
         + "and be unique among live agents.",
       params: "?name=<name>"
     ),
+    .init(
+      url: "supacode://agent/<worktree_id>/<agent_kind>/prompt",
+      description:
+        "Type a prompt into the agent's surface without focusing it. Submits by default; "
+        + "pass submit=false to type without sending enter.",
+      params: "?text=<text>&submit=<true|false>"
+    ),
+    .init(
+      url: "supacode://agent/<worktree_id>/<agent_kind>/send-keys",
+      description:
+        "Send a comma-separated key sequence: enter, esc, tab, backspace, space, up, down, "
+        + "left, right, home, end, pageup, pagedown, ctrl+<letter>.",
+      params: "?keys=esc,enter"
+    ),
+    .init(
+      url: "supacode://agent/<worktree_id>/<agent_kind>/metadata",
+      description:
+        "Attach display-only tokens (max 8, key ≤ 32 chars lowercase, value ≤ 120 chars). "
+        + "Every query item except `clear` and `timeout` is a token; tokens die with the agent.",
+      params: "?summary=<text>&model=<name>&clear=true"
+    ),
   ]
 
   private static let tabSurfaceRows: [DeeplinkEntry] = [
