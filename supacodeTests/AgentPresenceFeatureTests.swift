@@ -1009,6 +1009,112 @@ struct AgentPresenceFeatureTests {
     #expect(instances.first?.activity == .error)
   }
 
+  // MARK: - Done-until-seen.
+
+  @Test func finishedTurnOnUnfocusedSurfaceIsDoneUnseen() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+
+    harness.send(.hookEventReceived(makeEvent(.idle, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+
+    #expect(harness.state.records[key(surfaceID)]?.isDoneUnseen == true)
+    #expect(harness.state.agents(across: [surfaceID], badgesEnabled: true).first?.isDoneUnseen == true)
+  }
+
+  @Test func finishedTurnOnFocusedSurfaceIsBornSeen() {
+    // Focus only arrives as a change, so a turn ending on the surface the user is
+    // already looking at must never latch as done.
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.clearAttention(surfaces: [surfaceID]))
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+
+    harness.send(.hookEventReceived(makeEvent(.idle, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+
+    #expect(harness.state.records[key(surfaceID)]?.isDoneUnseen == false)
+  }
+
+  @Test func focusingTheSurfaceClearsDoneUnseen() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.hookEventReceived(makeEvent(.idle, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+
+    harness.send(.clearAttention(surfaces: [surfaceID]))
+
+    #expect(harness.state.records[key(surfaceID)]?.isDoneUnseen == false)
+  }
+
+  @Test func focusingAnotherSurfaceLeavesDoneUnseenAlone() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.hookEventReceived(makeEvent(.idle, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+
+    harness.send(.clearAttention(surfaces: [UUID()]))
+
+    #expect(harness.state.records[key(surfaceID)]?.isDoneUnseen == true)
+  }
+
+  @Test func newTurnClearsDoneUnseen() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.hookEventReceived(makeEvent(.idle, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+
+    #expect(harness.state.records[key(surfaceID)]?.isDoneUnseen == false)
+  }
+
+  @Test func sessionRestartClearsDoneUnseen() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    let pid = getpid()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(.hookEventReceived(makeEvent(.idle, agent: .claude, surfaceID: surfaceID, pid: pid)))
+
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: pid)))
+
+    #expect(harness.state.records[key(surfaceID)]?.isDoneUnseen == false)
+  }
+
+  @Test func doneUnseenRoundTripsThroughPersistence() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    let pid = getpid()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(.hookEventReceived(makeEvent(.idle, agent: .claude, surfaceID: surfaceID, pid: pid)))
+
+    let persisted = harness.state.agentsBySurface()[surfaceID]
+    #expect(persisted?.first?.doneUnseen == true)
+
+    var restored = Harness()
+    restored.restoreFromLayouts([makeLayout(surfaces: [(id: surfaceID, agents: persisted ?? [])])])
+
+    #expect(restored.state.records[key(surfaceID)]?.isDoneUnseen == true)
+  }
+
+  @Test func seenRecordsPersistWithoutTheDoneFlag() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+
+    #expect(harness.state.agentsBySurface()[surfaceID]?.first?.doneUnseen == nil)
+  }
+
+  private func key(_ surfaceID: UUID, agent: SkillAgent = .claude) -> AgentPresenceFeature.PresenceKey {
+    AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: surfaceID)
+  }
+
   // MARK: - Helpers.
 
   /// Direct-reducer harness mirroring the singleton's sync API. The sweep timer
@@ -1037,7 +1143,8 @@ struct AgentPresenceFeatureTests {
       let checked = staged.compactMapValues { stage -> AgentPresenceFeature.RestoredRecord? in
         let alive = stage.pids.filter { AgentPresenceFeature.isAlive($0) }
         guard !alive.isEmpty else { return nil }
-        return AgentPresenceFeature.RestoredRecord(alivePids: alive, activity: stage.activity)
+        return AgentPresenceFeature.RestoredRecord(
+          alivePids: alive, activity: stage.activity, isDoneUnseen: stage.isDoneUnseen)
       }
       guard !checked.isEmpty else { return }
       send(.restoreFromSnapshotChecked(records: checked))
