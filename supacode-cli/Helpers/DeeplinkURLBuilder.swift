@@ -48,6 +48,12 @@ nonisolated enum DeeplinkURLBuilder {
     return "supacode://agent/\(worktreeID)/\(agent)/send-keys?keys=\(percentEncodeQueryValue(joined))"
   }
 
+  /// Types the agent's native resume command into the surface whose session died.
+  /// The app refuses it when that agent is running.
+  static func agentResume(worktreeID: String, agent: String) -> String {
+    "supacode://agent/\(worktreeID)/\(agent)/resume"
+  }
+
   /// Tokens ride as ordinary query items (`summary=...`), sorted so the URL is
   /// stable. `clear` drops the agent's existing tokens first.
   static func agentMetadata(

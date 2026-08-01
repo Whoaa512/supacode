@@ -54,6 +54,9 @@ extension AppFeature {
       let outcome = reportAgentMetadata(
         worktreeID: worktreeID, agent: agent, tokens: tokens, clear: clear, state: state)
       return apply(outcome: outcome, state: &state)
+    case .resume:
+      let outcome = resumeAgent(worktreeID: worktreeID, agent: agent, state: state)
+      return apply(outcome: outcome, state: &state)
     }
   }
 

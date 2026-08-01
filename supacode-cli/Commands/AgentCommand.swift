@@ -15,6 +15,8 @@ struct AgentCommand: ParsableCommand {
       Read.self,
       ReportMetadata.self,
       Explain.self,
+      Resume.self,
+      ResumeCandidates.self,
     ],
     defaultSubcommand: List.self
   )
@@ -34,13 +36,30 @@ extension AgentCommand {
     static let branch = "branch"
     static let repo = "repo"
     static let worktreeTitle = "worktreeTitle"
+    static let sessionRef = "sessionRef"
 
     /// Column order for human-readable output and the JSON row.
-    static let all = [name, agent, state, activity, repo, branch, worktreeTitle, worktreeID]
+    static let all = [
+      name, agent, state, activity, repo, branch, worktreeTitle, worktreeID, sessionRef,
+    ]
 
     /// Metadata tokens arrive flattened as `token.<key>` (see
     /// `AgentQueryResponse.Key.tokenPrefix`).
     static let tokenPrefix = "token."
+  }
+
+  /// Socket wire keys of the `agentResumeCandidates` query. Mirrors
+  /// `AgentResumeCandidateQueryResponse.Key` (app side); keep in sync.
+  nonisolated enum ResumeKey {
+    static let agent = Key.agent
+    static let sessionRef = Key.sessionRef
+    static let worktreeID = Key.worktreeID
+    static let branch = Key.branch
+    static let repo = Key.repo
+    static let worktreeTitle = Key.worktreeTitle
+    static let command = "command"
+
+    static let all = [agent, sessionRef, command, repo, branch, worktreeTitle, worktreeID]
   }
 
   /// Socket wire keys of the `agentExplain` query. Mirrors
@@ -56,10 +75,11 @@ extension AgentCommand {
     static let lastTransition = "lastTransition"
     static let pids = "pids"
     static let source = "source"
+    static let sessionRef = Key.sessionRef
 
     static let all = [
       agent, name, activity, dashboardState, isDoneUnseen, lastEvent, lastEventAt,
-      lastTransition, pids, source,
+      lastTransition, pids, source, sessionRef,
     ]
 
     /// Report label per key, in print order.
@@ -74,6 +94,7 @@ extension AgentCommand {
       (lastTransition, "Last transition"),
       (pids, "PIDs"),
       (source, "State source"),
+      (sessionRef, "Session ref"),
     ]
   }
 
@@ -118,6 +139,7 @@ extension AgentCommand {
     case notFound(String)
     case notRunning(String)
     case ambiguous(target: String, candidates: [String])
+    case noResumeCandidate(String)
 
     var description: String {
       switch self {
@@ -125,6 +147,9 @@ extension AgentCommand {
         return "No running agent matches '\(target)'. Run `supacode agent list` to see live agents."
       case .notRunning(let target):
         return "agent_not_running: '\(target)' is no longer running."
+      case .noResumeCandidate(let target):
+        return "No resumable agent session for '\(target)'. "
+          + "Run `supacode agent resume-candidates` to see what can be resumed."
       case .ambiguous(let target, let candidates):
         return "'\(target)' matches several agents. Disambiguate with --agent <kind>:\n"
           + candidates.map { "  \($0)" }.joined(separator: "\n")
@@ -164,7 +189,7 @@ extension AgentCommand {
 
   /// Percent-decodes and drops a trailing slash so encoded and decoded worktree
   /// IDs compare equal.
-  private static func decoded(_ value: String) -> String {
+  static func decoded(_ value: String) -> String {
     let decoded = value.removingPercentEncoding ?? value
     return decoded.hasSuffix("/") ? String(decoded.dropLast()) : decoded
   }
@@ -645,6 +670,101 @@ extension AgentCommand {
       lines.append("\(label.padding(toLength: 16, withPad: " ", startingAt: 0)) \(row[token] ?? "")")
     }
     return lines.joined(separator: "\n")
+  }
+
+  struct ResumeCandidates: ParsableCommand {
+    static let configuration = CommandConfiguration(
+      commandName: "resume-candidates",
+      abstract: "List agent sessions whose process is gone but that can still be resumed."
+    )
+
+    @Flag(name: .long, help: "Print one JSON object per candidate instead of columns.")
+    var json = false
+
+    @OptionGroup var timeoutOption: TimeoutOption
+
+    func run() throws {
+      let rows = try QueryDispatcher.query(
+        resource: "agentResumeCandidates", timeoutSeconds: timeoutOption.timeout)
+      for row in rows {
+        print(json ? AgentCommand.jsonLine(row, keys: ResumeKey.all) : AgentCommand.candidateLine(row))
+      }
+    }
+  }
+
+  struct Resume: ParsableCommand {
+    static let configuration = CommandConfiguration(
+      abstract: "Relaunch a dead agent session with its native resume command.",
+      discussion: """
+        Types the resume command into the surface that hosted the session and \
+        submits it. Only sessions listed by `agent resume-candidates` can be \
+        resumed: the agent's process must be gone and its hook must have \
+        reported a session id. Supacode never resumes on its own.
+        """
+    )
+
+    @Argument(help: "Worktree ID or branch hosting the dead session.")
+    var target: String
+
+    @Option(name: .long, help: "Agent kind, to disambiguate a worktree with several dead sessions.")
+    var agent: String?
+
+    @Flag(name: .long, help: "Print the resume command instead of running it.")
+    var dryRun = false
+
+    @OptionGroup var timeoutOption: TimeoutOption
+
+    func run() throws {
+      let rows = try QueryDispatcher.query(
+        resource: "agentResumeCandidates", timeoutSeconds: timeoutOption.timeout)
+      let row = try AgentCommand.resolveCandidate(target: target, agentKind: agent, in: rows)
+      guard !dryRun else {
+        print(row[ResumeKey.command] ?? "")
+        return
+      }
+      try Dispatcher.dispatch(
+        deeplinkURL: DeeplinkURLBuilder.agentResume(
+          worktreeID: row[ResumeKey.worktreeID] ?? "",
+          agent: row[ResumeKey.agent] ?? ""
+        ),
+        timeoutSeconds: timeoutOption.timeout
+      )
+    }
+  }
+
+  /// Resume candidates have no names (a name addresses a *running* agent), so
+  /// they resolve by worktree only, with `--agent` as the tie-break.
+  static func resolveCandidate(
+    target: String,
+    agentKind: String?,
+    in rows: [[String: String]]
+  ) throws -> [String: String] {
+    let decodedTarget = decoded(target)
+    let matches = rows.filter { row in
+      guard agentKind == nil || row[ResumeKey.agent] == agentKind else { return false }
+      let id = decoded(row[ResumeKey.worktreeID] ?? "")
+      return id == decodedTarget || row[ResumeKey.branch] == target
+        || row[ResumeKey.worktreeTitle] == target
+    }
+    guard let first = matches.first else {
+      throw TargetError.noResumeCandidate(target)
+    }
+    guard matches.count == 1 else {
+      throw TargetError.ambiguous(
+        target: target, candidates: matches.map { $0[ResumeKey.agent] ?? "" })
+    }
+    return first
+  }
+
+  static func candidateLine(_ row: [String: String]) -> String {
+    let columns = [
+      row[ResumeKey.agent] ?? "",
+      row[ResumeKey.sessionRef] ?? "",
+      row[ResumeKey.repo] ?? "",
+      row[ResumeKey.branch] ?? "",
+      row[ResumeKey.worktreeID] ?? "",
+    ]
+    return columns.map(ListFormatting.sanitizeColumn).joined(separator: "\t")
   }
 
   struct ReportMetadata: ParsableCommand {

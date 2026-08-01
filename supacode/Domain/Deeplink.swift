@@ -32,6 +32,10 @@ enum Deeplink: Equatable, Sendable {
     /// Display-only metadata tokens. `clear` drops every token; otherwise the
     /// listed tokens are merged over the existing ones.
     case metadata(tokens: [String: String], clear: Bool)
+    /// Types the agent's native resume command into the surface that hosted its
+    /// dead session. Refused when the agent is running, so it can never fork a
+    /// live session.
+    case resume
   }
 
   enum WorktreeAction: Equatable, Sendable {
