@@ -1467,16 +1467,29 @@ struct AgentPresenceFeatureTests {
     /// Drives the 2-phase restore synchronously for tests: stage → liveness →
     /// apply. The live reducer hops the liveness check off the main actor; the
     /// sync harness does it inline so assertions run against the post-apply state.
-    @MainActor mutating func restoreFromLayouts(_ layouts: [TerminalLayoutSnapshot]) {
+    @MainActor mutating func restoreFromLayouts(
+      _ layouts: [TerminalLayoutSnapshot],
+      offersResume: Bool = true
+    ) {
       let staged = AgentPresenceFeature.stageRestore(fromLayouts: layouts)
-      let checked = staged.compactMapValues { stage -> AgentPresenceFeature.RestoredRecord? in
+      var checked: [AgentPresenceFeature.PresenceKey: AgentPresenceFeature.RestoredRecord] = [:]
+      var candidates: [AgentPresenceFeature.PresenceKey: AgentPresenceFeature.ResumeCandidate] = [:]
+      for (key, stage) in staged {
         let alive = stage.pids.filter { AgentPresenceFeature.isAlive($0) }
-        guard !alive.isEmpty else { return nil }
-        return AgentPresenceFeature.RestoredRecord(
-          alivePids: alive, activity: stage.activity, isDoneUnseen: stage.isDoneUnseen)
+        guard alive.isEmpty else {
+          checked[key] = AgentPresenceFeature.RestoredRecord(
+            alivePids: alive, activity: stage.activity, isDoneUnseen: stage.isDoneUnseen,
+            sessionRef: stage.sessionRef)
+          continue
+        }
+        guard offersResume, let ref = stage.sessionRef,
+          AgentResumeCommand.command(agent: key.agent, sessionRef: ref) != nil
+        else { continue }
+        candidates[key] = AgentPresenceFeature.ResumeCandidate(
+          sessionRef: ref, lastActivity: stage.activity)
       }
-      guard !checked.isEmpty else { return }
-      send(.restoreFromSnapshotChecked(records: checked))
+      guard !checked.isEmpty || !candidates.isEmpty else { return }
+      send(.restoreFromSnapshotChecked(records: checked, resumeCandidates: candidates))
     }
   }
 

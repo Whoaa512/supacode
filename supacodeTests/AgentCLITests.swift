@@ -375,7 +375,8 @@ struct AgentCLITests {
         output == """
           {"agent":"claude","name":"reviewer","activity":"idle","dashboardState":"done",\
           "isDoneUnseen":"true","lastEvent":"idle","lastEventAt":"2023-11-14T22:13:20Z",\
-          "lastTransition":"busy\u{2192}idle","pids":"","source":"hook","token.summary":"fixing tests"}
+          "lastTransition":"busy\u{2192}idle","pids":"","source":"hook","sessionRef":"",\
+          "token.summary":"fixing tests"}
 
           """
       )
