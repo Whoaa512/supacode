@@ -119,7 +119,7 @@ nonisolated enum PiExtensionContent {
     function sessionRefSuffix(sessionRef: string | undefined): string {
       if (!sessionRef) return "";
       if (Buffer.byteLength(sessionRef, "utf8") > \(AgentPresenceOSC.sessionRefByteBudget)) return "";
-      if (!/^[A-Za-z0-9._-]+$/.test(sessionRef)) return "";
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(sessionRef)) return "";
       return `;\(AgentPresenceOSC.sessionField)=${sessionRef}`;
     }
 
