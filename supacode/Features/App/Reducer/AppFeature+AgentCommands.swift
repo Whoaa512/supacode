@@ -66,6 +66,52 @@ extension AppFeature {
     return nil
   }
 
+  /// Types the agent's native resume command into the surface whose session died.
+  ///
+  /// Supacode never does this on its own. Every guard below exists so a
+  /// user-issued resume can't land somewhere unexpected:
+  /// - a live presence record means the agent is running, so resuming would fork
+  ///   its session;
+  /// - no resume candidate means we have no proven-dead session with a ref, so
+  ///   there is nothing to resume rather than something to guess;
+  /// - `AgentResumeCommand` re-validates the ref before it becomes terminal input.
+  func resumeAgent(
+    worktreeID: Worktree.ID,
+    agent: SkillAgent,
+    state: State
+  ) -> (effect: Effect<Action>, error: String?) {
+    @Dependency(TerminalClient.self) var terminalClient
+    guard let surfaceIDs = state.repositories.sidebarItems[id: worktreeID]?.surfaceIDs else {
+      return (.none, "Worktree not found: \(worktreeID.rawValue)")
+    }
+    if state.agentPresence.presenceKey(agent: agent, across: surfaceIDs) != nil {
+      return (.none, "\(agent.rawValue) is already running in \(worktreeID.rawValue).")
+    }
+    guard let candidate = state.agentPresence.resumeCandidate(agent: agent, across: surfaceIDs)
+    else {
+      return (
+        .none,
+        "No resumable \(agent.rawValue) session in \(worktreeID.rawValue). "
+          + "Supacode only offers resume for a session whose process is gone and whose "
+          + "hook reported a session id."
+      )
+    }
+    guard
+      let command = AgentResumeCommand.command(
+        agent: agent, sessionRef: candidate.candidate.sessionRef)
+    else {
+      return (.none, "\(agent.rawValue) has no resume-by-id command.")
+    }
+    let submit = AgentKeySequence.sequence(for: "enter") ?? "\r"
+    guard terminalClient.sendTextToSurface(worktreeID, candidate.key.surfaceID, command + submit)
+    else {
+      return (.none, "Agent surface is not live in \(worktreeID.rawValue).")
+    }
+    // The offer is spent: the command is typed, and the relaunched agent's
+    // `session_start` re-establishes a live record with the same ref.
+    return (.send(.agentPresence(.resumeCandidateConsumed(key: candidate.key))), nil)
+  }
+
   /// Stores display-only tokens on a live agent.
   func reportAgentMetadata(
     worktreeID: Worktree.ID,

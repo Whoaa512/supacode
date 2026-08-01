@@ -17,6 +17,9 @@ enum AgentQueryResponse {
     static let branch = "branch"
     static let repo = "repo"
     static let worktreeTitle = "worktreeTitle"
+    /// The agent's native session id, when a hook reported one. Empty for an
+    /// agent whose hooks don't carry session identity.
+    static let sessionRef = "sessionRef"
     /// Metadata tokens are flattened as `token.<key>` so the whole payload stays
     /// a flat `[String: String]` (the socket wire format) with no nested JSON to
     /// parse on the CLI side.
@@ -57,6 +60,7 @@ enum AgentQueryResponse {
             Key.branch: item.branchName,
             Key.repo: repoTitle,
             Key.worktreeTitle: title,
+            Key.sessionRef: record.sessionRef ?? "",
           ].merging(
             (presence.metadataByKey[key] ?? [:]).map { ("\(Key.tokenPrefix)\($0.key)", $0.value) },
             uniquingKeysWith: { _, token in token }
@@ -86,7 +90,7 @@ enum AgentQueryResponse {
 
   /// Mirrors `AppFeature.percentEncodedID`: a returned id must round-trip as a
   /// `-w` argument, so encoded slashes stay encoded.
-  private static func percentEncodedID(_ rawValue: String) -> String {
+  static func percentEncodedID(_ rawValue: String) -> String {
     let allowed = CharacterSet.urlPathAllowed.subtracting(.init(charactersIn: "/"))
     return rawValue.addingPercentEncoding(withAllowedCharacters: allowed) ?? rawValue
   }
@@ -108,11 +112,12 @@ enum AgentExplainQueryResponse {
     static let lastTransition = "lastTransition"
     static let pids = "pids"
     static let source = "source"
+    static let sessionRef = AgentQueryResponse.Key.sessionRef
     static let tokenPrefix = AgentQueryResponse.Key.tokenPrefix
 
     static let all = [
       agent, name, activity, dashboardState, isDoneUnseen, lastEvent, lastEventAt,
-      lastTransition, pids, source,
+      lastTransition, pids, source, sessionRef,
     ]
   }
 
@@ -142,10 +147,85 @@ enum AgentExplainQueryResponse {
       Key.lastTransition: record.lastTransition ?? "",
       Key.pids: record.pids.sorted().map(String.init).joined(separator: ","),
       Key.source: source,
+      Key.sessionRef: record.sessionRef ?? "",
     ].merging(
       (presence.metadataByKey[key] ?? [:]).map { ("\(Key.tokenPrefix)\($0.key)", $0.value) },
       uniquingKeysWith: { _, token in token }
     )
+  }
+}
+
+/// Builds the `supacode agent resume-candidates` payload: one row per session
+/// whose process didn't survive the last app run but is still resumable.
+///
+/// Deliberately a separate query from `agents`: a candidate is not a live agent,
+/// so folding it into `agents` would make it a `wait` target and a rollup input.
+enum AgentResumeCandidateQueryResponse {
+  enum Key {
+    static let agent = "agent"
+    static let sessionRef = AgentQueryResponse.Key.sessionRef
+    static let worktreeID = AgentQueryResponse.Key.worktreeID
+    static let branch = AgentQueryResponse.Key.branch
+    static let repo = AgentQueryResponse.Key.repo
+    static let worktreeTitle = AgentQueryResponse.Key.worktreeTitle
+    /// The command `agent resume` asks Supacode to type. Returned so the CLI can
+    /// show the user exactly what will run without duplicating the mapping.
+    static let command = "command"
+
+    static let all = [agent, sessionRef, command, repo, branch, worktreeTitle, worktreeID]
+  }
+
+  /// One sorted row: the sort keys, plus the wire fields they order.
+  private struct Row {
+    let title: String
+    let agent: String
+    let fields: [String: String]
+  }
+
+  /// Sorted by worktree title then agent kind, so repeated polls see a stable order.
+  static func rows(
+    presence: AgentPresenceFeature.State,
+    repositories: RepositoriesFeature.State
+  ) -> [[String: String]] {
+    var rows: [Row] = []
+    for (key, candidate) in presence.resumeCandidates {
+      // A candidate whose agent came back to life is not offered; the live record
+      // is the authority on "running".
+      guard presence.records[key] == nil else { continue }
+      guard
+        let command = AgentResumeCommand.command(agent: key.agent, sessionRef: candidate.sessionRef)
+      else { continue }
+      guard let worktreeID = repositories.surfaceToItemID[key.surfaceID],
+        let item = repositories.sidebarItems[id: worktreeID]
+      else { continue }
+      let title = Repository.sidebarDisplayName(custom: item.customTitle, fallback: item.name)
+      let repoTitle = Repository.sidebarDisplayName(
+        custom: repositories.sidebar.sections[item.repositoryID]?.title,
+        fallback: repositories.repositoryName(for: item.repositoryID) ?? item.repositoryID.rawValue
+      )
+      rows.append(
+        Row(
+          title: title, agent: key.agent.rawValue,
+          fields: [
+            Key.agent: key.agent.rawValue,
+            Key.sessionRef: candidate.sessionRef,
+            Key.command: command,
+            Key.worktreeID: AgentQueryResponse.percentEncodedID(worktreeID.rawValue),
+            Key.branch: item.branchName,
+            Key.repo: repoTitle,
+            Key.worktreeTitle: title,
+          ]
+        ))
+    }
+    return rows
+      .sorted { lhs, rhs in
+        switch lhs.title.localizedCaseInsensitiveCompare(rhs.title) {
+        case .orderedAscending: return true
+        case .orderedDescending: return false
+        case .orderedSame: return lhs.agent < rhs.agent
+        }
+      }
+      .map(\.fields)
   }
 }
 

@@ -164,6 +164,8 @@ private nonisolated enum DeeplinkParser {
         return nil
       }
       return .metadata(tokens: tokens, clear: clear)
+    case "resume":
+      return .resume
     default:
       logger.warning("Unrecognized agent action: \(rawAction)")
       return nil
