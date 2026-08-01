@@ -75,14 +75,19 @@ public nonisolated enum AgentPresenceOSC {
   /// forged field eat libghostty's 2048-byte OSC budget.
   public static let sessionRefByteBudget = 128
 
-  /// The only session-ref shape Supacode accepts: `[A-Za-z0-9._-]`, 1...128
-  /// bytes. Load-bearing, not hygiene — a ref reaches a terminal as part of
-  /// `claude --resume <ref>`, so shell metacharacters, whitespace, and quotes
-  /// must never survive. Returns nil for anything else, which degrades to "no
-  /// resume offer" rather than to an injectable command.
+  /// The only session-ref shape Supacode accepts: an alphanumeric first byte,
+  /// then `[A-Za-z0-9._-]`, 1...128 bytes total.
+  ///
+  /// Load-bearing, not hygiene — a ref reaches a terminal as part of
+  /// `claude --resume <ref>`, so shell metacharacters, whitespace, and quotes must
+  /// never survive. The leading-byte rule is separate: `-rf` is charset-clean but
+  /// would be read by the agent's own CLI as a flag rather than as a session id.
+  /// Returns nil for anything else, which degrades to "no resume offer" rather
+  /// than to an injectable or misparsed command.
   public static func sanitizedSessionRef(_ raw: String?) -> String? {
-    guard let raw, !raw.isEmpty, raw.utf8.count <= sessionRefByteBudget else { return nil }
-    let isSafe = raw.allSatisfy { character in
+    guard let raw, let first = raw.first, raw.utf8.count <= sessionRefByteBudget else { return nil }
+    guard first.isASCII, first.isLetter || first.isNumber else { return nil }
+    let isSafe = raw.dropFirst().allSatisfy { character in
       guard character.isASCII else { return false }
       return character.isLetter || character.isNumber
         || character == "." || character == "_" || character == "-"
@@ -268,8 +273,11 @@ public nonisolated enum AgentPresenceOSC {
   /// `tr -cd` is the shell half of `sanitizedSessionRef`: it deletes every byte
   /// outside `[A-Za-z0-9._-]` before the value can reach the wire, so a hostile
   /// payload can't smuggle `;`, a quote, or a newline toward the resume command.
-  /// `cut -b` caps the length. Both sides validate, because the shell one can be
-  /// bypassed by anything that writes the OSC directly.
+  /// `cut -b` caps the length. It deliberately does NOT enforce the
+  /// alphanumeric-first-byte rule (no cheap portable way to); the app-side
+  /// `sanitizedSessionRef` rejects that shape on parse. Both sides validate,
+  /// because the shell one can be bypassed by anything that writes the OSC
+  /// directly.
   ///
   /// `readsStdin: false` skips the `__in=$(cat)` capture when the caller already
   /// set `$__in` (e.g. the Claude Stop probe).
