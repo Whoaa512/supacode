@@ -95,6 +95,10 @@ struct TerminalLayoutSnapshot: Codable, Equatable, Sendable {
     let agent: String
     let pids: [Int32]
     let activity: String
+    /// "The last turn finished while unfocused" (the Agents dashboard's `done`
+    /// state). Optional so layouts written before it decode unchanged, and only
+    /// written when true so the persisted JSON stays small.
+    var doneUnseen: Bool?
   }
 
 }

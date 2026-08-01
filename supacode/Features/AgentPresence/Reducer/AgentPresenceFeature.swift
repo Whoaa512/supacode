@@ -34,6 +34,10 @@ struct AgentPresenceFeature {
   struct AgentInstance: Hashable, Sendable {
     let agent: SkillAgent
     let activity: Activity
+    /// The agent's last turn finished while the user wasn't looking at its
+    /// surface. Only meaningful on `.idle`; the Agents dashboard maps it to
+    /// `done` so a finished turn reads differently from a never-started one.
+    var isDoneUnseen = false
 
     /// The avatar group flips contrast on awaiting-input instances.
     var awaitingInput: Bool { activity == .awaitingInput }
@@ -56,6 +60,9 @@ struct AgentPresenceFeature {
 
   nonisolated struct PresenceRecord: Equatable, Sendable {
     var activity: Activity = .idle
+    /// Set when a working turn ends on an unfocused surface; cleared by focus
+    /// (`clearAttention`) or by the next turn (`busy` / `sessionStart`).
+    var isDoneUnseen = false
     /// Local pids attributed to this record. Empty means the OSC presence was
     /// emitted without a local pid (SSH attach); `pids.isEmpty` is the
     /// discriminator for the pid-less lifecycle branches below. Every event
@@ -67,6 +74,7 @@ struct AgentPresenceFeature {
   nonisolated struct RestoredRecord: Sendable {
     let alivePids: Set<pid_t>
     let activity: Activity
+    var isDoneUnseen = false
   }
 
   // `nonisolated` is load-bearing here. Without it the @Reducer macro
@@ -107,6 +115,11 @@ struct AgentPresenceFeature {
     /// Per-surface agent presence. A surface can host multiple agents (rare,
     /// but possible if e.g. Claude spawns Codex). Order not guaranteed; sort before display.
     var bySurface: [UUID: Set<SkillAgent>] = [:]
+    /// The surfaces the user is currently looking at, as last reported by
+    /// `.clearAttention` (the app dispatches it from terminal focus changes).
+    /// Needed because focus only arrives as a *change*: without it, a turn that
+    /// finishes on the already-focused surface would latch as `done` forever.
+    var focusedSurfaceIDs: Set<UUID> = []
   }
 
   /// Period between liveness sweeps. Cost scales with active sessions, not
@@ -169,7 +182,8 @@ struct AgentPresenceFeature {
           let checked = staged.compactMapValues { stage -> RestoredRecord? in
             let alive = stage.pids.filter { Self.isAlive($0) }
             guard !alive.isEmpty else { return nil }
-            return RestoredRecord(alivePids: alive, activity: stage.activity)
+            return RestoredRecord(
+              alivePids: alive, activity: stage.activity, isDoneUnseen: stage.isDoneUnseen)
           }
           guard !checked.isEmpty else { return }
           await send(.restoreFromSnapshotChecked(records: checked))
@@ -258,21 +272,34 @@ struct AgentPresenceFeature {
   }
 
   /// Resets a sticky `error` / `compacting` record to `idle` on a restart.
+  /// A restart is a new turn, so any unseen-done marker from the last one is stale.
   /// Returns whether it changed anything.
   private static func normalizeStickyOnRestart(_ record: inout PresenceRecord) -> Bool {
-    guard record.activity == .error || record.activity == .compacting else { return false }
+    var changed = false
+    if record.isDoneUnseen {
+      record.isDoneUnseen = false
+      changed = true
+    }
+    guard record.activity == .error || record.activity == .compacting else { return changed }
     record.activity = .idle
     return true
   }
 
   /// Resets the states parked on the user (`error`, `awaitingInput`) to `idle`
-  /// on the surfaces they focused. Returns the surfaces whose record flipped.
+  /// on the surfaces they focused, and marks those surfaces seen (clearing
+  /// `isDoneUnseen`). Returns the surfaces whose record flipped.
+  ///
+  /// Also latches the focused set: the app only tells us about focus *changes*,
+  /// so a turn finishing on the surface the user is already staring at must be
+  /// born seen rather than waiting for a focus event that never comes.
   private static func clearAttention(on surfaces: Set<UUID>, into state: inout State) -> Set<UUID> {
+    state.focusedSurfaceIDs = surfaces
     var changed: Set<UUID> = []
-    for (key, record) in state.records
-    where surfaces.contains(key.surfaceID) && record.activity.isAttention {
+    for (key, record) in state.records where surfaces.contains(key.surfaceID) {
       var updated = record
-      updated.activity = .idle
+      if record.activity.isAttention { updated.activity = .idle }
+      updated.isDoneUnseen = false
+      guard updated != record else { continue }
       state.records[key] = updated
       changed.insert(key.surfaceID)
     }
@@ -296,6 +323,13 @@ struct AgentPresenceFeature {
       // Claude's 60s-idle `Notification` fires `awaitingInput` on exactly the
       // session that just died, and would otherwise downgrade it to "waiting".
       guard record.activity != .error || activity == .busy else { return false }
+      // A working turn ending is the only producer of "done", and only when the
+      // user isn't looking at that surface; a new turn clears it.
+      if record.activity.isWorking, activity == .idle {
+        record.isDoneUnseen = !state.focusedSurfaceIDs.contains(key.surfaceID)
+      } else if activity == .busy {
+        record.isDoneUnseen = false
+      }
       record.activity = activity
       state.records[key] = record
       return true
@@ -307,6 +341,7 @@ struct AgentPresenceFeature {
   }
 
   private static func drop(surfaces: Set<UUID>, from state: inout State) {
+    state.focusedSurfaceIDs.subtract(surfaces)
     for id in surfaces { state.bySurface.removeValue(forKey: id) }
     state.records = state.records.filter { !surfaces.contains($0.key.surfaceID) }
   }
@@ -354,6 +389,7 @@ struct AgentPresenceFeature {
   struct StagedRestore: Sendable {
     let pids: Set<pid_t>
     let activity: Activity
+    var isDoneUnseen = false
   }
 
   /// Build the staged-restore dict from persisted layouts. No `kill(2)` here;
@@ -372,7 +408,7 @@ struct AgentPresenceFeature {
           guard !pids.isEmpty else { continue }
           let activity = Activity(rawValue: record.activity) ?? .idle
           staged[PresenceKey(agent: agent, surfaceID: surfaceID)] =
-            StagedRestore(pids: pids, activity: activity)
+            StagedRestore(pids: pids, activity: activity, isDoneUnseen: record.doneUnseen ?? false)
         }
       }
     }
@@ -394,7 +430,8 @@ struct AgentPresenceFeature {
     for (key, record) in records {
       if state.records[key] != nil { continue }
       // Restored records always have alive pids (pid-less OSC records are dropped in stageRestore).
-      state.records[key] = PresenceRecord(activity: record.activity, pids: record.alivePids)
+      state.records[key] = PresenceRecord(
+        activity: record.activity, isDoneUnseen: record.isDoneUnseen, pids: record.alivePids)
       dirtySurfaces.insert(key.surfaceID)
     }
     for surfaceID in dirtySurfaces { rebuildPresence(forSurface: surfaceID, in: &state) }
@@ -424,7 +461,8 @@ extension AgentPresenceFeature.State {
       let entry = TerminalLayoutSnapshot.SurfaceAgentRecord(
         agent: key.agent.rawValue,
         pids: record.pids.sorted(),
-        activity: record.activity.rawValue
+        activity: record.activity.rawValue,
+        doneUnseen: record.isDoneUnseen ? true : nil
       )
       result[key.surfaceID, default: []].append(entry)
     }
@@ -455,9 +493,12 @@ extension AgentPresenceFeature.State {
       surfaceIDs
       .flatMap { surfaceID -> [AgentPresenceFeature.AgentInstance] in
         (bySurface[surfaceID] ?? []).map { agent in
-          let activity =
-            records[AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: surfaceID)]?.activity ?? .idle
-          return AgentPresenceFeature.AgentInstance(agent: agent, activity: activity)
+          let record = records[AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: surfaceID)]
+          return AgentPresenceFeature.AgentInstance(
+            agent: agent,
+            activity: record?.activity ?? .idle,
+            isDoneUnseen: record?.isDoneUnseen ?? false
+          )
         }
       }
       .sorted { lhs, rhs in
