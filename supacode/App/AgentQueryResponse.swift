@@ -17,6 +17,10 @@ enum AgentQueryResponse {
     static let branch = "branch"
     static let repo = "repo"
     static let worktreeTitle = "worktreeTitle"
+    /// Metadata tokens are flattened as `token.<key>` so the whole payload stays
+    /// a flat `[String: String]` (the socket wire format) with no nested JSON to
+    /// parse on the CLI side.
+    static let tokenPrefix = "token."
   }
 
   /// Sorted by triage state, then worktree title, then agent kind, so repeated
@@ -53,7 +57,10 @@ enum AgentQueryResponse {
             Key.branch: item.branchName,
             Key.repo: repoTitle,
             Key.worktreeTitle: title,
-          ]
+          ].merging(
+            (presence.metadataByKey[key] ?? [:]).map { ("\(Key.tokenPrefix)\($0.key)", $0.value) },
+            uniquingKeysWith: { _, token in token }
+          )
         )
       )
     }

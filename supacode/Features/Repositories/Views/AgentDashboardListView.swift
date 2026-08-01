@@ -115,6 +115,15 @@ private struct AgentDashboardRowView: View {
           .foregroundStyle(.secondary)
           .lineLimit(1)
           .truncationMode(.middle)
+        // Agent-reported `summary` token. Display-only, so it sits below the
+        // semantic subtitle rather than replacing anything.
+        if let summary = entry.summary {
+          Text(summary)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+        }
       }
       Spacer(minLength: 0)
       if let tint = entry.repoTint {

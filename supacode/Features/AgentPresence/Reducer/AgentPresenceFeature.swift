@@ -41,6 +41,9 @@ struct AgentPresenceFeature {
     /// User-assigned name (`supacode agent rename`, sidebar context menu).
     /// Ephemeral: it dies with the record, so `nil` is the common case.
     var name: String?
+    /// The `summary` metadata token (`supacode agent report-metadata`).
+    /// Display-only: it never feeds state, rollups, or waits.
+    var summary: String?
 
     /// The avatar group flips contrast on awaiting-input instances.
     var awaitingInput: Bool { activity == .awaitingInput }
@@ -98,6 +101,9 @@ struct AgentPresenceFeature {
     /// Invalid or already-taken names are dropped; callers that need to report
     /// the failure validate with `validate(name:)` / `isNameTaken` first.
     case renameAgent(key: PresenceKey, name: String?)
+    /// Merges display-only tokens onto a live agent. `clear` drops every token
+    /// first, so `clear` alone wipes the agent's metadata.
+    case reportMetadata(key: PresenceKey, tokens: [String: String], clear: Bool)
     /// The user focused these surfaces, so the states parked on them (`error`,
     /// `awaitingInput`) return to `idle`.
     case clearAttention(surfaces: Set<UUID>)
@@ -130,6 +136,10 @@ struct AgentPresenceFeature {
     /// User-assigned agent names, keyed like `records`. Never persisted: a name
     /// addresses a running agent, so it must not outlive one.
     var nameByKey: [PresenceKey: String] = [:]
+    /// Display-only metadata tokens reported by the agent itself
+    /// (`supacode agent report-metadata`). Same lifetime as `nameByKey`:
+    /// ephemeral, never persisted, never authoritative for state.
+    var metadataByKey: [PresenceKey: [String: String]] = [:]
   }
 
   /// Period between liveness sweeps. Cost scales with active sessions, not
@@ -146,7 +156,7 @@ struct AgentPresenceFeature {
 
       case .hookEventReceived(let event):
         let changed = Self.apply(event: event, into: &state)
-        Self.pruneNames(in: &state)
+        Self.pruneEphemeral(in: &state)
         return Self.surfacesChangedEffect(changed)
 
       case .livenessSweepTick:
@@ -162,7 +172,7 @@ struct AgentPresenceFeature {
 
       case .livenessSweepResult(let snapshot, let alive):
         let changed = Self.applyLiveness(delta: alive, snapshot: snapshot, into: &state)
-        Self.pruneNames(in: &state)
+        Self.pruneEphemeral(in: &state)
         return Self.surfacesChangedEffect(changed)
 
       case .start:
@@ -186,6 +196,10 @@ struct AgentPresenceFeature {
 
       case .renameAgent(let key, let name):
         guard Self.rename(key: key, to: name, into: &state) else { return .none }
+        return Self.surfacesChangedEffect([key.surfaceID])
+
+      case .reportMetadata(let key, let tokens, let clear):
+        guard Self.reportMetadata(key: key, tokens: tokens, clear: clear, into: &state) else { return .none }
         return Self.surfacesChangedEffect([key.surfaceID])
 
       case .clearAttention(let surfaces):
@@ -360,7 +374,7 @@ struct AgentPresenceFeature {
     state.focusedSurfaceIDs.subtract(surfaces)
     for id in surfaces { state.bySurface.removeValue(forKey: id) }
     state.records = state.records.filter { !surfaces.contains($0.key.surfaceID) }
-    pruneNames(in: &state)
+    pruneEphemeral(in: &state)
   }
 
   // MARK: - Names.
@@ -388,13 +402,76 @@ struct AgentPresenceFeature {
     return true
   }
 
-  /// Drops names whose record is gone. A name addresses a *running* agent, so
-  /// every record-removal path funnels through here.
-  private static func pruneNames(in state: inout State) {
-    guard !state.nameByKey.isEmpty else { return }
-    let live = state.nameByKey.filter { state.records[$0.key] != nil }
-    guard live.count != state.nameByKey.count else { return }
-    state.nameByKey = live
+  /// Drops names and metadata whose record is gone. Both address a *running*
+  /// agent, so every record-removal path funnels through here.
+  private static func pruneEphemeral(in state: inout State) {
+    if !state.nameByKey.isEmpty {
+      let live = state.nameByKey.filter { state.records[$0.key] != nil }
+      if live.count != state.nameByKey.count { state.nameByKey = live }
+    }
+    guard !state.metadataByKey.isEmpty else { return }
+    let live = state.metadataByKey.filter { state.records[$0.key] != nil }
+    guard live.count != state.metadataByKey.count else { return }
+    state.metadataByKey = live
+  }
+
+  // MARK: - Metadata tokens.
+
+  /// Token limits. Tokens are display-only, so the caps exist to keep one
+  /// chatty agent from bloating state or the sidebar row.
+  nonisolated enum MetadataLimits {
+    static let maxTokens = 8
+    static let maxKeyLength = 32
+    static let maxValueLength = 120
+  }
+
+  /// Validates a token batch. Returns a human-readable reason on rejection, so
+  /// the deeplink path can ack `ok: false` with it.
+  nonisolated static func validate(tokens: [String: String]) -> String? {
+    guard tokens.count <= MetadataLimits.maxTokens else {
+      return "Too many metadata tokens (\(tokens.count) > \(MetadataLimits.maxTokens))."
+    }
+    for (key, value) in tokens.sorted(by: { $0.key < $1.key }) {
+      guard !key.isEmpty, key.count <= MetadataLimits.maxKeyLength else {
+        return "Invalid metadata key '\(key)': 1–\(MetadataLimits.maxKeyLength) characters."
+      }
+      let isLowercaseToken = key.allSatisfy { character in
+        guard character.isASCII else { return false }
+        return (character.isLetter && character.isLowercase) || character.isNumber
+          || character == "_" || character == "-"
+      }
+      guard isLowercaseToken else {
+        return "Invalid metadata key '\(key)': lowercase letters, digits, '_' and '-' only."
+      }
+      guard value.count <= MetadataLimits.maxValueLength else {
+        return "Metadata value for '\(key)' is too long (\(value.count) > \(MetadataLimits.maxValueLength))."
+      }
+    }
+    return nil
+  }
+
+  /// Applies a validated token batch. Returns whether anything changed, so the
+  /// caller only emits `surfacesChanged` on a real edit.
+  static func reportMetadata(
+    key: PresenceKey,
+    tokens: [String: String],
+    clear: Bool,
+    into state: inout State
+  ) -> Bool {
+    // Metadata on a dead agent would leak: no `agent list` row can clear it.
+    guard state.records[key] != nil else { return false }
+    guard validate(tokens: tokens) == nil else { return false }
+    var merged = clear ? [:] : (state.metadataByKey[key] ?? [:])
+    for (token, value) in tokens { merged[token] = value }
+    // Cap after the merge too: repeated batches must not grow past the limit.
+    guard merged.count <= MetadataLimits.maxTokens else { return false }
+    guard merged != state.metadataByKey[key] ?? [:] else { return false }
+    if merged.isEmpty {
+      state.metadataByKey.removeValue(forKey: key)
+    } else {
+      state.metadataByKey[key] = merged
+    }
+    return true
   }
 
   /// Pure liveness check; returns only keys whose alive subset diverges from the snapshot.
@@ -524,6 +601,11 @@ extension AgentPresenceFeature.State {
   }
 }
 
+extension AgentPresenceFeature {
+  /// The one token the dashboard renders. Every other token is CLI-visible only.
+  nonisolated static let summaryToken = "summary"
+}
+
 extension AgentPresenceFeature.State {
   /// Whether `name` already addresses another live agent. Case-sensitive: names
   /// are validated lowercase, so a case-insensitive check would be dead code.
@@ -573,7 +655,8 @@ extension AgentPresenceFeature.State {
             agent: agent,
             activity: record?.activity ?? .idle,
             isDoneUnseen: record?.isDoneUnseen ?? false,
-            name: nameByKey[key]
+            name: nameByKey[key],
+            summary: metadataByKey[key]?[AgentPresenceFeature.summaryToken]
           )
         }
       }

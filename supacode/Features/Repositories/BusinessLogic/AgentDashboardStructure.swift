@@ -72,6 +72,9 @@ struct AgentDashboardEntry: Identifiable, Equatable, Sendable {
   let agent: SkillAgent
   /// User-assigned name (`supacode agent rename`). `nil` for an unnamed agent.
   let name: String?
+  /// The agent's `summary` metadata token, rendered as an extra caption line.
+  /// Display-only: it never participates in `state` or the Spaces rollup.
+  let summary: String?
   let state: AgentDashboardState
   let worktreeID: SidebarItemID
   let repositoryID: Repository.ID
@@ -155,6 +158,7 @@ private struct AgentRollup {
   let state: AgentDashboardState
   let hasError: Bool
   let name: String?
+  let summary: String?
 }
 
 extension RepositoriesFeature.State {
@@ -208,7 +212,8 @@ extension RepositoriesFeature.State {
           hasError: (previous?.hasError ?? false) || instance.activity == .error,
           // First named instance wins; the collapse is per (worktree, agent), so
           // two surfaces of the same kind share one row and one name.
-          name: previous?.name ?? instance.name
+          name: previous?.name ?? instance.name,
+          summary: previous?.summary ?? instance.summary
         )
       }
 
@@ -220,6 +225,7 @@ extension RepositoriesFeature.State {
             id: AgentDashboardEntry.EntryID(worktreeID: id, agent: agent),
             agent: agent,
             name: worst.name,
+            summary: worst.summary,
             state: worst.state,
             worktreeID: id,
             repositoryID: item.repositoryID,
