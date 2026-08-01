@@ -70,6 +70,8 @@ struct AgentDashboardEntry: Identifiable, Equatable, Sendable {
 
   let id: EntryID
   let agent: SkillAgent
+  /// User-assigned name (`supacode agent rename`). `nil` for an unnamed agent.
+  let name: String?
   let state: AgentDashboardState
   let worktreeID: SidebarItemID
   let repositoryID: Repository.ID
@@ -81,7 +83,16 @@ struct AgentDashboardEntry: Identifiable, Equatable, Sendable {
   let repoTint: RepositoryColor?
   let hasError: Bool
 
-  var subtitle: String { "\(repositoryTitle) · \(branchName)" }
+  /// Primary row text: the custom name wins, so a renamed agent reads as the
+  /// thing the user addresses over the CLI.
+  var displayName: String { name ?? agent.displayName }
+
+  /// A named row loses the agent kind from its title, so the subtitle carries it.
+  var subtitle: String {
+    let base = "\(repositoryTitle) · \(branchName)"
+    guard name != nil else { return base }
+    return "\(base) · \(agent.displayName)"
+  }
 
   /// Triage order: state rank first, then worktree title (case-insensitive),
   /// then the agent raw value as a deterministic final tie-break.
@@ -180,13 +191,16 @@ extension RepositoriesFeature.State {
 
       // The same agent can run on two surfaces of one worktree. Collapse to one
       // row carrying the most urgent state so the List keeps unique ids.
-      var worstByAgent: [SkillAgent: (state: AgentDashboardState, hasError: Bool)] = [:]
+      var worstByAgent: [SkillAgent: (state: AgentDashboardState, hasError: Bool, name: String?)] = [:]
       for instance in item.agents {
         let state = AgentDashboardState.from(instance)
         let previous = worstByAgent[instance.agent]
         worstByAgent[instance.agent] = (
           state: min(state, previous?.state ?? state),
-          hasError: (previous?.hasError ?? false) || instance.activity == .error
+          hasError: (previous?.hasError ?? false) || instance.activity == .error,
+          // First named instance wins; the collapse is per (worktree, agent), so
+          // two surfaces of the same kind share one row and one name.
+          name: previous?.name ?? instance.name
         )
       }
 
@@ -197,6 +211,7 @@ extension RepositoriesFeature.State {
           AgentDashboardEntry(
             id: AgentDashboardEntry.EntryID(worktreeID: id, agent: agent),
             agent: agent,
+            name: worst.name,
             state: worst.state,
             worktreeID: id,
             repositoryID: item.repositoryID,
