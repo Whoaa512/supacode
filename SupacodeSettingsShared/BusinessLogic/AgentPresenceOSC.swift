@@ -35,6 +35,10 @@ public nonisolated enum AgentPresenceOSC {
 
   static let eventField = "event"
   static let pidField = "pid"
+  /// Native agent session identity (`claude --resume <id>`, `pi --session <id>`,
+  /// `codex resume <id>`). Rides presence signals so a session whose process is
+  /// gone after a relaunch is still addressable. Optional on every event.
+  static let sessionField = "sid"
   static let kindField = "kind"
   static let titleField = "title"
   static let bodyField = "body"
@@ -60,6 +64,30 @@ public nonisolated enum AgentPresenceOSC {
     /// so a local hook carries it and a remote one omits it; a forged positive
     /// pid at worst pins a live-looking badge until surface close.
     public let pid: pid_t?
+    /// The agent's native session id, when its hook payload carried one. Already
+    /// charset- and length-validated by `sanitizedSessionRef`, because the app
+    /// later splices it into a shell command line.
+    public let sessionRef: String?
+  }
+
+  /// Byte cap for a session ref on the wire. Every agent we resume uses a UUID
+  /// (36 bytes); the headroom covers a prefixed or compound id without letting a
+  /// forged field eat libghostty's 2048-byte OSC budget.
+  public static let sessionRefByteBudget = 128
+
+  /// The only session-ref shape Supacode accepts: `[A-Za-z0-9._-]`, 1...128
+  /// bytes. Load-bearing, not hygiene — a ref reaches a terminal as part of
+  /// `claude --resume <ref>`, so shell metacharacters, whitespace, and quotes
+  /// must never survive. Returns nil for anything else, which degrades to "no
+  /// resume offer" rather than to an injectable command.
+  public static func sanitizedSessionRef(_ raw: String?) -> String? {
+    guard let raw, !raw.isEmpty, raw.utf8.count <= sessionRefByteBudget else { return nil }
+    let isSafe = raw.allSatisfy { character in
+      guard character.isASCII else { return false }
+      return character.isLetter || character.isNumber
+        || character == "." || character == "_" || character == "-"
+    }
+    return isSafe ? raw : nil
   }
 
   /// Parse the OSC 3008 context id + raw key=value metadata (as surfaced by
@@ -76,6 +104,7 @@ public nonisolated enum AgentPresenceOSC {
       agent: id,
       eventRawValue: String(rawEvent),
       pid: parsePid(fields[Substring(pidField)]),
+      sessionRef: sanitizedSessionRef(fields[Substring(sessionField)].map(String.init)),
     )
   }
 
@@ -116,8 +145,10 @@ public nonisolated enum AgentPresenceOSC {
     return fields
   }
 
+  /// `sid` joins the deduped set for the same reason `event` is in it: a spliced
+  /// second `sid=` would otherwise decide which session a later resume relaunches.
   private static let dedupedFields: Set<Substring> = [
-    Substring(eventField), Substring(kindField),
+    Substring(eventField), Substring(kindField), Substring(sessionField),
   ]
 
   /// A parsed notification signal with already-decoded display text.
@@ -181,12 +212,12 @@ public nonisolated enum AgentPresenceOSC {
   }
 
   /// The `key=value` metadata a PRESENCE signal carries (everything after the
-  /// context id). `parse` recovers the event from this exact shape. `pidSuffix`
-  /// is appended verbatim (e.g. `;pid=123`) so the emit can splice in a
-  /// shell-built, conditionally-empty suffix. See `notifyMetadata` for the
+  /// context id). `parse` recovers the event from this exact shape. `suffix`
+  /// is appended verbatim (e.g. `;pid=123;sid=abc`) so the emit can splice in a
+  /// shell-built, conditionally-empty tail. See `notifyMetadata` for the
   /// notify counterpart.
-  static func metadata(event: HookEvent, pidSuffix: String = "") -> String {
-    "\(eventField)=\(event.rawValue)\(pidSuffix)"
+  static func metadata(event: HookEvent, suffix: String = "") -> String {
+    "\(eventField)=\(event.rawValue)\(suffix)"
   }
 
   /// Shell that resolves `$__ppid` (the hook's parent agent) and its `$__tty`, since
@@ -211,14 +242,48 @@ public nonisolated enum AgentPresenceOSC {
   /// with no resolvable parent stays untracked by the liveness sweep either way. A
   /// forged positive pid at worst pins a live-looking badge until surface close. The
   /// suffix is built in shell and filled into a trailing `%s`.
-  static func emitShell(event: HookEvent, agent: SkillAgent) -> String {
-    // Trailing %s for the shell-built, conditionally-empty pid suffix.
-    let meta = metadata(event: event, pidSuffix: "%s")
+  ///
+  /// `includesSessionRef` appends `;sid=$__sid` when the caller already ran
+  /// `sessionRefProbeShell()` and it resolved something. Unlike the pid, the sid
+  /// is NOT gated on the socket path: a resume ref is just as useful for an agent
+  /// that ran over SSH, and it carries no local-process meaning to go stale.
+  static func emitShell(
+    event: HookEvent, agent: SkillAgent, includesSessionRef: Bool = false
+  ) -> String {
+    // Trailing %s for the shell-built, conditionally-empty pid + sid suffix.
+    let meta = metadata(event: event, suffix: "%s")
     let payload = #"\033]3008;\#(action(for: event))=\#(agent.rawValue);\#(meta)\033\\"#
-    return #"__sp=""; [ -n "${SUPACODE_SOCKET_PATH:-}" ] && [ -n "$__ppid" ] "#
+    var build = #"__sp=""; [ -n "${SUPACODE_SOCKET_PATH:-}" ] && [ -n "$__ppid" ] "#
       + #"&& __sp=";\#(pidField)=$__ppid"; "#
-      + #"printf '\#(payload)' "$__sp" > "$__tty""#
+    if includesSessionRef {
+      build += #"[ -n "${__sid:-}" ] && __sp="$__sp;\#(sessionField)=$__sid"; "#
+    }
+    return build + #"printf '\#(payload)' "$__sp" > "$__tty""#
   }
+
+  /// Sets `$__sid` to the agent's native session id, read from the hook JSON on
+  /// stdin. Leaves `$__in` set so a following `emitNotifyShell(readsStdin: false)`
+  /// reuses the one stdin read.
+  ///
+  /// `tr -cd` is the shell half of `sanitizedSessionRef`: it deletes every byte
+  /// outside `[A-Za-z0-9._-]` before the value can reach the wire, so a hostile
+  /// payload can't smuggle `;`, a quote, or a newline toward the resume command.
+  /// `cut -b` caps the length. Both sides validate, because the shell one can be
+  /// bypassed by anything that writes the OSC directly.
+  ///
+  /// `readsStdin: false` skips the `__in=$(cat)` capture when the caller already
+  /// set `$__in` (e.g. the Claude Stop probe).
+  static func sessionRefProbeShell(readsStdin: Bool = true) -> String {
+    (readsStdin ? #"__in=$(cat); "# : "")
+      + #"__sid=$(printf '%s' "$__in" | LC_ALL=C awk -v keys="\#(sessionIDKeys.joined(separator: ","))" "#
+      + #"-v budget=\#(sessionRefByteBudget) '\#(notifyExtractAwk)' "#
+      + #"| tr -cd 'A-Za-z0-9._-' | cut -b 1-\#(sessionRefByteBudget))"#
+  }
+
+  /// Hook-payload keys that carry a resumable session id, in precedence order.
+  /// Claude and Codex both spell it `session_id`; `sessionId` is the camelCase
+  /// fallback so a payload-shape change doesn't silently stop capturing.
+  public static let sessionIDKeys = ["session_id", "sessionId"]
 
   /// The `key=value` metadata a notify signal carries; `title` / `body` are base64.
   static func notifyMetadata(title: String, body: String) -> String {
@@ -294,15 +359,16 @@ public nonisolated enum AgentPresenceOSC {
     + #"if(index($0,"\"type\":\"assistant\"")>0){c=0;next}}"#
     + #"END{printf "%s",(c?"1":"")}"#
 
-  /// Sets `$__apierr=1` when the current turn ended in an API error. Leaves `$__in`
-  /// set so a following `emitNotifyShell(readsStdin: false)` reuses the one stdin
-  /// read. `awk` and `tail` only, so it works on a bare SSH host.
+  /// Sets `$__apierr=1` when the current turn ended in an API error. Also leaves
+  /// `$__sid` (via `sessionRefProbeShell`, which the transcript scan needs anyway)
+  /// and `$__in` set, so a following `emitShell(includesSessionRef: true)` /
+  /// `emitNotifyShell(readsStdin: false)` reuse the one stdin read.
+  /// `awk` and `tail` only, so it works on a bare SSH host.
   static func stopApiErrorProbeShell() -> String {
     #"__in=$(cat); "#
       + #"__tp=$(printf '%s' "$__in" | LC_ALL=C awk -v keys="transcript_path" "#
       + #"-v budget=4096 '\#(notifyExtractAwk)'); "#
-      + #"__sid=$(printf '%s' "$__in" | LC_ALL=C awk -v keys="session_id" "#
-      + #"-v budget=256 '\#(notifyExtractAwk)'); "#
+      + "\(sessionRefProbeShell(readsStdin: false)); "
       + #"__apierr=""; [ -n "$__tp" ] && [ -f "$__tp" ] && "#
       + #"__apierr=$(tail -c \#(transcriptTailBytes) "$__tp" 2>/dev/null "#
       + #"| LC_ALL=C awk -v sid="$__sid" '\#(apiErrorScanAwk)')"#
