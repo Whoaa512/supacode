@@ -187,6 +187,11 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   /// Row layout for the sidebar's Agents tab. Hand-editable in `supacode.json`;
   /// the Developer settings pane writes the same keys.
   public var agentsSidebar: AgentsSidebarSettings
+  /// When true, restoring a layout whose agent process didn't survive keeps that
+  /// session's native ref and offers `supacode agent resume` for it. Supacode
+  /// never types the resume command on its own — the offer is the whole feature,
+  /// so that a surface running something else is never interrupted.
+  public var resumeAgentsOnRestore: Bool
 
   public static let `default` = GlobalSettings(
     appearanceMode: .dark,
@@ -232,7 +237,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     appVisibility: .dockAndMenuBar,
     chromeTextSize: .default,
     persistScrollbackEnabled: true,
-    agentsSidebar: .default
+    agentsSidebar: .default,
+    resumeAgentsOnRestore: true
   )
 
   public init(
@@ -283,7 +289,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     hoverFocusMode: HoverFocusMode = .never,
     globalToggleVisibilityHotkey: AppShortcutOverride? = nil,
     persistScrollbackEnabled: Bool = true,
-    agentsSidebar: AgentsSidebarSettings = .default
+    agentsSidebar: AgentsSidebarSettings = .default,
+    resumeAgentsOnRestore: Bool = true
   ) {
     self.appearanceMode = appearanceMode
     self.defaultEditorID = defaultEditorID
@@ -333,6 +340,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.globalToggleVisibilityHotkey = globalToggleVisibilityHotkey
     self.persistScrollbackEnabled = persistScrollbackEnabled
     self.agentsSidebar = agentsSidebar
+    self.resumeAgentsOnRestore = resumeAgentsOnRestore
   }
 
   /// Keys for reading renamed settings fields that no longer
@@ -573,6 +581,9 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     agentsSidebar =
       try container.decodeIfPresent(AgentsSidebarSettings.self, forKey: .agentsSidebar)
       ?? Self.default.agentsSidebar
+    resumeAgentsOnRestore =
+      try container.decodeIfPresent(Bool.self, forKey: .resumeAgentsOnRestore)
+      ?? Self.default.resumeAgentsOnRestore
   }
 }
 

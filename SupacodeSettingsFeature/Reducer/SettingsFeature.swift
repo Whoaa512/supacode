@@ -79,6 +79,7 @@ public struct SettingsFeature {
     public var openFileScript: String
     public var richAgentNotificationsEnabled: Bool
     public var agentPresenceBadgesEnabled: Bool
+    public var resumeAgentsOnRestore: Bool
     public var confirmQuitMode: ConfirmQuitMode
     public var confirmCloseSurface: Bool
     public var confirmCloseTab: ConfirmCloseTabMode
@@ -232,6 +233,7 @@ public struct SettingsFeature {
       openFileScript = settings.openFileScript
       richAgentNotificationsEnabled = settings.richAgentNotificationsEnabled
       agentPresenceBadgesEnabled = settings.agentPresenceBadgesEnabled
+      resumeAgentsOnRestore = settings.resumeAgentsOnRestore
       confirmQuitMode = settings.confirmQuitMode
       confirmCloseSurface = settings.confirmCloseSurface
       confirmCloseTab = settings.confirmCloseTab
@@ -427,6 +429,7 @@ public struct SettingsFeature {
         state.openFileScript = normalizedSettings.openFileScript
         state.richAgentNotificationsEnabled = normalizedSettings.richAgentNotificationsEnabled
         state.agentPresenceBadgesEnabled = normalizedSettings.agentPresenceBadgesEnabled
+        state.resumeAgentsOnRestore = normalizedSettings.resumeAgentsOnRestore
         state.confirmQuitMode = normalizedSettings.confirmQuitMode
         state.confirmCloseSurface = normalizedSettings.confirmCloseSurface
         state.confirmCloseTab = normalizedSettings.confirmCloseTab
@@ -1225,5 +1228,6 @@ extension SettingsFeature.State {
     settings.globalToggleVisibilityHotkey = globalToggleVisibilityHotkey
     settings.persistScrollbackEnabled = persistScrollbackEnabled
     settings.agentsSidebar = agentsSidebar
+    settings.resumeAgentsOnRestore = resumeAgentsOnRestore
   }
 }
