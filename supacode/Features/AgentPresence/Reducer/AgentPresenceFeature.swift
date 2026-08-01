@@ -41,9 +41,12 @@ struct AgentPresenceFeature {
     /// User-assigned name (`supacode agent rename`, sidebar context menu).
     /// Ephemeral: it dies with the record, so `nil` is the common case.
     var name: String?
-    /// The `summary` metadata token (`supacode agent report-metadata`).
-    /// Display-only: it never feeds state, rollups, or waits.
-    var summary: String?
+    /// Display-only metadata tokens (`supacode agent report-metadata`). They
+    /// never feed state, rollups, or waits — only row rendering.
+    var metadata: [String: String] = [:]
+
+    /// The one token the built-in row layout renders as a caption.
+    var summary: String? { metadata[AgentPresenceFeature.summaryToken] }
 
     /// The avatar group flips contrast on awaiting-input instances.
     var awaitingInput: Bool { activity == .awaitingInput }
@@ -75,6 +78,14 @@ struct AgentPresenceFeature {
     /// arrives over OSC now, so there is no "socket-owned" record to defend
     /// against.
     var pids: Set<pid_t>
+    /// Diagnostics for `supacode agent explain`. Never authoritative for state,
+    /// never persisted: they describe the last wire event this record saw.
+    var lastEventName: String?
+    /// The hook's own `ts`, not a locally sampled clock: an event that arrived
+    /// without a timestamp reports `nil` rather than a plausible-looking lie.
+    var lastEventAt: Date?
+    /// `"busy→idle"` for the last activity flip this record made.
+    var lastTransition: String?
   }
 
   nonisolated struct RestoredRecord: Sendable {
@@ -155,7 +166,7 @@ struct AgentPresenceFeature {
         return .none
 
       case .hookEventReceived(let event):
-        let changed = Self.apply(event: event, into: &state)
+        let changed = Self.applyRecordingDiagnostics(event: event, into: &state)
         Self.pruneEphemeral(in: &state)
         return Self.surfacesChangedEffect(changed)
 
@@ -232,6 +243,26 @@ struct AgentPresenceFeature {
   }
 
   // MARK: - Mutators.
+
+  /// `apply(event:)` plus the per-record diagnostics `agent explain` reports.
+  /// Diagnostics are written after the fact so no mutator has to thread them,
+  /// and they never widen the returned dirty-surface set: nothing renders them.
+  private static func applyRecordingDiagnostics(
+    event: AgentHookEvent, into state: inout State
+  ) -> Set<UUID> {
+    guard let agent = SkillAgent(rawValue: event.agent) else { return apply(event: event, into: &state) }
+    let key = PresenceKey(agent: agent, surfaceID: event.surfaceID)
+    let before = state.records[key]?.activity
+    let changed = apply(event: event, into: &state)
+    guard var record = state.records[key] else { return changed }
+    record.lastEventName = event.event
+    record.lastEventAt = event.timestamp
+    if let before, before != record.activity {
+      record.lastTransition = "\(before.rawValue)→\(record.activity.rawValue)"
+    }
+    state.records[key] = record
+    return changed
+  }
 
   /// Returns the surface IDs whose row-visible state changed, so the parent can fan
   /// out per-row `agentSnapshotChanged` deltas without inspecting `bySurface` itself.
@@ -656,7 +687,7 @@ extension AgentPresenceFeature.State {
             activity: record?.activity ?? .idle,
             isDoneUnseen: record?.isDoneUnseen ?? false,
             name: nameByKey[key],
-            summary: metadataByKey[key]?[AgentPresenceFeature.summaryToken]
+            metadata: metadataByKey[key] ?? [:]
           )
         }
       }
