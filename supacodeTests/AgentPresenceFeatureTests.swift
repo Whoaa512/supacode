@@ -1009,6 +1009,129 @@ struct AgentPresenceFeatureTests {
     #expect(instances.first?.activity == .error)
   }
 
+  // MARK: - Agent names.
+
+  @Test func renameAssignsAndClearsAName() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+
+    harness.send(.renameAgent(key: key(surfaceID), name: "reviewer"))
+    #expect(harness.state.nameByKey[key(surfaceID)] == "reviewer")
+    #expect(harness.state.agents(across: [surfaceID], badgesEnabled: true).first?.name == "reviewer")
+    #expect(harness.state.presenceKey(forName: "reviewer") == key(surfaceID))
+
+    harness.send(.renameAgent(key: key(surfaceID), name: nil))
+    #expect(harness.state.nameByKey.isEmpty)
+    #expect(harness.state.agents(across: [surfaceID], badgesEnabled: true).first?.name == nil)
+  }
+
+  @Test(
+    arguments: [
+      "Reviewer", "1reviewer", "_reviewer", "-reviewer", "review er", "review!", "",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    ]
+  )
+  func renameRejectsInvalidNames(name: String) {
+    #expect(!AgentPresenceFeature.validate(name: name))
+
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.renameAgent(key: key(surfaceID), name: name))
+
+    #expect(harness.state.nameByKey.isEmpty)
+  }
+
+  @Test(arguments: ["a", "reviewer", "r2-d2_x", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"])
+  func renameAcceptsValidNames(name: String) {
+    #expect(AgentPresenceFeature.validate(name: name))
+  }
+
+  @Test func renameRejectsANameHeldByAnotherLiveAgent() {
+    var harness = Harness()
+    let first = UUID()
+    let second = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: first, pid: getpid())))
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: second, pid: getpid())))
+    harness.send(.renameAgent(key: key(first), name: "reviewer"))
+
+    harness.send(.renameAgent(key: key(second), name: "reviewer"))
+
+    #expect(harness.state.nameByKey[key(second)] == nil)
+    #expect(harness.state.isNameTaken("reviewer"))
+    #expect(!harness.state.isNameTaken("reviewer", excluding: key(first)))
+  }
+
+  @Test func renamingAnAgentWithNoRecordIsDropped() {
+    // A name must address a running agent, or `agent list` could never clear it.
+    var harness = Harness()
+    harness.send(.renameAgent(key: key(UUID()), name: "reviewer"))
+
+    #expect(harness.state.nameByKey.isEmpty)
+  }
+
+  @Test func closingTheSurfaceClearsTheName() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.renameAgent(key: key(surfaceID), name: "reviewer"))
+
+    harness.send(.surfaceClosed(surfaceID))
+
+    #expect(harness.state.nameByKey.isEmpty)
+  }
+
+  @Test func sessionEndClearsTheName() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    let pid = getpid()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(.renameAgent(key: key(surfaceID), name: "reviewer"))
+
+    harness.send(.hookEventReceived(makeEvent(.sessionEnd, agent: .claude, surfaceID: surfaceID, pid: pid)))
+
+    #expect(harness.state.records.isEmpty)
+    #expect(harness.state.nameByKey.isEmpty)
+  }
+
+  @Test func livenessSweepReapingTheRecordClearsTheName() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: makeDeadPid())))
+    harness.send(.renameAgent(key: key(surfaceID), name: "reviewer"))
+    #expect(harness.state.nameByKey.count == 1)
+
+    harness.livenessSweep()
+
+    #expect(harness.state.nameByKey.isEmpty)
+  }
+
+  @Test func namesAreNotPersistedWithTheAgentRecord() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.renameAgent(key: key(surfaceID), name: "reviewer"))
+
+    var restored = Harness()
+    restored.restoreFromLayouts([
+      makeLayout(surfaces: [(id: surfaceID, agents: harness.state.agentsBySurface()[surfaceID] ?? [])])
+    ])
+
+    #expect(restored.state.records[key(surfaceID)] != nil)
+    #expect(restored.state.nameByKey.isEmpty)
+  }
+
+  @Test func presenceKeyResolvesTheFirstLiveSurfaceForAnAgent() {
+    var harness = Harness()
+    let empty = UUID()
+    let live = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: live, pid: getpid())))
+
+    #expect(harness.state.presenceKey(agent: .claude, across: [empty, live]) == key(live))
+    #expect(harness.state.presenceKey(agent: .codex, across: [empty, live]) == nil)
+  }
+
   // MARK: - Done-until-seen.
 
   @Test func finishedTurnOnUnfocusedSurfaceIsDoneUnseen() {
