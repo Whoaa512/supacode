@@ -116,6 +116,14 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   /// restoring them as fresh prompts. Off by default: pruning deletes layout
   /// structure, so it stays opt-in.
   public var restoreSurfacePruningEnabled: Bool
+  /// Row layout for the sidebar's Agents tab. Hand-editable in `supacode.json`;
+  /// the Developer settings pane writes the same keys.
+  public var agentsSidebar: AgentsSidebarSettings
+  /// When true, restoring a layout whose agent process didn't survive keeps that
+  /// session's native ref and offers `supacode agent resume` for it. Supacode
+  /// never types the resume command on its own — the offer is the whole feature,
+  /// so that a surface running something else is never interrupted.
+  public var resumeAgentsOnRestore: Bool
 
   public static let `default` = GlobalSettings(
     appearanceMode: .dark,
@@ -155,7 +163,9 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     remoteSessionPersistenceEnabled: true,
     appVisibility: .dockAndMenuBar,
     persistScrollbackEnabled: true,
-    restoreSurfacePruningEnabled: false
+    restoreSurfacePruningEnabled: false,
+    agentsSidebar: .default,
+    resumeAgentsOnRestore: true
   )
 
   public init(
@@ -197,7 +207,9 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     appVisibility: AppVisibility = .dockAndMenuBar,
     terminalHibernationEnabled: Bool = true,
     persistScrollbackEnabled: Bool = true,
-    restoreSurfacePruningEnabled: Bool = false
+    restoreSurfacePruningEnabled: Bool = false,
+    agentsSidebar: AgentsSidebarSettings = .default,
+    resumeAgentsOnRestore: Bool = true
   ) {
     self.appearanceMode = appearanceMode
     self.defaultEditorID = defaultEditorID
@@ -238,6 +250,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.terminalHibernationEnabled = terminalHibernationEnabled
     self.persistScrollbackEnabled = persistScrollbackEnabled
     self.restoreSurfacePruningEnabled = restoreSurfacePruningEnabled
+    self.agentsSidebar = agentsSidebar
+    self.resumeAgentsOnRestore = resumeAgentsOnRestore
   }
 
   /// Keys for reading renamed settings fields that no longer
@@ -424,5 +438,13 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     restoreSurfacePruningEnabled =
       try container.decodeIfPresent(Bool.self, forKey: .restoreSurfacePruningEnabled)
       ?? Self.default.restoreSurfacePruningEnabled
+    // `AgentsSidebarSettings` swallows its own malformed input, so a bad row
+    // config can't throw here and reset every other global to its default.
+    agentsSidebar =
+      try container.decodeIfPresent(AgentsSidebarSettings.self, forKey: .agentsSidebar)
+      ?? Self.default.agentsSidebar
+    resumeAgentsOnRestore =
+      try container.decodeIfPresent(Bool.self, forKey: .resumeAgentsOnRestore)
+      ?? Self.default.resumeAgentsOnRestore
   }
 }

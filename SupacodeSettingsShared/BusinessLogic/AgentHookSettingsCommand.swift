@@ -53,18 +53,33 @@ nonisolated enum AgentHookSettingsCommand {
   /// single brace group whose output is suppressed. Guarding first keeps the
   /// command truly inert outside Supacode (no `ps` runs when the surface id is
   /// unset). The precondition rejects a no-op invocation that would emit nothing.
+  ///
+  /// `capturesSessionRef` adds one stdin read plus an `awk` pass that lifts the
+  /// agent's native session id out of the hook payload, and rides it along on
+  /// every emitted presence event as `sid=`. Only worth enabling on the events
+  /// that establish a session (`session_start`): the app keeps the last ref it
+  /// saw, so re-sending it on every tool call would be pure hook cost.
   static func compositeCommand(
     events: [HookEvent],
     forwardStdinAsNotification: Bool,
-    agent: SkillAgent
+    agent: SkillAgent,
+    capturesSessionRef: Bool = false
   ) -> String {
     precondition(
       !events.isEmpty || forwardStdinAsNotification,
       "compositeCommand needs at least one side-effect (events or stdin forward).",
     )
     var steps: [String] = [AgentPresenceOSC.ttyResolveSnippet]
-    steps += events.map { AgentPresenceOSC.emitShell(event: $0, agent: agent) }
-    if forwardStdinAsNotification { steps.append(AgentPresenceOSC.emitNotifyShell(agent: agent)) }
+    if capturesSessionRef { steps.append(AgentPresenceOSC.sessionRefProbeShell()) }
+    steps += events.map {
+      AgentPresenceOSC.emitShell(event: $0, agent: agent, includesSessionRef: capturesSessionRef)
+    }
+    if forwardStdinAsNotification {
+      // The session probe already consumed stdin into `$__in`; a second `cat`
+      // would block on an exhausted pipe.
+      steps.append(
+        AgentPresenceOSC.emitNotifyShell(agent: agent, readsStdin: !capturesSessionRef))
+    }
     return "\(oscGuardExpr) && { \(steps.joined(separator: "; ")); } >/dev/null 2>&1 || true \(ownershipMarker)"
   }
 
@@ -73,12 +88,14 @@ nonisolated enum AgentHookSettingsCommand {
   /// usual stdin-sourced notify. Claude reports an API error through a plain `Stop`,
   /// so without the probe a dead turn is indistinguishable from a completed one.
   static func claudeStopCommand(agent: SkillAgent) -> String {
+    // The probe already extracted `$__sid` for its transcript scan, so carrying
+    // the resume ref on the Stop event is free.
     let errorBranch =
-      "\(AgentPresenceOSC.emitShell(event: .error, agent: agent)); "
+      "\(AgentPresenceOSC.emitShell(event: .error, agent: agent, includesSessionRef: true)); "
       + AgentPresenceOSC.emitFixedNotifyShell(
         agent: agent, title: Self.errorNotifyTitle, body: Self.errorNotifyBody)
     let idleBranch =
-      "\(AgentPresenceOSC.emitShell(event: .idle, agent: agent)); "
+      "\(AgentPresenceOSC.emitShell(event: .idle, agent: agent, includesSessionRef: true)); "
       + AgentPresenceOSC.emitNotifyShell(agent: agent, readsStdin: false)
     let steps: [String] = [
       AgentPresenceOSC.ttyResolveSnippet,

@@ -173,4 +173,10 @@ nonisolated extension SharedReaderKey where Self == AppStorageKey<Bool>.Default 
   static var sidebarGroupActiveRows: Self {
     Self[.appStorage("sidebarGroupActiveRows"), default: true]
   }
+
+  /// "Group by State" toggle for the Agents tab. Off by default: the flat,
+  /// urgency-sorted list is the cheaper read when only a couple of agents run.
+  static var sidebarAgentsGroupByState: Self {
+    Self[.appStorage("sidebarAgentsGroupByState"), default: false]
+  }
 }

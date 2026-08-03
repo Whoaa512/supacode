@@ -14,9 +14,29 @@ enum Deeplink: Equatable, Sendable {
     worktreeName: String?,
     worktreePath: String?
   )
+  /// `agent/<worktree-id>/<agent-kind>/<action>`. The kind stays a raw string so
+  /// the parser doesn't have to know the `SkillAgent` roster.
+  case agent(worktreeID: Worktree.ID, agent: String, action: AgentAction)
   case settings(section: DeeplinkSettingsSection?)
   case settingsRepo(repositoryID: Repository.ID)
   case settingsRepoScripts(repositoryID: Repository.ID)
+
+  enum AgentAction: Equatable, Sendable {
+    /// `nil` clears the agent's name.
+    case rename(name: String?)
+    /// Types `text` into the agent's surface. `submit` also sends the enter
+    /// sequence, which is what makes the agent start the turn.
+    case prompt(text: String, submit: Bool)
+    /// Raw key names (see `AgentKeySequence`), sent in order.
+    case sendKeys(keys: [String])
+    /// Display-only metadata tokens. `clear` drops every token; otherwise the
+    /// listed tokens are merged over the existing ones.
+    case metadata(tokens: [String: String], clear: Bool)
+    /// Types the agent's native resume command into the surface that hosted its
+    /// dead session. Refused when the agent is running, so it can never fork a
+    /// live session.
+    case resume
+  }
 
   enum WorktreeAction: Equatable, Sendable {
     case select

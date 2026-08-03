@@ -27,9 +27,13 @@ nonisolated enum PiExtensionContent {
      *
      * Hook event mapping:
      *   extension load      -> session_start  (agent presence badge)
-     *   Pi agent_start      -> busy
+     *   Pi agent_start      -> busy + sid=<session id>  (resume ref)
      *   Pi agent_end        -> idle + notification with last_assistant_message
      *   Pi session_shutdown -> session_end + idle (defensive activity reset)
+     *
+     * The resume ref rides `busy` rather than `session_start` because the session
+     * id is only reachable through the event context, which extension load has no
+     * access to. Supacode keeps the last ref it saw, so one per turn is plenty.
      */
 
     import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -106,10 +110,36 @@ nonisolated enum PiExtensionContent {
       }
     }
 
-    function emitPresence(event: string): void {
+    /**
+     * `;sid=<id>` when the session id is present and safe to carry. Mirrors
+     * AgentPresenceOSC.sanitizedSessionRef: the app splices this value into a
+     * `pi --session <id>` command line, so anything outside [A-Za-z0-9._-] or
+     * over the byte budget is dropped rather than sanitized into something else.
+     */
+    function sessionRefSuffix(sessionRef: string | undefined): string {
+      if (!sessionRef) return "";
+      if (Buffer.byteLength(sessionRef, "utf8") > \(AgentPresenceOSC.sessionRefByteBudget)) return "";
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(sessionRef)) return "";
+      return `;\(AgentPresenceOSC.sessionField)=${sessionRef}`;
+    }
+
+    function emitPresence(event: string, sessionRef?: string): void {
       const action = event === "session_end" ? "end" : "start";
-      const meta = `event=${event}${localPidSuffix()}`;
+      const meta = `event=${event}${localPidSuffix()}${sessionRefSuffix(sessionRef)}`;
       writeToTerminal(`\\x1b]3008;${action}=${AGENT};${meta}\\x1b\\\\`);
+    }
+
+    /**
+     * The session id `pi --session <id>` resumes. Guarded because an ephemeral
+     * (unpersisted) session has nothing to resume, and older Pi builds may not
+     * expose the getter at all.
+     */
+    function sessionRef(ctx: { sessionManager?: { getSessionId?(): string | undefined } }): string | undefined {
+      try {
+        return ctx.sessionManager?.getSessionId?.() || undefined;
+      } catch {
+        return undefined;
+      }
     }
 
     // JSON-escape (minus the surrounding quotes) so the wire matches the shell
@@ -159,8 +189,8 @@ nonisolated enum PiExtensionContent {
       // Claude's SessionStart hook, so we fire it ourselves.
       emitPresence("session_start");
 
-      pi.on("agent_start", (_event, _ctx) => {
-        emitPresence("busy");
+      pi.on("agent_start", (_event, ctx) => {
+        emitPresence("busy", sessionRef(ctx));
       });
 
       pi.on("agent_end", (_event, ctx) => {

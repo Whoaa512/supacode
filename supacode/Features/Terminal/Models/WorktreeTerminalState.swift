@@ -794,6 +794,17 @@ final class WorktreeTerminalState {
     surfaces[surfaceID]?.screenPreviewContents()
   }
 
+  /// Writes raw bytes to one surface's PTY without touching focus. Returns
+  /// whether the surface was live enough to receive them.
+  func sendText(_ text: String, to surfaceID: UUID) -> Bool {
+    guard let surface = surfaces[surfaceID] else {
+      terminalStateLogger.warning("sendText: surface \(surfaceID) not live in worktree \(worktree.id).")
+      return false
+    }
+    surface.sendText(text)
+    return true
+  }
+
   // Standardized to match `loadFailuresByID` keys (built from `standardizedFileURL.path`)
   // so prune protection lines up.
   var repositoryID: Repository.ID {
@@ -2417,7 +2428,8 @@ final class WorktreeTerminalState {
     }
     return .success(
       AgentHookEvent(
-        agent: signal.agent, event: signal.eventRawValue, surfaceID: surfaceID, pid: signal.pid))
+        agent: signal.agent, event: signal.eventRawValue, surfaceID: surfaceID, pid: signal.pid,
+        sessionRef: signal.sessionRef))
   }
 
   /// Splits a raw OSC 3008 payload (`<action>=<id>[;<metadata>]`) into context id

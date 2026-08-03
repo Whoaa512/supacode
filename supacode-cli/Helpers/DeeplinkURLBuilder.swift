@@ -27,6 +27,50 @@ nonisolated enum DeeplinkURLBuilder {
     return url
   }
 
+  // MARK: - Agent.
+
+  /// A `nil` name clears the agent's name (the app reads an absent or empty
+  /// `name` as "clear").
+  static func agentRename(worktreeID: String, agent: String, name: String?) -> String {
+    var url = "supacode://agent/\(worktreeID)/\(agent)/rename"
+    if let name { url += "?name=\(percentEncodeQueryValue(name))" }
+    return url
+  }
+
+  /// `submit=false` opts out of the trailing enter; the app submits by default.
+  static func agentPrompt(worktreeID: String, agent: String, text: String, submit: Bool) -> String {
+    "supacode://agent/\(worktreeID)/\(agent)/prompt?text=\(percentEncodeQueryValue(text))"
+      + (submit ? "" : "&submit=false")
+  }
+
+  static func agentSendKeys(worktreeID: String, agent: String, keys: [String]) -> String {
+    let joined = keys.joined(separator: ",")
+    return "supacode://agent/\(worktreeID)/\(agent)/send-keys?keys=\(percentEncodeQueryValue(joined))"
+  }
+
+  /// Types the agent's native resume command into the surface whose session died.
+  /// The app refuses it when that agent is running.
+  static func agentResume(worktreeID: String, agent: String) -> String {
+    "supacode://agent/\(worktreeID)/\(agent)/resume"
+  }
+
+  /// Tokens ride as ordinary query items (`summary=...`), sorted so the URL is
+  /// stable. `clear` drops the agent's existing tokens first.
+  static func agentMetadata(
+    worktreeID: String,
+    agent: String,
+    tokens: [String: String],
+    clear: Bool
+  ) -> String {
+    var params = clear ? ["clear=true"] : []
+    for (key, value) in tokens.sorted(by: { $0.key < $1.key }) {
+      params.append("\(percentEncodeQueryValue(key))=\(percentEncodeQueryValue(value))")
+    }
+    let url = "supacode://agent/\(worktreeID)/\(agent)/metadata"
+    guard !params.isEmpty else { return url }
+    return "\(url)?\(params.joined(separator: "&"))"
+  }
+
   // MARK: - Script.
 
   static func scriptRun(worktreeID: String, scriptID: String) -> String {

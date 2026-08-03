@@ -79,13 +79,13 @@ struct AgentPresenceOSCTests {
   }
 
   @Test func metadataPidSuffixRoundTripsThroughParse() {
-    let metadata = AgentPresenceOSC.metadata(event: .busy, pidSuffix: ";pid=99")
+    let metadata = AgentPresenceOSC.metadata(event: .busy, suffix: ";pid=99")
     let signal = AgentPresenceOSC.parse(id: "claude", metadata: metadata)
     #expect(signal?.pid == 99)
   }
 
   @Test func presenceEventThreadsLocalPid() {
-    let metadata = AgentPresenceOSC.metadata(event: .busy, pidSuffix: ";pid=4242")
+    let metadata = AgentPresenceOSC.metadata(event: .busy, suffix: ";pid=4242")
     let result = WorktreeTerminalState.presenceEvent(
       id: "claude", metadata: metadata, surfaceID: UUID(), surfaceExists: true)
     #expect((try? result.get())?.pid == 4242)

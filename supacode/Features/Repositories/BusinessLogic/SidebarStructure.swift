@@ -446,6 +446,7 @@ extension RepositoriesFeature.Action {
     // Sidebar layout toggles only. `setMoveNotifiedWorktreeToTop` re-sorts the
     // highlight sections (unread float), so a runtime toggle must recompute.
     case .sidebarGroupingTogglesChanged, .sidebarNestByBranchChanged,
+      .sidebarAgentsGroupByStateChanged, .agentsSidebarRowsChanged,
       .repositoryExpansionChanged, .branchNestExpansionChanged,
       .setAllSidebarGroupsExpanded,
       .setMoveNotifiedWorktreeToTop,
@@ -605,6 +606,7 @@ extension RepositoriesFeature.Action {
       .openRepositorySettings, .requestCustomizeRepository,
       .requestCustomizeWorktree,
       .requestRenameBranch,
+      .requestRenameAgent, .agentRename,
       .contextMenuOpenWorktree,
       .worktreeCreationPrompt,
       .delegate:
@@ -626,6 +628,10 @@ extension RepositoriesFeature.State {
   mutating func applyCacheRecomputes(_ invalidations: CacheInvalidations) {
     if invalidations.contains(.sidebarStructure) {
       recomputeSidebarStructureIfChanged()
+      // The Agents tab shares every input of the sidebar structure (per-row
+      // agent snapshots, titles, branch names, lifecycle), so it rides the same
+      // bit instead of adding one every action arm would have to classify.
+      recomputeAgentDashboardStructureIfChanged()
     }
     if invalidations.contains(.selectedWorktreeSlice) {
       recomputeSelectedWorktreeSliceIfChanged()

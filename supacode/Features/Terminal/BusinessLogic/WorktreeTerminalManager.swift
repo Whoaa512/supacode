@@ -1018,6 +1018,13 @@ final class WorktreeTerminalManager {
     states[worktreeID]?.screenPreview(for: surfaceID)
   }
 
+  /// Writes raw bytes to one surface's PTY without focusing it, so CLI-driven
+  /// prompts and key sequences reach a background agent. `false` when the
+  /// surface is gone or dormant.
+  func sendText(_ text: String, worktreeID: Worktree.ID, surfaceID: UUID) -> Bool {
+    states[worktreeID]?.sendText(text, to: surfaceID) ?? false
+  }
+
   func isBlockingScriptRunning(kind: BlockingScriptKind, for worktreeID: Worktree.ID) -> Bool {
     states[worktreeID]?.isBlockingScriptRunning(kind: kind) == true
   }

@@ -15,6 +15,13 @@ struct TerminalClient {
   /// synchronously before an async dispatch races against AppKit focus reshuffle
   /// (e.g. when a palette dismisses and the leftmost pane reclaims first responder).
   var selectedSurfaceID: @MainActor @Sendable (Worktree.ID) -> UUID?
+  /// Writes raw bytes to one live surface's PTY without focusing it, so
+  /// `supacode agent prompt` / `send-keys` can drive a background agent.
+  /// `false` when the surface is gone or dormant (dormant tabs have no PTY).
+  var sendTextToSurface: @MainActor @Sendable (Worktree.ID, UUID, String) -> Bool
+  /// Current screen text of one live surface (same cached read the
+  /// accessibility tree uses). `nil` when the surface is gone or dormant.
+  var surfaceScreenText: @MainActor @Sendable (Worktree.ID, UUID) -> String?
   var latestUnreadNotification: @MainActor @Sendable () -> NotificationLocation?
   var markNotificationRead: @MainActor @Sendable (Worktree.ID, UUID) -> Void
   /// Marks every notification in every worktree read (menu bar "Mark All as Read").
@@ -147,6 +154,8 @@ extension TerminalClient: DependencyKey {
     tabID: { _, _ in fatalError("TerminalClient.tabID not configured") },
     selectedTabID: { _ in fatalError("TerminalClient.selectedTabID not configured") },
     selectedSurfaceID: { _ in fatalError("TerminalClient.selectedSurfaceID not configured") },
+    sendTextToSurface: { _, _, _ in fatalError("TerminalClient.sendTextToSurface not configured") },
+    surfaceScreenText: { _, _ in fatalError("TerminalClient.surfaceScreenText not configured") },
     latestUnreadNotification: { fatalError("TerminalClient.latestUnreadNotification not configured") },
     markNotificationRead: { _, _ in fatalError("TerminalClient.markNotificationRead not configured") },
     markAllNotificationsRead: { fatalError("TerminalClient.markAllNotificationsRead not configured") },
@@ -170,6 +179,8 @@ extension TerminalClient: DependencyKey {
     tabID: unimplemented("TerminalClient.tabID", placeholder: nil),
     selectedTabID: unimplemented("TerminalClient.selectedTabID", placeholder: nil),
     selectedSurfaceID: unimplemented("TerminalClient.selectedSurfaceID", placeholder: nil),
+    sendTextToSurface: unimplemented("TerminalClient.sendTextToSurface", placeholder: false),
+    surfaceScreenText: unimplemented("TerminalClient.surfaceScreenText", placeholder: nil),
     latestUnreadNotification: unimplemented("TerminalClient.latestUnreadNotification", placeholder: nil),
     markNotificationRead: unimplemented("TerminalClient.markNotificationRead"),
     markAllNotificationsRead: unimplemented("TerminalClient.markAllNotificationsRead"),

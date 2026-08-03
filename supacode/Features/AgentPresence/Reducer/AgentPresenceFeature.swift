@@ -34,6 +34,19 @@ struct AgentPresenceFeature {
   struct AgentInstance: Hashable, Sendable {
     let agent: SkillAgent
     let activity: Activity
+    /// The agent's last turn finished while the user wasn't looking at its
+    /// surface. Only meaningful on `.idle`; the Agents dashboard maps it to
+    /// `done` so a finished turn reads differently from a never-started one.
+    var isDoneUnseen = false
+    /// User-assigned name (`supacode agent rename`, sidebar context menu).
+    /// Ephemeral: it dies with the record, so `nil` is the common case.
+    var name: String?
+    /// Display-only metadata tokens (`supacode agent report-metadata`). They
+    /// never feed state, rollups, or waits — only row rendering.
+    var metadata: [String: String] = [:]
+
+    /// The one token the built-in row layout renders as a caption.
+    var summary: String? { metadata[AgentPresenceFeature.summaryToken] }
 
     /// The avatar group flips contrast on awaiting-input instances.
     var awaitingInput: Bool { activity == .awaitingInput }
@@ -56,17 +69,45 @@ struct AgentPresenceFeature {
 
   nonisolated struct PresenceRecord: Equatable, Sendable {
     var activity: Activity = .idle
+    /// Set when a working turn ends on an unfocused surface; cleared by focus
+    /// (`clearAttention`) or by the next turn (`busy` / `sessionStart`).
+    var isDoneUnseen = false
     /// Local pids attributed to this record. Empty means the OSC presence was
     /// emitted without a local pid (SSH attach); `pids.isEmpty` is the
     /// discriminator for the pid-less lifecycle branches below. Every event
     /// arrives over OSC now, so there is no "socket-owned" record to defend
     /// against.
     var pids: Set<pid_t>
+    /// Diagnostics for `supacode agent explain`. Never authoritative for state,
+    /// never persisted: they describe the last wire event this record saw.
+    var lastEventName: String?
+    /// The hook's own `ts`, not a locally sampled clock: an event that arrived
+    /// without a timestamp reports `nil` rather than a plausible-looking lie.
+    var lastEventAt: Date?
+    /// `"busy→idle"` for the last activity flip this record made.
+    var lastTransition: String?
+    /// The agent's native session id, as last reported by a hook event that
+    /// carried one. Unlike the diagnostics above this IS persisted: it is the
+    /// only thing that makes a dead session resumable after a relaunch. Sticky
+    /// on purpose — an event without a ref never clears an established one.
+    var sessionRef: String?
+  }
+
+  /// A session whose process didn't survive: the record was persisted with pids,
+  /// every one of them was dead at restore, and it carried a resumable ref.
+  /// Deliberately NOT a `PresenceRecord`: a candidate is not a live agent, so it
+  /// must never reach a badge, `agent list`, or a state rollup.
+  nonisolated struct ResumeCandidate: Equatable, Sendable {
+    let sessionRef: String
+    /// The activity the session was in when the app went away. Display only.
+    let lastActivity: Activity
   }
 
   nonisolated struct RestoredRecord: Sendable {
     let alivePids: Set<pid_t>
     let activity: Activity
+    var isDoneUnseen = false
+    var sessionRef: String?
   }
 
   // `nonisolated` is load-bearing here. Without it the @Reducer macro
@@ -83,13 +124,25 @@ struct AgentPresenceFeature {
     case stop
     case surfaceClosed(UUID)
     case surfacesClosed(Set<UUID>)
+    /// Assigns (or with `nil`, clears) the user-facing name of one live agent.
+    /// Invalid or already-taken names are dropped; callers that need to report
+    /// the failure validate with `validate(name:)` / `isNameTaken` first.
+    case renameAgent(key: PresenceKey, name: String?)
+    /// Merges display-only tokens onto a live agent. `clear` drops every token
+    /// first, so `clear` alone wipes the agent's metadata.
+    case reportMetadata(key: PresenceKey, tokens: [String: String], clear: Bool)
     /// The user focused these surfaces, so the states parked on them (`error`,
     /// `awaitingInput`) return to `idle`.
     case clearAttention(surfaces: Set<UUID>)
     /// Stage records for the off-main liveness pass. Apply lands as
     /// `restoreFromSnapshotChecked` so `kill(2)` never runs on the main actor.
+    /// The resume command was typed into the candidate's surface, so the offer is
+    /// spent. Dropped rather than kept pending: the relaunched agent re-reports
+    /// its own session ref, and a lingering offer would type the command twice.
+    case resumeCandidateConsumed(key: PresenceKey)
     case restoreFromSnapshot(staged: [PresenceKey: StagedRestore])
-    case restoreFromSnapshotChecked(records: [PresenceKey: RestoredRecord])
+    case restoreFromSnapshotChecked(
+      records: [PresenceKey: RestoredRecord], resumeCandidates: [PresenceKey: ResumeCandidate])
 
     enum Delegate: Equatable, Sendable {
       /// Surfaces whose presence record was added, removed, or had its activity flip.
@@ -107,6 +160,23 @@ struct AgentPresenceFeature {
     /// Per-surface agent presence. A surface can host multiple agents (rare,
     /// but possible if e.g. Claude spawns Codex). Order not guaranteed; sort before display.
     var bySurface: [UUID: Set<SkillAgent>] = [:]
+    /// The surfaces the user is currently looking at, as last reported by
+    /// `.clearAttention` (the app dispatches it from terminal focus changes).
+    /// Needed because focus only arrives as a *change*: without it, a turn that
+    /// finishes on the already-focused surface would latch as `done` forever.
+    var focusedSurfaceIDs: Set<UUID> = []
+    /// User-assigned agent names, keyed like `records`. Never persisted: a name
+    /// addresses a running agent, so it must not outlive one.
+    var nameByKey: [PresenceKey: String] = [:]
+    /// Display-only metadata tokens reported by the agent itself
+    /// (`supacode agent report-metadata`). Same lifetime as `nameByKey`:
+    /// ephemeral, never persisted, never authoritative for state.
+    var metadataByKey: [PresenceKey: [String: String]] = [:]
+    /// Sessions that died with the last app run and can be relaunched by their
+    /// native resume command. Populated only at restore; dropped as soon as a
+    /// live record appears for the same key, because the agent came back on its
+    /// own and resuming again would fork the session.
+    var resumeCandidates: [PresenceKey: ResumeCandidate] = [:]
   }
 
   /// Period between liveness sweeps. Cost scales with active sessions, not
@@ -122,7 +192,8 @@ struct AgentPresenceFeature {
         return .none
 
       case .hookEventReceived(let event):
-        let changed = Self.apply(event: event, into: &state)
+        let changed = Self.applyRecordingDiagnostics(event: event, into: &state)
+        Self.pruneEphemeral(in: &state)
         return Self.surfacesChangedEffect(changed)
 
       case .livenessSweepTick:
@@ -138,6 +209,7 @@ struct AgentPresenceFeature {
 
       case .livenessSweepResult(let snapshot, let alive):
         let changed = Self.applyLiveness(delta: alive, snapshot: snapshot, into: &state)
+        Self.pruneEphemeral(in: &state)
         return Self.surfacesChangedEffect(changed)
 
       case .start:
@@ -159,23 +231,51 @@ struct AgentPresenceFeature {
         Self.drop(surfaces: ids, from: &state)
         return Self.surfacesChangedEffect(ids)
 
+      case .renameAgent(let key, let name):
+        guard Self.rename(key: key, to: name, into: &state) else { return .none }
+        return Self.surfacesChangedEffect([key.surfaceID])
+
+      case .reportMetadata(let key, let tokens, let clear):
+        guard Self.reportMetadata(key: key, tokens: tokens, clear: clear, into: &state) else { return .none }
+        return Self.surfacesChangedEffect([key.surfaceID])
+
       case .clearAttention(let surfaces):
         let changed = Self.clearAttention(on: surfaces, into: &state)
         return Self.surfacesChangedEffect(changed)
 
+      case .resumeCandidateConsumed(let key):
+        state.resumeCandidates.removeValue(forKey: key)
+        return .none
+
       case .restoreFromSnapshot(let staged):
         guard !staged.isEmpty else { return .none }
+        @Shared(.settingsFile) var settingsFile
+        let offersResume = settingsFile.global.resumeAgentsOnRestore
         return .run { send in
-          let checked = staged.compactMapValues { stage -> RestoredRecord? in
+          var checked: [PresenceKey: RestoredRecord] = [:]
+          var candidates: [PresenceKey: ResumeCandidate] = [:]
+          for (key, stage) in staged {
             let alive = stage.pids.filter { Self.isAlive($0) }
-            guard !alive.isEmpty else { return nil }
-            return RestoredRecord(alivePids: alive, activity: stage.activity)
+            guard alive.isEmpty else {
+              checked[key] = RestoredRecord(
+                alivePids: alive, activity: stage.activity, isDoneUnseen: stage.isDoneUnseen,
+                sessionRef: stage.sessionRef)
+              continue
+            }
+            // Every pid dead + a resumable ref is exactly the "the process didn't
+            // survive" signal. Resumability is checked here so an agent kind with
+            // no resume CLI never becomes a candidate the user can't act on.
+            guard offersResume, let ref = stage.sessionRef,
+              AgentResumeCommand.command(agent: key.agent, sessionRef: ref) != nil
+            else { continue }
+            candidates[key] = ResumeCandidate(sessionRef: ref, lastActivity: stage.activity)
           }
-          guard !checked.isEmpty else { return }
-          await send(.restoreFromSnapshotChecked(records: checked))
+          guard !checked.isEmpty || !candidates.isEmpty else { return }
+          await send(.restoreFromSnapshotChecked(records: checked, resumeCandidates: candidates))
         }
 
-      case .restoreFromSnapshotChecked(let records):
+      case .restoreFromSnapshotChecked(let records, let candidates):
+        state.resumeCandidates.merge(candidates) { existing, _ in existing }
         let changed = Self.applyRestore(records: records, into: &state)
         return Self.surfacesChangedEffect(changed)
       }
@@ -188,6 +288,32 @@ struct AgentPresenceFeature {
   }
 
   // MARK: - Mutators.
+
+  /// `apply(event:)` plus the per-record diagnostics `agent explain` reports.
+  /// Diagnostics are written after the fact so no mutator has to thread them,
+  /// and they never widen the returned dirty-surface set: nothing renders them.
+  private static func applyRecordingDiagnostics(
+    event: AgentHookEvent, into state: inout State
+  ) -> Set<UUID> {
+    guard let agent = SkillAgent(rawValue: event.agent) else { return apply(event: event, into: &state) }
+    let key = PresenceKey(agent: agent, surfaceID: event.surfaceID)
+    let before = state.records[key]?.activity
+    let changed = apply(event: event, into: &state)
+    // A live record means the agent is running, so any resume offer for it is
+    // stale: it either came back on its own or the user already resumed it.
+    if state.records[key] != nil { state.resumeCandidates.removeValue(forKey: key) }
+    guard var record = state.records[key] else { return changed }
+    record.lastEventName = event.event
+    record.lastEventAt = event.timestamp
+    if let before, before != record.activity {
+      record.lastTransition = "\(before.rawValue)→\(record.activity.rawValue)"
+    }
+    // Sticky: only a reported ref overwrites, so the events that don't carry one
+    // (every tool call) can't erase the session we'd resume.
+    if let sessionRef = event.sessionRef { record.sessionRef = sessionRef }
+    state.records[key] = record
+    return changed
+  }
 
   /// Returns the surface IDs whose row-visible state changed, so the parent can fan
   /// out per-row `agentSnapshotChanged` deltas without inspecting `bySurface` itself.
@@ -258,21 +384,34 @@ struct AgentPresenceFeature {
   }
 
   /// Resets a sticky `error` / `compacting` record to `idle` on a restart.
+  /// A restart is a new turn, so any unseen-done marker from the last one is stale.
   /// Returns whether it changed anything.
   private static func normalizeStickyOnRestart(_ record: inout PresenceRecord) -> Bool {
-    guard record.activity == .error || record.activity == .compacting else { return false }
+    var changed = false
+    if record.isDoneUnseen {
+      record.isDoneUnseen = false
+      changed = true
+    }
+    guard record.activity == .error || record.activity == .compacting else { return changed }
     record.activity = .idle
     return true
   }
 
   /// Resets the states parked on the user (`error`, `awaitingInput`) to `idle`
-  /// on the surfaces they focused. Returns the surfaces whose record flipped.
+  /// on the surfaces they focused, and marks those surfaces seen (clearing
+  /// `isDoneUnseen`). Returns the surfaces whose record flipped.
+  ///
+  /// Also latches the focused set: the app only tells us about focus *changes*,
+  /// so a turn finishing on the surface the user is already staring at must be
+  /// born seen rather than waiting for a focus event that never comes.
   private static func clearAttention(on surfaces: Set<UUID>, into state: inout State) -> Set<UUID> {
+    state.focusedSurfaceIDs = surfaces
     var changed: Set<UUID> = []
-    for (key, record) in state.records
-    where surfaces.contains(key.surfaceID) && record.activity.isAttention {
+    for (key, record) in state.records where surfaces.contains(key.surfaceID) {
       var updated = record
-      updated.activity = .idle
+      if record.activity.isAttention { updated.activity = .idle }
+      updated.isDoneUnseen = false
+      guard updated != record else { continue }
       state.records[key] = updated
       changed.insert(key.surfaceID)
     }
@@ -296,6 +435,13 @@ struct AgentPresenceFeature {
       // Claude's 60s-idle `Notification` fires `awaitingInput` on exactly the
       // session that just died, and would otherwise downgrade it to "waiting".
       guard record.activity != .error || activity == .busy else { return false }
+      // A working turn ending is the only producer of "done", and only when the
+      // user isn't looking at that surface; a new turn clears it.
+      if record.activity.isWorking, activity == .idle {
+        record.isDoneUnseen = !state.focusedSurfaceIDs.contains(key.surfaceID)
+      } else if activity == .busy {
+        record.isDoneUnseen = false
+      }
       record.activity = activity
       state.records[key] = record
       return true
@@ -307,8 +453,110 @@ struct AgentPresenceFeature {
   }
 
   private static func drop(surfaces: Set<UUID>, from state: inout State) {
+    state.focusedSurfaceIDs.subtract(surfaces)
     for id in surfaces { state.bySurface.removeValue(forKey: id) }
     state.records = state.records.filter { !surfaces.contains($0.key.surfaceID) }
+    // A resume offer is scoped to the surface that hosted the session; closing it
+    // takes the offer with it, since there is nowhere left to type the command.
+    state.resumeCandidates = state.resumeCandidates.filter { !surfaces.contains($0.key.surfaceID) }
+    pruneEphemeral(in: &state)
+  }
+
+  // MARK: - Names.
+
+  /// `^[a-z][a-z0-9_-]{0,31}$`, spelled out so the hot path skips NSRegularExpression.
+  nonisolated static func validate(name: String) -> Bool {
+    guard (1...32).contains(name.count) else { return false }
+    guard let first = name.first, first.isASCII, first.isLetter, first.isLowercase else { return false }
+    return name.dropFirst().allSatisfy { character in
+      guard character.isASCII else { return false }
+      return (character.isLetter && character.isLowercase) || character.isNumber
+        || character == "_" || character == "-"
+    }
+  }
+
+  /// Applies a validated rename. Returns whether anything changed, so the
+  /// caller only emits `surfacesChanged` on a real edit.
+  static func rename(key: PresenceKey, to name: String?, into state: inout State) -> Bool {
+    // Naming a dead agent would leak a name no `agent list` row can clear.
+    guard state.records[key] != nil else { return false }
+    guard let name else { return state.nameByKey.removeValue(forKey: key) != nil }
+    guard validate(name: name), !state.isNameTaken(name, excluding: key) else { return false }
+    guard state.nameByKey[key] != name else { return false }
+    state.nameByKey[key] = name
+    return true
+  }
+
+  /// Drops names and metadata whose record is gone. Both address a *running*
+  /// agent, so every record-removal path funnels through here.
+  private static func pruneEphemeral(in state: inout State) {
+    if !state.nameByKey.isEmpty {
+      let live = state.nameByKey.filter { state.records[$0.key] != nil }
+      if live.count != state.nameByKey.count { state.nameByKey = live }
+    }
+    guard !state.metadataByKey.isEmpty else { return }
+    let live = state.metadataByKey.filter { state.records[$0.key] != nil }
+    guard live.count != state.metadataByKey.count else { return }
+    state.metadataByKey = live
+  }
+
+  // MARK: - Metadata tokens.
+
+  /// Token limits. Tokens are display-only, so the caps exist to keep one
+  /// chatty agent from bloating state or the sidebar row.
+  nonisolated enum MetadataLimits {
+    static let maxTokens = 8
+    static let maxKeyLength = 32
+    static let maxValueLength = 120
+  }
+
+  /// Validates a token batch. Returns a human-readable reason on rejection, so
+  /// the deeplink path can ack `ok: false` with it.
+  nonisolated static func validate(tokens: [String: String]) -> String? {
+    guard tokens.count <= MetadataLimits.maxTokens else {
+      return "Too many metadata tokens (\(tokens.count) > \(MetadataLimits.maxTokens))."
+    }
+    for (key, value) in tokens.sorted(by: { $0.key < $1.key }) {
+      guard !key.isEmpty, key.count <= MetadataLimits.maxKeyLength else {
+        return "Invalid metadata key '\(key)': 1–\(MetadataLimits.maxKeyLength) characters."
+      }
+      let isLowercaseToken = key.allSatisfy { character in
+        guard character.isASCII else { return false }
+        return (character.isLetter && character.isLowercase) || character.isNumber
+          || character == "_" || character == "-"
+      }
+      guard isLowercaseToken else {
+        return "Invalid metadata key '\(key)': lowercase letters, digits, '_' and '-' only."
+      }
+      guard value.count <= MetadataLimits.maxValueLength else {
+        return "Metadata value for '\(key)' is too long (\(value.count) > \(MetadataLimits.maxValueLength))."
+      }
+    }
+    return nil
+  }
+
+  /// Applies a validated token batch. Returns whether anything changed, so the
+  /// caller only emits `surfacesChanged` on a real edit.
+  static func reportMetadata(
+    key: PresenceKey,
+    tokens: [String: String],
+    clear: Bool,
+    into state: inout State
+  ) -> Bool {
+    // Metadata on a dead agent would leak: no `agent list` row can clear it.
+    guard state.records[key] != nil else { return false }
+    guard validate(tokens: tokens) == nil else { return false }
+    var merged = clear ? [:] : (state.metadataByKey[key] ?? [:])
+    for (token, value) in tokens { merged[token] = value }
+    // Cap after the merge too: repeated batches must not grow past the limit.
+    guard merged.count <= MetadataLimits.maxTokens else { return false }
+    guard merged != state.metadataByKey[key] ?? [:] else { return false }
+    if merged.isEmpty {
+      state.metadataByKey.removeValue(forKey: key)
+    } else {
+      state.metadataByKey[key] = merged
+    }
+    return true
   }
 
   /// Pure liveness check; returns only keys whose alive subset diverges from the snapshot.
@@ -354,6 +602,8 @@ struct AgentPresenceFeature {
   struct StagedRestore: Sendable {
     let pids: Set<pid_t>
     let activity: Activity
+    var isDoneUnseen = false
+    var sessionRef: String?
   }
 
   /// Build the staged-restore dict from persisted layouts. No `kill(2)` here;
@@ -366,13 +616,30 @@ struct AgentPresenceFeature {
       for (surfaceID, records) in layout.allAgentRecords() {
         for record in records {
           guard let agent = SkillAgent(rawValue: record.agent) else { continue }
+          // A record already proven dead in an earlier restore carries the flag
+          // instead of pids, so it stays a candidate across any number of
+          // relaunches until the user resumes it or closes the surface. Staged
+          // with no pids so the liveness pass classifies it as dead again.
+          if record.resumeCandidate == true, record.pids.isEmpty {
+            staged[PresenceKey(agent: agent, surfaceID: surfaceID)] =
+              StagedRestore(
+                pids: [], activity: Activity(rawValue: record.activity) ?? .idle,
+                isDoneUnseen: record.doneUnseen ?? false,
+                sessionRef: AgentPresenceOSC.sanitizedSessionRef(record.sessionRef))
+            continue
+          }
           // Pid-less OSC records aren't restore-durable: they persist with no
           // pid, so they drop here and re-seed on the next OSC event post-relaunch.
+          // They can't be resume candidates either: with no pid there is nothing
+          // to prove dead, and the agent may still be running on the far side of
+          // an SSH connection.
           let pids = Set(record.pids.filter { $0 > 0 })
           guard !pids.isEmpty else { continue }
           let activity = Activity(rawValue: record.activity) ?? .idle
           staged[PresenceKey(agent: agent, surfaceID: surfaceID)] =
-            StagedRestore(pids: pids, activity: activity)
+            StagedRestore(
+              pids: pids, activity: activity, isDoneUnseen: record.doneUnseen ?? false,
+              sessionRef: AgentPresenceOSC.sanitizedSessionRef(record.sessionRef))
         }
       }
     }
@@ -394,7 +661,11 @@ struct AgentPresenceFeature {
     for (key, record) in records {
       if state.records[key] != nil { continue }
       // Restored records always have alive pids (pid-less OSC records are dropped in stageRestore).
-      state.records[key] = PresenceRecord(activity: record.activity, pids: record.alivePids)
+      state.records[key] = PresenceRecord(
+        activity: record.activity, isDoneUnseen: record.isDoneUnseen, pids: record.alivePids,
+        sessionRef: record.sessionRef)
+      // A live record wins: resuming an agent that survived would fork its session.
+      state.resumeCandidates.removeValue(forKey: key)
       dirtySurfaces.insert(key.surfaceID)
     }
     for surfaceID in dirtySurfaces { rebuildPresence(forSurface: surfaceID, in: &state) }
@@ -418,15 +689,31 @@ struct AgentPresenceFeature {
 extension AgentPresenceFeature.State {
   /// Sorted output so the persisted JSON stays diff-stable.
   func agentsBySurface() -> [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]] {
-    guard !records.isEmpty else { return [:] }
+    guard !records.isEmpty || !resumeCandidates.isEmpty else { return [:] }
     var result: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]] = [:]
     for (key, record) in records {
       let entry = TerminalLayoutSnapshot.SurfaceAgentRecord(
         agent: key.agent.rawValue,
         pids: record.pids.sorted(),
-        activity: record.activity.rawValue
+        activity: record.activity.rawValue,
+        doneUnseen: record.isDoneUnseen ? true : nil,
+        sessionRef: record.sessionRef
       )
       result[key.surfaceID, default: []].append(entry)
+    }
+    // Unresumed candidates persist too, flagged so the next restore reads them as
+    // already-dead rather than as a pid-less SSH agent.
+    for (key, candidate) in resumeCandidates where records[key] == nil {
+      result[key.surfaceID, default: []].append(
+        TerminalLayoutSnapshot.SurfaceAgentRecord(
+          agent: key.agent.rawValue,
+          pids: [],
+          activity: candidate.lastActivity.rawValue,
+          doneUnseen: nil,
+          sessionRef: candidate.sessionRef,
+          resumeCandidate: true
+        )
+      )
     }
     for (id, entries) in result {
       result[id] = entries.sorted { $0.agent < $1.agent }
@@ -435,7 +722,47 @@ extension AgentPresenceFeature.State {
   }
 }
 
+extension AgentPresenceFeature {
+  /// The one token the dashboard renders. Every other token is CLI-visible only.
+  nonisolated static let summaryToken = "summary"
+}
+
 extension AgentPresenceFeature.State {
+  /// Whether `name` already addresses another live agent. Case-sensitive: names
+  /// are validated lowercase, so a case-insensitive check would be dead code.
+  func isNameTaken(_ name: String, excluding key: AgentPresenceFeature.PresenceKey? = nil) -> Bool {
+    nameByKey.contains { $0.key != key && $0.value == name }
+  }
+
+  /// The resume candidate for one (worktree, agent) pair, in surface order, or
+  /// nil when no surface of that worktree has a resumable dead session.
+  func resumeCandidate(
+    agent: SkillAgent,
+    across surfaceIDs: some Sequence<UUID>
+  ) -> (key: AgentPresenceFeature.PresenceKey, candidate: AgentPresenceFeature.ResumeCandidate)? {
+    surfaceIDs.lazy
+      .map { AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: $0) }
+      .compactMap { key in resumeCandidates[key].map { (key: key, candidate: $0) } }
+      .first
+  }
+
+  /// The live agent addressed by `name`, if any.
+  func presenceKey(forName name: String) -> AgentPresenceFeature.PresenceKey? {
+    nameByKey.first { $0.value == name }?.key
+  }
+
+  /// The canonical record for one (worktree, agent) pair. The Agents dashboard
+  /// collapses every surface of a worktree into one row, so naming that row
+  /// targets the first live record in surface order.
+  func presenceKey(
+    agent: SkillAgent,
+    across surfaceIDs: some Sequence<UUID>
+  ) -> AgentPresenceFeature.PresenceKey? {
+    surfaceIDs.lazy
+      .map { AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: $0) }
+      .first { records[$0] != nil }
+  }
+
   /// Agents on a single surface. Empty when badges are disabled by the user.
   func agents(forSurface id: UUID, badgesEnabled: Bool) -> Set<SkillAgent> {
     guard badgesEnabled else { return [] }
@@ -455,9 +782,15 @@ extension AgentPresenceFeature.State {
       surfaceIDs
       .flatMap { surfaceID -> [AgentPresenceFeature.AgentInstance] in
         (bySurface[surfaceID] ?? []).map { agent in
-          let activity =
-            records[AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: surfaceID)]?.activity ?? .idle
-          return AgentPresenceFeature.AgentInstance(agent: agent, activity: activity)
+          let record = records[AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: surfaceID)]
+          let key = AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: surfaceID)
+          return AgentPresenceFeature.AgentInstance(
+            agent: agent,
+            activity: record?.activity ?? .idle,
+            isDoneUnseen: record?.isDoneUnseen ?? false,
+            name: nameByKey[key],
+            metadata: metadataByKey[key] ?? [:]
+          )
         }
       }
       .sorted { lhs, rhs in

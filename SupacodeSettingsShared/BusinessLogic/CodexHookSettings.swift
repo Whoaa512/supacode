@@ -30,8 +30,13 @@ private nonisolated struct CodexHooksPayload: Encodable {
     events: [.busy], forwardStdinAsNotification: false, agent: .codex)
   private static let idleAndNotify = AgentHookSettingsCommand.compositeCommand(
     events: [.idle], forwardStdinAsNotification: true, agent: .codex)
+  // Codex hook payloads carry `session_id`, which is what `codex resume <id>`
+  // takes. Capture is best-effort: the shell probe yields an empty `$__sid` on a
+  // payload without the key, and an absent `sid=` field simply means "no resume
+  // offer for this session".
   private static let sessionStart = AgentHookSettingsCommand.compositeCommand(
-    events: [.sessionStart], forwardStdinAsNotification: false, agent: .codex)
+    events: [.sessionStart], forwardStdinAsNotification: false, agent: .codex,
+    capturesSessionRef: true)
 
   let hooks: [String: [AgentHookGroup]] = [
     "SessionStart": [

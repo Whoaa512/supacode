@@ -273,6 +273,12 @@ struct SupacodeApp: App {
           else { return nil }
           return state.activeSurfaceID(for: tabID)
         },
+        sendTextToSurface: { worktreeID, surfaceID, text in
+          terminalManager.sendText(text, worktreeID: worktreeID, surfaceID: surfaceID)
+        },
+        surfaceScreenText: { worktreeID, surfaceID in
+          terminalManager.screenPreview(worktreeID: worktreeID, surfaceID: surfaceID)
+        },
         latestUnreadNotification: {
           terminalManager.latestUnreadNotificationLocation()
         },
@@ -420,12 +426,143 @@ struct SupacodeApp: App {
       handleWorktreeStatusQuery(params: params, repos: repos, clientFD: clientFD, store: store)
     case "worktreeAppearance":
       handleWorktreeAppearanceQuery(params: params, repos: repos, clientFD: clientFD, store: store)
+    case "agents", "agentRead", "agentExplain", "agentResumeCandidates":
+      handleAgentQuery(
+        resource: resource, params: params, clientFD: clientFD,
+        terminalManager: terminalManager, store: store)
     case "scripts":
       handleScriptsQuery(params: params, repos: repos, clientFD: clientFD, store: store)
     default:
       AgentHookSocketServer.sendCommandResponse(
         clientFD: clientFD, ok: false, error: "Unknown resource: \(resource)")
     }
+  }
+
+  /// The agent-scoped query family, split out of `handleQuery` so the top-level
+  /// resource switch stays under the complexity limit.
+  @MainActor
+  private static func handleAgentQuery(
+    resource: String,
+    params: [String: String],
+    clientFD: Int32,
+    terminalManager: WorktreeTerminalManager,
+    store: StoreOf<AppFeature>
+  ) {
+    switch resource {
+    case "agentRead":
+      handleAgentReadQuery(
+        params: params, clientFD: clientFD, terminalManager: terminalManager, store: store)
+    case "agentExplain":
+      handleAgentExplainQuery(params: params, clientFD: clientFD, store: store)
+    case "agentResumeCandidates":
+      AgentHookSocketServer.sendQueryResponse(
+        clientFD: clientFD,
+        data: AgentResumeCandidateQueryResponse.rows(
+          presence: store.agentPresence, repositories: store.repositories)
+      )
+    default:
+      AgentHookSocketServer.sendQueryResponse(
+        clientFD: clientFD,
+        data: AgentQueryResponse.rows(
+          presence: store.agentPresence, repositories: store.repositories)
+      )
+    }
+  }
+
+  /// Screen text of one surface. With `agent`, the surface hosting that live
+  /// agent; without it, the worktree's focused surface, so `terminal
+  /// wait-output` can watch a pane that runs no hook-reporting agent.
+  @MainActor
+  private static func handleAgentReadQuery(
+    params: [String: String],
+    clientFD: Int32,
+    terminalManager: WorktreeTerminalManager,
+    store: StoreOf<AppFeature>
+  ) {
+    guard let rawWorktreeID = params["worktreeID"] else {
+      AgentHookSocketServer.sendCommandResponse(
+        clientFD: clientFD, ok: false, error: "Missing worktreeID for agent read.")
+      return
+    }
+    let decoded = rawWorktreeID.removingPercentEncoding ?? rawWorktreeID
+    let worktreeID = WorktreeID(decoded.hasSuffix("/") ? String(decoded.dropLast()) : decoded)
+    guard let item = store.repositories.sidebarItems[id: worktreeID] else {
+      AgentHookSocketServer.sendCommandResponse(
+        clientFD: clientFD, ok: false, error: "Worktree not found: \(rawWorktreeID)")
+      return
+    }
+    let surfaceID: UUID?
+    if let rawAgent = params["agent"] {
+      guard let agent = SkillAgent(rawValue: rawAgent) else {
+        AgentHookSocketServer.sendCommandResponse(
+          clientFD: clientFD, ok: false, error: "Unknown agent kind: \(rawAgent)")
+        return
+      }
+      guard let key = store.agentPresence.presenceKey(agent: agent, across: item.surfaceIDs) else {
+        AgentHookSocketServer.sendCommandResponse(
+          clientFD: clientFD, ok: false,
+          error: "No running \(rawAgent) agent in \(worktreeID.rawValue).")
+        return
+      }
+      surfaceID = key.surfaceID
+    } else {
+      let state = terminalManager.stateIfExists(for: worktreeID)
+      surfaceID =
+        state.flatMap { terminal in
+          terminal.tabManager.selectedTabId.flatMap { terminal.activeSurfaceID(for: $0) }
+        } ?? item.surfaceIDs.first
+    }
+    guard let surfaceID,
+      let screen = terminalManager.screenPreview(worktreeID: worktreeID, surfaceID: surfaceID)
+    else {
+      AgentHookSocketServer.sendCommandResponse(
+        clientFD: clientFD, ok: false,
+        error: "No live terminal surface in \(worktreeID.rawValue).")
+      return
+    }
+    AgentHookSocketServer.sendQueryResponse(
+      clientFD: clientFD,
+      data: AgentReadQueryResponse.rows(
+        screen: screen, lines: AgentReadQueryResponse.lineCount(params["lines"]))
+    )
+  }
+
+  /// Diagnostics for one presence record. Resolves the same way `agentRead`
+  /// does, except the agent kind is required: an explanation is per-agent, and
+  /// there is no "focused surface" fallback that would mean anything here.
+  @MainActor
+  private static func handleAgentExplainQuery(
+    params: [String: String],
+    clientFD: Int32,
+    store: StoreOf<AppFeature>
+  ) {
+    guard let rawWorktreeID = params["worktreeID"], let rawAgent = params["agent"] else {
+      AgentHookSocketServer.sendCommandResponse(
+        clientFD: clientFD, ok: false, error: "Missing worktreeID/agent for agent explain.")
+      return
+    }
+    guard let agent = SkillAgent(rawValue: rawAgent) else {
+      AgentHookSocketServer.sendCommandResponse(
+        clientFD: clientFD, ok: false, error: "Unknown agent kind: \(rawAgent)")
+      return
+    }
+    let decoded = rawWorktreeID.removingPercentEncoding ?? rawWorktreeID
+    let worktreeID = WorktreeID(decoded.hasSuffix("/") ? String(decoded.dropLast()) : decoded)
+    guard let item = store.repositories.sidebarItems[id: worktreeID] else {
+      AgentHookSocketServer.sendCommandResponse(
+        clientFD: clientFD, ok: false, error: "Worktree not found: \(rawWorktreeID)")
+      return
+    }
+    let presence = store.agentPresence
+    guard let key = presence.presenceKey(agent: agent, across: item.surfaceIDs),
+      let row = AgentExplainQueryResponse.row(key: key, presence: presence)
+    else {
+      AgentHookSocketServer.sendCommandResponse(
+        clientFD: clientFD, ok: false,
+        error: "No running \(rawAgent) agent in \(worktreeID.rawValue).")
+      return
+    }
+    AgentHookSocketServer.sendQueryResponse(clientFD: clientFD, data: [row])
   }
 
   private static func handleWorktreeStatusQuery(

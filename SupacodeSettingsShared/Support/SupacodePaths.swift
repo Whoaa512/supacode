@@ -2,7 +2,15 @@ import Foundation
 
 public nonisolated enum SupacodePaths {
   public static var baseDirectory: URL {
-    FileManager.default.homeDirectoryForCurrentUser
+    // Dev/QA isolation: point the whole state tree (settings, layouts,
+    // sidebar, repos, scrollback) somewhere else so a debug build can run
+    // alongside the production app without sharing or clobbering its state.
+    if let override = ProcessInfo.processInfo.environment["SUPACODE_STATE_DIR"],
+      !override.isEmpty
+    {
+      return URL(filePath: override, directoryHint: .isDirectory)
+    }
+    return FileManager.default.homeDirectoryForCurrentUser
       .appending(path: ".supacode", directoryHint: .isDirectory)
   }
 

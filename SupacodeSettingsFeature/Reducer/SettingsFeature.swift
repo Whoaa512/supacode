@@ -75,6 +75,7 @@ public struct SettingsFeature {
     public var globalScripts: [ScriptDefinition]
     public var richAgentNotificationsEnabled: Bool
     public var agentPresenceBadgesEnabled: Bool
+    public var resumeAgentsOnRestore: Bool
     public var autoUpdateAgentIntegrationsEnabled: Bool
     public var confirmQuitMode: ConfirmQuitMode
     public var confirmCloseSurface: Bool
@@ -84,6 +85,13 @@ public struct SettingsFeature {
     public var terminalHibernationEnabled: Bool
     public var persistScrollbackEnabled: Bool
     public var restoreSurfacePruningEnabled: Bool
+    /// Agents-tab row layout as editable text: one row per line, tokens
+    /// separated by spaces. Round-trips through `AgentsSidebarSettings`, so
+    /// unsupported tokens are dropped on persist exactly as a file edit would be.
+    public var agentsSidebarRowsText: String
+    /// Per-agent overrides are file-only (`global.agentsSidebar.rowsByAgent`);
+    /// held here so editing the shared rows can't discard them.
+    public var agentsSidebarRowsByAgent: [String: [[String]]]
     public var cliInstallState = CLIInstallState.checking
     /// Installed editors in menu order, resolved once off the picker's body.
     public var installedOpenActions: [OpenWorktreeAction]
@@ -94,6 +102,15 @@ public struct SettingsFeature {
     public var repositorySummaries: [SettingsRepositorySummary] = []
     public var repositorySettings: RepositorySettingsFeature.State?
     @Presents public var alert: AlertState<Alert>?
+
+    /// The editor's text plus the file-only per-agent overrides, as the value
+    /// that gets persisted and mirrored into the Agents tab.
+    public var agentsSidebar: AgentsSidebarSettings {
+      AgentsSidebarSettings(
+        rows: AgentsSidebarSettings.rows(fromText: agentsSidebarRowsText),
+        rowsByAgent: agentsSidebarRowsByAgent
+      )
+    }
 
     /// True when at least one notification delivery channel (macOS banner or
     /// the fallback sound) can fire, so surface-mute has something to mute.
@@ -133,6 +150,7 @@ public struct SettingsFeature {
       globalScripts = settings.globalScripts
       richAgentNotificationsEnabled = settings.richAgentNotificationsEnabled
       agentPresenceBadgesEnabled = settings.agentPresenceBadgesEnabled
+      resumeAgentsOnRestore = settings.resumeAgentsOnRestore
       autoUpdateAgentIntegrationsEnabled = settings.autoUpdateAgentIntegrationsEnabled
       confirmQuitMode = settings.confirmQuitMode
       confirmCloseSurface = settings.confirmCloseSurface
@@ -142,6 +160,8 @@ public struct SettingsFeature {
       terminalHibernationEnabled = settings.terminalHibernationEnabled
       persistScrollbackEnabled = settings.persistScrollbackEnabled
       restoreSurfacePruningEnabled = settings.restoreSurfacePruningEnabled
+      agentsSidebarRowsText = settings.agentsSidebar.rowsText
+      agentsSidebarRowsByAgent = settings.agentsSidebar.rowsByAgent
       defaultWorktreeBaseDirectoryPath =
         SupacodePaths.normalizedWorktreeBaseDirectoryPath(settings.defaultWorktreeBaseDirectoryPath) ?? ""
     }
@@ -188,7 +208,9 @@ public struct SettingsFeature {
         appVisibility: appVisibility,
         terminalHibernationEnabled: terminalHibernationEnabled,
         persistScrollbackEnabled: persistScrollbackEnabled,
-        restoreSurfacePruningEnabled: restoreSurfacePruningEnabled
+        restoreSurfacePruningEnabled: restoreSurfacePruningEnabled,
+        agentsSidebar: agentsSidebar,
+        resumeAgentsOnRestore: resumeAgentsOnRestore
       )
     }
   }
@@ -205,6 +227,8 @@ public struct SettingsFeature {
     case updateShortcut(id: AppShortcutID, override: AppShortcutOverride?)
     case toggleShortcutEnabled(id: AppShortcutID, enabled: Bool)
     case resetAllShortcuts
+    /// Restores the built-in Agents-tab row layout, dropping per-agent overrides.
+    case resetAgentsSidebarRows
     case requestAutoDeleteDaysChange(AutoDeletePeriod?)
     case resolvedAutoDeleteAffectedCount(AutoDeletePeriod, affectedCount: Int)
     case cliInstallChecked(installed: Bool)
@@ -321,6 +345,7 @@ public struct SettingsFeature {
         state.globalScripts = normalizedSettings.globalScripts
         state.richAgentNotificationsEnabled = normalizedSettings.richAgentNotificationsEnabled
         state.agentPresenceBadgesEnabled = normalizedSettings.agentPresenceBadgesEnabled
+        state.resumeAgentsOnRestore = normalizedSettings.resumeAgentsOnRestore
         state.autoUpdateAgentIntegrationsEnabled = normalizedSettings.autoUpdateAgentIntegrationsEnabled
         state.confirmQuitMode = normalizedSettings.confirmQuitMode
         state.confirmCloseSurface = normalizedSettings.confirmCloseSurface
@@ -330,6 +355,8 @@ public struct SettingsFeature {
         state.terminalHibernationEnabled = normalizedSettings.terminalHibernationEnabled
         state.persistScrollbackEnabled = normalizedSettings.persistScrollbackEnabled
         state.restoreSurfacePruningEnabled = normalizedSettings.restoreSurfacePruningEnabled
+        state.agentsSidebarRowsText = normalizedSettings.agentsSidebar.rowsText
+        state.agentsSidebarRowsByAgent = normalizedSettings.agentsSidebar.rowsByAgent
         state.defaultWorktreeBaseDirectoryPath = normalizedSettings.defaultWorktreeBaseDirectoryPath ?? ""
         state.syncGlobalDefaults(from: normalizedSettings)
         synchronizeRepositorySelection(for: &state)
@@ -366,6 +393,12 @@ public struct SettingsFeature {
 
       case .setAutomatedActionPolicy(let policy):
         state.automatedActionPolicy = policy
+        state.syncGlobalDefaults(from: state.globalSettings)
+        return persist(state)
+
+      case .resetAgentsSidebarRows:
+        state.agentsSidebarRowsText = AgentsSidebarSettings.default.rowsText
+        state.agentsSidebarRowsByAgent = [:]
         state.syncGlobalDefaults(from: state.globalSettings)
         return persist(state)
 

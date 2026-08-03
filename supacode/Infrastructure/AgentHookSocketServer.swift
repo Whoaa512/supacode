@@ -453,6 +453,7 @@ final class AgentHookSocketServer {
 ///   "surface_id": "<UUID>",     // required
 ///   "pid": 12345,               // optional, agent process pid
 ///   "ts": "<ISO8601>",          // optional, sender clock
+///   "session_ref": "<id>",      // optional, native agent session id
 ///   "data": { ... }             // optional, event-specific
 /// }
 /// ```
@@ -479,6 +480,11 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
   let surfaceID: UUID
   let pid: pid_t?
   let timestamp: Date?
+  /// The agent's native session id (`claude --resume <id>`, `pi --session <id>`,
+  /// `codex resume <id>`), when its hook payload carried one. Sanitized by
+  /// `AgentPresenceOSC.sanitizedSessionRef` on both the OSC and JSON paths,
+  /// because it eventually reaches a terminal as part of a command line.
+  let sessionRef: String?
   /// Event-specific payload preserved as opaque JSON. Handlers decode with
   /// their own typed shape via `decodeData(_:)`, keeping this layer decoupled
   /// from per-event payload schemas.
@@ -507,6 +513,7 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
     case version = "v"
     case surfaceID = "surface_id"
     case timestamp = "ts"
+    case sessionRef = "session_ref"
   }
 
   init(from decoder: Decoder) throws {
@@ -539,6 +546,8 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
     } else {
       self.timestamp = nil
     }
+    self.sessionRef = AgentPresenceOSC.sanitizedSessionRef(
+      try container.decodeIfPresent(String.self, forKey: .sessionRef))
     self.data = try container.decodeIfPresent(JSONValue.self, forKey: .data)
   }
 
@@ -552,6 +561,7 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
     surfaceID: UUID,
     pid: pid_t? = nil,
     timestamp: Date? = nil,
+    sessionRef: String? = nil,
     data: JSONValue? = nil
   ) {
     self.version = version
@@ -567,6 +577,7 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
       self.pid = pid
     }
     self.timestamp = timestamp
+    self.sessionRef = AgentPresenceOSC.sanitizedSessionRef(sessionRef)
     self.data = data
   }
 

@@ -132,6 +132,11 @@ struct RepositoriesFeature {
     var autoDeleteArchivedWorktreesAfterDays: AutoDeletePeriod?
     var mergedWorktreeAction: MergedWorktreeAction?
     var moveNotifiedWorktreeToTop = false
+    /// Agents-tab row layout, mirrored down from `AppFeature` on every settings
+    /// change. Mirrored rather than read from `@Shared(.settingsFile)` in the
+    /// recompute: that key seeds defaults on read, so touching it from the
+    /// post-reduce hook mutates shared state on every action.
+    var agentsSidebar: AgentsSidebarSettings = .default
     /// Installed editors in menu order, mirrored down from `AppFeature` so the
     /// sidebar context menu never probes LaunchServices while building.
     var installedOpenActions: [OpenWorktreeAction] = []
@@ -203,6 +208,11 @@ struct RepositoriesFeature {
     /// in the recompute helper keeps a no-op rebuild from invalidating
     /// SwiftUI when the user-visible layout didn't actually change.
     var sidebarStructure: SidebarStructure = .placeholder
+    /// Single source of truth the Agents sidebar tab renders against. Same
+    /// cached-structure contract as `sidebarStructure`: built in the reducer's
+    /// post-reduce hook and Equatable-diffed before publish, so the view body
+    /// never touches `sidebarItems[id:]`.
+    var agentDashboardStructure: AgentDashboardStructure = .empty
     /// Cached projection of the focused row's display fields. The detail body
     /// reads this directly instead of `sidebarItems[id: id]` so per-leaf agent
     /// / notification mutations on the focused row don't invalidate the
@@ -226,6 +236,7 @@ struct RepositoriesFeature {
     @Presents var worktreeCreationPrompt: WorktreeCreationPromptFeature.State?
     @Presents var repositoryCustomization: RepositoryCustomizationFeature.State?
     @Presents var worktreeCustomization: WorktreeCustomizationFeature.State?
+    @Presents var agentRename: AgentRenameFeature.State?
     @Presents var renameBranchPrompt: RenameBranchFeature.State?
     @Presents var remoteConnectionForm: RemoteConnectionFormFeature.State?
     @Presents var cloneRepositoryForm: CloneRepositoryFormFeature.State?
@@ -303,6 +314,14 @@ struct RepositoriesFeature {
     /// sort that nesting forces shows up in `slotByID` / `hotkeySlots` (which
     /// the view reads to assign ⌃1..⌃0 hotkeys).
     case sidebarNestByBranchChanged
+    /// Fired by `AgentDashboardListView.onChange` whenever
+    /// `@Shared(.sidebarAgentsGroupByState)` mutates, so the post-reduce hook
+    /// rebuilds the cached `agentDashboardStructure` with the new projection.
+    case sidebarAgentsGroupByStateChanged
+    /// Fired when `settingsFile.global.agentsSidebar` changes (file edit or the
+    /// Settings editor), so the post-reduce hook re-resolves every row's
+    /// configured segments.
+    case agentsSidebarRowsChanged(AgentsSidebarSettings)
     case setOpenPanelPresented(Bool)
     case requestAddRemoteRepository
     case requestEditRemoteRepository(Repository.ID)
@@ -504,6 +523,9 @@ struct RepositoriesFeature {
     /// `nil` clears the field; omit-vs-clear was already resolved upstream in `AppFeature`.
     case setWorktreeAppearance(Worktree.ID, Repository.ID, title: String?, color: RepositoryColor?)
     case requestRenameBranch(Worktree.ID, Repository.ID)
+    /// Agents-tab context menu: present the rename sheet for one dashboard row.
+    case requestRenameAgent(AgentDashboardEntry.EntryID)
+    case agentRename(PresentationAction<AgentRenameFeature.Action>)
     case contextMenuOpenWorktree(Worktree.ID, OpenWorktreeAction)
     case worktreeCreationPrompt(PresentationAction<WorktreeCreationPromptFeature.Action>)
     case repositoryCustomization(PresentationAction<RepositoryCustomizationFeature.Action>)
@@ -566,6 +588,9 @@ struct RepositoriesFeature {
     case worktreeCreated(Worktree)
     case runBlockingScript(Worktree, repositoryID: Repository.ID, kind: BlockingScriptKind, script: String)
     case selectTerminalTab(Worktree.ID, tabId: TerminalTabID)
+    /// The parent owns `AgentPresenceFeature`, so it resolves the presence key
+    /// for this (worktree, agent) pair and applies the rename.
+    case renameAgent(worktreeID: Worktree.ID, agent: SkillAgent, name: String?)
   }
 
   @Dependency(AnalyticsClient.self) private var analyticsClient
@@ -3066,6 +3091,16 @@ struct RepositoriesFeature {
         }
         return .none
 
+      case .sidebarAgentsGroupByStateChanged:
+        // No-op handler: the post-reduce hook reads `sidebarAgentsGroupByState`
+        // and rebuilds `agentDashboardStructure` with (or without) sections.
+        return .none
+
+      case .agentsSidebarRowsChanged(let config):
+        // The post-reduce hook re-resolves every row's segments from this.
+        state.agentsSidebar = config
+        return .none
+
       case .sidebarNestByBranchChanged:
         // No-op handler: the post-reduce hook reads `sidebarNestWorktreesByBranch`
         // and rebuilds `sidebarStructure` so the alphabetical per-bucket sort
@@ -4123,6 +4158,10 @@ struct RepositoriesFeature {
       case .repositoryCustomization:
         return .none
 
+      case .requestRenameAgent, .agentRename:
+        // Handled by `agentRenameReducer` below, for the same type-checker reason.
+        return .none
+
       case .requestCustomizeWorktree,
         .setWorktreeAppearance,
         .worktreeCustomization:
@@ -4229,6 +4268,10 @@ struct RepositoriesFeature {
     Self.worktreeCustomizationReducer
       .ifLet(\.$worktreeCustomization, action: \.worktreeCustomization) {
         WorktreeCustomizationFeature()
+      }
+    Self.agentRenameReducer
+      .ifLet(\.$agentRename, action: \.agentRename) {
+        AgentRenameFeature()
       }
     // Dedicated reducer + chained `ifLet` so the form's child reducer runs
     // before the delegate handler nils the presented state (mirrors the

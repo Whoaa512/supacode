@@ -27,6 +27,8 @@ struct CLIReferenceView: View {
       CLISection(title: "Worktree", rows: Self.worktreeRows)
       CLISection(title: "Tab", rows: Self.tabRows)
       CLISection(title: "Surface", rows: Self.surfaceRows)
+      CLISection(title: "Agent", rows: Self.agentRows)
+      CLISection(title: "Terminal", rows: Self.terminalRows)
       CLISection(title: "Repository", rows: Self.repoRows)
       CLISection(title: "Settings", rows: Self.settingsRows)
       CLISection(title: "Socket", rows: Self.socketRows)
@@ -125,6 +127,64 @@ struct CLIReferenceView: View {
     .init(
       command: "supacode surface close [-w <id>] [-t <id>] [-s <id>]",
       description: "Close a surface."
+    ),
+  ]
+
+  private static let agentRows: [CLIEntry] = [
+    .init(
+      command: "supacode agent list [--json]",
+      description:
+        "List running agents: name, kind, state, repo, branch, worktree ID. "
+        + "Blocked rows are underlined."
+    ),
+    .init(
+      command: "supacode agent rename <target> <name> | --clear [--agent <kind>]",
+      description:
+        "Name a running agent ([a-z][a-z0-9_-]*, unique among live agents). "
+        + "Target is a name, worktree ID, or branch."
+    ),
+    .init(
+      command: "supacode agent wait <target> [--until <state>]... [--timeout <seconds>]",
+      description:
+        "Block until the agent reaches a state (default idle, done, or blocked), "
+        + "then print its row as JSON."
+    ),
+    .init(
+      command: "supacode agent prompt <target> <text> [--no-submit] [--wait] [--until <state>]...",
+      description:
+        "Type a prompt into a running agent and submit it. With --wait, block until the agent "
+        + "starts the turn (else fail as agent_prompt_stalled) and then settles."
+    ),
+    .init(
+      command: "supacode agent send-keys <target> <key>...",
+      description:
+        "Send keys: enter, esc, tab, backspace, space, up, down, left, right, home, end, "
+        + "pageup, pagedown, ctrl+<letter>."
+    ),
+    .init(
+      command: "supacode agent read <target> [--lines <n>]",
+      description: "Print the tail of the terminal screen hosting the agent (default 80 lines)."
+    ),
+    .init(
+      command: "supacode agent report-metadata <target> --token key=value [--clear]",
+      description:
+        "Attach display-only tokens (max 8, key ≤ 32 chars lowercase, value ≤ 120 chars). "
+        + "The `summary` token renders in the Agents tab; tokens never affect state or waits."
+    ),
+    .init(
+      command: "supacode agent explain <target> [--json]",
+      description:
+        "Report the agent's dashboard state, raw hook activity, last hook event and timestamp, "
+        + "last transition, seen status, PIDs, and metadata tokens."
+    ),
+  ]
+
+  private static let terminalRows: [CLIEntry] = [
+    .init(
+      command: "supacode terminal wait-output <target> --regex <pattern> | --text <literal>",
+      description:
+        "Poll the worktree's focused terminal every 500ms until a line matches, then print it. "
+        + "Target is an agent name, worktree ID, or branch; defaults to $SUPACODE_WORKTREE_ID."
     ),
   ]
 

@@ -202,6 +202,9 @@ struct AppFeature {
       var repositories = repositories
       let installed = settings.installedOpenActions
       repositories.installedOpenActions = installed
+      // Seeded here so the Agents tab honors a configured row layout on the very
+      // first structure computation, before the first `settingsChanged` delegate.
+      repositories.agentsSidebar = settings.agentsSidebar
       installedOpenActions = installed
       self.repositories = repositories
       self.settings = settings
@@ -643,6 +646,9 @@ struct AppFeature {
         }
         return .merge(effects)
 
+      case .repositories(.delegate(.renameAgent(let worktreeID, let agent, let name))):
+        return renameAgentEffect(worktreeID: worktreeID, agent: agent, name: name, state: state).effect
+
       case .repositories(.delegate(.openWorktreeInApp(let worktreeID, let action))):
         guard let worktree = state.repositories.worktree(for: worktreeID) else {
           appLogger.warning("openWorktreeInApp: worktree \(worktreeID) not found, ignoring.")
@@ -702,6 +708,8 @@ struct AppFeature {
           .send(.repositories(.setGithubIntegrationEnabled(settings.githubIntegrationEnabled))),
           .send(.repositories(.setMergedWorktreeAction(settings.mergedWorktreeAction))),
           .send(.repositories(.setMoveNotifiedWorktreeToTop(settings.moveNotifiedWorktreeToTop))),
+          // Re-resolves the Agents tab's configured row segments.
+          .send(.repositories(.agentsSidebarRowsChanged(settings.agentsSidebar))),
           // The global default editor feeds every repo's resolved open action, and the
           // selected worktree's own open action resolves against it too.
           .send(.repositories(.openActionSettingsChanged)),
@@ -2112,6 +2120,9 @@ struct AppFeature {
         worktreeID: worktreeID, action: action, source: source, responseFD: responseFD,
         timeoutSeconds: timeoutSeconds, state: &state
       )
+    case .agent(let worktreeID, let rawAgent, let agentAction):
+      return handleAgentDeeplink(
+        worktreeID: worktreeID, agent: rawAgent, action: agentAction, state: &state)
     case .repoOpen(let path):
       return .send(.repositories(.openRepositories([path])))
     case .repoWorktreeNew(
