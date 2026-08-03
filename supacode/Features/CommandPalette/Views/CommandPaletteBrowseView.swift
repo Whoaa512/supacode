@@ -3,18 +3,22 @@ import SwiftUI
 
 struct CommandPaletteBrowseView: View {
   @Bindable var store: StoreOf<CommandPaletteFeature>
-  @FocusState private var isFilterFocused: Bool
+  @FocusState private var isPathFocused: Bool
   @State private var hoveredID: DirectoryEntry.ID?
 
-  private var currentPathDisplay: String {
-    store.browse.currentPath.path(percentEncoded: false)
+  private var browseDirectoryPath: String {
+    store.browse.directoryURL.path(percentEncoded: false)
   }
+
+  private static let keyboardHints = "↵ open · ⇥ complete · ⌘↵ open folder · ⌘↑ up"
+  private static let keyboardHintsHelp = """
+    ↵ opens a repository or enters a folder · ⇥ completes the path · \
+    ⌘↵ opens the folder itself · ⌘↑ goes up one level
+    """
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       browseHeader
-      Divider()
-      pathBar
       Divider()
       browseList
       Divider()
@@ -39,33 +43,42 @@ struct CommandPaletteBrowseView: View {
     .padding(16)
     .environment(\.colorScheme, windowColorScheme)
     .task {
-      isFilterFocused = true
+      isPathFocused = true
     }
   }
 
+  /// The path *is* the query: typing `~/code/sup` browses `~/code` and filters on `sup`,
+  /// and any part of the path stays editable, so the user is never trapped in a directory.
   private var browseHeader: some View {
     ZStack {
       hiddenKeyboardButtons
 
-      TextField(
-        "Filter directories...",
-        text: Binding(
-          get: { store.browse.filterQuery },
-          set: { store.send(.browseFilterChanged($0)) },
-        ),
-      )
-      .padding()
-      .font(.title3.weight(.light))
-      .frame(height: 48)
-      .textFieldStyle(.plain)
-      .focused($isFilterFocused)
-      .onChange(of: isFilterFocused) { _, focused in
-        if !focused {
-          store.send(.setPresented(false))
+      HStack(spacing: 8) {
+        TextField(
+          "~/path/to/project",
+          text: Binding(
+            get: { store.browse.pathQuery },
+            set: { store.send(.browsePathQueryChanged($0)) },
+          ),
+        )
+        .font(.title3.weight(.light).monospaced())
+        .textFieldStyle(.plain)
+        .focused($isPathFocused)
+        .onChange(of: isPathFocused) { _, focused in
+          if !focused {
+            store.send(.setPresented(false))
+          }
+        }
+        .onExitCommand { store.send(.setPresented(false)) }
+        .onSubmit { store.send(.browseSubmit) }
+
+        if store.browse.isLoading {
+          ProgressView()
+            .controlSize(.small)
         }
       }
-      .onExitCommand { store.send(.setPresented(false)) }
-      .onSubmit { store.send(.browseSubmit) }
+      .padding()
+      .frame(height: 48)
     }
   }
 
@@ -99,47 +112,9 @@ struct CommandPaletteBrowseView: View {
       }
       .buttonStyle(.plain)
       .keyboardShortcut(.init("n"), modifiers: [.control])
-      Button {
-        store.send(.browseNavigateUp)
-      } label: {
-        Color.clear
-      }
-      .buttonStyle(.plain)
-      .keyboardShortcut(.leftArrow, modifiers: [.command])
     }
     .frame(width: 0, height: 0)
     .accessibilityHidden(true)
-  }
-
-  private var pathBar: some View {
-    HStack(spacing: 4) {
-      Button {
-        store.send(.browseNavigateUp)
-      } label: {
-        Image(systemName: "chevron.left")
-          .font(.caption.weight(.semibold))
-          .accessibilityLabel("Navigate up")
-      }
-      .buttonStyle(.plain)
-      .help("Navigate up")
-      .disabled(store.browse.currentPath.path(percentEncoded: false) == "/")
-
-      Text(currentPathDisplay)
-        .font(.caption.monospaced())
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
-        .truncationMode(.head)
-
-      Spacer()
-
-      if store.browse.isLoading {
-        ProgressView()
-          .controlSize(.small)
-      }
-    }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 6)
-    .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
   }
 
   private var browseList: some View {
@@ -158,6 +133,7 @@ struct CommandPaletteBrowseView: View {
               ForEach(Array(store.browse.filteredEntries.enumerated()), id: \.element.id) { index, entry in
                 BrowseEntryRow(
                   entry: entry,
+                  relativeParent: Self.relativeParent(of: entry, in: browseDirectoryPath),
                   isSelected: store.browse.selectedIndex == index,
                   isHovered: hoveredID == entry.id,
                   onActivate: { store.send(.browseNavigate(entry)) },
@@ -182,23 +158,34 @@ struct CommandPaletteBrowseView: View {
     }
   }
 
+  /// Nested search hits live below the browsed directory, so show where they came from.
+  /// `nil` for direct children, whose name already says everything.
+  private static func relativeParent(of entry: DirectoryEntry, in directoryPath: String) -> String? {
+    let root = directoryPath.hasSuffix("/") ? directoryPath : directoryPath + "/"
+    guard entry.fullPath.hasPrefix(root) else { return nil }
+    let relative = entry.fullPath.dropFirst(root.count)
+    let parent = relative.split(separator: "/").dropLast().joined(separator: "/")
+    return parent.isEmpty ? nil : parent
+  }
+
   private var browseFooter: some View {
     HStack {
       Button {
         store.send(.browseOpenNativePanel)
       } label: {
-        Label("Open in Finder", systemImage: "folder")
+        Label("Choose Folder…", systemImage: "folder")
           .font(.caption)
       }
       .buttonStyle(.plain)
       .foregroundStyle(.secondary)
-      .help("Fall back to native file picker")
+      .help("Fall back to the native macOS open panel to pick a folder")
 
       Spacer()
 
-      Text("Enter to open · ⌘← to go up")
+      Text(Self.keyboardHints)
         .font(.caption2)
         .foregroundStyle(.quaternary)
+        .help(Self.keyboardHintsHelp)
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 8)
@@ -211,6 +198,7 @@ struct CommandPaletteBrowseView: View {
 
 private struct BrowseEntryRow: View {
   let entry: DirectoryEntry
+  let relativeParent: String?
   let isSelected: Bool
   let isHovered: Bool
   let onActivate: () -> Void
@@ -226,6 +214,14 @@ private struct BrowseEntryRow: View {
 
         Text(entry.name)
           .fontWeight(entry.isGitRepo ? .medium : .regular)
+
+        if let relativeParent {
+          Text("in \(relativeParent)")
+            .font(.caption.monospaced())
+            .foregroundStyle(.tertiary)
+            .lineLimit(1)
+            .truncationMode(.head)
+        }
 
         Spacer()
 
@@ -244,7 +240,7 @@ private struct BrowseEntryRow: View {
       .clipShape(.rect(cornerRadius: 5))
     }
     .buttonStyle(.plain)
-    .help(entry.isGitRepo ? "Add \(entry.name) as repository" : "Open \(entry.name)")
+    .help(entry.isGitRepo ? "Open \(entry.name) as a repository" : "Browse \(entry.name) (⌘↵ to open it)")
   }
 
   private var rowBackground: some View {

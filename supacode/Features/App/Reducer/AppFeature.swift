@@ -1541,9 +1541,6 @@ struct AppFeature {
       case .commandPalette(.delegate(.forkWorktree(let worktreeID, let repositoryID))):
         return .send(.repositories(.forkWorktree(worktreeID: worktreeID, repositoryID: repositoryID)))
 
-      case .commandPalette(.delegate(.openRepository)):
-        return .send(.commandPalette(.enterBrowseMode(basePath: nil)))
-
       case .commandPalette(.delegate(.browseSelectRepository(let url))):
         return .send(.repositories(.openRepositories([url])))
 

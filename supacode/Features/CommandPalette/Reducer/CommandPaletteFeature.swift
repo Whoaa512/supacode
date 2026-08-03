@@ -21,15 +21,33 @@ struct CommandPaletteFeature {
     case browse
   }
 
+  /// Browse mode is driven entirely by `pathQuery`: it is a live, freely editable path.
+  /// `entries` is the listing of the directory that query points at, `searchResults` are
+  /// depth-limited nested matches for the typed leaf, and `filteredEntries` is what the
+  /// list renders (recomputed by the reducer so the view and the key monitor agree).
   @ObservableState
   struct BrowseState: Equatable {
-    var currentPath: URL = FileManager.default.homeDirectoryForCurrentUser
+    var pathQuery = ""
     var entries: [DirectoryEntry] = []
+    var searchResults: [DirectoryEntry] = []
     var filteredEntries: [DirectoryEntry] = []
-    var filterQuery = ""
     var selectedIndex: Int?
     var isLoading = false
-    var pathHistory: [URL] = []
+    /// Directory whose listing `entries` holds; guards stale loads from clobbering state.
+    var loadedDirectory: URL?
+    /// Derived from `pathQuery` and cached: resolving it touches the filesystem, and the
+    /// view reads it on every body pass. Always mutate the pair through `setPathQuery`.
+    var directoryURL = BrowsePath.directoryURL(of: "")
+
+    mutating func setPathQuery(_ query: String) {
+      pathQuery = query
+      directoryURL = BrowsePath.directoryURL(of: query)
+    }
+
+    var selectedEntry: DirectoryEntry? {
+      guard let selectedIndex, filteredEntries.indices.contains(selectedIndex) else { return nil }
+      return filteredEntries[selectedIndex]
+    }
   }
 
   @ObservableState
@@ -65,12 +83,15 @@ struct CommandPaletteFeature {
     case branchesLoaded([Repository.ID: [String]])
     case pruneRecency([CommandPaletteItem.ID])
     case enterBrowseMode(basePath: URL?)
-    case browseLoadDirectory(URL)
-    case browseDirectoryLoaded([DirectoryEntry])
+    case browsePathQueryChanged(String)
+    case browseDirectoryLoaded(directory: URL, entries: [DirectoryEntry])
+    case browseSearchResultsLoaded(directory: URL, query: String, results: [DirectoryEntry])
     case browseNavigate(DirectoryEntry)
+    case browseOpenEntry(DirectoryEntry)
     case browseNavigateUp
-    case browseFilterChanged(String)
+    case browseAutocomplete
     case browseSubmit
+    case browseForceOpen
     case browseMoveSelection(SelectionMove)
     case browseSelectRepository(URL)
     case browseOpenNativePanel
@@ -85,7 +106,6 @@ struct CommandPaletteFeature {
     case openSettings
     case newWorktree
     case forkWorktree(Worktree.ID, Repository.ID)
-    case openRepository
     case addRemoteRepository
     case removeWorktree(Worktree.ID, Repository.ID)
     case archiveWorktree(Worktree.ID, Repository.ID)
@@ -119,7 +139,14 @@ struct CommandPaletteFeature {
   }
 
   @Dependency(\.date.now) private var now
+  @Dependency(\.continuousClock) private var clock
   @Dependency(\.fileSystemBrowseClient) private var fileSystemBrowseClient
+
+  static let browseSearchDebounce = Duration.milliseconds(150)
+  static let browseSearchMinimumLeafLength = 2
+  static let browseSearchMaximumDepth = 3
+  /// Ceiling on rendered rows so a broad match can't turn the list into a scroll marathon.
+  static let browseRowLimit = 100
 
   var body: some Reducer<State, Action> {
     BindingReducer()
@@ -160,19 +187,19 @@ struct CommandPaletteFeature {
       case .activateItem(let item):
         state.recencyByItemID[item.id] = now.timeIntervalSince1970
         saveRecency(state.recencyByItemID)
+        // Browse mode stays inside the palette, so it owns the whole state transition.
         if item.kind == .openRepository {
-          let path = FileManager.default.homeDirectoryForCurrentUser
-          state.mode = .browse
-          state.query = ""
-          state.selectedIndex = nil
-          state.browse = BrowseState(currentPath: path)
-          return .send(.browseLoadDirectory(path))
+          return .send(.enterBrowseMode(basePath: nil))
         }
         state.isPresented = false
         state.resetForDismiss()
+        guard let delegate = delegateAction(for: item.kind) else {
+          commandPaletteLogger.warning("No delegate for activated palette item \(item.id).")
+          return .none
+        }
         // No `.dismissedWithoutSelection` here: every activation delegate
         // resolves to a destination that owns its own focus transition.
-        return .send(.delegate(delegateAction(for: item.kind)))
+        return .send(.delegate(delegate))
 
       case .updateSelection(let itemsCount, let defaultIndex):
         if itemsCount == 0 {
@@ -227,69 +254,133 @@ struct CommandPaletteFeature {
       // MARK: - Browse mode
 
       case .enterBrowseMode(let basePath):
-        let path = basePath ?? FileManager.default.homeDirectoryForCurrentUser
         state.isPresented = true
         state.mode = .browse
         state.query = ""
-        state.browse = BrowseState(currentPath: path)
-        return .send(.browseLoadDirectory(path))
-
-      case .browseLoadDirectory(let url):
-        state.browse.isLoading = true
-        state.browse.currentPath = url
-        state.browse.filterQuery = ""
-        return .run { send in
-          let entries = try await fileSystemBrowseClient.listDirectory(url)
-          await send(.browseDirectoryLoaded(entries))
-        } catch: { _, send in
-          await send(.browseDirectoryLoaded([]))
+        state.selectedIndex = nil
+        state.browse = BrowseState()
+        // No base path means the home directory, which `~/` already denotes.
+        let query = basePath.map {
+          BrowsePath.descending(into: $0.path(percentEncoded: false), from: "~/")
         }
-        .cancellable(id: CancelID.browseLoad, cancelInFlight: true)
+        return .send(.browsePathQueryChanged(query ?? "~/"))
 
-      case .browseDirectoryLoaded(let entries):
+      case .browsePathQueryChanged(let query):
+        state.browse.setPathQuery(query)
+        let directory = state.browse.directoryURL
+        let leaf = BrowsePath.leaf(of: query)
+
+        var effects: [Effect<Action>] = []
+        if state.browse.loadedDirectory != directory {
+          state.browse.isLoading = true
+          state.browse.entries = []
+          state.browse.searchResults = []
+          // Drop the stale listing's identity too: without this, editing back to a
+          // directory whose load is still in flight looks already-loaded and no new
+          // load starts, leaving a spinner over an empty list forever.
+          state.browse.loadedDirectory = nil
+          effects.append(
+            .run { send in
+              let entries = try await fileSystemBrowseClient.listDirectory(directory)
+              await send(.browseDirectoryLoaded(directory: directory, entries: entries))
+            } catch: { error, send in
+              commandPaletteLogger.error(
+                "Browse listing failed for \(directory.path(percentEncoded: false)): \(error)"
+              )
+              await send(.browseDirectoryLoaded(directory: directory, entries: []))
+            }
+            .cancellable(id: CancelID.browseLoad, cancelInFlight: true)
+          )
+        }
+        // Nested search is debounced and only worth running for a couple of characters;
+        // shorter leaves match nearly everything and the direct listing already covers them.
+        if leaf.count >= Self.browseSearchMinimumLeafLength {
+          effects.append(
+            .run { send in
+              try await clock.sleep(for: Self.browseSearchDebounce)
+              let results = try await fileSystemBrowseClient.searchDirectories(
+                directory,
+                leaf,
+                Self.browseSearchMaximumDepth
+              )
+              await send(
+                .browseSearchResultsLoaded(directory: directory, query: leaf, results: results)
+              )
+            } catch: { error, _ in
+              guard !(error is CancellationError) else { return }
+              commandPaletteLogger.error(
+                "Browse search for \(leaf) under \(directory.path(percentEncoded: false)) failed: \(error)"
+              )
+            }
+            .cancellable(id: CancelID.browseSearch, cancelInFlight: true)
+          )
+        } else {
+          state.browse.searchResults = []
+          effects.append(.cancel(id: CancelID.browseSearch))
+        }
+        Self.refreshBrowseRows(&state.browse)
+        return .merge(effects)
+
+      case .browseDirectoryLoaded(let directory, let entries):
+        // A slower earlier load can still land after the user moved on; ignore it.
+        guard directory == state.browse.directoryURL else { return .none }
         state.browse.isLoading = false
+        state.browse.loadedDirectory = directory
         state.browse.entries = entries
-        state.browse.filteredEntries = entries
-        state.browse.selectedIndex = entries.isEmpty ? nil : 0
+        Self.refreshBrowseRows(&state.browse)
         return .none
 
+      case .browseSearchResultsLoaded(let directory, let query, let results):
+        guard directory == state.browse.directoryURL,
+          query == BrowsePath.leaf(of: state.browse.pathQuery)
+        else { return .none }
+        state.browse.searchResults = results
+        Self.refreshBrowseRows(&state.browse)
+        return .none
+
+      // Enter: open git repositories, descend into everything else. A plain folder is
+      // still a valid selection, reachable with ⌘↩ (`.browseForceOpen`).
       case .browseNavigate(let entry):
-        let url = URL(fileURLWithPath: entry.fullPath)
-        if entry.isGitRepo {
-          state.isPresented = false
-          state.resetForDismiss()
-          return .send(.delegate(.browseSelectRepository(url)))
-        }
-        state.browse.pathHistory.append(state.browse.currentPath)
-        return .send(.browseLoadDirectory(url))
+        guard !entry.isGitRepo else { return .send(.browseOpenEntry(entry)) }
+        return .send(
+          .browsePathQueryChanged(
+            BrowsePath.descending(into: entry.fullPath, from: state.browse.pathQuery)
+          )
+        )
+
+      case .browseOpenEntry(let entry):
+        return .send(.browseSelectRepository(URL(fileURLWithPath: entry.fullPath)))
 
       case .browseNavigateUp:
-        guard let parent = state.browse.pathHistory.popLast() else {
-          let parent = state.browse.currentPath.deletingLastPathComponent()
-          guard parent != state.browse.currentPath else { return .none }
-          return .send(.browseLoadDirectory(parent))
-        }
-        return .send(.browseLoadDirectory(parent))
+        guard let parent = BrowsePath.parent(of: state.browse.pathQuery) else { return .none }
+        return .send(.browsePathQueryChanged(parent))
 
-      case .browseFilterChanged(let query):
-        state.browse.filterQuery = query
-        if query.isEmpty {
-          state.browse.filteredEntries = state.browse.entries
-        } else {
-          let lowered = query.lowercased()
-          state.browse.filteredEntries = state.browse.entries.filter {
-            $0.name.lowercased().contains(lowered)
-          }
-        }
-        state.browse.selectedIndex = state.browse.filteredEntries.isEmpty ? nil : 0
-        return .none
+      // Tab completes the highlighted entry into the path without opening it, even when
+      // that entry is a git repository.
+      case .browseAutocomplete:
+        guard let entry = state.browse.selectedEntry else { return .none }
+        return .send(
+          .browsePathQueryChanged(
+            BrowsePath.descending(into: entry.fullPath, from: state.browse.pathQuery)
+          )
+        )
 
       case .browseSubmit:
-        guard let index = state.browse.selectedIndex,
-          state.browse.filteredEntries.indices.contains(index)
-        else { return .none }
-        let entry = state.browse.filteredEntries[index]
+        guard let entry = state.browse.selectedEntry else {
+          // A typed leaf with no match has no target, so Enter does nothing rather than
+          // silently opening the directory the user was only filtering. ⌘↩ still does.
+          guard BrowsePath.leaf(of: state.browse.pathQuery).isEmpty else { return .none }
+          return .send(.browseForceOpen)
+        }
         return .send(.browseNavigate(entry))
+
+      // ⌘↩ opens what's highlighted (or the directory the path points at) regardless of
+      // whether it is a git repository.
+      case .browseForceOpen:
+        guard let entry = state.browse.selectedEntry else {
+          return .send(.browseSelectRepository(state.browse.directoryURL))
+        }
+        return .send(.browseOpenEntry(entry))
 
       case .browseMoveSelection(let direction):
         let count = state.browse.filteredEntries.count
@@ -344,6 +435,58 @@ struct CommandPaletteFeature {
 
   private nonisolated enum CancelID: Hashable, Sendable {
     case browseLoad
+    case browseSearch
+  }
+
+  /// Rows are the directory's own prefix matches first (what the user is typing into),
+  /// then nested matches from the depth-limited search. Hidden directories stay out of the
+  /// way until the typed leaf starts with ".", matching the reference picker.
+  static func browseRows(
+    entries: [DirectoryEntry],
+    searchResults: [DirectoryEntry],
+    leaf: String
+  ) -> [DirectoryEntry] {
+    let showsHidden = leaf.hasPrefix(".")
+    let needle = leaf.lowercased()
+    let visible = entries.filter { showsHidden || !$0.name.hasPrefix(".") }
+    guard !needle.isEmpty else { return Array(visible.prefix(browseRowLimit)) }
+
+    let directPaths = Set(visible.map(\.fullPath))
+    let candidates = visible + searchResults.filter { !directPaths.contains($0.fullPath) }
+    // One matching rule for direct children and nested hits alike, so a late search
+    // result slots into the existing order instead of reshuffling the whole list.
+    let ranked =
+      candidates
+      .filter { $0.name.lowercased().contains(needle) }
+      .enumerated()
+      .sorted { left, right in
+        let leftPrefix = left.element.name.lowercased().hasPrefix(needle)
+        let rightPrefix = right.element.name.lowercased().hasPrefix(needle)
+        if leftPrefix != rightPrefix { return leftPrefix }
+        return left.offset < right.offset
+      }
+      .map(\.element)
+    return Array(ranked.prefix(browseRowLimit))
+  }
+
+  /// Recomputes the rendered rows, keeping the cursor on whatever the user had
+  /// highlighted when that entry survives. Late search results must never move the
+  /// selection out from under an in-flight arrow-key-then-Enter.
+  private static func refreshBrowseRows(_ browse: inout BrowseState) {
+    let previouslySelectedID = browse.selectedEntry?.id
+    browse.filteredEntries = browseRows(
+      entries: browse.entries,
+      searchResults: browse.searchResults,
+      leaf: BrowsePath.leaf(of: browse.pathQuery)
+    )
+    guard !browse.filteredEntries.isEmpty else {
+      browse.selectedIndex = nil
+      return
+    }
+    let survivingIndex = previouslySelectedID.flatMap { id in
+      browse.filteredEntries.firstIndex { $0.id == id }
+    }
+    browse.selectedIndex = survivingIndex ?? 0
   }
 
   static func filterItems(
@@ -1062,7 +1205,9 @@ private func commandPaletteRecencyScore(
   return pow(0.5, cappedAgeDays / 7)
 }
 
-private func delegateAction(for kind: CommandPaletteItem.Kind) -> CommandPaletteFeature.Delegate {
+/// The delegate an activated item resolves to, or `nil` for a kind the reducer handles
+/// itself: `.openRepository` switches the palette into browse mode and never leaves it.
+private func delegateAction(for kind: CommandPaletteItem.Kind) -> CommandPaletteFeature.Delegate? {
   switch kind {
   case .worktreeSelect(let id):
     return .selectWorktree(id)
@@ -1075,7 +1220,7 @@ private func delegateAction(for kind: CommandPaletteItem.Kind) -> CommandPalette
   case .newWorktree:
     return .newWorktree
   case .openRepository:
-    return .openRepository
+    return nil
   case .addRemoteRepository:
     return .addRemoteRepository
   case .customizeRepositoryAppearance, .customizeWorktreeAppearance:
