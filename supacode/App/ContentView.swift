@@ -133,6 +133,13 @@ struct ContentView: View {
       }
       store.send(.repositories(.revealSelectedWorktreeInSidebar))
     }
+    .focusedSceneAction(\.toggleAgentsSidebarTabAction, enabled: true) {
+      // A hidden sidebar would swallow the jump, so reveal it first.
+      withAnimation(.easeOut(duration: 0.2)) {
+        leftSidebarVisibility = .all
+      }
+      store.send(.repositories(.toggleAgentsSidebarTab))
+    }
     .focusedSceneAction(
       \.expandAllSidebarGroupsAction,
       enabled: !repositoriesStore.repositories.isEmpty

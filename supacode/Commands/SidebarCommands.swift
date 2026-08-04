@@ -5,6 +5,7 @@ import SwiftUI
 struct SidebarCommands: Commands {
   @FocusedValue(\.toggleLeftSidebarAction) private var toggleLeftSidebarAction
   @FocusedValue(\.revealInSidebarAction) private var revealInSidebarAction
+  @FocusedValue(\.toggleAgentsSidebarTabAction) private var toggleAgentsSidebarTabAction
   @FocusedValue(\.expandAllSidebarGroupsAction) private var expandAllSidebarGroupsAction
   @FocusedValue(\.collapseAllSidebarGroupsAction) private var collapseAllSidebarGroupsAction
   @FocusedValue(\.toggleInspectorPaneAction) private var toggleInspectorPaneAction
@@ -73,6 +74,7 @@ struct SidebarCommands: Commands {
     let overrides = settingsFile.global.shortcutOverrides
     let toggleLeftSidebar = AppShortcuts.toggleLeftSidebar.effective(from: overrides)
     let revealInSidebar = AppShortcuts.revealInSidebar.effective(from: overrides)
+    let toggleAgentsTab = AppShortcuts.toggleAgentsSidebarTab.effective(from: overrides)
     let expandAll = AppShortcuts.expandAllSidebarGroups.effective(from: overrides)
     let collapseAll = AppShortcuts.collapseAllSidebarGroups.effective(from: overrides)
     let togglePullRequestInspector = AppShortcuts.togglePullRequestInspector.effective(from: overrides)
@@ -90,6 +92,15 @@ struct SidebarCommands: Commands {
       .appKeyboardShortcut(revealInSidebar)
       .help("Reveal in Sidebar (\(revealInSidebar?.display ?? "none"))")
       .disabled(revealInSidebarAction?.isEnabled != true)
+      Button("Show Agents Panel", systemImage: "person.2") {
+        toggleAgentsSidebarTabAction?()
+      }
+      .appKeyboardShortcut(toggleAgentsTab)
+      .help(
+        "Show the Agents panel in the sidebar, or return to Worktrees "
+          + "if it is already showing (\(toggleAgentsTab?.display ?? "none"))"
+      )
+      .disabled(toggleAgentsSidebarTabAction?.isEnabled != true)
       Section {
         Button("Expand All", systemImage: "chevron.down") {
           expandAllSidebarGroupsAction?()
@@ -138,6 +149,10 @@ private struct RevealInSidebarActionKey: FocusedValueKey {
   typealias Value = FocusedAction<Void>
 }
 
+private struct ToggleAgentsSidebarTabActionKey: FocusedValueKey {
+  typealias Value = FocusedAction<Void>
+}
+
 private struct ExpandAllSidebarGroupsActionKey: FocusedValueKey {
   typealias Value = FocusedAction<Void>
 }
@@ -159,6 +174,11 @@ extension FocusedValues {
   var revealInSidebarAction: FocusedAction<Void>? {
     get { self[RevealInSidebarActionKey.self] }
     set { self[RevealInSidebarActionKey.self] = newValue }
+  }
+
+  var toggleAgentsSidebarTabAction: FocusedAction<Void>? {
+    get { self[ToggleAgentsSidebarTabActionKey.self] }
+    set { self[ToggleAgentsSidebarTabActionKey.self] = newValue }
   }
 
   var expandAllSidebarGroupsAction: FocusedAction<Void>? {

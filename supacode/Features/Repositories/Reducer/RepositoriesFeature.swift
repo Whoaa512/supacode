@@ -318,6 +318,9 @@ struct RepositoriesFeature {
     /// `@Shared(.sidebarAgentsGroupByState)` mutates, so the post-reduce hook
     /// rebuilds the cached `agentDashboardStructure` with the new projection.
     case sidebarAgentsGroupByStateChanged
+    /// ⌘⇧A (or the View menu item): shows the Agents panel, or returns to
+    /// Worktrees when Agents is already showing.
+    case toggleAgentsSidebarTab
     /// Fired when `settingsFile.global.agentsSidebar` changes (file edit or the
     /// Settings editor), so the post-reduce hook re-resolves every row's
     /// configured segments.
@@ -3094,6 +3097,12 @@ struct RepositoriesFeature {
       case .sidebarAgentsGroupByStateChanged:
         // No-op handler: the post-reduce hook reads `sidebarAgentsGroupByState`
         // and rebuilds `agentDashboardStructure` with (or without) sections.
+        return .none
+
+      case .toggleAgentsSidebarTab:
+        @Shared(.sidebarTab) var sidebarTabRawValue
+        let current = SidebarTab(rawValue: sidebarTabRawValue) ?? .worktrees
+        $sidebarTabRawValue.withLock { $0 = (current == .agents ? SidebarTab.worktrees : .agents).rawValue }
         return .none
 
       case .agentsSidebarRowsChanged(let config):
