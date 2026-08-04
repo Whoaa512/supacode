@@ -111,6 +111,14 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   /// inactivity and reconnect when viewed. On by default.
   public var terminalHibernationEnabled: Bool
   public var persistScrollbackEnabled: Bool
+  /// How many directory levels below the browsed folder the Open Repository picker's
+  /// nested search walks. Deeper finds more but visits more of the tree, so it is a
+  /// user knob rather than a constant.
+  public var browseSearchDepth: Int
+
+  /// Sane bounds for `browseSearchDepth`: 1 is "direct children only", and past 10 the
+  /// walk hits its visit cap long before the depth limit matters.
+  public static let browseSearchDepthRange = 1...10
 
   public static let `default` = GlobalSettings(
     appearanceMode: .dark,
@@ -149,7 +157,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     terminateSessionsOnQuit: false,
     remoteSessionPersistenceEnabled: true,
     appVisibility: .dockAndMenuBar,
-    persistScrollbackEnabled: true
+    persistScrollbackEnabled: true,
+    browseSearchDepth: 5
   )
 
   public init(
@@ -190,7 +199,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     remoteSessionPersistenceEnabled: Bool = true,
     appVisibility: AppVisibility = .dockAndMenuBar,
     terminalHibernationEnabled: Bool = true,
-    persistScrollbackEnabled: Bool = true
+    persistScrollbackEnabled: Bool = true,
+    browseSearchDepth: Int = 5
   ) {
     self.appearanceMode = appearanceMode
     self.defaultEditorID = defaultEditorID
@@ -230,6 +240,13 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.appVisibility = appVisibility
     self.terminalHibernationEnabled = terminalHibernationEnabled
     self.persistScrollbackEnabled = persistScrollbackEnabled
+    self.browseSearchDepth = Self.clampedBrowseSearchDepth(browseSearchDepth)
+  }
+
+  /// Keeps a hand-edited or future-version depth inside the supported range instead of
+  /// letting a 0 disable the search or a 500 stall the walk.
+  public static func clampedBrowseSearchDepth(_ depth: Int) -> Int {
+    min(max(depth, Self.browseSearchDepthRange.lowerBound), Self.browseSearchDepthRange.upperBound)
   }
 
   /// Keys for reading renamed settings fields that no longer
@@ -413,5 +430,9 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     persistScrollbackEnabled =
       try container.decodeIfPresent(Bool.self, forKey: .persistScrollbackEnabled)
       ?? true
+    browseSearchDepth = Self.clampedBrowseSearchDepth(
+      try container.decodeIfPresent(Int.self, forKey: .browseSearchDepth)
+        ?? Self.default.browseSearchDepth
+    )
   }
 }

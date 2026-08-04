@@ -1,5 +1,6 @@
 import ComposableArchitecture
 import CustomDump
+import DependenciesTestSupport
 import Foundation
 import IdentifiedCollections
 import OrderedCollections
@@ -2040,6 +2041,30 @@ struct CommandPaletteFeatureTests {
       $0.browse.filteredEntries = [nested]
       $0.browse.selectedIndex = 0
     }
+  }
+
+  @Test(.dependencies) func browseSearchUsesTheDepthFromGlobalSettings() async {
+    let clock = TestClock()
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.browseSearchDepth = 7 }
+    let depths = LockIsolated<[Int]>([])
+    let store = TestStore(initialState: Self.browseState(pathQuery: "/tmp/", entries: [])) {
+      CommandPaletteFeature()
+    } withDependencies: {
+      $0.continuousClock = clock
+      $0.fileSystemBrowseClient.searchDirectories = { _, _, maxDepth in
+        depths.withValue { $0.append(maxDepth) }
+        return []
+      }
+    }
+
+    await store.send(.browsePathQueryChanged("/tmp/su")) {
+      $0.browse.setPathQuery("/tmp/su")
+    }
+    await clock.advance(by: CommandPaletteFeature.browseSearchDebounce)
+    await store.receive(.browseSearchResultsLoaded(directory: URL(fileURLWithPath: "/tmp"), query: "su", results: []))
+
+    #expect(depths.value == [7])
   }
 
   @Test func browseSearchResultsForStalePathQueryAreIgnored() async {

@@ -144,7 +144,6 @@ struct CommandPaletteFeature {
 
   static let browseSearchDebounce = Duration.milliseconds(150)
   static let browseSearchMinimumLeafLength = 2
-  static let browseSearchMaximumDepth = 3
   /// Ceiling on rendered rows so a broad match can't turn the list into a scroll marathon.
   static let browseRowLimit = 100
 
@@ -295,13 +294,15 @@ struct CommandPaletteFeature {
         // Nested search is debounced and only worth running for a couple of characters;
         // shorter leaves match nearly everything and the direct listing already covers them.
         if leaf.count >= Self.browseSearchMinimumLeafLength {
+          @Shared(.settingsFile) var settingsFile
+          let maximumDepth = settingsFile.global.browseSearchDepth
           effects.append(
             .run { send in
               try await clock.sleep(for: Self.browseSearchDebounce)
               let results = try await fileSystemBrowseClient.searchDirectories(
                 directory,
                 leaf,
-                Self.browseSearchMaximumDepth
+                maximumDepth
               )
               await send(
                 .browseSearchResultsLoaded(directory: directory, query: leaf, results: results)
