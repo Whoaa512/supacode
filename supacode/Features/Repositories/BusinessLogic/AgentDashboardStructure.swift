@@ -231,6 +231,47 @@ extension RepositoriesFeature.State {
     if new != agentDashboardStructure {
       agentDashboardStructure = new
     }
+    pruneAgentDashboardSelectionIfNeeded()
+  }
+
+  /// True while the Agents panel is the one on screen. Arrow / ⌃digit nav reads
+  /// this so one chord drives whichever panel the user is looking at.
+  var isAgentsSidebarTabActive: Bool {
+    @Shared(.sidebarTab) var sidebarTabRawValue
+    return SidebarTab(rawValue: sidebarTabRawValue) == .agents
+  }
+
+  /// Wrapping move through the flat visual order, matching worktree arrow nav
+  /// (which also wraps). Grouped sections are cut from the same sorted list, so
+  /// this walks across section boundaries in the order the user sees. Returns
+  /// false when there is no row to land on, which the caller turns into a beep.
+  mutating func moveAgentDashboardSelection(byOffset offset: Int) -> Bool {
+    let ids = agentDashboardStructure.entries.map(\.id)
+    guard !ids.isEmpty else { return false }
+    guard let current = agentDashboardSelection, let index = ids.firstIndex(of: current) else {
+      // No highlight yet (or one that just got pruned): enter the list from the
+      // end the user is travelling towards.
+      agentDashboardSelection = offset < 0 ? ids[ids.count - 1] : ids[0]
+      return true
+    }
+    agentDashboardSelection = ids[(index + offset + ids.count) % ids.count]
+    return true
+  }
+
+  /// ⌃1..⌃0 in the Agents panel: highlight the nth visible row, no focus change.
+  mutating func selectAgentDashboardEntry(atSlot index: Int) -> Bool {
+    let entries = agentDashboardStructure.entries
+    guard entries.indices.contains(index) else { return false }
+    agentDashboardSelection = entries[index].id
+    return true
+  }
+
+  /// Drops a highlight whose row is gone (agent finished, worktree archived, or
+  /// the list emptied out) so ⌃⌘↓ restarts from the top instead of stalling.
+  mutating func pruneAgentDashboardSelectionIfNeeded() {
+    guard let selection = agentDashboardSelection else { return }
+    guard !agentDashboardStructure.entries.contains(where: { $0.id == selection }) else { return }
+    agentDashboardSelection = nil
   }
 
   /// Flat cross-repo agent list. Per-leaf reads on `sidebarItems[id:]` belong
