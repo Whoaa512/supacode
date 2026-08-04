@@ -628,6 +628,8 @@ extension RepositoriesFeature.Action {
       .showToast, .dismissToast,
       .toggleInspectorPane, .setInspectorPresented,
       .fileExplorer,
+      // Swaps which sidebar panel is on screen; both panels' caches already exist.
+      .toggleAgentsSidebarTab,
       .delayedPullRequestRefresh,
       .openRepositorySettings, .requestCustomizeRepository,
       .requestCustomizeWorktree,
