@@ -25,11 +25,15 @@ struct SidebarView: View {
     let archiveTargets = state.sidebarSelectionSlice.archiveTargets
     let deleteTargets = state.sidebarSelectionSlice.deleteTargets
     let openRepo = AppShortcuts.openRepository.effective(from: settingsFile.global.shortcutOverrides)
+    let toggleAgentsTab = AppShortcuts.toggleAgentsSidebarTab.effective(from: settingsFile.global.shortcutOverrides)
+    let tabShortcut = toggleAgentsTab?.display ?? "none"
 
     return VStack(spacing: 0) {
       Picker("Sidebar Panel", selection: sidebarTab) {
         ForEach(SidebarTab.allCases, id: \.self) { tab in
-          Text(tab.title).tag(tab)
+          Text(tab.title)
+            .tag(tab)
+            .help("\(tab.help) (\(tabShortcut) switches between panels)")
         }
       }
       .pickerStyle(.segmented)
@@ -37,7 +41,7 @@ struct SidebarView: View {
       .controlSize(.small)
       .padding(.horizontal, 8)
       .padding(.vertical, 6)
-      .help(sidebarTab.wrappedValue.help)
+      .help("\(sidebarTab.wrappedValue.help) (\(tabShortcut) switches between panels)")
 
       Divider()
 
