@@ -10,6 +10,17 @@ struct DirectoryEntry: Identifiable, Equatable, Sendable {
   let name: String
   let fullPath: String
   let isGitRepo: Bool
+  /// Path relative to the directory the palette listed / searched from, e.g. `supacode`
+  /// for a direct child and `code/supacode` for a nested search hit. Fuzzy matching and
+  /// the "in <folder>" row subtitle both read it, so neither has to re-derive it.
+  let relativePath: String
+
+  init(name: String, fullPath: String, isGitRepo: Bool, relativePath: String? = nil) {
+    self.name = name
+    self.fullPath = fullPath
+    self.isGitRepo = isGitRepo
+    self.relativePath = relativePath ?? name
+  }
 }
 
 @DependencyClient
@@ -17,8 +28,8 @@ struct FileSystemBrowseClient: Sendable {
   /// Immediate children of `path`. Hidden directories are included; callers decide
   /// whether to show them (the palette reveals them once the typed leaf starts with ".").
   var listDirectory: @Sendable (_ path: URL) async throws -> [DirectoryEntry]
-  /// Directories at or below `root` (depth-limited) whose name matches `query`.
-  /// Lets the palette match `~/code/supacode` while the user is still browsing `~`.
+  /// Directories at or below `root` (depth-limited) whose root-relative path fuzzy-matches
+  /// `query`. Lets the palette match `~/code/supacode` while the user is still browsing `~`.
   var searchDirectories: @Sendable (_ root: URL, _ query: String, _ maxDepth: Int) async throws -> [DirectoryEntry]
 }
 
@@ -64,10 +75,10 @@ extension FileSystemBrowseClient: DependencyKey {
   /// wants to display. Hidden directories are skipped entirely, and a git repository is
   /// a leaf: its internals are never interesting as a project to open.
   private static func search(root: URL, query: String, maxDepth: Int) throws -> [DirectoryEntry] {
-    guard !query.isEmpty, maxDepth > 0 else { return [] }
-    let needle = query.lowercased()
+    guard !BrowseFuzzyMatch.normalizedQuery(query).isEmpty, maxDepth > 0 else { return [] }
+    let resolved = Self.searchRoot(for: root, query: query)
     var matches: [DirectoryEntry] = []
-    var frontier: [URL] = [root]
+    var frontier: [(url: URL, relativePath: String)] = [(resolved.root, "")]
     var visited = 0
 
     for depth in 1...maxDepth {
@@ -76,17 +87,26 @@ extension FileSystemBrowseClient: DependencyKey {
       // stops descending once either cap is hit, not just the current frontier.
       try Task.checkCancellation()
       guard visited < searchVisitLimit, matches.count < searchResultLimit else { break }
-      var next: [URL] = []
+      var next: [(url: URL, relativePath: String)] = []
       for directory in frontier {
         guard visited < searchVisitLimit, matches.count < searchResultLimit else { break }
         visited += 1
-        let children = Self.childDirectoriesLoggingFailure(of: directory)
+        let children = Self.childDirectoriesLoggingFailure(of: directory.url)
         for child in children where !child.name.hasPrefix(".") {
-          if child.name.lowercased().contains(needle) {
-            matches.append(child)
+          let relativePath =
+            directory.relativePath.isEmpty ? child.name : directory.relativePath + "/" + child.name
+          if BrowseFuzzyMatch.matches(path: relativePath, query: resolved.query) {
+            matches.append(
+              DirectoryEntry(
+                name: child.name,
+                fullPath: child.fullPath,
+                isGitRepo: child.isGitRepo,
+                relativePath: relativePath
+              )
+            )
           }
           if depth < maxDepth, !child.isGitRepo {
-            next.append(URL(fileURLWithPath: child.fullPath))
+            next.append((URL(fileURLWithPath: child.fullPath), relativePath))
           }
         }
       }
@@ -94,18 +114,31 @@ extension FileSystemBrowseClient: DependencyKey {
       if frontier.isEmpty { break }
     }
 
-    // Prefix matches read as "what I typed"; substring matches are the long tail.
-    return
-      matches
-      .prefix(searchResultLimit)
-      .enumerated()
-      .sorted { left, right in
-        let leftPrefix = left.element.name.lowercased().hasPrefix(needle)
-        let rightPrefix = right.element.name.lowercased().hasPrefix(needle)
-        if leftPrefix != rightPrefix { return leftPrefix }
-        return left.offset < right.offset
-      }
-      .map(\.element)
+    return BrowseFuzzyMatch.ranked(
+      Array(matches.prefix(searchResultLimit)),
+      query: resolved.query,
+      path: \.relativePath
+    )
+  }
+
+  /// The directory to walk, plus the query to match against paths relative to it. A typed
+  /// path like `~/co/sup` points the browse directory at `~/co`, which need not exist; walk
+  /// from the deepest existing ancestor and fold the missing components back into the query
+  /// so `co/sup` fuzzy-matches `code/supacode` under `~`.
+  private static func searchRoot(for root: URL, query: String) -> (root: URL, query: String) {
+    let fileManager = FileManager.default
+    var directory = root.standardized
+    var missingComponents: [String] = []
+
+    while !fileManager.fileExists(atPath: directory.path(percentEncoded: false)) {
+      let parent = directory.deletingLastPathComponent().standardized
+      guard parent.path != directory.path else { return (root, query) }
+      missingComponents.insert(directory.lastPathComponent, at: 0)
+      directory = parent
+    }
+
+    guard !missingComponents.isEmpty else { return (directory, query) }
+    return (directory, (missingComponents + [query]).joined(separator: "/"))
   }
 
   /// An unreadable directory mid-walk is expected (permissions, races) and must not abort

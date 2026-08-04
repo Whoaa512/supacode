@@ -66,6 +66,36 @@ import Testing
     #expect(Self.names(entries) == ["target", "my-target", "deep-target"])
   }
 
+  @Test func searchFuzzyMatchesTheRootRelativePath() async throws {
+    let fixture = try Fixture(directories: ["code/supacode", "code/other"])
+
+    // Neither query matches the directory *name*; both are subsequences of `code/supacode`.
+    #expect(Self.names(try await Self.search(fixture, "co/sup", depth: 3)) == ["supacode"])
+    #expect(Self.names(try await Self.search(fixture, "code supa", depth: 3)) == ["supacode"])
+  }
+
+  @Test func searchReportsThePathRelativeToTheSearchRoot() async throws {
+    let fixture = try Fixture(directories: ["code/supacode"])
+
+    let entries = try await Self.search(fixture, "supacode", depth: 3)
+
+    #expect(entries.map(\.relativePath) == ["code/supacode"])
+  }
+
+  @Test func searchClimbsToTheDeepestExistingRootAndFoldsMissingComponentsIntoTheQuery() async throws {
+    let fixture = try Fixture(directories: ["code/supacode", "cold/supper"])
+
+    // The palette points the search at `<root>/co`, which doesn't exist: `co` becomes part
+    // of the needle so a half-typed path still resolves.
+    let entries = try await FileSystemBrowseClient.liveValue.searchDirectories(
+      fixture.root.appending(path: "co"),
+      "sup",
+      3
+    )
+
+    #expect(entries.map(\.relativePath) == ["code/supacode", "cold/supper"])
+  }
+
   @Test func searchSkipsHiddenDirectories() async throws {
     let fixture = try Fixture(directories: [".target-hidden", "target", ".nest/target-nested"])
 
