@@ -1973,6 +1973,26 @@ struct CommandPaletteFeatureTests {
     await store.receive(.browseSearchResultsLoaded(directory: URL(fileURLWithPath: "/tmp"), query: "al", results: []))
   }
 
+  // MARK: - Panel focus
+
+  @Test func panelRebuildsItsHostingViewWhenTheSurfaceChanges() {
+    typealias Host = CommandPalettePanelHostView
+
+    // Entering browse mode from any query surface swaps in a different text field, so the
+    // tree has to be rebuilt for its focus task to run. This is the ⌘⇧P → "Open Repository"
+    // path, which used to leave the path field unfocused while ⌘⇧O worked.
+    #expect(Host.requiresFreshHostingView(hosted: .query, mode: .browse))
+    #expect(Host.requiresFreshHostingView(hosted: .browse, mode: .commands))
+    // A fresh present has nothing hosted yet.
+    #expect(Host.requiresFreshHostingView(hosted: nil, mode: .browse))
+    #expect(Host.requiresFreshHostingView(hosted: nil, mode: .commands))
+    // Same surface: keep the tree so an items refresh can't steal focus or the query.
+    #expect(!Host.requiresFreshHostingView(hosted: .browse, mode: .browse))
+    #expect(!Host.requiresFreshHostingView(hosted: .query, mode: .commands))
+    #expect(!Host.requiresFreshHostingView(hosted: .query, mode: .worktreeSwitcher))
+    #expect(!Host.requiresFreshHostingView(hosted: .query, mode: .branchSearch))
+  }
+
   @Test func browseRowsFuzzyMatchTheRelativePathAndRankBoundariesFirst() {
     let entries = [
       DirectoryEntry(name: "unsupported", fullPath: "/tmp/unsupported", isGitRepo: false),

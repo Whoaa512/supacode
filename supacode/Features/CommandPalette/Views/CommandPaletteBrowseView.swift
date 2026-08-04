@@ -5,6 +5,14 @@ struct CommandPaletteBrowseView: View {
   @Bindable var store: StoreOf<CommandPaletteFeature>
   @FocusState private var isPathFocused: Bool
   @State private var hoveredID: DirectoryEntry.ID?
+  @State private var blurDismissTask: Task<Void, Never>?
+
+  /// Focus can only be asserted once the field is mounted, and an outgoing query field can
+  /// resign first responder a beat later, so the assertion is repeated after this delay.
+  private static let focusReassertDelay = Duration.milliseconds(50)
+  /// A blur has to persist this long before it dismisses the palette: switching into browse
+  /// mode in place hands focus between two text fields, which reads as a momentary blur.
+  private static let blurDismissDelay = Duration.milliseconds(150)
 
   private static let keyboardHints = "↵ open · ⇥ complete · ⌘↵ open folder · ⌘↑ up"
   private static let keyboardHintsHelp = """
@@ -40,6 +48,12 @@ struct CommandPaletteBrowseView: View {
     .environment(\.colorScheme, windowColorScheme)
     .task {
       isPathFocused = true
+      // The palette can enter browse mode while it is already open ("Open Repository"
+      // picked from the command palette), where the outgoing query field resigns first
+      // responder after this runs and drags focus off the freshly mounted path field.
+      // Re-assert once; a no-op when the first assignment stuck.
+      try? await Task.sleep(for: Self.focusReassertDelay)
+      isPathFocused = true
     }
   }
 
@@ -61,7 +75,13 @@ struct CommandPaletteBrowseView: View {
         .textFieldStyle(.plain)
         .focused($isPathFocused)
         .onChange(of: isPathFocused) { _, focused in
-          if !focused {
+          blurDismissTask?.cancel()
+          guard !focused else { return }
+          // Debounced so a transient focus hand-off (or a momentary steal by the terminal
+          // surface behind the panel) doesn't close the picker out from under the user.
+          blurDismissTask = Task {
+            try? await Task.sleep(for: Self.blurDismissDelay)
+            guard !isPathFocused, store.isPresented else { return }
             store.send(.setPresented(false))
           }
         }

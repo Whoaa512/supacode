@@ -82,6 +82,9 @@ final class CommandPalettePanelHostView: NSView {
   private var items: [CommandPaletteItem] = []
   private var panel: CommandPalettePanel?
   private var hostingView: NSHostingView<CommandPaletteOverlayView>?
+  /// Surface the live hosting view was built for. A surface change has to rebuild the tree
+  /// so the new query field's focus task runs (see `requiresFreshHostingView`).
+  private var hostedSurface: PaletteSurface?
   private nonisolated(unsafe) var resignObserver: NSObjectProtocol?
   private nonisolated(unsafe) var keyMonitor: Any?
   /// Held, not constructed per keystroke: the shared reference is cached weakly,
@@ -114,9 +117,9 @@ final class CommandPalettePanelHostView: NSView {
       hidePanel()
       return
     }
-    // Already shown: refresh content only, preserving the in-flight query,
-    // selection, and query-field focus against a background items refresh.
-    if let hostingView {
+    // Already shown on the same surface: refresh content only, preserving the in-flight
+    // query, selection, and query-field focus against a background items refresh.
+    if let hostingView, !Self.requiresFreshHostingView(hosted: hostedSurface, mode: store.mode) {
       hostingView.rootView = CommandPaletteOverlayView(store: store, items: items)
       return
     }
@@ -126,6 +129,30 @@ final class CommandPalettePanelHostView: NSView {
   func tearDown() {
     hidePanel()
     panel = nil
+  }
+
+  /// The two distinct view trees the palette renders. Each owns its own query field, so
+  /// switching between them means a different `TextField` has to take first responder.
+  enum PaletteSurface: Equatable {
+    case query
+    case browse
+  }
+
+  static func surface(of mode: CommandPaletteFeature.PaletteMode) -> PaletteSurface {
+    mode == .browse ? .browse : .query
+  }
+
+  /// Whether the panel needs a brand-new hosting view. Only mutating `rootView` (the cheap
+  /// path) leaves the existing SwiftUI tree in place, so the incoming surface's `.task`
+  /// never runs and its query field never takes first responder: that is the bug where
+  /// picking "Open Repository" inside the command palette left the path field unfocused,
+  /// while ⌘⇧O — which presents the panel fresh — worked. A fresh tree makes both paths
+  /// identical. `nil` means nothing is hosted yet, i.e. a fresh present.
+  static func requiresFreshHostingView(
+    hosted: PaletteSurface?,
+    mode: CommandPaletteFeature.PaletteMode
+  ) -> Bool {
+    hosted != Self.surface(of: mode)
   }
 
   private func showPanel(items: [CommandPaletteItem]) {
@@ -149,6 +176,7 @@ final class CommandPalettePanelHostView: NSView {
 
     panel.contentView = glass
     self.hostingView = hostingView
+    hostedSurface = Self.surface(of: store.mode)
     position(panel: panel, over: mainWindow)
     if panel.parent == nil {
       mainWindow.addChildWindow(panel, ordered: .above)
@@ -350,6 +378,7 @@ final class CommandPalettePanelHostView: NSView {
     // the focus task); the panel and its observer are kept for reuse.
     removeKeyMonitor()
     hostingView = nil
+    hostedSurface = nil
     guard let panel else { return }
     if panel.isVisible {
       let parent = panel.parent
