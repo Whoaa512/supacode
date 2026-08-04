@@ -384,6 +384,7 @@ struct AppFeatureTerminalGridTests {
     ) {
       AppFeature()
     } withDependencies: { values in
+      values.date = .constant(Date(timeIntervalSince1970: 0))
       values.terminalClient.tabExists = { _, _ in true }
       values.terminalClient.surfaceExists = { _, _, _ in true }
       withAdditionalDependencies(&values)
