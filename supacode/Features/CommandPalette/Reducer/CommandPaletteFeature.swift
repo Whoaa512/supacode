@@ -144,7 +144,6 @@ struct CommandPaletteFeature {
 
   static let browseSearchDebounce = Duration.milliseconds(150)
   static let browseSearchMinimumLeafLength = 2
-  static let browseSearchMaximumDepth = 3
   /// Ceiling on rendered rows so a broad match can't turn the list into a scroll marathon.
   static let browseRowLimit = 100
 
@@ -295,13 +294,15 @@ struct CommandPaletteFeature {
         // Nested search is debounced and only worth running for a couple of characters;
         // shorter leaves match nearly everything and the direct listing already covers them.
         if leaf.count >= Self.browseSearchMinimumLeafLength {
+          @Shared(.settingsFile) var settingsFile
+          let maximumDepth = settingsFile.global.browseSearchDepth
           effects.append(
             .run { send in
               try await clock.sleep(for: Self.browseSearchDebounce)
               let results = try await fileSystemBrowseClient.searchDirectories(
                 directory,
                 leaf,
-                Self.browseSearchMaximumDepth
+                maximumDepth
               )
               await send(
                 .browseSearchResultsLoaded(directory: directory, query: leaf, results: results)
@@ -438,34 +439,26 @@ struct CommandPaletteFeature {
     case browseSearch
   }
 
-  /// Rows are the directory's own prefix matches first (what the user is typing into),
-  /// then nested matches from the depth-limited search. Hidden directories stay out of the
-  /// way until the typed leaf starts with ".", matching the reference picker.
+  /// Rows are the directory's own matches first (what the user is typing into), then nested
+  /// matches from the depth-limited search, all ranked by the same fzf-style score over each
+  /// entry's root-relative path. Hidden directories stay out of the way until the typed leaf
+  /// starts with ".", matching the reference picker.
   static func browseRows(
     entries: [DirectoryEntry],
     searchResults: [DirectoryEntry],
     leaf: String
   ) -> [DirectoryEntry] {
     let showsHidden = leaf.hasPrefix(".")
-    let needle = leaf.lowercased()
     let visible = entries.filter { showsHidden || !$0.name.hasPrefix(".") }
-    guard !needle.isEmpty else { return Array(visible.prefix(browseRowLimit)) }
+    guard !BrowseFuzzyMatch.normalizedQuery(leaf).isEmpty else {
+      return Array(visible.prefix(browseRowLimit))
+    }
 
     let directPaths = Set(visible.map(\.fullPath))
     let candidates = visible + searchResults.filter { !directPaths.contains($0.fullPath) }
     // One matching rule for direct children and nested hits alike, so a late search
     // result slots into the existing order instead of reshuffling the whole list.
-    let ranked =
-      candidates
-      .filter { $0.name.lowercased().contains(needle) }
-      .enumerated()
-      .sorted { left, right in
-        let leftPrefix = left.element.name.lowercased().hasPrefix(needle)
-        let rightPrefix = right.element.name.lowercased().hasPrefix(needle)
-        if leftPrefix != rightPrefix { return leftPrefix }
-        return left.offset < right.offset
-      }
-      .map(\.element)
+    let ranked = BrowseFuzzyMatch.ranked(candidates, query: leaf, path: \.relativePath)
     return Array(ranked.prefix(browseRowLimit))
   }
 

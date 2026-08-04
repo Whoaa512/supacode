@@ -650,6 +650,69 @@ struct SettingsFilePersistenceTests {
 
     #expect(reloaded.global.notificationRetentionLimit == .oneThousand)
   }
+
+  @Test(.dependencies) func decodesMissingBrowseSearchDepthAsFive() throws {
+    var globalDict = try Self.defaultGlobalDictionary()
+    globalDict.removeValue(forKey: "browseSearchDepth")
+    let storage = MutableTestStorage(
+      initialData: try JSONSerialization.data(withJSONObject: ["global": globalDict, "repositories": [:]])
+    )
+
+    let settings: SettingsFile = withDependencies {
+      $0.settingsFileStorage = storage.storage
+    } operation: {
+      @Shared(.settingsFile) var settings: SettingsFile
+      return settings
+    }
+
+    #expect(settings.global.browseSearchDepth == 5)
+  }
+
+  @Test(.dependencies) func clampsAnOutOfRangeBrowseSearchDepth() throws {
+    for (stored, expected) in [(0, 1), (-3, 1), (99, 10)] {
+      var globalDict = try Self.defaultGlobalDictionary()
+      globalDict["browseSearchDepth"] = stored
+      let storage = MutableTestStorage(
+        initialData: try JSONSerialization.data(withJSONObject: ["global": globalDict, "repositories": [:]])
+      )
+
+      let settings: SettingsFile = withDependencies {
+        $0.settingsFileStorage = storage.storage
+      } operation: {
+        @Shared(.settingsFile) var settings: SettingsFile
+        return settings
+      }
+
+      #expect(settings.global.browseSearchDepth == expected)
+    }
+  }
+
+  @Test(.dependencies) func roundTripsExplicitBrowseSearchDepth() throws {
+    let storage = SettingsTestStorage()
+
+    withDependencies {
+      $0.settingsFileStorage = storage.storage
+    } operation: {
+      @Shared(.settingsFile) var settings: SettingsFile
+      $settings.withLock { $0.global.browseSearchDepth = 8 }
+    }
+
+    let reloaded: SettingsFile = withDependencies {
+      $0.settingsFileStorage = storage.storage
+    } operation: {
+      @Shared(.settingsFile) var reloaded: SettingsFile
+      return reloaded
+    }
+
+    #expect(reloaded.global.browseSearchDepth == 8)
+  }
+
+  /// The default settings as a mutable JSON object, for tests that need to remove or
+  /// corrupt a single key without hand-writing the whole file.
+  private static func defaultGlobalDictionary() throws -> [String: Any] {
+    let encoded = try JSONEncoder().encode(GlobalSettings.default)
+    return try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+  }
 }
 
 nonisolated private final class MutableTestStorage: @unchecked Sendable {

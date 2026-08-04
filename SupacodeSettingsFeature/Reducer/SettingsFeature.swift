@@ -92,6 +92,7 @@ public struct SettingsFeature {
     /// Per-agent overrides are file-only (`global.agentsSidebar.rowsByAgent`);
     /// held here so editing the shared rows can't discard them.
     public var agentsSidebarRowsByAgent: [String: [[String]]]
+    public var browseSearchDepth: Int
     public var cliInstallState = CLIInstallState.checking
     /// Installed editors in menu order, resolved once off the picker's body.
     public var installedOpenActions: [OpenWorktreeAction]
@@ -162,6 +163,7 @@ public struct SettingsFeature {
       restoreSurfacePruningEnabled = settings.restoreSurfacePruningEnabled
       agentsSidebarRowsText = settings.agentsSidebar.rowsText
       agentsSidebarRowsByAgent = settings.agentsSidebar.rowsByAgent
+      browseSearchDepth = settings.browseSearchDepth
       defaultWorktreeBaseDirectoryPath =
         SupacodePaths.normalizedWorktreeBaseDirectoryPath(settings.defaultWorktreeBaseDirectoryPath) ?? ""
     }
@@ -210,7 +212,8 @@ public struct SettingsFeature {
         persistScrollbackEnabled: persistScrollbackEnabled,
         restoreSurfacePruningEnabled: restoreSurfacePruningEnabled,
         agentsSidebar: agentsSidebar,
-        resumeAgentsOnRestore: resumeAgentsOnRestore
+        resumeAgentsOnRestore: resumeAgentsOnRestore,
+        browseSearchDepth: browseSearchDepth
       )
     }
   }
@@ -357,6 +360,7 @@ public struct SettingsFeature {
         state.restoreSurfacePruningEnabled = normalizedSettings.restoreSurfacePruningEnabled
         state.agentsSidebarRowsText = normalizedSettings.agentsSidebar.rowsText
         state.agentsSidebarRowsByAgent = normalizedSettings.agentsSidebar.rowsByAgent
+        state.browseSearchDepth = normalizedSettings.browseSearchDepth
         state.defaultWorktreeBaseDirectoryPath = normalizedSettings.defaultWorktreeBaseDirectoryPath ?? ""
         state.syncGlobalDefaults(from: normalizedSettings)
         synchronizeRepositorySelection(for: &state)

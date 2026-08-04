@@ -1,5 +1,6 @@
 import ComposableArchitecture
 import CustomDump
+import DependenciesTestSupport
 import Foundation
 import IdentifiedCollections
 import OrderedCollections
@@ -1972,6 +1973,70 @@ struct CommandPaletteFeatureTests {
     await store.receive(.browseSearchResultsLoaded(directory: URL(fileURLWithPath: "/tmp"), query: "al", results: []))
   }
 
+  // MARK: - Panel focus
+
+  @Test func panelRebuildsItsHostingViewWhenTheSurfaceChanges() {
+    typealias Host = CommandPalettePanelHostView
+
+    // Entering browse mode from any query surface swaps in a different text field, so the
+    // tree has to be rebuilt for its focus task to run. This is the ⌘⇧P → "Open Repository"
+    // path, which used to leave the path field unfocused while ⌘⇧O worked.
+    #expect(Host.requiresFreshHostingView(hosted: .query, mode: .browse))
+    #expect(Host.requiresFreshHostingView(hosted: .browse, mode: .commands))
+    // A fresh present has nothing hosted yet.
+    #expect(Host.requiresFreshHostingView(hosted: nil, mode: .browse))
+    #expect(Host.requiresFreshHostingView(hosted: nil, mode: .commands))
+    // Same surface: keep the tree so an items refresh can't steal focus or the query.
+    #expect(!Host.requiresFreshHostingView(hosted: .browse, mode: .browse))
+    #expect(!Host.requiresFreshHostingView(hosted: .query, mode: .commands))
+    #expect(!Host.requiresFreshHostingView(hosted: .query, mode: .worktreeSwitcher))
+    #expect(!Host.requiresFreshHostingView(hosted: .query, mode: .branchSearch))
+  }
+
+  @Test func browseRowsFuzzyMatchTheRelativePathAndRankBoundariesFirst() {
+    let entries = [
+      DirectoryEntry(name: "unsupported", fullPath: "/tmp/unsupported", isGitRepo: false),
+      DirectoryEntry(name: "supacode", fullPath: "/tmp/supacode", isGitRepo: true),
+    ]
+    let nested = DirectoryEntry(
+      name: "supacode",
+      fullPath: "/tmp/code/supacode",
+      isGitRepo: true,
+      relativePath: "code/supacode"
+    )
+
+    let rows = CommandPaletteFeature.browseRows(
+      entries: entries,
+      searchResults: [nested],
+      leaf: "sup"
+    )
+
+    // Direct child on a path boundary, then the nested boundary hit (deeper), then the
+    // mid-word match. All three matched: `sup` is a subsequence of every relative path.
+    #expect(rows.map(\.fullPath) == ["/tmp/supacode", "/tmp/code/supacode", "/tmp/unsupported"])
+  }
+
+  @Test func browseRowsMatchGappedQueriesAcrossPathSegments() {
+    let nested = DirectoryEntry(
+      name: "supacode",
+      fullPath: "/Users/me/code/supacode",
+      isGitRepo: true,
+      relativePath: "code/supacode"
+    )
+
+    #expect(
+      CommandPaletteFeature.browseRows(entries: [], searchResults: [nested], leaf: "co/sup")
+        .map(\.fullPath) == ["/Users/me/code/supacode"]
+    )
+    #expect(
+      CommandPaletteFeature.browseRows(entries: [], searchResults: [nested], leaf: "code supa")
+        .map(\.fullPath) == ["/Users/me/code/supacode"]
+    )
+    #expect(
+      CommandPaletteFeature.browseRows(entries: [], searchResults: [nested], leaf: "zsup").isEmpty
+    )
+  }
+
   @Test func browseNestedSearchAppendsMatchesAfterDebounce() async {
     let clock = TestClock()
     let nested = DirectoryEntry(name: "supacode", fullPath: "/tmp/code/supacode", isGitRepo: true)
@@ -1996,6 +2061,30 @@ struct CommandPaletteFeatureTests {
       $0.browse.filteredEntries = [nested]
       $0.browse.selectedIndex = 0
     }
+  }
+
+  @Test(.dependencies) func browseSearchUsesTheDepthFromGlobalSettings() async {
+    let clock = TestClock()
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.browseSearchDepth = 7 }
+    let depths = LockIsolated<[Int]>([])
+    let store = TestStore(initialState: Self.browseState(pathQuery: "/tmp/", entries: [])) {
+      CommandPaletteFeature()
+    } withDependencies: {
+      $0.continuousClock = clock
+      $0.fileSystemBrowseClient.searchDirectories = { _, _, maxDepth in
+        depths.withValue { $0.append(maxDepth) }
+        return []
+      }
+    }
+
+    await store.send(.browsePathQueryChanged("/tmp/su")) {
+      $0.browse.setPathQuery("/tmp/su")
+    }
+    await clock.advance(by: CommandPaletteFeature.browseSearchDebounce)
+    await store.receive(.browseSearchResultsLoaded(directory: URL(fileURLWithPath: "/tmp"), query: "su", results: []))
+
+    #expect(depths.value == [7])
   }
 
   @Test func browseSearchResultsForStalePathQueryAreIgnored() async {

@@ -5,10 +5,14 @@ struct CommandPaletteBrowseView: View {
   @Bindable var store: StoreOf<CommandPaletteFeature>
   @FocusState private var isPathFocused: Bool
   @State private var hoveredID: DirectoryEntry.ID?
+  @State private var blurDismissTask: Task<Void, Never>?
 
-  private var browseDirectoryPath: String {
-    store.browse.directoryURL.path(percentEncoded: false)
-  }
+  /// Focus can only be asserted once the field is mounted, and an outgoing query field can
+  /// resign first responder a beat later, so the assertion is repeated after this delay.
+  private static let focusReassertDelay = Duration.milliseconds(50)
+  /// A blur has to persist this long before it dismisses the palette: switching into browse
+  /// mode in place hands focus between two text fields, which reads as a momentary blur.
+  private static let blurDismissDelay = Duration.milliseconds(150)
 
   private static let keyboardHints = "↵ open · ⇥ complete · ⌘↵ open folder · ⌘↑ up"
   private static let keyboardHintsHelp = """
@@ -44,6 +48,12 @@ struct CommandPaletteBrowseView: View {
     .environment(\.colorScheme, windowColorScheme)
     .task {
       isPathFocused = true
+      // The palette can enter browse mode while it is already open ("Open Repository"
+      // picked from the command palette), where the outgoing query field resigns first
+      // responder after this runs and drags focus off the freshly mounted path field.
+      // Re-assert once; a no-op when the first assignment stuck.
+      try? await Task.sleep(for: Self.focusReassertDelay)
+      isPathFocused = true
     }
   }
 
@@ -65,7 +75,13 @@ struct CommandPaletteBrowseView: View {
         .textFieldStyle(.plain)
         .focused($isPathFocused)
         .onChange(of: isPathFocused) { _, focused in
-          if !focused {
+          blurDismissTask?.cancel()
+          guard !focused else { return }
+          // Debounced so a transient focus hand-off (or a momentary steal by the terminal
+          // surface behind the panel) doesn't close the picker out from under the user.
+          blurDismissTask = Task {
+            try? await Task.sleep(for: Self.blurDismissDelay)
+            guard !isPathFocused, store.isPresented else { return }
             store.send(.setPresented(false))
           }
         }
@@ -133,7 +149,7 @@ struct CommandPaletteBrowseView: View {
               ForEach(Array(store.browse.filteredEntries.enumerated()), id: \.element.id) { index, entry in
                 BrowseEntryRow(
                   entry: entry,
-                  relativeParent: Self.relativeParent(of: entry, in: browseDirectoryPath),
+                  relativeParent: Self.relativeParent(of: entry),
                   isSelected: store.browse.selectedIndex == index,
                   isHovered: hoveredID == entry.id,
                   onActivate: { store.send(.browseNavigate(entry)) },
@@ -160,11 +176,8 @@ struct CommandPaletteBrowseView: View {
 
   /// Nested search hits live below the browsed directory, so show where they came from.
   /// `nil` for direct children, whose name already says everything.
-  private static func relativeParent(of entry: DirectoryEntry, in directoryPath: String) -> String? {
-    let root = directoryPath.hasSuffix("/") ? directoryPath : directoryPath + "/"
-    guard entry.fullPath.hasPrefix(root) else { return nil }
-    let relative = entry.fullPath.dropFirst(root.count)
-    let parent = relative.split(separator: "/").dropLast().joined(separator: "/")
+  private static func relativeParent(of entry: DirectoryEntry) -> String? {
+    let parent = entry.relativePath.split(separator: "/").dropLast().joined(separator: "/")
     return parent.isEmpty ? nil : parent
   }
 

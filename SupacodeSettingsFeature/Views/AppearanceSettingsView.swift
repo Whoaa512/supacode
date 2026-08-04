@@ -151,6 +151,18 @@ public struct AppearanceSettingsView: View {
           Text("Equalize splits on split")
           Text("Automatically equalize all pane sizes when creating a new split.")
         }
+        Stepper(
+          value: $store.browseSearchDepth,
+          in: GlobalSettings.browseSearchDepthRange
+        ) {
+          Text("Open Repository search depth")
+          Text("Levels below the browsed folder searched for nested matches. Deeper finds more, slower.")
+        }
+        .help(
+          "How many directory levels below the folder you're browsing the Open Repository "
+            + "picker searches (\(GlobalSettings.browseSearchDepthRange.lowerBound)\u{2013}"
+            + "\(GlobalSettings.browseSearchDepthRange.upperBound), default 5)"
+        )
         Toggle(isOn: $store.persistScrollbackEnabled) {
           Text("Persist terminal scrollback to disk")
           Text("Scrollback survives restart/reboot. Stored unencrypted in ~/.supacode/scrollback.")
