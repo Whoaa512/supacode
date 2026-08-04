@@ -1,5 +1,6 @@
 import ComposableArchitecture
 import Sharing
+import SupacodeSettingsShared
 import SwiftUI
 
 /// Full-screen modal grid of every terminal surface: live ones (updating
@@ -20,6 +21,9 @@ struct TerminalGridOverviewView: View {
   @State private var diskPreviewCache = DiskPreviewCache()
   @FocusState private var isGridFocused: Bool
   @Shared(.layouts) private var layouts: [String: TerminalLayoutSnapshot] = [:]
+  @Shared(.settingsFile) private var settingsFile: SettingsFile
+
+  typealias Tile = TerminalGridOverview.Tile
 
   private static let gridSpacing: CGFloat = 16
   private static let previewLineLimit = 40
@@ -58,16 +62,14 @@ struct TerminalGridOverviewView: View {
 
   @ViewBuilder
   private var content: some View {
-    let tiles = currentTiles()
+    let ordered = orderedTiles()
+    let counts = TerminalGridOverview.counts(for: ordered)
+    let tiles = TerminalGridOverview.filtered(ordered, by: store.terminalGridFilter)
     VStack(spacing: 0) {
-      header
+      header(counts: counts)
       if tiles.isEmpty {
-        ContentUnavailableView(
-          "No Terminal Sessions",
-          systemImage: "terminal",
-          description: Text("Open a terminal in a worktree and it will show up here.")
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        emptyState(isFiltered: store.terminalGridFilter != .all)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         grid(tiles: tiles)
       }
@@ -82,23 +84,88 @@ struct TerminalGridOverviewView: View {
     }
   }
 
-  private var header: some View {
-    HStack {
-      Text("Terminal Overview")
-        .font(.title2.bold())
-      Spacer()
-      Button {
-        store.send(.setTerminalGridPresented(false))
-      } label: {
-        Label("Close Overview", systemImage: "xmark.circle.fill")
-          .labelStyle(.iconOnly)
-          .font(.title2)
+  @ViewBuilder
+  private func emptyState(isFiltered: Bool) -> some View {
+    if isFiltered {
+      ContentUnavailableView {
+        Label("No \(store.terminalGridFilter.label) Terminals", systemImage: "line.3.horizontal.decrease.circle")
+      } description: {
+        Text("Nothing matches this filter right now.")
+      } actions: {
+        Button("Show All") { store.send(.setTerminalGridFilter(.all)) }
+          .help("Clear the activity filter")
       }
-      .buttonStyle(.borderless)
-      .help("Close overview (Esc)")
+    } else {
+      ContentUnavailableView(
+        "No Terminal Sessions",
+        systemImage: "terminal",
+        description: Text("Open a terminal in a worktree and it will show up here.")
+      )
+    }
+  }
+
+  private func header(counts: TerminalGridOverview.Counts) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack {
+        Text("Terminal Overview")
+          .font(.title2.bold())
+        Text("\(counts.total) \(counts.total == 1 ? "surface" : "surfaces")")
+          .font(.callout.monospacedDigit())
+          .foregroundStyle(.secondary)
+        Spacer()
+        Button {
+          store.send(.setTerminalGridPresented(false))
+        } label: {
+          Label("Close Overview", systemImage: "xmark.circle.fill")
+            .labelStyle(.iconOnly)
+            .font(.title2)
+        }
+        .buttonStyle(.borderless)
+        .help("Close overview (Esc)")
+      }
+      filterChips(counts: counts)
     }
     .padding(.horizontal, 24)
     .padding(.vertical, 16)
+  }
+
+  /// Rollup counts double as the filter control: each chip shows its bucket's
+  /// count over the unfiltered tiles, so the numbers stay put while filtering.
+  private func filterChips(counts: TerminalGridOverview.Counts) -> some View {
+    HStack(spacing: 8) {
+      ForEach(TerminalGridOverview.Filter.allCases, id: \.self) { filter in
+        let count = counts.count(for: filter)
+        let isSelected = store.terminalGridFilter == filter
+        Button {
+          store.send(.setTerminalGridFilter(filter))
+        } label: {
+          HStack(spacing: 5) {
+            if case .activity(let activity) = filter {
+              Image(systemName: activity.systemImage)
+                .imageScale(.small)
+                .accessibilityHidden(true)
+            }
+            Text(filter.label)
+            Text("\(count)")
+              .monospacedDigit()
+              .foregroundStyle(.secondary)
+          }
+          .font(.callout)
+          .padding(.horizontal, 10)
+          .padding(.vertical, 5)
+          .background(
+            isSelected ? AnyShapeStyle(.tint.opacity(0.25)) : AnyShapeStyle(.quaternary),
+            in: Capsule()
+          )
+          .overlay(Capsule().strokeBorder(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.clear)))
+        }
+        .buttonStyle(.plain)
+        .disabled(count == 0 && filter != .all)
+        .help("Show only \(filter.label.lowercased()) terminals (\(count))")
+        .accessibilityLabel("\(filter.label), \(count)")
+      }
+      Spacer(minLength: 0)
+    }
   }
 
   private var footer: some View {
@@ -142,6 +209,7 @@ struct TerminalGridOverviewView: View {
               tile: tile,
               isSelected: tile.id == selectedSurfaceID,
               previewText: previewText(for: tile),
+              agentBadgesEnabled: settingsFile.global.agentPresenceBadgesEnabled,
               terminalBackground: Color(nsColor: background),
               terminalForeground: foreground,
               onJump: { jump(to: tile) },
@@ -168,7 +236,8 @@ struct TerminalGridOverviewView: View {
   // MARK: - Keyboard.
 
   private func handleKeyPress(_ press: KeyPress) -> KeyPress.Result {
-    let tiles = currentTiles()
+    // Navigation runs over the filtered list so arrows never land on a hidden tile.
+    let tiles = TerminalGridOverview.filtered(orderedTiles(), by: store.terminalGridFilter)
     guard !tiles.isEmpty else {
       if press.key == .escape {
         store.send(.setTerminalGridPresented(false))
@@ -266,97 +335,23 @@ struct TerminalGridOverviewView: View {
 
   // MARK: - Tiles.
 
-  struct Tile: Identifiable, Equatable {
-    enum Kind: Equatable {
-      /// Surface has a live view; preview reads the screen each tick.
-      case live
-      /// Tab is hibernated in a live worktree state; preview reads disk.
-      case dormant
-      /// Worktree not restored this launch; tile comes from the persisted
-      /// layout snapshot and preview reads disk.
-      case snoozed
-    }
-
-    let worktreeID: Worktree.ID
-    let worktreeName: String
-    let directoryName: String
-    let tabID: TerminalTabID
-    let tabTitle: String
-    let surfaceID: UUID
-    let kind: Kind
-
-    var id: UUID { surfaceID }
-  }
-
-  private func currentTiles() -> [Tile] {
-    let live = Self.flattenTiles(terminalManager.sessionOverviews())
-    let snoozed = Self.snoozedTiles(
+  /// Every tile, clustered by repository, before the activity filter applies.
+  private func orderedTiles() -> [Tile] {
+    let presence = store.agentPresence
+    let lookup: (Worktree.ID) -> Worktree? = { store.repositories.worktree(for: $0) }
+    // Presence is read ungated: the header counts and filters are a triage
+    // signal like the sidebar shimmer. Only the badge row honors the toggle.
+    let live = TerminalGridOverview.liveTiles(
+      terminalManager.sessionOverviews(),
+      worktreeLookup: lookup,
+      agentsForSurface: { presence.agents(across: [$0], badgesEnabled: true) }
+    )
+    let snoozed = TerminalGridOverview.snoozedTiles(
       layouts: layouts,
       excludingWorktreeIDs: Set(live.map(\.worktreeID)),
-      worktreeLookup: { store.repositories.worktree(for: $0) }
+      worktreeLookup: lookup
     )
-    return live + snoozed
-  }
-
-  /// One tile per surface, in the manager's stable worktree/tab order, so
-  /// keyboard navigation indices match the rendered grid.
-  static func flattenTiles(
-    _ overviews: [WorktreeTerminalManager.SessionWorktreeOverview]
-  ) -> [Tile] {
-    overviews.flatMap { worktree in
-      worktree.tabs.flatMap { tab in
-        tab.surfaces.map { surface in
-          Tile(
-            worktreeID: worktree.id,
-            worktreeName: worktree.name,
-            directoryName: worktree.directoryName,
-            tabID: tab.id,
-            tabTitle: tab.title,
-            surfaceID: surface.id,
-            kind: surface.isDormant ? .dormant : .live
-          )
-        }
-      }
-    }
-  }
-
-  /// Tiles for worktrees that persisted a layout but own no surfaces this
-  /// launch (not yet visited / restored). Skips worktrees the lookup can't
-  /// resolve (archived / deleted) and legacy snapshots without stable IDs.
-  /// Sorted by directory name for a stable grid order.
-  static func snoozedTiles(
-    layouts: [String: TerminalLayoutSnapshot],
-    excludingWorktreeIDs: Set<Worktree.ID>,
-    worktreeLookup: (Worktree.ID) -> Worktree?
-  ) -> [Tile] {
-    layouts
-      .compactMap { key, snapshot -> [Tile]? in
-        let worktreeID = WorktreeID(key)
-        guard !excludingWorktreeIDs.contains(worktreeID),
-          let worktree = worktreeLookup(worktreeID)
-        else { return nil }
-        let tiles = snapshot.tabs.flatMap { tab -> [Tile] in
-          guard let tabID = tab.id else { return [] }
-          return tab.layout.leafSurfaceIDs.map { surfaceID in
-            Tile(
-              worktreeID: worktreeID,
-              worktreeName: worktree.name,
-              directoryName: worktree.workingDirectory.lastPathComponent,
-              tabID: TerminalTabID(rawValue: tabID),
-              tabTitle: tab.customTitle ?? tab.title,
-              surfaceID: surfaceID,
-              kind: .snoozed
-            )
-          }
-        }
-        return tiles.isEmpty ? nil : tiles
-      }
-      .sorted { lhs, rhs in
-        guard let first = lhs.first, let second = rhs.first else { return false }
-        return (first.directoryName, first.worktreeID.rawValue)
-          < (second.directoryName, second.worktreeID.rawValue)
-      }
-      .flatMap { $0 }
+    return TerminalGridOverview.clustered(live + snoozed)
   }
 }
 
@@ -367,6 +362,7 @@ private struct TerminalGridTileView: View {
   let tile: TerminalGridOverviewView.Tile
   let isSelected: Bool
   let previewText: AttributedString?
+  let agentBadgesEnabled: Bool
   let terminalBackground: Color
   let terminalForeground: Color
   let onJump: () -> Void
@@ -390,7 +386,9 @@ private struct TerminalGridTileView: View {
     .buttonStyle(.plain)
     .onHover { isHovering = $0 }
     .help(isAsleep ? "Wake and jump to this terminal" : "Jump to this terminal")
-    .accessibilityLabel("\(tile.directoryName), \(tile.tabTitle)\(isAsleep ? ", asleep" : "")")
+    .accessibilityLabel(
+      "\(tile.directoryName), \(tile.tabTitle), \(tile.activity.label)"
+    )
   }
 
   private var tileContent: some View {
@@ -423,6 +421,15 @@ private struct TerminalGridTileView: View {
   @ViewBuilder
   private var previewBadges: some View {
     HStack(spacing: 6) {
+      if tile.activity == .busy || tile.activity == .blocked {
+        Image(systemName: tile.activity.systemImage)
+          .imageScale(.small)
+          .foregroundStyle(tile.activity == .blocked ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+          .padding(5)
+          .background(.regularMaterial, in: Circle())
+          .help(tile.activity == .blocked ? "An agent is waiting on you" : "An agent is working")
+          .accessibilityHidden(true)
+      }
       if isAsleep {
         Image(systemName: "moon.zzz.fill")
           .foregroundStyle(.secondary)
@@ -463,6 +470,9 @@ private struct TerminalGridTileView: View {
           .truncationMode(.tail)
       }
       Spacer(minLength: 0)
+      if agentBadgesEnabled, !tile.agents.isEmpty {
+        AgentAvatarGroupView(instances: tile.agents)
+      }
     }
     .font(.callout)
     .padding(.horizontal, 2)

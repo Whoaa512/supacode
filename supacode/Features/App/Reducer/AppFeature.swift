@@ -165,6 +165,9 @@ struct AppFeature {
     var hasAnyTerminalSurface: Bool = false
     /// Full-screen terminal grid overview modal visibility.
     var isTerminalGridPresented: Bool = false
+    /// Activity chip selected in the grid overview header. Reset every time the
+    /// modal opens so a stale filter can't hide every session.
+    var terminalGridFilter: TerminalGridOverview.Filter = .all
     var lastKnownSystemNotificationsEnabled: Bool
     var lastKnownAgentPresenceBadgesEnabled: Bool
     var lastKnownAppVisibility: AppVisibility
@@ -332,6 +335,8 @@ struct AppFeature {
     case closeTerminalTab(worktreeID: Worktree.ID, tabID: TerminalTabID)
     /// Show / hide the full-screen terminal grid overview.
     case setTerminalGridPresented(Bool)
+    /// Grid overview: pick the activity chip that filters the tiles.
+    case setTerminalGridFilter(TerminalGridOverview.Filter)
     /// Grid overview: dismiss the modal and jump to the chosen surface.
     case terminalGridJumpToSurface(worktreeID: Worktree.ID, tabID: TerminalTabID, surfaceID: UUID)
     case menuBarWorktreeSelected(worktreeID: Worktree.ID)
@@ -999,6 +1004,11 @@ struct AppFeature {
 
       case .setTerminalGridPresented(let isPresented):
         state.isTerminalGridPresented = isPresented
+        if isPresented { state.terminalGridFilter = .all }
+        return .none
+
+      case .setTerminalGridFilter(let filter):
+        state.terminalGridFilter = filter
         return .none
 
       case .terminalGridJumpToSurface(let worktreeID, let tabID, let surfaceID):

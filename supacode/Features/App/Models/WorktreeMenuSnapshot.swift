@@ -126,7 +126,7 @@ extension AppFeature.Action {
       .requestTerminateAllTerminalSessions, .newTerminal,
       .selectTerminalTabAtIndex, .splitTerminal, .jumpToLatestUnread,
       .focusTerminalSurface, .closeTerminalSurface, .closeTerminalTab,
-      .setTerminalGridPresented, .terminalGridJumpToSurface,
+      .setTerminalGridPresented, .setTerminalGridFilter, .terminalGridJumpToSurface,
       .menuBarWorktreeSelected, .markAllNotificationsRead, .runScript, .runNamedScript,
       .manageRepositoryScripts,
       .stopScript, .stopRunScripts, .closeTab, .closeSurface,
