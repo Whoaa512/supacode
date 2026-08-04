@@ -213,6 +213,12 @@ struct RepositoriesFeature {
     /// post-reduce hook and Equatable-diffed before publish, so the view body
     /// never touches `sidebarItems[id:]`.
     var agentDashboardStructure: AgentDashboardStructure = .empty
+    /// Keyboard-driven highlight in the Agents tab, in the flat visual order of
+    /// `agentDashboardStructure.entries`. Highlight only: moving it never steals
+    /// terminal focus. Pruned to `nil` when the row it points at disappears (the
+    /// agent finished, the worktree got archived), so a tab switch preserves the
+    /// highlight whenever the row survived. In-memory only.
+    var agentDashboardSelection: AgentDashboardEntry.EntryID?
     /// Cached projection of the focused row's display fields. The detail body
     /// reads this directly instead of `sidebarItems[id: id]` so per-leaf agent
     /// / notification mutations on the focused row don't invalidate the
@@ -371,6 +377,13 @@ struct RepositoriesFeature {
     case selectWorktreeAtHotkeySlot(Int)
     case selectNextWorktree
     case selectPreviousWorktree
+    /// Agents tab keyboard highlight moved: arrow nav, ⌃1..⌃0, or the List's own
+    /// selection binding. Highlight only — never focuses a terminal.
+    case agentDashboardSelectionChanged(AgentDashboardEntry.EntryID?)
+    /// ↵ in the Agents tab: jump to the highlighted agent's worktree and focus it.
+    case activateAgentDashboardSelection
+    /// Click (or ↵) on one agent row: highlight it and jump to its worktree.
+    case activateAgentDashboardEntry(AgentDashboardEntry.EntryID)
     case worktreeHistoryBack
     case worktreeHistoryForward
     case revealSelectedWorktreeInSidebar
@@ -3517,6 +3530,14 @@ struct RepositoriesFeature {
         // Snapshot-driven menu items capture only the slot index, so the
         // current `hotkeySlots` lookup happens here at action time. Out-of-range
         // slots beep so the user gets feedback that the shortcut hit nothing.
+        // The Agents panel owns the same chord while it is on screen, and only
+        // moves its highlight: selection there must not focus a terminal.
+        if state.isAgentsSidebarTabActive {
+          guard state.selectAgentDashboardEntry(atSlot: index) else {
+            return .run { _ in NSSound.beep() }
+          }
+          return .none
+        }
         let slots = state.sidebarStructure.hotkeySlots
         guard slots.indices.contains(index) else {
           return .run { _ in NSSound.beep() }
@@ -3524,16 +3545,42 @@ struct RepositoriesFeature {
         return .send(.selectWorktree(slots[index].id, focusTerminal: true))
 
       case .selectNextWorktree:
+        if state.isAgentsSidebarTabActive {
+          guard state.moveAgentDashboardSelection(byOffset: 1) else {
+            return .run { _ in NSSound.beep() }
+          }
+          return .none
+        }
         guard let id = state.worktreeID(byOffset: 1) else {
           return .run { _ in NSSound.beep() }
         }
         return .send(.selectWorktree(id, focusTerminal: true))
 
       case .selectPreviousWorktree:
+        if state.isAgentsSidebarTabActive {
+          guard state.moveAgentDashboardSelection(byOffset: -1) else {
+            return .run { _ in NSSound.beep() }
+          }
+          return .none
+        }
         guard let id = state.worktreeID(byOffset: -1) else {
           return .run { _ in NSSound.beep() }
         }
         return .send(.selectWorktree(id, focusTerminal: true))
+
+      case .agentDashboardSelectionChanged(let entryID):
+        state.agentDashboardSelection = entryID
+        return .none
+
+      case .activateAgentDashboardSelection:
+        guard let entryID = state.agentDashboardSelection else {
+          return .run { _ in NSSound.beep() }
+        }
+        return .send(.activateAgentDashboardEntry(entryID))
+
+      case .activateAgentDashboardEntry(let entryID):
+        state.agentDashboardSelection = entryID
+        return .send(.selectionChanged([.worktree(entryID.worktreeID)], focusTerminal: true))
 
       case .worktreeHistoryBack:
         return state.navigateWorktreeHistoryEffect(direction: .back)

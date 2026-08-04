@@ -13,6 +13,16 @@ struct AgentDashboardListView: View {
   @Shared(.sidebarAgentsGroupByState) private var groupByState: Bool
   @Shared(.settingsFile) private var settingsFile
 
+  /// Mirrors the Worktrees panel: native `List` selection supplies the highlight,
+  /// so both panels can't drift visually. Writes route through the reducer, which
+  /// owns the keyboard highlight.
+  private var keyboardSelection: Binding<AgentDashboardEntry.EntryID?> {
+    Binding(
+      get: { store.agentDashboardSelection },
+      set: { store.send(.agentDashboardSelectionChanged($0)) }
+    )
+  }
+
   var body: some View {
     let structure = store.agentDashboardStructure
     let toggleTabShortcut =
@@ -36,43 +46,13 @@ struct AgentDashboardListView: View {
       .padding(.horizontal, 8)
       .padding(.bottom, 4)
 
-      List {
-        if structure.entries.isEmpty {
-          Text("No active agents")
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .listRowSeparator(.hidden)
-            .help("No agent has reported activity yet. Start one in a worktree terminal to see it here.")
-        }
-        if structure.sections.isEmpty {
-          ForEach(structure.entries) { entry in
-            agentRow(entry)
+      ScrollViewReader { scrollProxy in
+        agentList(structure, toggleTabShortcut: toggleTabShortcut)
+          .onChange(of: store.agentDashboardSelection, initial: false) { _, selection in
+            guard let selection else { return }
+            scrollProxy.scrollTo(selection, anchor: .center)
           }
-        } else {
-          ForEach(structure.sections) { section in
-            Section {
-              ForEach(section.entries) { entry in
-                agentRow(entry)
-              }
-            } header: {
-              Text("\(section.title) (\(section.count))")
-                .help("\(section.count) agent(s) — \(section.state.help)")
-            }
-          }
-        }
-        if !structure.spaces.isEmpty {
-          Section {
-            ForEach(structure.spaces) { space in
-              spaceRow(space, toggleTabShortcut: toggleTabShortcut)
-            }
-          } header: {
-            Text("Spaces")
-              .help("One row per repository, with its worktree count and worst agent state rolled up")
-          }
-        }
       }
-      .listStyle(.sidebar)
     }
     .frame(minWidth: 220)
     .onChange(of: groupByState, initial: false) { _, _ in
@@ -80,15 +60,67 @@ struct AgentDashboardListView: View {
     }
   }
 
+  private func agentList(
+    _ structure: AgentDashboardStructure,
+    toggleTabShortcut: String
+  ) -> some View {
+    List(selection: keyboardSelection) {
+      if structure.entries.isEmpty {
+        Text("No active agents")
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .frame(maxWidth: .infinity, alignment: .center)
+          .listRowSeparator(.hidden)
+          .help("No agent has reported activity yet. Start one in a worktree terminal to see it here.")
+      }
+      if structure.sections.isEmpty {
+        ForEach(structure.entries) { entry in
+          agentRow(entry)
+        }
+      } else {
+        ForEach(structure.sections) { section in
+          Section {
+            ForEach(section.entries) { entry in
+              agentRow(entry)
+            }
+          } header: {
+            Text("\(section.title) (\(section.count))")
+              .help("\(section.count) agent(s) — \(section.state.help)")
+          }
+        }
+      }
+      if !structure.spaces.isEmpty {
+        Section {
+          ForEach(structure.spaces) { space in
+            spaceRow(space, toggleTabShortcut: toggleTabShortcut)
+          }
+        } header: {
+          Text("Spaces")
+            .help("One row per repository, with its worktree count and worst agent state rolled up")
+        }
+      }
+    }
+    .listStyle(.sidebar)
+    // ↵ on the highlighted row does what clicking it does. Scoped to the list so
+    // it can't shadow Return anywhere else in the app.
+    .onKeyPress(.return) {
+      guard store.agentDashboardSelection != nil else { return .ignored }
+      store.send(.activateAgentDashboardSelection)
+      return .handled
+    }
+  }
+
   private func agentRow(_ entry: AgentDashboardEntry) -> some View {
     Button {
-      store.send(.selectionChanged([.worktree(entry.worktreeID)], focusTerminal: true))
+      store.send(.activateAgentDashboardEntry(entry.id))
     } label: {
       AgentDashboardRowView(entry: entry)
     }
     .buttonStyle(.plain)
+    .tag(entry.id)
     .help(
       "Focus \(entry.displayName) in \(entry.title) — \(entry.state.help). "
+        + "⌃⌘↓ / ⌃⌘↑ or ⌃1…⌃0 move the highlight, ↵ jumps here. "
         + "Right-click to \(entry.name == nil ? "name" : "rename") it."
     )
     .contextMenu {

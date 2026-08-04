@@ -528,6 +528,12 @@ extension RepositoriesFeature.Action {
       .setSidebarSelectedWorktreeIDs:
       return [.selectedWorktreeSlice, .sidebarSelectionSlice]
 
+    // Agents-tab keyboard highlight. It projects into no cache; the activate arms
+    // delegate the real jump to `.selectionChanged`, which declares its own bits.
+    case .agentDashboardSelectionChanged, .activateAgentDashboardSelection,
+      .activateAgentDashboardEntry:
+      return []
+
     // Repo customization save mutates the section title / color, which flow
     // into the sidebar layout's highlight tag and the notification group name.
     case .repositoryCustomization(.presented(.delegate(.save))):
