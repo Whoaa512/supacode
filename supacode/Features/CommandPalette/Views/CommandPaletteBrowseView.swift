@@ -6,10 +6,6 @@ struct CommandPaletteBrowseView: View {
   @FocusState private var isPathFocused: Bool
   @State private var hoveredID: DirectoryEntry.ID?
 
-  private var browseDirectoryPath: String {
-    store.browse.directoryURL.path(percentEncoded: false)
-  }
-
   private static let keyboardHints = "↵ open · ⇥ complete · ⌘↵ open folder · ⌘↑ up"
   private static let keyboardHintsHelp = """
     ↵ opens a repository or enters a folder · ⇥ completes the path · \
@@ -133,7 +129,7 @@ struct CommandPaletteBrowseView: View {
               ForEach(Array(store.browse.filteredEntries.enumerated()), id: \.element.id) { index, entry in
                 BrowseEntryRow(
                   entry: entry,
-                  relativeParent: Self.relativeParent(of: entry, in: browseDirectoryPath),
+                  relativeParent: Self.relativeParent(of: entry),
                   isSelected: store.browse.selectedIndex == index,
                   isHovered: hoveredID == entry.id,
                   onActivate: { store.send(.browseNavigate(entry)) },
@@ -160,11 +156,8 @@ struct CommandPaletteBrowseView: View {
 
   /// Nested search hits live below the browsed directory, so show where they came from.
   /// `nil` for direct children, whose name already says everything.
-  private static func relativeParent(of entry: DirectoryEntry, in directoryPath: String) -> String? {
-    let root = directoryPath.hasSuffix("/") ? directoryPath : directoryPath + "/"
-    guard entry.fullPath.hasPrefix(root) else { return nil }
-    let relative = entry.fullPath.dropFirst(root.count)
-    let parent = relative.split(separator: "/").dropLast().joined(separator: "/")
+  private static func relativeParent(of entry: DirectoryEntry) -> String? {
+    let parent = entry.relativePath.split(separator: "/").dropLast().joined(separator: "/")
     return parent.isEmpty ? nil : parent
   }
 

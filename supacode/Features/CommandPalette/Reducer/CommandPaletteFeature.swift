@@ -438,34 +438,26 @@ struct CommandPaletteFeature {
     case browseSearch
   }
 
-  /// Rows are the directory's own prefix matches first (what the user is typing into),
-  /// then nested matches from the depth-limited search. Hidden directories stay out of the
-  /// way until the typed leaf starts with ".", matching the reference picker.
+  /// Rows are the directory's own matches first (what the user is typing into), then nested
+  /// matches from the depth-limited search, all ranked by the same fzf-style score over each
+  /// entry's root-relative path. Hidden directories stay out of the way until the typed leaf
+  /// starts with ".", matching the reference picker.
   static func browseRows(
     entries: [DirectoryEntry],
     searchResults: [DirectoryEntry],
     leaf: String
   ) -> [DirectoryEntry] {
     let showsHidden = leaf.hasPrefix(".")
-    let needle = leaf.lowercased()
     let visible = entries.filter { showsHidden || !$0.name.hasPrefix(".") }
-    guard !needle.isEmpty else { return Array(visible.prefix(browseRowLimit)) }
+    guard !BrowseFuzzyMatch.normalizedQuery(leaf).isEmpty else {
+      return Array(visible.prefix(browseRowLimit))
+    }
 
     let directPaths = Set(visible.map(\.fullPath))
     let candidates = visible + searchResults.filter { !directPaths.contains($0.fullPath) }
     // One matching rule for direct children and nested hits alike, so a late search
     // result slots into the existing order instead of reshuffling the whole list.
-    let ranked =
-      candidates
-      .filter { $0.name.lowercased().contains(needle) }
-      .enumerated()
-      .sorted { left, right in
-        let leftPrefix = left.element.name.lowercased().hasPrefix(needle)
-        let rightPrefix = right.element.name.lowercased().hasPrefix(needle)
-        if leftPrefix != rightPrefix { return leftPrefix }
-        return left.offset < right.offset
-      }
-      .map(\.element)
+    let ranked = BrowseFuzzyMatch.ranked(candidates, query: leaf, path: \.relativePath)
     return Array(ranked.prefix(browseRowLimit))
   }
 

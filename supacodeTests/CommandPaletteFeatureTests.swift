@@ -1972,6 +1972,50 @@ struct CommandPaletteFeatureTests {
     await store.receive(.browseSearchResultsLoaded(directory: URL(fileURLWithPath: "/tmp"), query: "al", results: []))
   }
 
+  @Test func browseRowsFuzzyMatchTheRelativePathAndRankBoundariesFirst() {
+    let entries = [
+      DirectoryEntry(name: "unsupported", fullPath: "/tmp/unsupported", isGitRepo: false),
+      DirectoryEntry(name: "supacode", fullPath: "/tmp/supacode", isGitRepo: true),
+    ]
+    let nested = DirectoryEntry(
+      name: "supacode",
+      fullPath: "/tmp/code/supacode",
+      isGitRepo: true,
+      relativePath: "code/supacode"
+    )
+
+    let rows = CommandPaletteFeature.browseRows(
+      entries: entries,
+      searchResults: [nested],
+      leaf: "sup"
+    )
+
+    // Direct child on a path boundary, then the nested boundary hit (deeper), then the
+    // mid-word match. All three matched: `sup` is a subsequence of every relative path.
+    #expect(rows.map(\.fullPath) == ["/tmp/supacode", "/tmp/code/supacode", "/tmp/unsupported"])
+  }
+
+  @Test func browseRowsMatchGappedQueriesAcrossPathSegments() {
+    let nested = DirectoryEntry(
+      name: "supacode",
+      fullPath: "/Users/me/code/supacode",
+      isGitRepo: true,
+      relativePath: "code/supacode"
+    )
+
+    #expect(
+      CommandPaletteFeature.browseRows(entries: [], searchResults: [nested], leaf: "co/sup")
+        .map(\.fullPath) == ["/Users/me/code/supacode"]
+    )
+    #expect(
+      CommandPaletteFeature.browseRows(entries: [], searchResults: [nested], leaf: "code supa")
+        .map(\.fullPath) == ["/Users/me/code/supacode"]
+    )
+    #expect(
+      CommandPaletteFeature.browseRows(entries: [], searchResults: [nested], leaf: "zsup").isEmpty
+    )
+  }
+
   @Test func browseNestedSearchAppendsMatchesAfterDebounce() async {
     let clock = TestClock()
     let nested = DirectoryEntry(name: "supacode", fullPath: "/tmp/code/supacode", isGitRepo: true)
