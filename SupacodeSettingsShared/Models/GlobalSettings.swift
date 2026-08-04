@@ -192,6 +192,14 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   /// never types the resume command on its own — the offer is the whole feature,
   /// so that a surface running something else is never interrupted.
   public var resumeAgentsOnRestore: Bool
+  /// How many directory levels below the browsed folder the Open Repository picker's
+  /// nested search walks. Deeper finds more but visits more of the tree, so it is a
+  /// user knob rather than a constant.
+  public var browseSearchDepth: Int
+
+  /// Sane bounds for `browseSearchDepth`: 1 is "direct children only", and past 10 the
+  /// walk hits its visit cap long before the depth limit matters.
+  public static let browseSearchDepthRange = 1...10
 
   public static let `default` = GlobalSettings(
     appearanceMode: .dark,
@@ -238,7 +246,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     chromeTextSize: .default,
     persistScrollbackEnabled: true,
     agentsSidebar: .default,
-    resumeAgentsOnRestore: true
+    resumeAgentsOnRestore: true,
+    browseSearchDepth: 5
   )
 
   public init(
@@ -290,7 +299,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     globalToggleVisibilityHotkey: AppShortcutOverride? = nil,
     persistScrollbackEnabled: Bool = true,
     agentsSidebar: AgentsSidebarSettings = .default,
-    resumeAgentsOnRestore: Bool = true
+    resumeAgentsOnRestore: Bool = true,
+    browseSearchDepth: Int = 5
   ) {
     self.appearanceMode = appearanceMode
     self.defaultEditorID = defaultEditorID
@@ -341,6 +351,13 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.persistScrollbackEnabled = persistScrollbackEnabled
     self.agentsSidebar = agentsSidebar
     self.resumeAgentsOnRestore = resumeAgentsOnRestore
+    self.browseSearchDepth = Self.clampedBrowseSearchDepth(browseSearchDepth)
+  }
+
+  /// Keeps a hand-edited or future-version depth inside the supported range instead of
+  /// letting a 0 disable the search or a 500 stall the walk.
+  public static func clampedBrowseSearchDepth(_ depth: Int) -> Int {
+    min(max(depth, Self.browseSearchDepthRange.lowerBound), Self.browseSearchDepthRange.upperBound)
   }
 
   /// Keys for reading renamed settings fields that no longer
@@ -584,6 +601,10 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     resumeAgentsOnRestore =
       try container.decodeIfPresent(Bool.self, forKey: .resumeAgentsOnRestore)
       ?? Self.default.resumeAgentsOnRestore
+    browseSearchDepth = Self.clampedBrowseSearchDepth(
+      try container.decodeIfPresent(Int.self, forKey: .browseSearchDepth)
+        ?? Self.default.browseSearchDepth
+    )
   }
 }
 

@@ -102,6 +102,7 @@ public struct SettingsFeature {
     /// Per-agent overrides are file-only (`global.agentsSidebar.rowsByAgent`);
     /// held here so editing the shared rows can't discard them.
     public var agentsSidebarRowsByAgent: [String: [[String]]]
+    public var browseSearchDepth: Int
     public var cliInstallState = CLIInstallState.checking
     /// Installed editors in menu order, resolved once off the picker's body.
     public var installedOpenActions: [OpenWorktreeAction]
@@ -248,6 +249,7 @@ public struct SettingsFeature {
       persistScrollbackEnabled = settings.persistScrollbackEnabled
       agentsSidebarRowsText = settings.agentsSidebar.rowsText
       agentsSidebarRowsByAgent = settings.agentsSidebar.rowsByAgent
+      browseSearchDepth = settings.browseSearchDepth
       defaultWorktreeBaseDirectoryPath =
         SupacodePaths.normalizedWorktreeBaseDirectoryPath(settings.defaultWorktreeBaseDirectoryPath) ?? ""
     }
@@ -444,6 +446,7 @@ public struct SettingsFeature {
         state.persistScrollbackEnabled = normalizedSettings.persistScrollbackEnabled
         state.agentsSidebarRowsText = normalizedSettings.agentsSidebar.rowsText
         state.agentsSidebarRowsByAgent = normalizedSettings.agentsSidebar.rowsByAgent
+        state.browseSearchDepth = normalizedSettings.browseSearchDepth
         state.defaultWorktreeBaseDirectoryPath = normalizedSettings.defaultWorktreeBaseDirectoryPath ?? ""
         state.syncGlobalDefaults()
         synchronizeRepositorySelection(for: &state)
@@ -1229,5 +1232,6 @@ extension SettingsFeature.State {
     settings.persistScrollbackEnabled = persistScrollbackEnabled
     settings.agentsSidebar = agentsSidebar
     settings.resumeAgentsOnRestore = resumeAgentsOnRestore
+    settings.browseSearchDepth = browseSearchDepth
   }
 }
