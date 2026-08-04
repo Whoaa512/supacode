@@ -23,11 +23,15 @@ struct UpstreamUpdateFeature {
 
   @Dependency(\.upstreamUpdateClient) private var upstreamUpdateClient
   @Dependency(\.date.now) private var now
+  @Dependency(\.context) private var context
 
   var body: some Reducer<State, Action> {
     Reduce { state, action in
       switch action {
       case .checkForUpdates:
+        // The test host launches the real app; a check fired there would resolve the
+        // live date dependency inside the process-wide test context and fail the run.
+        guard context != .test else { return .none }
         guard !state.isChecking else { return .none }
         state.isChecking = true
         return .run { send in
