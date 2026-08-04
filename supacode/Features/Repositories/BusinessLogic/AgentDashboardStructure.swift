@@ -46,6 +46,17 @@ enum AgentDashboardState: Int, Comparable, Sendable {
     }
   }
 
+  /// Tooltip copy for the state glyph, which is otherwise an unlabeled icon.
+  var help: String {
+    switch self {
+    case .blocked: "Blocked — waiting on you to answer a prompt or clear an error"
+    case .working: "Working — the agent is running a turn right now"
+    case .done: "Done — the agent finished a turn you haven't looked at yet"
+    case .idle: "Idle — the agent is running but has nothing in flight"
+    case .unknown: "Unknown — no activity reported for this agent yet"
+    }
+  }
+
   var systemImage: String {
     switch self {
     case .blocked: "exclamationmark.circle.fill"

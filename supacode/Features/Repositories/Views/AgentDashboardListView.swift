@@ -11,9 +11,13 @@ struct AgentDashboardListView: View {
   let store: StoreOf<RepositoriesFeature>
   @Shared(.sidebarTab) private var sidebarTabRawValue: String
   @Shared(.sidebarAgentsGroupByState) private var groupByState: Bool
+  @Shared(.settingsFile) private var settingsFile
 
   var body: some View {
     let structure = store.agentDashboardStructure
+    let toggleTabShortcut =
+      AppShortcuts.toggleAgentsSidebarTab
+      .effective(from: settingsFile.global.shortcutOverrides)?.display ?? "none"
 
     return VStack(spacing: 0) {
       HStack(spacing: 4) {
@@ -24,7 +28,10 @@ struct AgentDashboardListView: View {
         .toggleStyle(.button)
         .labelStyle(.iconOnly)
         .controlSize(.small)
-        .help("Group agents into Blocked, Working, Done, Idle, and Unknown sections")
+        .help(
+          "Group agents into Blocked, Working, Done, Idle, and Unknown sections. "
+            + "Turn it off for one flat list, still ordered by triage urgency."
+        )
       }
       .padding(.horizontal, 8)
       .padding(.bottom, 4)
@@ -36,6 +43,7 @@ struct AgentDashboardListView: View {
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .center)
             .listRowSeparator(.hidden)
+            .help("No agent has reported activity yet. Start one in a worktree terminal to see it here.")
         }
         if structure.sections.isEmpty {
           ForEach(structure.entries) { entry in
@@ -43,18 +51,24 @@ struct AgentDashboardListView: View {
           }
         } else {
           ForEach(structure.sections) { section in
-            Section("\(section.title) (\(section.count))") {
+            Section {
               ForEach(section.entries) { entry in
                 agentRow(entry)
               }
+            } header: {
+              Text("\(section.title) (\(section.count))")
+                .help("\(section.count) agent(s) — \(section.state.help)")
             }
           }
         }
         if !structure.spaces.isEmpty {
-          Section("Spaces") {
+          Section {
             ForEach(structure.spaces) { space in
-              spaceRow(space)
+              spaceRow(space, toggleTabShortcut: toggleTabShortcut)
             }
+          } header: {
+            Text("Spaces")
+              .help("One row per repository, with its worktree count and worst agent state rolled up")
           }
         }
       }
@@ -73,7 +87,10 @@ struct AgentDashboardListView: View {
       AgentDashboardRowView(entry: entry)
     }
     .buttonStyle(.plain)
-    .help("Focus \(entry.displayName) in \(entry.title) — \(entry.state.title)")
+    .help(
+      "Focus \(entry.displayName) in \(entry.title) — \(entry.state.help). "
+        + "Right-click to \(entry.name == nil ? "name" : "rename") it."
+    )
     .contextMenu {
       Button(entry.name == nil ? "Name Agent…" : "Rename Agent…") {
         store.send(.requestRenameAgent(entry.id))
@@ -84,7 +101,10 @@ struct AgentDashboardListView: View {
 
   /// Jumping to a repository means leaving the Agents tab: expand the repo's
   /// section so the Worktrees tree lands on it already open.
-  private func spaceRow(_ space: AgentDashboardStructure.SpaceEntry) -> some View {
+  private func spaceRow(
+    _ space: AgentDashboardStructure.SpaceEntry,
+    toggleTabShortcut: String
+  ) -> some View {
     Button {
       store.send(.repositoryExpansionChanged(space.id, isExpanded: true))
       $sidebarTabRawValue.withLock { $0 = SidebarTab.worktrees.rawValue }
@@ -92,7 +112,10 @@ struct AgentDashboardListView: View {
       AgentDashboardSpaceRowView(space: space)
     }
     .buttonStyle(.plain)
-    .help("Show \(space.title) in the Worktrees panel")
+    .help(
+      "Show \(space.title) in the Worktrees panel — \(space.worktreeCount) worktree(s). "
+        + "\(toggleTabShortcut) comes back to Agents."
+    )
   }
 }
 
@@ -112,6 +135,7 @@ private struct AgentDashboardRowView: View {
           .fill(tint.color)
           .frame(width: 6, height: 6)
           .accessibilityHidden(true)
+          .help("Color assigned to \(entry.repositoryTitle)")
       }
     }
     .contentShape(.rect)
@@ -125,6 +149,7 @@ private struct AgentDashboardRowView: View {
       Image(systemName: entry.state.systemImage)
         .foregroundStyle(AgentDashboardStateStyle.style(for: entry.state, hasError: entry.hasError))
         .accessibilityLabel(entry.state.title)
+        .help(entry.hasError ? "Error — the agent reported a failure" : entry.state.help)
       VStack(alignment: .leading, spacing: 1) {
         Text(entry.displayName)
           .font(.body)
@@ -175,6 +200,7 @@ private struct AgentDashboardConfiguredRowView: View {
       Image(systemName: entry.state.systemImage)
         .foregroundStyle(AgentDashboardStateStyle.style(for: entry.state, hasError: entry.hasError))
         .accessibilityLabel(entry.state.title)
+        .help(entry.hasError ? "Error — the agent reported a failure" : entry.state.help)
     default:
       Text(segment.text)
         .font(isHeadline ? .body : .caption)
@@ -195,6 +221,7 @@ private struct AgentDashboardSpaceRowView: View {
         .fill(space.tint?.color ?? Color.secondary)
         .frame(width: 6, height: 6)
         .accessibilityHidden(true)
+        .help("Color assigned to \(space.title)")
       Text(space.title)
         .font(.body)
         .lineLimit(1)
@@ -204,10 +231,12 @@ private struct AgentDashboardSpaceRowView: View {
         .font(.caption)
         .monospaced()
         .foregroundStyle(.secondary)
+        .help("\(space.worktreeCount) worktree(s) in \(space.title)")
       if let state = space.state {
         Image(systemName: state.systemImage)
           .foregroundStyle(AgentDashboardStateStyle.style(for: state, hasError: false))
           .accessibilityLabel(state.title)
+          .help("Worst agent state across \(space.title): \(state.help)")
       }
     }
     .contentShape(.rect)
