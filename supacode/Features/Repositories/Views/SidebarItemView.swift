@@ -507,7 +507,6 @@ private struct TrailingView: View {
   let showsPullRequestInfo: Bool
 
   var body: some View {
-    let hasHint = shortcutHint != nil
     let display = WorktreePullRequestDisplay(
       worktreeName: store.branchName,
       pullRequest: showsPullRequestInfo ? store.pullRequest : nil,
@@ -523,8 +522,7 @@ private struct TrailingView: View {
     let hasStats = added + removed > 0
     let hasStatus = !scriptColors.isEmpty || showsNotificationIndicator
 
-    // Cross-fade via opacity so flipping ⌘ doesn't snap the row.
-    ZStack(alignment: .trailing) {
+    SidebarShortcutHintCrossfade(hint: shortcutHint) {
       HStack(spacing: 6) {
         if store.kind == .folder, let host = store.host {
           Image(systemName: "wifi")
@@ -560,15 +558,7 @@ private struct TrailingView: View {
       }
       // Title takes the squeeze under narrow widths, not the counters.
       .fixedSize(horizontal: true, vertical: false)
-      .opacity(hasHint ? 0 : 1)
-      .allowsHitTesting(!hasHint)
-
-      Text(shortcutHint ?? "")
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .opacity(hasHint ? 1 : 0)
     }
-    .animation(.easeInOut(duration: TerminalTabBarMetrics.fadeAnimationDuration), value: hasHint)
   }
 }
 

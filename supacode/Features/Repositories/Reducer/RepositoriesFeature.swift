@@ -213,11 +213,12 @@ struct RepositoriesFeature {
     /// post-reduce hook and Equatable-diffed before publish, so the view body
     /// never touches `sidebarItems[id:]`.
     var agentDashboardStructure: AgentDashboardStructure = .empty
-    /// Keyboard-driven highlight in the Agents tab, in the flat visual order of
-    /// `agentDashboardStructure.entries`. Highlight only: moving it never steals
-    /// terminal focus. Pruned to `nil` when the row it points at disappears (the
-    /// agent finished, the worktree got archived), so a tab switch preserves the
-    /// highlight whenever the row survived. In-memory only.
+    /// Keyboard-driven selection in the Agents tab, in the flat visual order of
+    /// `agentDashboardStructure.entries`. Moving it jumps the main view to the
+    /// row's worktree and focuses its terminal, matching the Worktrees tab.
+    /// Pruned to `nil` when the row it points at disappears (the agent finished,
+    /// the worktree got archived), so a tab switch preserves the selection
+    /// whenever the row survived. In-memory only.
     var agentDashboardSelection: AgentDashboardEntry.EntryID?
     /// Cached projection of the focused row's display fields. The detail body
     /// reads this directly instead of `sidebarItems[id: id]` so per-leaf agent
@@ -377,12 +378,13 @@ struct RepositoriesFeature {
     case selectWorktreeAtHotkeySlot(Int)
     case selectNextWorktree
     case selectPreviousWorktree
-    /// Agents tab keyboard highlight moved: arrow nav, ⌃1..⌃0, or the List's own
-    /// selection binding. Highlight only — never focuses a terminal.
+    /// The Agents list's own selection binding moved (a native List click or
+    /// clearing the selection). Selection only — the jump rides on
+    /// `.activateAgentDashboardEntry`, which the row Button and the nav chords send.
     case agentDashboardSelectionChanged(AgentDashboardEntry.EntryID?)
-    /// ↵ in the Agents tab: jump to the highlighted agent's worktree and focus it.
+    /// ↵ in the Agents tab: jump to the selected agent's worktree and focus it.
     case activateAgentDashboardSelection
-    /// Click (or ↵) on one agent row: highlight it and jump to its worktree.
+    /// Click, ↵, or a nav chord on one agent row: select it and jump to its worktree.
     case activateAgentDashboardEntry(AgentDashboardEntry.EntryID)
     case worktreeHistoryBack
     case worktreeHistoryForward
@@ -3530,13 +3532,13 @@ struct RepositoriesFeature {
         // Snapshot-driven menu items capture only the slot index, so the
         // current `hotkeySlots` lookup happens here at action time. Out-of-range
         // slots beep so the user gets feedback that the shortcut hit nothing.
-        // The Agents panel owns the same chord while it is on screen, and only
-        // moves its highlight: selection there must not focus a terminal.
+        // The Agents panel owns the same chord while it is on screen, and jumps
+        // to the row's worktree exactly like the Worktrees panel does.
         if state.isAgentsSidebarTabActive {
-          guard state.selectAgentDashboardEntry(atSlot: index) else {
+          guard let entryID = state.agentDashboardEntryID(atSlot: index) else {
             return .run { _ in NSSound.beep() }
           }
-          return .none
+          return .send(.activateAgentDashboardEntry(entryID))
         }
         let slots = state.sidebarStructure.hotkeySlots
         guard slots.indices.contains(index) else {
@@ -3546,10 +3548,10 @@ struct RepositoriesFeature {
 
       case .selectNextWorktree:
         if state.isAgentsSidebarTabActive {
-          guard state.moveAgentDashboardSelection(byOffset: 1) else {
+          guard let entryID = state.agentDashboardEntryID(byOffset: 1) else {
             return .run { _ in NSSound.beep() }
           }
-          return .none
+          return .send(.activateAgentDashboardEntry(entryID))
         }
         guard let id = state.worktreeID(byOffset: 1) else {
           return .run { _ in NSSound.beep() }
@@ -3558,10 +3560,10 @@ struct RepositoriesFeature {
 
       case .selectPreviousWorktree:
         if state.isAgentsSidebarTabActive {
-          guard state.moveAgentDashboardSelection(byOffset: -1) else {
+          guard let entryID = state.agentDashboardEntryID(byOffset: -1) else {
             return .run { _ in NSSound.beep() }
           }
-          return .none
+          return .send(.activateAgentDashboardEntry(entryID))
         }
         guard let id = state.worktreeID(byOffset: -1) else {
           return .run { _ in NSSound.beep() }

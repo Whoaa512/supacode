@@ -9,13 +9,14 @@ import SwiftUI
 /// this body never reads `sidebarItems[id:]`.
 struct AgentDashboardListView: View {
   let store: StoreOf<RepositoriesFeature>
+  @Environment(CommandKeyObserver.self) private var commandKeyObserver
   @Shared(.sidebarTab) private var sidebarTabRawValue: String
   @Shared(.sidebarAgentsGroupByState) private var groupByState: Bool
   @Shared(.settingsFile) private var settingsFile
 
   /// Mirrors the Worktrees panel: native `List` selection supplies the highlight,
   /// so both panels can't drift visually. Writes route through the reducer, which
-  /// owns the keyboard highlight.
+  /// owns the keyboard selection.
   private var keyboardSelection: Binding<AgentDashboardEntry.EntryID?> {
     Binding(
       get: { store.agentDashboardSelection },
@@ -28,6 +29,20 @@ struct AgentDashboardListView: View {
     let toggleTabShortcut =
       AppShortcuts.toggleAgentsSidebarTab
       .effective(from: settingsFile.global.shortcutOverrides)?.display ?? "none"
+
+    // The only legal view-side computation, same as the Worktrees panel: a
+    // trivial join from the reducer-derived `slotByID` against the ⌘ state +
+    // shortcut overrides. Rows past the last ⌃n shortcut resolve to nil and drop
+    // out, so only the first nine carry a hint.
+    let shortcutHintByID: [AgentDashboardEntry.EntryID: String]
+    if commandKeyObserver.isPressed {
+      let overrides = settingsFile.global.shortcutOverrides
+      shortcutHintByID = structure.slotByID.compactMapValues { index in
+        AppShortcuts.worktreeSelectionShortcutDisplay(atSlot: index, overrides: overrides)
+      }
+    } else {
+      shortcutHintByID = [:]
+    }
 
     return VStack(spacing: 0) {
       HStack(spacing: 4) {
@@ -47,7 +62,11 @@ struct AgentDashboardListView: View {
       .padding(.bottom, 4)
 
       ScrollViewReader { scrollProxy in
-        agentList(structure, toggleTabShortcut: toggleTabShortcut)
+        agentList(
+          structure,
+          toggleTabShortcut: toggleTabShortcut,
+          shortcutHintByID: shortcutHintByID
+        )
           .onChange(of: store.agentDashboardSelection, initial: false) { _, selection in
             guard let selection else { return }
             scrollProxy.scrollTo(selection, anchor: .center)
@@ -62,7 +81,8 @@ struct AgentDashboardListView: View {
 
   private func agentList(
     _ structure: AgentDashboardStructure,
-    toggleTabShortcut: String
+    toggleTabShortcut: String,
+    shortcutHintByID: [AgentDashboardEntry.EntryID: String]
   ) -> some View {
     List(selection: keyboardSelection) {
       if structure.entries.isEmpty {
@@ -75,13 +95,13 @@ struct AgentDashboardListView: View {
       }
       if structure.sections.isEmpty {
         ForEach(structure.entries) { entry in
-          agentRow(entry)
+          agentRow(entry, shortcutHint: shortcutHintByID[entry.id])
         }
       } else {
         ForEach(structure.sections) { section in
           Section {
             ForEach(section.entries) { entry in
-              agentRow(entry)
+              agentRow(entry, shortcutHint: shortcutHintByID[entry.id])
             }
           } header: {
             Text("\(section.title) (\(section.count))")
@@ -101,7 +121,7 @@ struct AgentDashboardListView: View {
       }
     }
     .listStyle(.sidebar)
-    // ↵ on the highlighted row does what clicking it does. Scoped to the list so
+    // ↵ on the selected row does what clicking it does. Scoped to the list so
     // it can't shadow Return anywhere else in the app.
     .onKeyPress(.return) {
       guard store.agentDashboardSelection != nil else { return .ignored }
@@ -110,17 +130,17 @@ struct AgentDashboardListView: View {
     }
   }
 
-  private func agentRow(_ entry: AgentDashboardEntry) -> some View {
+  private func agentRow(_ entry: AgentDashboardEntry, shortcutHint: String?) -> some View {
     Button {
       store.send(.activateAgentDashboardEntry(entry.id))
     } label: {
-      AgentDashboardRowView(entry: entry)
+      AgentDashboardRowView(entry: entry, shortcutHint: shortcutHint)
     }
     .buttonStyle(.plain)
     .tag(entry.id)
     .help(
       "Focus \(entry.displayName) in \(entry.title) — \(entry.state.help). "
-        + "⌃⌘↓ / ⌃⌘↑ or ⌃1…⌃0 move the highlight, ↵ jumps here. "
+        + "⌃⌘↓ / ⌃⌘↑ or ⌃1…⌃0 jump straight here. "
         + "Right-click to \(entry.name == nil ? "name" : "rename") it."
     )
     .contextMenu {
@@ -153,6 +173,9 @@ struct AgentDashboardListView: View {
 
 private struct AgentDashboardRowView: View {
   let entry: AgentDashboardEntry
+  /// Resolved ⌃n hint, non-nil only while the modifier is held on one of the
+  /// first nine rows.
+  let shortcutHint: String?
 
   var body: some View {
     HStack(spacing: 8) {
@@ -162,12 +185,14 @@ private struct AgentDashboardRowView: View {
         AgentDashboardConfiguredRowView(entry: entry)
       }
       Spacer(minLength: 0)
-      if let tint = entry.repoTint {
-        Circle()
-          .fill(tint.color)
-          .frame(width: 6, height: 6)
-          .accessibilityHidden(true)
-          .help("Color assigned to \(entry.repositoryTitle)")
+      SidebarShortcutHintCrossfade(hint: shortcutHint) {
+        if let tint = entry.repoTint {
+          Circle()
+            .fill(tint.color)
+            .frame(width: 6, height: 6)
+            .accessibilityHidden(true)
+            .help("Color assigned to \(entry.repositoryTitle)")
+        }
       }
     }
     .contentShape(.rect)
