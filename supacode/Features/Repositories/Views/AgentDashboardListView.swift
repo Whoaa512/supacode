@@ -15,7 +15,7 @@ struct AgentDashboardListView: View {
 
   /// Mirrors the Worktrees panel: native `List` selection supplies the highlight,
   /// so both panels can't drift visually. Writes route through the reducer, which
-  /// owns the keyboard highlight.
+  /// owns the keyboard selection.
   private var keyboardSelection: Binding<AgentDashboardEntry.EntryID?> {
     Binding(
       get: { store.agentDashboardSelection },
@@ -101,7 +101,7 @@ struct AgentDashboardListView: View {
       }
     }
     .listStyle(.sidebar)
-    // ↵ on the highlighted row does what clicking it does. Scoped to the list so
+    // ↵ on the selected row does what clicking it does. Scoped to the list so
     // it can't shadow Return anywhere else in the app.
     .onKeyPress(.return) {
       guard store.agentDashboardSelection != nil else { return .ignored }
@@ -120,7 +120,7 @@ struct AgentDashboardListView: View {
     .tag(entry.id)
     .help(
       "Focus \(entry.displayName) in \(entry.title) — \(entry.state.help). "
-        + "⌃⌘↓ / ⌃⌘↑ or ⌃1…⌃0 move the highlight, ↵ jumps here. "
+        + "⌃⌘↓ / ⌃⌘↑ or ⌃1…⌃0 jump straight here. "
         + "Right-click to \(entry.name == nil ? "name" : "rename") it."
     )
     .contextMenu {

@@ -528,7 +528,7 @@ extension RepositoriesFeature.Action {
       .setSidebarSelectedWorktreeIDs:
       return [.selectedWorktreeSlice, .sidebarSelectionSlice]
 
-    // Agents-tab keyboard highlight. It projects into no cache; the activate arms
+    // Agents-tab selection. It projects into no cache; the activate arms
     // delegate the real jump to `.selectionChanged`, which declares its own bits.
     case .agentDashboardSelectionChanged, .activateAgentDashboardSelection,
       .activateAgentDashboardEntry:
