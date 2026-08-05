@@ -200,6 +200,11 @@ struct AgentDashboardStructure: Equatable, Sendable {
   /// there is nothing to group). The view treats "empty" as "render flat".
   var sections: [Section] = []
   var spaces: [SpaceEntry] = []
+  /// Visible top-down position of each row, mirroring `SidebarStructure.slotByID`:
+  /// the view joins it against the ⌘-held state to render ⌃n hint badges, and the
+  /// same index feeds `.selectWorktreeAtHotkeySlot`. Positions past the last
+  /// shortcut are simply never rendered (the display lookup returns nil).
+  var slotByID: [AgentDashboardEntry.EntryID: Int] = [:]
 
   static let empty = AgentDashboardStructure()
 
@@ -244,29 +249,26 @@ extension RepositoriesFeature.State {
   /// Wrapping move through the flat visual order, matching worktree arrow nav
   /// (which also wraps). Grouped sections are cut from the same sorted list, so
   /// this walks across section boundaries in the order the user sees. Returns
-  /// false when there is no row to land on, which the caller turns into a beep.
-  mutating func moveAgentDashboardSelection(byOffset offset: Int) -> Bool {
+  /// nil when there is no row to land on, which the caller turns into a beep.
+  func agentDashboardEntryID(byOffset offset: Int) -> AgentDashboardEntry.EntryID? {
     let ids = agentDashboardStructure.entries.map(\.id)
-    guard !ids.isEmpty else { return false }
+    guard !ids.isEmpty else { return nil }
     guard let current = agentDashboardSelection, let index = ids.firstIndex(of: current) else {
-      // No highlight yet (or one that just got pruned): enter the list from the
+      // No selection yet (or one that just got pruned): enter the list from the
       // end the user is travelling towards.
-      agentDashboardSelection = offset < 0 ? ids[ids.count - 1] : ids[0]
-      return true
+      return offset < 0 ? ids[ids.count - 1] : ids[0]
     }
-    agentDashboardSelection = ids[(index + offset + ids.count) % ids.count]
-    return true
+    return ids[(index + offset + ids.count) % ids.count]
   }
 
-  /// ⌃1..⌃0 in the Agents panel: highlight the nth visible row, no focus change.
-  mutating func selectAgentDashboardEntry(atSlot index: Int) -> Bool {
+  /// ⌃1..⌃0 in the Agents panel: the nth row of the flat visual order.
+  func agentDashboardEntryID(atSlot index: Int) -> AgentDashboardEntry.EntryID? {
     let entries = agentDashboardStructure.entries
-    guard entries.indices.contains(index) else { return false }
-    agentDashboardSelection = entries[index].id
-    return true
+    guard entries.indices.contains(index) else { return nil }
+    return entries[index].id
   }
 
-  /// Drops a highlight whose row is gone (agent finished, worktree archived, or
+  /// Drops a selection whose row is gone (agent finished, worktree archived, or
   /// the list emptied out) so ⌃⌘↓ restarts from the top instead of stalling.
   mutating func pruneAgentDashboardSelectionIfNeeded() {
     guard let selection = agentDashboardSelection else { return }
@@ -347,6 +349,11 @@ extension RepositoriesFeature.State {
     }
 
     let sorted = entries.sorted(by: AgentDashboardEntry.ordersBefore)
+    var slotByID: [AgentDashboardEntry.EntryID: Int] = [:]
+    slotByID.reserveCapacity(sorted.count)
+    for (index, entry) in sorted.enumerated() {
+      slotByID[entry.id] = index
+    }
     return AgentDashboardStructure(
       entries: sorted,
       sections: groupByState ? AgentDashboardStructure.sections(from: sorted) : [],
@@ -367,7 +374,8 @@ extension RepositoriesFeature.State {
             .count { !$0.isMissing && !archived.contains($0.id) } ?? 0,
           state: worstStateByRepository[repositoryID]
         )
-      }
+      },
+      slotByID: slotByID
     )
   }
 }
