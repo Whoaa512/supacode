@@ -48,4 +48,19 @@ enum SidebarSelection: Hashable {
       return false
     }
   }
+
+  /// Whether selecting this row must leave the persisted
+  /// `sidebar.focusedWorktreeID` alone. Both worktree-less browsing cases
+  /// qualify: the archived list and a task row are detours, and clobbering the
+  /// last focused live worktree would lose the row to return to — and for
+  /// `.task` it would also write `sidebar.json` from a task operation, which
+  /// assertion A11 forbids.
+  var preservesFocusedWorktree: Bool {
+    switch self {
+    case .worktree, .failedRepository:
+      return false
+    case .archivedWorktrees, .task:
+      return true
+    }
+  }
 }

@@ -53,6 +53,51 @@ struct AppFeatureArchivedSelectionTests {
     #expect(store.state.repositories.sidebar.focusedWorktreeID == priorFocus)
   }
 
+  /// Assertion A11: a task operation must never modify `sidebar.json`. Selecting
+  /// a task clears the worktree selection, which fans out
+  /// `selectedWorktreeChanged(nil)` — the arm that persists `focusedWorktreeID`.
+  /// Run through AppFeature because that write lives there, not in
+  /// RepositoriesFeature.
+  @Test(.dependencies) func selectingATaskDoesNotClearPersistedFocusedWorktree() async {
+    let rootURL = URL(fileURLWithPath: "/tmp/repo")
+    let worktree = Worktree(
+      id: "/tmp/repo/wt1",
+      name: "wt1",
+      detail: "",
+      workingDirectory: URL(fileURLWithPath: "/tmp/repo/wt1"),
+      repositoryRootURL: rootURL
+    )
+    let repository = Repository(
+      id: RepositoryID(rootURL.path(percentEncoded: false)),
+      rootURL: rootURL,
+      name: "repo",
+      worktrees: IdentifiedArray(uniqueElements: [worktree])
+    )
+    var repositoriesState = RepositoriesFeature.State(reconciledRepositories: [repository])
+    repositoriesState.selection = .worktree(worktree.id)
+    // Seed a real focus so the assertion can't pass on a nil-to-nil coincidence.
+    repositoriesState.$sidebar.withLock { $0.focusedWorktreeID = worktree.id }
+    let store = TestStore(
+      initialState: AppFeature.State(
+        repositories: repositoriesState,
+        settings: SettingsFeature.State()
+      )
+    ) {
+      AppFeature()
+    } withDependencies: {
+      $0.terminalClient.send = { _ in }
+      $0.worktreeInfoWatcher.send = { _ in }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.repositories(.selectionChanged([.task(TaskID("task-1"))])))
+    await store.receive(\.repositories.delegate.selectedWorktreeChanged)
+    await store.finish()
+
+    #expect(store.state.repositories.selection == .task(TaskID("task-1")))
+    #expect(store.state.repositories.sidebar.focusedWorktreeID == worktree.id)
+  }
+
   @Test(.dependencies) func repositoriesChangedPrunesArchivedWorktreesFromTerminalAndRunScriptStatus() async {
     let rootURL = URL(fileURLWithPath: "/tmp/repo")
     let activeWorktree = Worktree(

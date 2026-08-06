@@ -31,7 +31,7 @@ struct SidebarView: View {
     return VStack(spacing: 0) {
       Picker("Sidebar Panel", selection: sidebarTab) {
         ForEach(SidebarTab.allCases, id: \.self) { tab in
-          Label(tab.title, systemImage: tab.systemImage)
+          Text(tab.title)
             .tag(tab)
             .help("\(tab.help) (\(tabShortcut) switches between panels)")
         }

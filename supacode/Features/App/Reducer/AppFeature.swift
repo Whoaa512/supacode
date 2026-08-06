@@ -521,10 +521,11 @@ struct AppFeature {
         let lastFocusedWorktreeID = worktree?.id
         guard let worktree else {
           state.loadedRepoScripts = nil
-          // Selecting the archived list must NOT overwrite the last
-          // focused live worktree — preserve `focusedWorktreeID` so
-          // returning from archives restores the prior row.
-          if !state.repositories.isShowingArchivedWorktrees {
+          // Selecting the archived list or a task row must NOT overwrite the
+          // last focused live worktree — preserve `focusedWorktreeID` so
+          // returning restores the prior row. For tasks this is also A11:
+          // a task operation must never write `sidebar.json`.
+          if state.repositories.selection?.preservesFocusedWorktree != true {
             state.repositories.$sidebar.withLock { sidebar in
               sidebar.focusedWorktreeID = lastFocusedWorktreeID
             }

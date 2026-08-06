@@ -121,6 +121,49 @@ struct RepositoriesFeatureTasksTabRoutingTests {
     }
   }
 
+  @Test func worktreeHistoryBackDoesNotMoveSelectionWhileTasksIsActive() async {
+    var (state, _) = makeState()
+    let taskID = TaskID("task-1")
+    state.selection = .task(taskID)
+    state.worktreeHistoryBackStack = [WorktreeID("/tmp/tasks-nav-repo/bravo")]
+    await withTab(.tasks) {
+      let store = TestStore(initialState: state) { RepositoriesFeature() }
+      // Seeding `.task` after the cache recompute leaves derived slices stale;
+      // only the selection / history stacks matter here.
+      store.exhaustivity = .off
+
+      await store.send(.worktreeHistoryBack)
+      await store.finish()
+
+      #expect(store.state.selection == .task(taskID))
+      #expect(store.state.worktreeHistoryBackStack == [WorktreeID("/tmp/tasks-nav-repo/bravo")])
+    }
+  }
+
+  @Test func worktreeHistoryForwardDoesNotMoveSelectionWhileTasksIsActive() async {
+    var (state, _) = makeState()
+    let taskID = TaskID("task-1")
+    state.selection = .task(taskID)
+    state.worktreeHistoryForwardStack = [WorktreeID("/tmp/tasks-nav-repo/bravo")]
+    await withTab(.tasks) {
+      let store = TestStore(initialState: state) { RepositoriesFeature() }
+      store.exhaustivity = .off
+
+      await store.send(.worktreeHistoryForward)
+      await store.finish()
+
+      #expect(store.state.selection == .task(taskID))
+      #expect(store.state.worktreeHistoryForwardStack == [WorktreeID("/tmp/tasks-nav-repo/bravo")])
+    }
+  }
+
+  @Test func taskSelectionPreservesFocusedWorktreeFlag() {
+    #expect(SidebarSelection.task(TaskID("task-1")).preservesFocusedWorktree)
+    #expect(SidebarSelection.archivedWorktrees.preservesFocusedWorktree)
+    #expect(!SidebarSelection.worktree(WorktreeID("/tmp/x")).preservesFocusedWorktree)
+    #expect(!SidebarSelection.failedRepository(RepositoryID("/tmp/x")).preservesFocusedWorktree)
+  }
+
   /// The Worktrees panel keeps moving on the same chord — Tasks must not have
   /// made the guard swallow everything.
   @Test func selectNextWorktreeStillMovesWhileWorktreesIsActive() async {

@@ -3610,9 +3610,24 @@ struct RepositoriesFeature {
         return .send(.selectionChanged([.worktree(entryID.worktreeID)], focusTerminal: true))
 
       case .worktreeHistoryBack:
+        switch state.activeSidebarTab {
+        case .tasks:
+          // History is worktree history; replaying it here would swap the
+          // `.task` selection for a worktree behind the Tasks panel.
+          return .run { _ in NSSound.beep() }
+        case .agents, .worktrees:
+          // Agents rows are worktree-backed, so history nav stays meaningful there.
+          break
+        }
         return state.navigateWorktreeHistoryEffect(direction: .back)
 
       case .worktreeHistoryForward:
+        switch state.activeSidebarTab {
+        case .tasks:
+          return .run { _ in NSSound.beep() }
+        case .agents, .worktrees:
+          break
+        }
         return state.navigateWorktreeHistoryEffect(direction: .forward)
 
       case .revealSelectedWorktreeInSidebar:
@@ -4906,7 +4921,8 @@ struct RepositoriesFeature {
       shouldPruneArchivedWorktreeIDs
       ? state.pruneArchivedWorktreeIDs(availableWorktreeIDs: availableWorktreeIDs)
       : false
-    if state.selection?.isClearedByWorktreeValidation != false,
+    if let selection = state.selection,
+      selection.isClearedByWorktreeValidation,
       !state.isSelectionValid(state.selectedWorktreeID)
     {
       state.selection = nil
@@ -5084,6 +5100,8 @@ extension RepositoriesFeature.State {
     guard !isShowingArchivedWorktrees else {
       return [.archivedWorktrees]
     }
+    // Precedence matches `reduceSelectionChangedEffect`:
+    // archived → failedRepository → task.
     if case .failedRepository(let id) = selection {
       return [.failedRepository(id)]
     }
@@ -6027,18 +6045,19 @@ extension RepositoriesFeature.State {
       return .send(.delegate(.selectedWorktreeChanged(nil)))
     }
 
-    // Task selection is exclusive for the same reason as a failed repo: it owns
-    // no worktree, so it must not leave a stale worktree selection behind.
-    if let taskID = selections.compactMap(\.taskID).first {
-      selection = .task(taskID)
+    // Failed-repo selection is exclusive: drop any worktree selection
+    // and clear the detail pane's terminal binding. Ordered ahead of `.task`
+    // to match `sidebarSelections`: archived → failedRepository → task.
+    if let failedID = selections.compactMap(\.failedRepositoryID).first {
+      selection = .failedRepository(failedID)
       sidebarSelectedWorktreeIDs = []
       return .send(.delegate(.selectedWorktreeChanged(nil)))
     }
 
-    // Failed-repo selection is exclusive: drop any worktree selection
-    // and clear the detail pane's terminal binding.
-    if let failedID = selections.compactMap(\.failedRepositoryID).first {
-      selection = .failedRepository(failedID)
+    // Task selection is exclusive for the same reason as a failed repo: it owns
+    // no worktree, so it must not leave a stale worktree selection behind.
+    if let taskID = selections.compactMap(\.taskID).first {
+      selection = .task(taskID)
       sidebarSelectedWorktreeIDs = []
       return .send(.delegate(.selectedWorktreeChanged(nil)))
     }
