@@ -123,11 +123,7 @@ actor LayoutsIncrementalWriter {
   private nonisolated static func renameCorruptFile(at url: URL) {
     let fileManager = FileManager.default
     guard fileManager.fileExists(atPath: url.path(percentEncoded: false)) else { return }
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime]
-    let timestamp = formatter.string(from: Date()).replacing(":", with: "-")
-    let destination = url.deletingLastPathComponent()
-      .appending(path: "\(url.lastPathComponent).corrupt-\(timestamp)", directoryHint: .notDirectory)
+    let destination = SymlinkPreservingFileWriter.asideURL(for: url, kind: "corrupt")
     do {
       try SymlinkPreservingFileWriter.moveAside(at: url, to: destination)
     } catch {

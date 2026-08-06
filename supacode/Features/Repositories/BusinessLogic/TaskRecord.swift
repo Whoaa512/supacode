@@ -43,7 +43,7 @@ nonisolated struct TaskID: Hashable, Sendable, Codable, CustomStringConvertible 
 nonisolated struct TaskRecord: Codable, Equatable, Identifiable, Sendable {
   /// Explicit user intent about settled-ness, overriding the derived cascade in
   /// either direction. Absent (`nil`) means "no override, derive it".
-  nonisolated enum SettledOverride: String, Codable, Sendable, CaseIterable {
+  nonisolated enum SettledOverride: String, Codable, Sendable {
     case settled
     case active
   }
@@ -66,7 +66,7 @@ nonisolated struct TaskRecord: Codable, Equatable, Identifiable, Sendable {
       case manual
     }
 
-    nonisolated enum Confidence: String, Codable, Sendable, CaseIterable {
+    nonisolated enum Confidence: String, Codable, Sendable {
       case high
       case medium
       case low

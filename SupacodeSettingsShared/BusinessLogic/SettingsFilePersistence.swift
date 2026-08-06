@@ -5,13 +5,24 @@ import Sharing
 public nonisolated struct SettingsFileStorage: Sendable {
   public var load: @Sendable (URL) throws -> Data
   public var save: @Sendable (Data, URL) throws -> Void
+  /// Moves the file at the first URL to the second. Part of the dependency so a
+  /// corrupt-file rename is substitutable in tests: a store that renamed through
+  /// `FileManager` directly would silently skip the aside against in-memory
+  /// storage, and the "corrupt bytes are preserved" guarantee would go untested.
+  public var moveAside: @Sendable (URL, URL) throws -> Void
 
   public init(
     load: @escaping @Sendable (URL) throws -> Data,
-    save: @escaping @Sendable (Data, URL) throws -> Void
+    save: @escaping @Sendable (Data, URL) throws -> Void,
+    // Defaults to the real on-disk rename so existing call sites keep their
+    // behaviour; substitute it explicitly when the load/save pair is in-memory.
+    moveAside: @escaping @Sendable (URL, URL) throws -> Void = {
+      try SymlinkPreservingFileWriter.moveAside(at: $0, to: $1)
+    }
   ) {
     self.load = load
     self.save = save
+    self.moveAside = moveAside
   }
 }
 
@@ -19,7 +30,10 @@ public nonisolated enum SettingsFileStorageKey: DependencyKey {
   public static var liveValue: SettingsFileStorage {
     SettingsFileStorage(
       load: { try Data(contentsOf: $0) },
-      save: { data, url in try SymlinkPreservingFileWriter.write(data, to: url) }
+      save: { data, url in try SymlinkPreservingFileWriter.write(data, to: url) },
+      moveAside: { source, destination in
+        try SymlinkPreservingFileWriter.moveAside(at: source, to: destination)
+      }
     )
   }
   public static var previewValue: SettingsFileStorage { .inMemory() }
@@ -49,7 +63,8 @@ extension SettingsFileStorage {
     let storage = InMemorySettingsFileStorage()
     return SettingsFileStorage(
       load: { try storage.load($0) },
-      save: { try storage.save($0, $1) }
+      save: { try storage.save($0, $1) },
+      moveAside: { try storage.moveAside($0, $1) }
     )
   }
 }
@@ -75,6 +90,16 @@ nonisolated final class InMemorySettingsFileStorage: @unchecked Sendable {
     dataByURL[url] = data
   }
 
+  /// Re-keys the bytes so a rename is observable in memory, and throws
+  /// `fileNoSuchFile` for an absent source exactly as `FileManager` would.
+  func moveAside(_ source: URL, _ destination: URL) throws {
+    lock.lock()
+    defer { lock.unlock() }
+    guard let data = dataByURL.removeValue(forKey: source) else {
+      throw CocoaError(.fileNoSuchFile)
+    }
+    dataByURL[destination] = data
+  }
 }
 
 public nonisolated struct SettingsFileKeyID: Hashable, Sendable {

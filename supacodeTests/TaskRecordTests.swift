@@ -61,6 +61,22 @@ struct TaskRecordTests {
     #expect(decoded.autoManagedWorktree == nil)
   }
 
+  @Test func equalRecordsEncodeToIdenticalBytes() throws {
+    // `surfaceIDs` is a Set, whose iteration order varies per process; the encode
+    // sorts it so a no-op save can never produce a spurious diff.
+    let surfaces: Set<UUID> = [
+      UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!,
+      UUID(uuidString: "00000000-0000-0000-0000-0000000000BB")!,
+      UUID(uuidString: "00000000-0000-0000-0000-0000000000CC")!,
+    ]
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    #expect(
+      try encoder.encode(Self.makeRecord(surfaceIDs: surfaces))
+        == encoder.encode(Self.makeRecord(surfaceIDs: surfaces))
+    )
+  }
+
   @Test func generatedIDsAreUniqueAndOpaque() {
     let first = TaskID()
     let second = TaskID()

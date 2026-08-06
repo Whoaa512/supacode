@@ -45,6 +45,23 @@ public nonisolated enum SymlinkPreservingFileWriter {
     try FileManager.default.moveItem(at: source, to: destination)
   }
 
+  /// Sibling URL to move a bad file aside to:
+  /// `<name>.<kind>-<ISO8601>-<short id>`. The short id makes the name
+  /// collision-proof at the formatter's one-second resolution, so two failures
+  /// inside the same second each keep their own bytes instead of the second
+  /// rename failing and leaving the first copy to be overwritten.
+  public static func asideURL(for url: URL, kind: String, now: Date = Date()) -> URL {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime]
+    let timestamp = formatter.string(from: now).replacing(":", with: "-")
+    let unique = UUID().uuidString.prefix(8)
+    return url.deletingLastPathComponent()
+      .appending(
+        path: "\(url.lastPathComponent).\(kind)-\(timestamp)-\(unique)",
+        directoryHint: .notDirectory
+      )
+  }
+
   /// macOS resolves at most MAXSYMLINKS (32) links before ELOOP, so a deeper
   /// chain is one the loader's `Data(contentsOf:)` could never read back.
   private static let maxFollowedSymbolicLinks = 32

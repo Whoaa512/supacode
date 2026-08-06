@@ -9,6 +9,8 @@ import SupacodeSettingsShared
 /// seeding, and restoring an old copy restores its seeding state, which keeps
 /// "seed exactly once" true across upgrades and downgrades (A13).
 nonisolated struct TaskStoreFile: Equatable, Sendable, Codable {
+  private static let logger = SupaLogger("Tasks")
+
   /// Bumped only for a shape change this build could not otherwise decode.
   /// Additive fields never bump it — `TaskRecord`'s decode tolerates them.
   static let currentSchemaVersion = 1
@@ -16,6 +18,11 @@ nonisolated struct TaskStoreFile: Equatable, Sendable, Codable {
   var schemaVersion: Int
   var didSeedTasks: Bool
   var tasks: [TaskRecord]
+  /// Records present in the file that this build could not decode at all.
+  /// Never persisted and never part of equality: it is decode-time diagnostics
+  /// that `TaskStore.load` uses to tell one bad record (lossy, keep going) from
+  /// a systemic decode failure (every record lost — treat as corruption).
+  var droppedRecordCount: Int = 0
 
   init(
     schemaVersion: Int = TaskStoreFile.currentSchemaVersion,
@@ -27,6 +34,12 @@ nonisolated struct TaskStoreFile: Equatable, Sendable, Codable {
     self.tasks = tasks
   }
 
+  static func == (lhs: TaskStoreFile, rhs: TaskStoreFile) -> Bool {
+    lhs.schemaVersion == rhs.schemaVersion
+      && lhs.didSeedTasks == rhs.didSeedTasks
+      && lhs.tasks == rhs.tasks
+  }
+
   private enum CodingKeys: String, CodingKey {
     case schemaVersion
     case didSeedTasks
@@ -35,13 +48,34 @@ nonisolated struct TaskStoreFile: Equatable, Sendable, Codable {
 
   init(from decoder: any Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    self.schemaVersion = (try? container.decodeIfPresent(Int.self, forKey: .schemaVersion)) ?? 0
+    // An absent version is this build's version, not 0: writing 0 back would
+    // brand a file we understand as pre-schema and invite a bogus migration.
+    self.schemaVersion =
+      (try? container.decodeIfPresent(Int.self, forKey: .schemaVersion))
+      ?? TaskStoreFile.currentSchemaVersion
     self.didSeedTasks = (try? container.decodeIfPresent(Bool.self, forKey: .didSeedTasks)) ?? false
     // Per-element lossy: one unreadable record costs that record only, never the
     // whole inbox (A12). `LossyTaskRecord.init` never throws, so the array
     // container always advances past a bad element.
     let lossy = try container.decodeIfPresent([LossyTaskRecord].self, forKey: .tasks) ?? []
-    self.tasks = lossy.compactMap(\.record)
+    self.droppedRecordCount = lossy.count { $0.record == nil }
+    self.tasks = Self.deduplicated(lossy.compactMap(\.record))
+  }
+
+  /// Keeps the first record per id. A duplicate id would make `IdentifiedArray`
+  /// lookups and ownership mutations ambiguous, and the later copy is the one
+  /// with no provenance (hand-edit, bad merge of two `tasks.json` copies).
+  private static func deduplicated(_ records: [TaskRecord]) -> [TaskRecord] {
+    var seen: Set<TaskID> = []
+    var unique: [TaskRecord] = []
+    for record in records {
+      guard seen.insert(record.id).inserted else {
+        Self.logger.warning("Dropping duplicate task id \(record.id) while decoding tasks")
+        continue
+      }
+      unique.append(record)
+    }
+    return unique
   }
 
   func encode(to encoder: any Encoder) throws {
@@ -62,6 +96,31 @@ nonisolated struct TaskStoreFile: Equatable, Sendable, Codable {
   }
 }
 
+/// Outcome of a `TaskStore.load`. The unreadable case exists so a transient read
+/// failure (permissions, I/O error) can never be mistaken for a fresh install:
+/// treating it as empty would let the next save overwrite every task and
+/// re-enable seeding.
+nonisolated enum TaskStoreLoadResult: Equatable, Sendable {
+  /// Decoded contents, an empty file because none exists yet, or an empty file
+  /// after corrupt bytes were moved aside. Safe to save over.
+  case file(TaskStoreFile)
+  /// `tasks.json` exists but could not be read. Callers must not save.
+  case unreadable
+
+  /// Contents when the load produced a saveable file, `nil` when unreadable.
+  var file: TaskStoreFile? {
+    guard case .file(let file) = self else { return nil }
+    return file
+  }
+}
+
+nonisolated enum TaskStoreError: Error, Equatable {
+  /// The file carries a schema this build does not know how to write. Encoding
+  /// it would drop the newer build's fields while keeping its version number,
+  /// so the loss would be invisible to both builds.
+  case schemaFromNewerBuild(fileVersion: Int, supportedVersion: Int)
+}
+
 /// Reads and writes the task inbox at `~/.supacode/tasks.json`.
 ///
 /// Deliberately not a `SharedKey`: the seeder and the reducer need explicit
@@ -71,43 +130,96 @@ nonisolated struct TaskStore: Sendable {
   private static let logger = SupaLogger("Tasks")
 
   let url: URL
-  private let storage: SettingsFileStorage
 
-  init(url: URL? = nil, storage: SettingsFileStorage? = nil) {
-    @Dependency(\.settingsFileStorage) var defaultStorage
+  /// Holds only the URL: `\.settingsFileStorage` is read inside `load` / `save`
+  /// so a `withDependencies` override that wraps a call still applies, instead
+  /// of the store freezing whichever storage existed when it was constructed.
+  init(url: URL? = nil) {
     self.url = url ?? SupacodePaths.tasksURL
-    self.storage = storage ?? defaultStorage
   }
 
-  /// Never throws: a missing file is a fresh start, and a whole-file decode
-  /// failure is renamed aside before falling back to empty so the next `save`
-  /// can't overwrite the only copy of the user's tasks.
-  func load() -> TaskStoreFile {
+  /// Never throws. Returns `.unreadable` for a present-but-unreadable file,
+  /// `.file` for everything a save may safely follow: an absent file, a decoded
+  /// file, or empty after corrupt bytes were moved aside.
+  func load() -> TaskStoreLoadResult {
+    @Dependency(\.settingsFileStorage) var storage
     let data: Data
     do {
       data = try storage.load(url)
     } catch {
-      return TaskStoreFile()
+      // Only an absent file is a fresh start. Anything else means bytes we
+      // couldn't read are still on disk, and reporting empty here would erase
+      // them on the next save and re-seed on top.
+      guard Self.isFileAbsent(error) else {
+        Self.logger.error(
+          """
+          Failed to read tasks from \(url.path(percentEncoded: false)): \(error). \
+          Refusing to treat this as an empty inbox; no save may follow.
+          """
+        )
+        return .unreadable
+      }
+      return .file(TaskStoreFile())
     }
+
+    let file: TaskStoreFile
     do {
-      return try JSONDecoder().decode(TaskStoreFile.self, from: data)
+      file = try Self.makeDecoder().decode(TaskStoreFile.self, from: data)
     } catch {
       Self.logger.warning(
         "Failed to decode tasks from \(url.path(percentEncoded: false)): \(error)"
       )
-      renameCorruptFile()
-      return TaskStoreFile()
+      moveFileAside(kind: "corrupt", storage: storage)
+      return .file(TaskStoreFile())
     }
+
+    guard file.droppedRecordCount > 0 else { return .file(file) }
+
+    guard !file.tasks.isEmpty else {
+      // Every record failed: that is a systemic problem (a date-format or shape
+      // change), not one bad row, and the file decoding "successfully empty"
+      // would let the next save erase the whole inbox.
+      Self.logger.error(
+        """
+        All \(file.droppedRecordCount) task records in \
+        \(url.path(percentEncoded: false)) failed to decode; treating the file as corrupt.
+        """
+      )
+      moveFileAside(kind: "corrupt", storage: storage)
+      return .file(TaskStoreFile())
+    }
+
+    Self.logger.warning(
+      """
+      Dropped \(file.droppedRecordCount) unreadable task record(s) from \
+      \(url.path(percentEncoded: false)); keeping \(file.tasks.count).
+      """
+    )
+    copyDroppedEvidence(data, storage: storage)
+    return .file(file)
   }
 
   /// Atomic through `SettingsFileStorage`, whose live value is
   /// `SymlinkPreservingFileWriter` (temp + rename, symlink preserved). A crashed
   /// write therefore leaves the previous complete file, never a truncated one.
   func save(_ file: TaskStoreFile) throws {
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    guard file.schemaVersion <= TaskStoreFile.currentSchemaVersion else {
+      let error = TaskStoreError.schemaFromNewerBuild(
+        fileVersion: file.schemaVersion,
+        supportedVersion: TaskStoreFile.currentSchemaVersion
+      )
+      Self.logger.error(
+        """
+        Refusing to write tasks at schema \(file.schemaVersion) \
+        (this build writes \(TaskStoreFile.currentSchemaVersion)): a newer build's fields \
+        would be stripped while its version number survived.
+        """
+      )
+      throw error
+    }
+    @Dependency(\.settingsFileStorage) var storage
     do {
-      try storage.save(encoder.encode(file), url)
+      try storage.save(Self.makeEncoder().encode(file), url)
     } catch {
       Self.logger.error(
         "Failed to persist tasks to \(url.path(percentEncoded: false)): \(error)"
@@ -116,30 +228,56 @@ nonisolated struct TaskStore: Sendable {
     }
   }
 
-  /// Moves a corrupt `tasks.json` aside to `tasks.json.corrupt-<ISO8601>`.
-  /// A missing or already-renamed file returns silently; a failed rename logs so
-  /// the double failure is unambiguous, and the caller still proceeds to empty.
-  private func renameCorruptFile() {
-    let sourcePath = url.path(percentEncoded: false)
-    guard FileManager.default.fileExists(atPath: sourcePath) else {
-      return
-    }
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime]
-    let timestamp = formatter.string(from: Date()).replacing(":", with: "-")
-    let destination = url.deletingLastPathComponent()
-      .appending(
-        path: "\(url.lastPathComponent).corrupt-\(timestamp)",
-        directoryHint: .notDirectory
-      )
+  /// Dates are pinned to epoch seconds on both sides so the on-disk format can
+  /// never drift with a Foundation default. An unpinned pair is exactly how a
+  /// whole inbox becomes per-element-undecodable at once.
+  private static func makeDecoder() -> JSONDecoder {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .secondsSince1970
+    return decoder
+  }
+
+  private static func makeEncoder() -> JSONEncoder {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    encoder.dateEncodingStrategy = .secondsSince1970
+    return encoder
+  }
+
+  /// True only when the read failed because the file does not exist.
+  private static func isFileAbsent(_ error: any Error) -> Bool {
+    if let cocoa = error as? CocoaError, cocoa.code == .fileReadNoSuchFile { return true }
+    if let posix = error as? POSIXError, posix.code == .ENOENT { return true }
+    return false
+  }
+
+  /// Moves an unusable `tasks.json` aside so the empty fallback's next save
+  /// can't overwrite the only copy of the user's tasks. Goes through the
+  /// injected storage, not `FileManager`, so tests exercise the real aside.
+  private func moveFileAside(kind: String, storage: SettingsFileStorage) {
+    let destination = SymlinkPreservingFileWriter.asideURL(for: url, kind: kind)
     do {
-      try SymlinkPreservingFileWriter.moveAside(at: url, to: destination)
+      try storage.moveAside(url, destination)
     } catch {
       Self.logger.warning(
         """
-        Failed to rename corrupt tasks file to \(destination.lastPathComponent): \(error). \
-        Next save WILL overwrite the corrupt bytes.
+        Failed to move tasks file aside to \(destination.lastPathComponent): \(error). \
+        Next save WILL overwrite the bad bytes.
         """
+      )
+    }
+  }
+
+  /// Copies — never moves — the bytes behind a partial decode. The surviving
+  /// tasks stay live in `tasks.json`, so the evidence for the dropped ones has
+  /// to be a second copy rather than a rename.
+  private func copyDroppedEvidence(_ data: Data, storage: SettingsFileStorage) {
+    let destination = SymlinkPreservingFileWriter.asideURL(for: url, kind: "dropped")
+    do {
+      try storage.save(data, destination)
+    } catch {
+      Self.logger.warning(
+        "Failed to copy dropped-record evidence to \(destination.lastPathComponent): \(error)"
       )
     }
   }
