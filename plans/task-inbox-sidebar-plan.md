@@ -88,7 +88,7 @@ AGENTS.md — `-only-testing` against the wrong bundle silently passes with 0).
 ### Tracer / identity
 - A1. Fresh launch with existing layouts.json + scrollback seeds one task per
   qualifying **directory** (branch attached only when provable — current
-  branch, low confidence; see UNCONFIRMED #3); stale ones land directly in the
+  branch, low confidence; see Resolved #3); stale ones land directly in the
   settled tail; seeding is idempotent across relaunches (no duplicates).
 - A2. Missing/ambiguous seed branch or activity is user-visible as an unknown
   state (row renders without a branch label / with a low-confidence
@@ -156,12 +156,16 @@ AGENTS.md — `-only-testing` against the wrong bundle silently passes with 0).
 - A19. ⌘N → optional prompt → fuzzy directory pick → task exists with terminal
   open, in ≤2 interactions, never a worktree decision. Works with the current
   repo-registration UX (improved add/archive UX is P7, not a P3 dependency).
-- A20. Directory/branch free → used directly, no worktree created; conflict
-  with another *active* task → auto-managed worktree created silently; settle
-  cleans up only auto-managed worktrees, only after safe hibernation; never
-  deletes a main checkout, pool copy, or manually managed worktree.
-  **Gate**: conflict-auto-worktrees ship only after UNCONFIRMED #9 (safe
-  marker) is resolved; P3 may ship creation without them.
+- A20. Conflict cascade per Resolved #11: directory free → used directly, no
+  worktree; directory owned by another *active* task → share when the repo's
+  isolation policy allows (per-repo, default isolate, remembered from the
+  conflict sheet), else auto-managed worktree created warm (untracked cache
+  dirs CoW-cloned via `cp -c` from the source directory; clone failure
+  degrades to a cold worktree, never blocks creation). Settle cleans up only
+  auto-managed worktrees, only after safe hibernation and the Resolved #9
+  precondition recheck; never deletes a main checkout, pool copy, or
+  manually managed worktree. **Gate lifted**: #9 resolved (TaskRecord field +
+  pre-delete recheck); conflict-auto-worktrees may ship in P3.
 - A20b. Failed/cancelled creation leaves no task record, no auto-managed
   worktree, and no orphan terminal (rollback).
 - A21. Promote-tab-to-task claims the live tab without restarting it or losing
@@ -290,7 +294,8 @@ All `nonisolated` statics, zero TCA imports, table tests ported from t3 edge
 cases:
 - `TaskSettlement.swift` — `effectiveSettled` cascade + `canSettle`/`canSnooze`.
   Signal mapping: t3 running → `busy || compacting`; awaitingInput →
-  `awaitingInput`. **Drop `hasQueuedTurnStart`** — verified justified: it
+  `awaitingInput`; awaitingApproval → new hook discriminator (Resolved #1).
+  **Drop `hasQueuedTurnStart`** — verified justified: it
   exists solely for t3's dispatch→session-adoption race (2-min grace,
   clock-skew bounds, `serverAdjudicated` forgiveness); supacode's hook socket
   is local with no queue layer, the condition cannot arise. Documented in
@@ -299,9 +304,10 @@ cases:
 - `TaskSnooze.swift` — `raisedHandWhileSnoozed` with t3's exact per-trigger
   rules (see A25), `effectiveSnoozed`, `wokeAt`, `resolveSnoozePresets`
   (Calendar-based, incl. the `|| 7` next-Monday rule), `snoozeWakeLabel`.
-- `TaskStatusModel.swift` — 5-state resolve; v1 collapses approval+input into
-  `awaitingInput` (4 effective states) unless hook protocol grows a
-  discriminator (UNCONFIRMED #1).
+- `TaskStatusModel.swift` — full 5-state resolve (Resolved #1): the agent
+  hook wire protocol grows an `awaitingApproval` discriminator in this phase
+  (new `Activity` case + CLI/adapter emission); agents that don't emit it
+  report `input`, never a guessed approval.
 - `TaskForwardNavigation.swift` — pure `planForwardNavigation` port
   (wrap-around scan excluding current, skip settled/snoozed/co-parking,
   no-next → nil).
@@ -323,14 +329,17 @@ Creation is the first moment cj generates ground-truth tasks, which de-risks
 every later phase. P1's settle+unsettle is enough lifecycle to live with.
 
 - Creation flow: optional title → fuzzy directory match over registered repos
-  + pool → `TaskRecord` + terminal open. Inspect
-  `WorktreeCreationPromptFeature` first; extend if it fits, else new feature
-  (UNCONFIRMED #8). Works against current registration UX (A19).
-- Conflict rule: another *active* task owns (directory × branch) →
-  auto-managed worktree via existing plumbing — **gated on UNCONFIRMED #9
-  (safe marker)**; if unresolved, ship creation without conflict-auto-worktrees
-  rather than guess. Cleanup on settle only for auto-managed, only after safe
-  hibernation. Creation failure rolls back cleanly (A20b).
+  + pool → `TaskRecord` + terminal open. Resolved #8: do NOT extend
+  `WorktreeCreationPromptFeature` (worktree-shaped state, requires a
+  pre-chosen repositoryID); new `TaskCreationPromptFeature`, borrow
+  validation/preview patterns only. Works against current registration UX
+  (A19).
+- Conflict rule: 3-step cascade per Resolved #11 (free directory →
+  share-if-policy → warm auto-managed worktree with CoW cache clone). Gate
+  lifted: #9 resolved via TaskRecord marker + pre-delete precondition
+  recheck. Cleanup on settle only for auto-managed, only after safe
+  hibernation. Creation failure rolls back cleanly (A20b). Companion pi-mono
+  task (git-common-dir history keying) tracked separately; not a P3 blocker.
 - Promote-tab-to-task claim gesture; idempotent; ownership transfer/reject
   deterministic (A3).
 - Hook-reported child agents (already in `agentSnapshot.agents` per leaf)
@@ -340,16 +349,17 @@ every later phase. P1's settle+unsettle is enough lifecycle to live with.
 **Assertions: A16 (wired), A23–A26**
 
 - Snooze/unsnooze/pin/keep-active actions; snoozed shelf (collapsed default,
-  soonest-wake-first, countdown). **Snooze-hibernate decision owned here**
-  (UNCONFIRMED #13): recommend per-action toggle with a global default.
+  soonest-wake-first, countdown). Snooze-hibernate per Resolved #13: global
+  `@Shared` default (off) + per-action snooze-and-hibernate variant.
 - Two-clock trick, Swift-native: coarse `clock.timer` (30–60s) for settle
   classification; one cancellable boundary-armed effect for exact wakes
   (+50ms overshoot; re-arm on earliest `snoozedUntil` change; re-evaluate on
   launch/activation/sleep-wake). TestClock-driven tests, no `Task.sleep`.
-- Raised-hand wake wiring from agent events and terminal notifications (bell
-  mapping UNCONFIRMED #7; defer bell-specific handling until a distinct event
-  is verified — generic notification wake already exists). PR trigger lands
-  in P5.
+- Raised-hand wake wiring from agent events and terminal notifications. Bell
+  per Resolved #7: distinct `GHOSTTY_ACTION_RING_BELL` event exists but is
+  surface-local today — add one bridge callback (mirror `onChildExited`,
+  `GhosttySurfaceBridge.swift:333-338`) into a manager event; OSC-notification
+  wake is primary, bell additive. PR trigger lands in P5.
 - Forward navigation: `ForwardNavigationPlan` value snapshotted pre-mutation,
   carried in the completion action, applied only if the open task is still the
   plan's source; in-flight ID sets cleared on success/failure/cancellation;
@@ -359,14 +369,16 @@ every later phase. P1's settle+unsettle is enough lifecycle to live with.
 **Assertions: A27–A30, A29b**
 
 - PR: feed existing per-row `pullRequest` into classification via task leaf
-  projection; verify `GithubPullRequest.state` values and whether CLOSED is
-  returned by the current GraphQL query BEFORE coding the mapper (UNCONFIRMED
-  #4 — query is known to support OPEN/MERGED); explicit
+  projection. Resolved #4: the batch query hard-codes `states: [OPEN,
+  MERGED]` (`GithubCLIClient.swift:828`) — add `CLOSED` and map
+  OPEN/MERGED/CLOSED/unknown explicitly; merged/closed auto-settle ships in
+  the same commit as the query change or not at all. Explicit
   unknown/loading/failed PR state; no second poller. PR-change raised-hand
   trigger (A29b).
-- Status strip + working elapsed timer (leaf-local `TimelineView`; start
-  timestamp on `RowSnapshot` — may need small `AgentPresenceFeature`
-  addition, UNCONFIRMED #5).
+- Status strip + working elapsed timer (leaf-local `TimelineView`). Resolved
+  #5: no start timestamp exists — add `workingSince: Date?` to
+  `PresenceRecord` (stamped on idle→busy flip), projected onto `RowSnapshot`;
+  nil renders no timer, never a fabricated 0s.
 - Recession styling; unread Done pill (`lastVisitedAt`, never-visited = read,
   zero-pill seed check per A28); Woke pill.
 - Settings via `@Shared` app-storage keys (doctrine: no new dependency
@@ -415,42 +427,210 @@ introspection beyond hook socket, non-title search.
 
 ---
 
-## UNCONFIRMED (flag, don't guess — consolidated)
+## Resolved (was UNCONFIRMED) — 2026-08-05 verification + cj calls
 
-1. **Approval vs input**: hook socket exposes only `awaitingInput`; no
-   awaiting-approval signal exists. v1 = 4 effective states unless protocol
-   grows a discriminator. Needs cj call.
-2. **Seeding evidence fidelity**: does Ghostty skip writing unchanged
-   scrollback buffers (decides whether mtime is weak or useless)? Is git
-   reflog an acceptable evidence source? Gate: seeder claims only provable
-   facts.
-3. **Historical branch identity for pooled directories**: current code cannot
-   reconstruct it. P1 seeds per-directory; branch = current branch, low
-   confidence.
-4. **`GithubPullRequest.state` values + CLOSED availability** in the current
-   GraphQL query (OPEN/MERGED confirmed supported) — verify before Phase 5.
-5. **Working-elapsed start timestamp** on `RowSnapshot` — exists? Else small
-   AgentPresence addition.
-6. **Task selection identity**: reuse `selectedWorktreeID` vs parallel
-   `selectedTaskID`. grug recommends reuse; check archived-selection flows.
-7. **Terminal bell → raised hand**: which notification event maps
-   (`WorktreeTerminalNotification`?) and does it distinguish bell. Defer
-   bell-specific handling until verified.
-8. **`WorktreeCreationPromptFeature` extendability** for prompt-first
-   creation — inspect at P3 start.
-9. **Auto-managed worktree safe marker** (proof of cleanup eligibility).
-   Gates A20's conflict-auto-worktree half.
-10. **Multi-tab claim rules**: promote several tabs into one task vs
-    separate; one terminal tab split across tasks → reject (A7).
-11. **Creation-conflict definition** when directory matches but branch is
-    detached/dirty/changing.
-12. **Fuzzy-match candidate set + ranking** for directory pick.
-13. **Snooze hibernation**: per-action vs global default vs both — decided in
-    P4 (recommend both: per-action toggle, global default).
-14. **Concrete keybindings** for next/prev, next-needs-me, triage, escape
-    hatch — Phase 6 design doc output.
-15. **Seeded title derivation** + collision handling.
-16. **Branch changes after task creation** — effect on task identity.
+All 16 items closed. Codebase-verified items cite file:line; decision items
+record cj's call and the rationale.
+
+### 1. Approval vs input — **5 states, hook protocol grows a discriminator (cj)**
+Verified: `AgentPresenceFeature.Activity` is exactly `awaitingInput / busy /
+idle / error / compacting` (`AgentPresenceFeature.swift:18-31`), and
+`AgentInstance.awaitingInput` is just `activity == .awaitingInput` (`:52`).
+Nothing in the hook/OSC path can distinguish a permission prompt from a
+question today.
+**Decision**: ship the full 5-state model; add an `awaitingApproval` kind to
+the agent hook wire protocol in P2 (new `Activity` case + adapter/CLI
+emission). Agents that don't emit it report `input` — never a guessed
+approval. A27 keeps 5 states.
+**Cost accepted**: P2 gains hook-protocol work (wire event, `Activity` case,
+per-agent hook emission) that was not in the original P2 scope.
+
+### 2. Seeding evidence fidelity — **scrollback mtime is USELESS as activity; reflog is the good source**
+Verified: the persistence patch writes unconditionally.
+`writeScrollbackFile` (`patches/ghostty-scrollback-persistence.patch`,
+`Surface.zig`) calls `std.fs.createFileAbsolute` and re-serializes the whole
+screen on every call; it returns `false` only for `error.NoScrollback` (empty
+buffer, or alternate screen with no history). There is **no dirty check**.
+`WorktreeTerminalState.saveScrollbackFiles()`
+(`WorktreeTerminalState.swift:1611-1635`) loops **every** surface in the state
+and `WorktreeTerminalManager` fires it every 30s
+(`scrollbackPersistInterval`, `WorktreeTerminalManager.swift:81`, timer at
+`:1377-1399`).
+→ mtime means *"this surface was materialized while the app was running"*,
+not *"work happened here"*. Observed in `~/.supacode/scrollback`: mtimes
+cluster into per-session groups, and surfaces whose worktree hasn't been
+mounted since an earlier session keep that session's mtime.
+**Decision**: mtime is demoted to a **last-mounted** signal only (usable for
+the fresh/stale split, never labeled activity). Git reflog **is** an
+acceptable and better evidence source: `.git/logs/HEAD` carries real
+timestamps and `checkout: moving from X to Y` lines per directory. No Swift
+reflog support exists yet (zero hits repo-wide) → small additive read in the
+seeder.
+
+### 3. Historical branch identity for pooled directories — **reconstructable from HEAD reflog**
+Upgraded by #2: per-directory `.git/logs/HEAD` gives the ordered
+branch-checkout history with timestamps, so a pooled directory's past
+branches are provable, not guessed.
+**Decision**: P1 still seeds **per-directory** with `branch = current branch`
+(high confidence, read via the existing watcher). Reflog history is optional
+seeder evidence (medium confidence, used for the fresh/stale split and the
+displayed branch of a stale seed). Still never fabricated — a directory with
+no readable reflog seeds with no branch label (A2).
+
+### 4. `GithubPullRequest.state` + CLOSED — **CLOSED is NOT returned today**
+Verified: the batch query hard-codes `states: [OPEN, MERGED]`
+(`GithubCLIClient.swift:828`). `state` is an unconstrained `String`
+(`GithubGraphQLPullRequestResponse.swift:108`) and `stateRank` only ranks
+`OPEN` (2) / `MERGED` (1) / everything else 0 (`:147-156`);
+`PullRequestMergeQueueStatus.swift:31` gates on `== "OPEN"`.
+**Decision**: P5 adds `CLOSED` to the query's `states:` list and maps
+`OPEN / MERGED / CLOSED / unknown` explicitly. Until that lands, a closed PR
+is indistinguishable from "no PR" — so the merged/closed auto-settle rule
+ships **with** the query change, in the same commit, or not at all.
+
+### 5. Working-elapsed start timestamp — **does not exist; small additive stamp**
+Verified: `RowSnapshot` is `{ agents, isWorking, hasError }`
+(`AgentPresenceFeature.swift:58-62`). `PresenceRecord` has `lastEventAt` but
+it is diagnostics-only and explicitly never persisted (`:81-86`); nothing
+records when a turn began.
+**Decision**: add `workingSince: Date?` to `PresenceRecord`, stamped on the
+idle→busy/compacting flip and cleared on the flip out, projected onto
+`RowSnapshot`. Leaf-local `TimelineView` renders elapsed from it. Nil →
+timer shows nothing (never a fabricated "0s").
+
+### 6. Task selection identity — **`case task(TaskID)` on `SidebarSelection` (cj)**
+Verified: selection is already a sum type —
+`enum SidebarSelection { case worktree(Worktree.ID), archivedWorktrees,
+failedRepository(Repository.ID) }`
+(`Views/SidebarSelection.swift:1-23`), and `state.selectedWorktreeID` is
+derived (`selection?.worktreeID`, `RepositoriesFeature.swift:4977-4979`).
+**Decision**: add `case task(TaskID)`. One selection source of truth, and
+`selectedWorktreeID` returning nil for tasks makes every worktree-only flow
+(archive, bulk ops, detail view) inert **by construction** instead of by
+audit — the `.archivedWorktrees` precedent. Accepted cost: additive cases in
+the enum's exhaustive switches, same rebase-conflict class as
+`cacheInvalidations`.
+
+### 7. Terminal bell → raised hand — **distinct event exists, not plumbed**
+Verified: `GHOSTTY_ACTION_RING_BELL` increments
+`GhosttySurfaceState.bellCount` (`GhosttySurfaceBridge.swift:345`,
+field at `GhosttySurfaceState.swift:48`), cleared on focus
+(`GhosttySurfaceView.swift:544, 690`) — and that is its **only** consumer
+(3 references repo-wide). Notifications are a separate path:
+`WorktreeTerminalNotification` (`Models/WorktreeTerminalNotification.swift`)
+has no bell discriminator and is only produced by `appendNotification` from
+OSC 9/777 (`WorktreeTerminalState.swift:2783-2807`). The scrollback replay
+handler captures `bell_pending` and deliberately does **not** forward it
+(`stream_replay.zig` in the persistence patch), so a restore can't fake a bell.
+**Decision**: bell is a real, cheap signal — plumb one bridge callback in P4
+mirroring `onChildExited` (`GhosttySurfaceBridge.swift:333-338`) into a
+manager event. OSC-notification wake stays the primary trigger; bell is
+additive and independently testable.
+
+### 8. `WorktreeCreationPromptFeature` extendability — **do not extend; new feature**
+Verified: its `State` is worktree-shaped and requires a repository chosen
+*before* it opens — `let repositoryID`, `let repositoryRootURL`,
+`let automaticBaseRef`, `let remoteNames`, `branchMenu`, `branchName`,
+`selectedBaseRef`, `fetchOrigin`, `worktreeNameOverride`,
+`worktreePathOverride` (`WorktreeCreationPromptFeature.swift:8-88`), and
+`Delegate.submit` carries `branchName / baseRef / fetchOrigin / placement`
+(`:104-112`).
+**Decision**: new `TaskCreationPromptFeature` (title + directory pick).
+Borrow the validation/preview *patterns*, share nothing structurally.
+Worktree creation stays untouched, which also keeps upstream rebases clean.
+
+### 9. Auto-managed worktree safe marker — **TaskRecord field + pre-delete recheck (cj)**
+Verified: `Worktree` has no provenance field at all — `id, location, kind,
+name, detail, createdAt?, isMissing, isAttached`
+(`Domain/Worktree.swift:4-42`); worktrees are discovered from git, so nothing
+records "supacode created this".
+**Decision**: `TaskRecord.autoManagedWorktree { path, branch, createdAt }` in
+`tasks.json` is the only delete authority. Cleanup requires **all** of:
+record present; path still resolves to that branch; path under supacode's
+worktree base directory; not a main checkout; not a registered repo root;
+working tree clean; no live sessions. Any mismatch → **never delete** (leak a
+directory, never destroy work). No marker file: a stale marker would be a
+delete-*authorizing* artifact, the worse failure mode.
+**A20's gate is lifted** — conflict-auto-worktrees may ship in P3.
+
+### 10. Multi-tab claim rules — **claim at TAB granularity (cj)**
+**Decision**: claiming a tab claims every surface in its split tree; one tab
+belongs to exactly one task; a multi-select promotes N tabs into ONE task
+(agent tab + server tab + scratch tab = one problem). This makes A7's
+"never hibernate a tab containing another task's surface" true by
+construction rather than by runtime check, and matches P1's tab-granular
+`hibernateTab` reality. The "split tab shared across tasks → reject" case
+disappears: it is unrepresentable.
+
+### 11. Creation-conflict definition — **directory-keyed conflict + 3-step cascade (cj, amended 2026-08-06)**
+**Decision**: branch is not part of the conflict key. Two agents in one
+directory stomp each other's working tree regardless of branch, so the
+directory is the contended resource. Detached / dirty / unknown branch needs
+no special case (`Worktree.isAttached` already reports false for detached
+HEAD and folder synthetics, `Domain/Worktree.swift:23-26`).
+
+**Amended after the same-directory-multiple-tasks discussion**: cj's notes
+repo (`~/work/cj`) legitimately wants N concurrent tasks in one directory,
+and his ergo1–5/twig1–4 directory pools exist only because worktrees are
+cold + amnesiac — verified: pi prompt history is keyed on a hash of raw cwd
+(`~/.pi/agent/prompt-history/<hash>.json`, 44 dirs observed), pi sessions and
+Claude Code projects (`~/.claude/projects/<slugified-cwd>`) likewise, so
+every fresh worktree loses up-arrow history and session resume. Fix the
+punishment instead of institutionalizing the pools. **Conflict resolution
+cascade**:
+1. Requested directory free (no other *active* task owns it) → use it.
+2. Repo's isolation policy allows sharing → share the directory (per-repo
+   policy, default `isolate`; the conflict sheet offers "share anyway" with
+   remember-for-this-repo; `~/work/cj` gets `alwaysShare`).
+3. Auto-managed worktree — created **warm**: untracked cache dirs
+   (`node_modules`, `.build`, … configurable per repo) cloned from the source
+   directory via APFS copy-on-write (`cp -c`), near-instant, near-zero disk
+   until divergence.
+No pool-reuse step: pools are retired by obsolescence, not migration —
+existing pool directories keep working as ordinary registered directories.
+
+**External dependency (separate pi-mono task, before/alongside P3)**: key pi
+prompt history (and session listing) on `git rev-parse --git-common-dir`
+when available (worktrees of one repo share the main `.git`), cwd otherwise
+— unifies up-arrow history across main checkout + all its worktrees with
+zero config. Claude Code's cwd-keyed amnesia is accepted (closed-door
+software). Supacode's cascade ships regardless; the pi fix upgrades step 3
+from "warm but amnesiac" to "warm + history-unified".
+
+### 12. Fuzzy-match candidate set + ranking — **registered non-archived worktrees, free-first (cj)**
+**Decision**: candidates = all registered non-archived worktrees (main
+checkouts + pool copies), straight from what the sidebar already holds — no
+disk walk, no new scanner, archive remains the hide mechanism. Ranking:
+subsequence match on `name`, then on the path tail; tie-break
+**no-active-task-first**, then most-recently-used. Empty query → the same
+list, free-then-recent. Free-first is the anti-ceremony payoff: the top hit
+usually needs no worktree at all.
+
+### 13. Snooze hibernation — **global default (off) + per-action override (cj)**
+**Decision**: one `@Shared` app-storage default, off (snooze keeps sessions
+live and cheap to undo), plus a snooze-and-hibernate variant in the menu for
+long sleeps. Settle always hibernates regardless (scope §3). No new
+dependency client.
+
+### 14. Concrete keybindings — **remains a Phase 6 deliverable (not a blocker)**
+Unchanged by design: the context map is P6's first artifact and A31 is its
+cj-review gate. Listed here so the UNCONFIRMED list is empty rather than
+silently carrying an item.
+
+### 15. Seeded title derivation — **custom title → branch → directory leaf; collisions allowed (cj)**
+Available evidence at seed time: sidebar customization title, `Worktree.name`
+/ `detail` (`Domain/Worktree.swift:17-18`), current branch, directory leaf.
+No agent prompt history exists to mine.
+**Decision**: that cascade, provable facts only. Duplicate titles are
+allowed and honest for a directory pool (ergo1–5 all on `main`);
+disambiguation lives in the row's secondary line (directory / branch), never
+in the title. No `(2)` suffix machinery. Rename is the fix path.
+
+### 16. Branch changes after task creation — **identity is (id, directory); branch is live-observed (cj)**
+**Decision**: falls out of #11. Branch is a display field refreshed by the
+existing watcher; a branch change never splits, merges, re-keys, or
+un-settles a task. Agents running `checkout -b` / rebasing mid-task is
+normal, not an identity event. Detached/unknown renders honestly per A2.
 
 ## Dissent log (preserved per loop protocol)
 
