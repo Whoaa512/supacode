@@ -2,6 +2,13 @@ import Foundation
 
 enum GitWorktreeHeadResolver {
   static func headURL(for worktreeURL: URL, fileManager: FileManager) -> URL? {
+    gitDirectoryURL(for: worktreeURL, fileManager: fileManager)?.appending(path: "HEAD")
+  }
+
+  /// The directory git keeps this worktree's state in: `.git` itself for a main
+  /// checkout, or the admin directory its `gitdir:` pointer file names for a
+  /// linked worktree. `nil` when there is no `.git` to resolve.
+  static func gitDirectoryURL(for worktreeURL: URL, fileManager: FileManager = .default) -> URL? {
     let gitURL = worktreeURL.appending(path: ".git")
     var isDirectory = ObjCBool(false)
     guard
@@ -13,7 +20,7 @@ enum GitWorktreeHeadResolver {
       return nil
     }
     if isDirectory.boolValue {
-      return gitURL.appending(path: "HEAD")
+      return gitURL
     }
     guard let contents = try? String(contentsOf: gitURL, encoding: .utf8) else {
       return nil
@@ -30,8 +37,6 @@ enum GitWorktreeHeadResolver {
     guard !pathPart.isEmpty else {
       return nil
     }
-    let gitdirURL = URL(fileURLWithPath: String(pathPart), relativeTo: worktreeURL)
-      .standardizedFileURL
-    return gitdirURL.appending(path: "HEAD")
+    return URL(fileURLWithPath: String(pathPart), relativeTo: worktreeURL).standardizedFileURL
   }
 }
