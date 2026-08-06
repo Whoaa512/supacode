@@ -3116,8 +3116,16 @@ struct RepositoriesFeature {
 
       case .toggleAgentsSidebarTab:
         @Shared(.sidebarTab) var sidebarTabRawValue
-        let current = SidebarTab(rawValue: sidebarTabRawValue) ?? .worktrees
-        $sidebarTabRawValue.withLock { $0 = (current == .agents ? SidebarTab.worktrees : .agents).rawValue }
+        // ⌘⇧A means "show me the agents", not "cycle panels": from Agents it
+        // returns to Worktrees, from anywhere else it jumps to Agents. Exhaustive
+        // so a new panel has to declare where the chord takes it instead of
+        // silently inheriting the old binary flip.
+        let next: SidebarTab =
+          switch SidebarTab.resolved(fromStoredValue: sidebarTabRawValue) {
+          case .agents: .worktrees
+          case .worktrees, .tasks: .agents
+          }
+        $sidebarTabRawValue.withLock { $0 = next.rawValue }
         return .none
 
       case .agentsSidebarRowsChanged(let config):
@@ -3534,11 +3542,18 @@ struct RepositoriesFeature {
         // slots beep so the user gets feedback that the shortcut hit nothing.
         // The Agents panel owns the same chord while it is on screen, and jumps
         // to the row's worktree exactly like the Worktrees panel does.
-        if state.isAgentsSidebarTabActive {
+        switch state.activeSidebarTab {
+        case .agents:
           guard let entryID = state.agentDashboardEntryID(atSlot: index) else {
             return .run { _ in NSSound.beep() }
           }
           return .send(.activateAgentDashboardEntry(entryID))
+        case .tasks:
+          // The Tasks panel has no slot nav yet; beep rather than moving the
+          // worktree selection out from under a panel the user isn't looking at.
+          return .run { _ in NSSound.beep() }
+        case .worktrees:
+          break
         }
         let slots = state.sidebarStructure.hotkeySlots
         guard slots.indices.contains(index) else {
@@ -3547,11 +3562,16 @@ struct RepositoriesFeature {
         return .send(.selectWorktree(slots[index].id, focusTerminal: true))
 
       case .selectNextWorktree:
-        if state.isAgentsSidebarTabActive {
+        switch state.activeSidebarTab {
+        case .agents:
           guard let entryID = state.agentDashboardEntryID(byOffset: 1) else {
             return .run { _ in NSSound.beep() }
           }
           return .send(.activateAgentDashboardEntry(entryID))
+        case .tasks:
+          return .run { _ in NSSound.beep() }
+        case .worktrees:
+          break
         }
         guard let id = state.worktreeID(byOffset: 1) else {
           return .run { _ in NSSound.beep() }
@@ -3559,11 +3579,16 @@ struct RepositoriesFeature {
         return .send(.selectWorktree(id, focusTerminal: true))
 
       case .selectPreviousWorktree:
-        if state.isAgentsSidebarTabActive {
+        switch state.activeSidebarTab {
+        case .agents:
           guard let entryID = state.agentDashboardEntryID(byOffset: -1) else {
             return .run { _ in NSSound.beep() }
           }
           return .send(.activateAgentDashboardEntry(entryID))
+        case .tasks:
+          return .run { _ in NSSound.beep() }
+        case .worktrees:
+          break
         }
         guard let id = state.worktreeID(byOffset: -1) else {
           return .run { _ in NSSound.beep() }
@@ -4881,7 +4906,9 @@ struct RepositoriesFeature {
       shouldPruneArchivedWorktreeIDs
       ? state.pruneArchivedWorktreeIDs(availableWorktreeIDs: availableWorktreeIDs)
       : false
-    if !state.isShowingArchivedWorktrees, !state.isSelectionValid(state.selectedWorktreeID) {
+    if state.selection?.isClearedByWorktreeValidation != false,
+      !state.isSelectionValid(state.selectedWorktreeID)
+    {
       state.selection = nil
     }
     if state.shouldRestoreLastFocusedWorktree {
@@ -5059,6 +5086,9 @@ extension RepositoriesFeature.State {
     }
     if case .failedRepository(let id) = selection {
       return [.failedRepository(id)]
+    }
+    if case .task(let id) = selection {
+      return [.task(id)]
     }
     var selections = Set(sidebarSelectedWorktreeIDs.map(SidebarSelection.worktree))
     if let selectedWorktreeID {
@@ -5993,6 +6023,14 @@ extension RepositoriesFeature.State {
 
     guard !selections.contains(.archivedWorktrees) else {
       selection = .archivedWorktrees
+      sidebarSelectedWorktreeIDs = []
+      return .send(.delegate(.selectedWorktreeChanged(nil)))
+    }
+
+    // Task selection is exclusive for the same reason as a failed repo: it owns
+    // no worktree, so it must not leave a stale worktree selection behind.
+    if let taskID = selections.compactMap(\.taskID).first {
+      selection = .task(taskID)
       sidebarSelectedWorktreeIDs = []
       return .send(.delegate(.selectedWorktreeChanged(nil)))
     }

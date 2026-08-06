@@ -12,7 +12,7 @@ struct SidebarView: View {
 
   private var sidebarTab: Binding<SidebarTab> {
     Binding(
-      get: { SidebarTab(rawValue: sidebarTabRawValue) ?? .worktrees },
+      get: { SidebarTab.resolved(fromStoredValue: sidebarTabRawValue) },
       set: { newTab in $sidebarTabRawValue.withLock { $0 = newTab.rawValue } }
     )
   }
@@ -31,7 +31,7 @@ struct SidebarView: View {
     return VStack(spacing: 0) {
       Picker("Sidebar Panel", selection: sidebarTab) {
         ForEach(SidebarTab.allCases, id: \.self) { tab in
-          Text(tab.title)
+          Label(tab.title, systemImage: tab.systemImage)
             .tag(tab)
             .help("\(tab.help) (\(tabShortcut) switches between panels)")
         }
@@ -53,6 +53,8 @@ struct SidebarView: View {
         )
       case .agents:
         AgentDashboardListView(store: store)
+      case .tasks:
+        TasksSidebarPlaceholderView()
       }
     }
     .toolbar {
@@ -124,5 +126,17 @@ struct SidebarView: View {
     ) {
       store.send(.requestDeleteSidebarItems(deleteTargets))
     }
+  }
+}
+
+/// Stand-in for the Tasks panel so the tab is selectable and routing is
+/// exercised before the real list exists. Replaced by the task list view.
+private struct TasksSidebarPlaceholderView: View {
+  var body: some View {
+    ContentUnavailableView(
+      "No Tasks",
+      systemImage: SidebarTab.tasks.systemImage,
+      description: Text("The task inbox isn't wired up yet.")
+    )
   }
 }

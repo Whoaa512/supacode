@@ -239,11 +239,17 @@ extension RepositoriesFeature.State {
     pruneAgentDashboardSelectionIfNeeded()
   }
 
-  /// True while the Agents panel is the one on screen. Arrow / ⌃digit nav reads
-  /// this so one chord drives whichever panel the user is looking at.
-  var isAgentsSidebarTabActive: Bool {
+  /// The panel currently on screen. Arrow / ⌃digit nav switches over this so one
+  /// chord drives whichever panel the user is looking at, and a panel that has
+  /// no navigation of its own can never fall through into worktree nav.
+  var activeSidebarTab: SidebarTab {
     @Shared(.sidebarTab) var sidebarTabRawValue
-    return SidebarTab(rawValue: sidebarTabRawValue) == .agents
+    return SidebarTab.resolved(fromStoredValue: sidebarTabRawValue)
+  }
+
+  /// True while the Agents panel is the one on screen.
+  var isAgentsSidebarTabActive: Bool {
+    activeSidebarTab == .agents
   }
 
   /// Wrapping move through the flat visual order, matching worktree arrow nav

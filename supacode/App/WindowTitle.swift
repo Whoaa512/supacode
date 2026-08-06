@@ -59,6 +59,10 @@ enum WindowTitle {
         repositories: repositories
       )
       return format(repo: name, tab: "Unavailable")
+    case .task:
+      // A task owns no repository yet at this stage; the task-aware title lands
+      // with the Tasks list itself.
+      return appName
     case .none:
       return appName
     }
