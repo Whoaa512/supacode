@@ -103,3 +103,21 @@ D. No surface leak in the happy path: teardown still frees every surface
   and defer the actual free off the hibernation critical path (behaviors B/C/D
   follow in later slices).
 
+### GREEN (behavior A) — test passes
+
+- One-line change: `performHibernation`'s leaf loop calls `surfaceTeardown(leaf)`
+  instead of `leaf.closeSurface()` (WorktreeTerminalState.swift:3731). Default
+  seam value still frees inline, so production behavior is unchanged for now —
+  the deferred free / zmx-client kill lands in the B/C/D slices.
+- `-only-testing:supacodeTerminalTests/HibernationTeardownTests` → exit 0,
+  totalTestCount 1, passed 1.
+- Full bundle `-only-testing:supacodeTerminalTests` → 406 tests, 404 passed,
+  2 failed: `GhosttyRuntimeBundledOverridesTests`
+  (`backgroundColorTracksColorScheme`, `initSeedsResolvedColorSchemeBeforeFirstRead`).
+  Verified PRE-EXISTING: same two fail with the change stashed (9 tests, 7 passed,
+  2 failed on clean HEAD). Unrelated to hibernation.
+- All dormant/hibernation suites (DormantTerminalTests, HibernationTimerTests,
+  DormantCLIWakeTests) green inside that run.
+- `make check` exit 0. swift-format touched 6 unrelated files (pre-existing
+  drift) — reverted to keep the commit focused.
+

@@ -3728,7 +3728,7 @@ final class WorktreeTerminalState {
     surfaceGenerationByTab.removeValue(forKey: tabId)
     focusedSurfaceIdByTab.removeValue(forKey: tabId)
     for leaf in leaves {
-      leaf.closeSurface()
+      surfaceTeardown(leaf)
       discardSurfaceBookkeeping(for: leaf.id, preserveSurfaceState: true)
     }
     onSurfacesHibernated?(Set(leafIDs))
