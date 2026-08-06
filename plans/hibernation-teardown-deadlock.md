@@ -81,3 +81,25 @@ D. No surface leak in the happy path: teardown still frees every surface
 
 ## Status log (agents append here)
 
+### RED (behavior A) — failing test committed
+
+- Seam added: `WorktreeTerminalState.surfaceTeardown: (GhosttySurfaceView) -> Void`
+  (default `{ $0.closeSurface() }`, declared next to `onSurfacesHibernated`).
+  Declaration only — `performHibernation` still frees inline, so the test fails
+  for the right reason.
+- Test: `supacodeTests/WorktreeTerminalManagerHibernationTeardownTests.swift`,
+  suite `HibernationTeardownTests`, test
+  `hibernationCompletesWhenSurfaceTeardownNeverFinishes()` (routes to
+  supacodeTerminalTests via the `WorktreeTerminalManager*` glob).
+  It injects a teardown double that records the hand-off and never frees
+  (stand-in for a wedged `ghostty_surface_free`), then asserts hibernation still
+  completes: tab dormant, dormant layout leaves, `onSurfacesHibernated`,
+  `onDormancyChanged`.
+- Observed failure: `Expectation failed: (Set(teardown.handedOff) → []) ==
+  (leafIDs → [67258777-...])` — teardown is never handed off; it runs inline in
+  the `leaf.closeSurface()` loop.
+- Verified tests ran: xcresult summary `failedTests: 1, passedTests: 0`.
+- Next (GREEN): route `performHibernation`'s leaf loop through `surfaceTeardown`
+  and defer the actual free off the hibernation critical path (behaviors B/C/D
+  follow in later slices).
+

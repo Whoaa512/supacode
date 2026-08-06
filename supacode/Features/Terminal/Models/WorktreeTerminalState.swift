@@ -319,6 +319,11 @@ final class WorktreeTerminalState {
   /// Fires when a tab hibernates. Manager cancels the debounced idle hooks for
   /// those surfaces WITHOUT the presence drop `onSurfacesClosed` would trigger.
   var onSurfacesHibernated: ((Set<UUID>) -> Void)?
+  /// Seam for surface teardown, so hibernation / close can hand a surface off
+  /// instead of freeing it inline on the main actor (a wedged pty io thread makes
+  /// `ghostty_surface_free` block forever). Tests replace it to observe the
+  /// hand-off and simulate a teardown that never finishes.
+  var surfaceTeardown: (GhosttySurfaceView) -> Void = { $0.closeSurface() }
   /// Fires when the worktree's dormant composition changes (a tab hibernates or
   /// wakes). Manager re-emits the row projection so the sidebar sleep marker
   /// tracks `allTabsDormant`; nothing else re-emits on these transitions.
