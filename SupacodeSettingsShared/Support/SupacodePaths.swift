@@ -191,6 +191,13 @@ public nonisolated enum SupacodePaths {
     baseDirectory.appending(path: "sidebar.json", directoryHint: .notDirectory)
   }
 
+  /// Task inbox records. A sibling of `sidebar.json` rather than a key inside
+  /// it: `SidebarState.encode()` only emits known keys, so an older build
+  /// re-saving the sidebar would silently strip embedded tasks.
+  public static var tasksURL: URL {
+    baseDirectory.appending(path: "tasks.json", directoryHint: .notDirectory)
+  }
+
   public static func repositorySettingsURL(for rootURL: URL) -> URL {
     rootURL.standardizedFileURL.appending(path: "supacode.json", directoryHint: .notDirectory)
   }
