@@ -583,3 +583,39 @@ D. No surface leak in the happy path: teardown still frees every surface
   none freed — i.e. no path drains the queue on the caller's turn.
 - No test added: pinning "AppDelegate doesn't call X" would need NSApplication
   scaffolding for a tautology; the reachable behavior is covered above.
+
+## Final review synthesis (code-critic + grug-architect + product-owner)
+
+Consensus: deadlock fix correct; ONE regression blocker + majors. Fix round:
+
+- **F (new behavior, blocker):** surfaces with NO zmx attach client (usesZmx
+  false / bypassZmx script tabs) must still have their child terminated and
+  their surface freed. Policy: no kill mechanism ⇒ after the poll bound, FREE
+  anyway (restores pre-branch semantics: pty close SIGHUPs the child; freeing
+  a healthy live child is fine — only a WEDGED reader hangs, and leak-on-
+  timeout is only earned when a kill was actually attempted). Leak stays
+  zmx-only. Test: non-zmx close → freed, leakedCount 0, no pgrep/pkill run.
+- **M1:** thread processAlive through to shouldHandleAsUnexpectedZmxClose;
+  guard !processAlive before the reattach branch.
+- **M2:** DELETE the pkill -f fallback (no client found ⇒ nothing to EOF;
+  fallback is pure wake-race risk).
+- **M3:** passwordInput.didSet and updateScreenObservers become inert when
+  isTeardownDeferred (leaked view must never re-enable SecureInput / re-add
+  observers).
+- **Cancellation limbo:** awaitExitThenFree catch → leak(key), not return.
+- **Simplify:** delete Stage/Entry — pending: [ObjectIdentifier:
+  GhosttySurfaceView]; stage asserts become isPending. Rename leakedWarningCap
+  → leakedLogEscalationThreshold. freeSurfaceInline = log + unregister +
+  performDeferredFree (single free body). Strip "(binding N)" citations,
+  keep the prose reasons. Fix stale teardownTasks comment. Dead write in
+  performFree.
+- **Observability:** surface_teardown_freed event (denominator); leak event
+  gains reason ("wedged" vs "no_client") + used_zmx + trigger; counter/event
+  when freeSurfaceInline runs with a live surface (the residual deadlock
+  path); slow-free becomes analytics event. Poll bound 2s → 10s.
+- **Deferred (follow-ups, not this branch):** leak-threshold user notice;
+  deinit adopt(surface:bridge:) hand-off; extract shared test spies; focus-
+  lands-after-late-window-attach test.
+- **Ship gate (manual, cj):** dogfood hibernate → wake → re-hibernate → close
+  + stop-script on a real repo; deliberately wedged pty. Confirms SIGTERM'd
+  attach client leaves session cleanly re-attachable.
