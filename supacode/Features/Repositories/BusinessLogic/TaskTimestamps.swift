@@ -16,31 +16,35 @@ import Foundation
 /// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, which would otherwise pin this
 /// pure logic to the main actor.
 nonisolated enum TaskTimestamps {
+  /// The three-way judgement callers actually branch on. Returning this instead
+  /// of an `Optional` plus a separate `isMalformed` predicate means a caller
+  /// that cares about the distinction gets an exhaustive switch from the
+  /// compiler rather than two lookups it could forget to pair up.
+  nonisolated enum Reading: Equatable, Sendable {
+    case missing
+    case malformed
+    case valid(Date)
+
+    /// The usable instant. `nil` for both unusable readings, for the callers
+    /// that genuinely treat missing and malformed the same way.
+    var date: Date? {
+      guard case .valid(let date) = self else { return nil }
+      return date
+    }
+  }
+
   /// A zero interval is a real instant (1970-01-01), never "absent" — treating
   /// it as absent silently re-dates such rows to whatever fallback comes next.
-  static func valid(_ date: Date?) -> Date? {
-    guard let date, date.timeIntervalSince1970.isFinite else { return nil }
-    return date
-  }
-
-  /// Present but unusable. Missing is not malformed.
-  static func isMalformed(_ date: Date?) -> Bool {
-    guard let date else { return false }
-    return !date.timeIntervalSince1970.isFinite
-  }
-
-  /// First usable candidate in the caller's priority order — not the newest.
-  static func firstValid(_ candidates: [Date?]) -> Date? {
-    for candidate in candidates {
-      if let usable = valid(candidate) { return usable }
-    }
-    return nil
+  static func read(_ date: Date?) -> Reading {
+    guard let date else { return .missing }
+    guard date.timeIntervalSince1970.isFinite else { return .malformed }
+    return .valid(date)
   }
 
   /// Newest usable candidate. Malformed candidates are dropped before the max,
   /// so an `infinity` stamp can never win it.
   static func latestValid(_ candidates: [Date?]) -> Date? {
-    candidates.compactMap(valid).max()
+    candidates.compactMap { read($0).date }.max()
   }
 
   /// Settle stamp → newest real activity → creation. `nil` when nothing is
@@ -51,14 +55,17 @@ nonisolated enum TaskTimestamps {
     activityCandidates: [Date?],
     createdAt: Date?
   ) -> Date? {
-    valid(settledAt) ?? latestValid(activityCandidates) ?? valid(createdAt)
+    read(settledAt).date ?? latestValid(activityCandidates) ?? read(createdAt).date
   }
 
   /// Strict, and deliberately `false` for anything unusable on either side: an
   /// unreadable timestamp must never read as "ancient" and trip an auto-settle
   /// the user cannot be given a reason for (A17).
   static func isStrictlyOlder(_ date: Date?, than boundary: Date) -> Bool {
-    guard let date = valid(date), valid(boundary) != nil else { return false }
+    // The boundary check stays even though callers now screen `now` themselves:
+    // boundaries are computed as `now - window`, and window arithmetic can go
+    // non-finite on its own, so this is the second line of defense.
+    guard let date = read(date).date, let boundary = read(boundary).date else { return false }
     return date < boundary
   }
 }

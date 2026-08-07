@@ -25,21 +25,18 @@ import Testing
 //       static let idle: ActivitySnapshot
 //     }
 //
-//     /// PR knowledge is explicitly tri-partite: a real state, an absence, or
-//     /// an admission that we do not know. `unknown`/`loading`/`failed` are
-//     /// never collapsed into `none` — "no PR" and "we could not ask" have
-//     /// different settle consequences (A29).
-//     enum PullRequestState: Equatable, Sendable {
-//       case none, loading, failed, unknown, open, merged, closed
-//     }
-//
 //     /// All inputs as one value: pure function, injected `now`, no clock.
 //     /// Declaration order below IS the memberwise-init order these tests use.
 //     struct Input: Equatable, Sendable {
 //       var now: Date
 //       var activity: ActivitySnapshot = .idle
 //       var settledOverride: TaskRecord.SettledOverride? = nil   // tri-state
-//       var pullRequest: PullRequestState = .none
+//       // PR knowledge is explicitly tri-partite (top-level
+//       // `TaskPullRequestState`): a real state, an absence, or an admission
+//       // that we do not know. `unknown`/`loading`/`failed` are never collapsed
+//       // into `none` — "no PR" and "we could not ask" have different settle
+//       // consequences (A29).
+//       var pullRequest: TaskPullRequestState = .none
 //       var lastActivityAt: Date? = nil
 //       var inactivityWindow: TimeInterval? = nil                // nil = off
 //       var isAutoSettleEnabled: Bool = true                     // global switch
@@ -108,7 +105,7 @@ struct TaskSettlementTests {
     now: Date = TaskSettlementTests.now,
     activity: TaskSettlement.ActivitySnapshot = .idle,
     settledOverride: TaskRecord.SettledOverride? = nil,
-    pullRequest: TaskSettlement.PullRequestState = .none,
+    pullRequest: TaskPullRequestState = .none,
     lastActivityAt: Date? = nil,
     inactivityWindow: TimeInterval? = TaskSettlementTests.inactivityWindow,
     isAutoSettleEnabled: Bool = true,
@@ -134,7 +131,7 @@ struct TaskSettlementTests {
   /// itself. Ported from t3's `effectiveSettled` truth table.
   struct PrecedenceCase: Sendable, CustomStringConvertible {
     let settledOverride: TaskRecord.SettledOverride?
-    let pullRequest: TaskSettlement.PullRequestState
+    let pullRequest: TaskPullRequestState
     let age: String
     let activityAt: Date?
     let isWorking: Bool
@@ -152,7 +149,7 @@ struct TaskSettlementTests {
 
   static let precedenceTable: [PrecedenceCase] = {
     let overrides: [TaskRecord.SettledOverride?] = [nil, .settled, .active]
-    let pullRequests: [TaskSettlement.PullRequestState] = [.none, .open, .merged, .closed]
+    let pullRequests: [TaskPullRequestState] = [.none, .open, .merged, .closed]
     let workingCases = [false, true]
     let inputCases = [false, true]
     // `false` (agent reports no approval) and `nil` (agent cannot report) must
@@ -313,14 +310,14 @@ struct TaskSettlementTests {
   /// a finished PR either, so none of them settles a warm task.
   @Test(
     arguments: [
-      TaskSettlement.PullRequestState.none,
+      TaskPullRequestState.none,
       .loading,
       .failed,
       .unknown,
     ]
   )
   func unknownPullRequestStatesNeitherBlockNorSettle(
-    _ state: TaskSettlement.PullRequestState
+    _ state: TaskPullRequestState
   ) {
     #expect(
       Self.effectiveSettled(Self.input(pullRequest: state, lastActivityAt: Self.staleActivity))
@@ -332,8 +329,8 @@ struct TaskSettlementTests {
     )
   }
 
-  @Test(arguments: [TaskSettlement.PullRequestState.merged, .closed])
-  func finishedPullRequestsAutoSettleAnIdleTask(_ state: TaskSettlement.PullRequestState) {
+  @Test(arguments: [TaskPullRequestState.merged, .closed])
+  func finishedPullRequestsAutoSettleAnIdleTask(_ state: TaskPullRequestState) {
     #expect(
       Self.effectiveSettled(
         Self.input(
@@ -347,9 +344,9 @@ struct TaskSettlementTests {
 
   /// t3's idle guard, boundary-exact: activity exactly one hour old is still
   /// warm; a millisecond older settles.
-  @Test(arguments: [TaskSettlement.PullRequestState.merged, .closed])
+  @Test(arguments: [TaskPullRequestState.merged, .closed])
   func finishedPullRequestRespectsTheIdleWindowBoundary(
-    _ state: TaskSettlement.PullRequestState
+    _ state: TaskPullRequestState
   ) {
     #expect(TaskSettlement.finishedPullRequestIdleWindow == Self.hour)
 
@@ -501,15 +498,21 @@ struct TaskSettlementTests {
         )
       ) == false
     )
-  }
-
-  /// Two tasks whose inputs resolve identically must resolve identically —
-  /// no hidden dependence on argument identity or evaluation order.
-  @Test func equalInputsProduceEqualResults() {
-    let left = Self.input(pullRequest: .merged, lastActivityAt: Self.staleActivity)
-    let right = Self.input(pullRequest: .merged, lastActivityAt: Self.staleActivity)
-    #expect(left == right)
-    #expect(Self.effectiveSettled(left) == Self.effectiveSettled(right))
+    // The case that ONLY the `now` guard catches: with no activity stamp the
+    // finished-PR path never touches `now` at all (missing activity is idle by
+    // definition), so a garbage clock would settle the row on nothing. Delete
+    // the guard in `effectiveSettled` and this expectation — and only this one
+    // — flips to true.
+    #expect(
+      Self.effectiveSettled(
+        Self.input(
+          now: Self.malformedDate,
+          pullRequest: .merged,
+          lastActivityAt: nil,
+          inactivityWindow: nil
+        )
+      ) == false
+    )
   }
 
   // MARK: - Global auto-settle off-switch (A30 groundwork)
@@ -647,8 +650,10 @@ struct TaskSettlementTests {
     #expect(source.contains("import ComposableArchitecture") == false)
     #expect(source.contains("import SwiftUI") == false)
     #expect(source.contains("import AppKit") == false)
-    // No ambient clock: `now` is always an injected parameter.
+    // No ambient clock, in either spelling: `now` is always an injected
+    // parameter.
     #expect(source.contains("Date()") == false)
+    #expect(source.contains("Date.now") == false)
     // The dropped t3 port must stay dropped.
     #expect(source.contains("hasQueuedTurnStart") == false)
   }

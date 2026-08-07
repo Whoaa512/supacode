@@ -25,20 +25,11 @@ nonisolated enum TaskSettlement {
     static let idle = ActivitySnapshot()
   }
 
-  /// Tri-partite on purpose: "no PR", "we could not ask", and a real state have
-  /// different settle consequences, so `loading`/`failed`/`unknown` are never
-  /// collapsed into `none` (A29).
-  nonisolated enum PullRequestState: Equatable, Sendable {
-    case none, loading, failed, unknown, open, merged, closed
-
-    var isFinished: Bool { self == .merged || self == .closed }
-  }
-
   nonisolated struct Input: Equatable, Sendable {
     var now: Date
     var activity: ActivitySnapshot = .idle
     var settledOverride: TaskRecord.SettledOverride?
-    var pullRequest: PullRequestState = .none
+    var pullRequest: TaskPullRequestState = .none
     var lastActivityAt: Date?
     /// `nil` disables the inactivity path entirely.
     var inactivityWindow: TimeInterval?
@@ -61,7 +52,7 @@ nonisolated enum TaskSettlement {
     guard input.isAutoSettleEnabled else { return false }
     // A malformed `now` makes every age comparison meaningless, so no auto path
     // may fire off it.
-    guard TaskTimestamps.valid(input.now) != nil else { return false }
+    guard TaskTimestamps.read(input.now).date != nil else { return false }
     return settlesOnFinishedPullRequest(input) || settlesOnInactivity(input)
   }
 
@@ -74,6 +65,11 @@ nonisolated enum TaskSettlement {
     return !activity.isWorking && !activity.isAwaitingInput && activity.isAwaitingApproval != true
   }
 
+  // Phase 4 open question (critic 2a-9): a task auto-settled by inactivity also
+  // reads as "already settled" here, so snooze is refused for a row the user may
+  // still want to park before it re-activates. Decide whether snooze should be
+  // offered for auto-settled (as opposed to explicitly settled) rows.
+  //
   /// Snoozing something that is asking you a question is a no-op affordance (the
   /// raised-hand rule resurfaces it immediately), and an already-settled row has
   /// nothing to hide from. Working *is* snoozable — parking a long-running agent
@@ -84,17 +80,22 @@ nonisolated enum TaskSettlement {
     return !effectiveSettled(input)
   }
 
+  /// Malformed refuses where missing settles: a task that never recorded
+  /// activity is idle by definition, but an unreadable stamp gives the user no
+  /// defensible reason the row moved (A17).
   private static func settlesOnFinishedPullRequest(_ input: Input) -> Bool {
     guard input.settlesOnFinishedPullRequest, input.pullRequest.isFinished else { return false }
-    // Malformed refuses where missing settles: a task that never recorded
-    // activity is idle by definition, but an unreadable stamp gives the user no
-    // defensible reason the row moved (A17).
-    guard !TaskTimestamps.isMalformed(input.lastActivityAt) else { return false }
-    guard let lastActivityAt = TaskTimestamps.valid(input.lastActivityAt) else { return true }
-    return TaskTimestamps.isStrictlyOlder(
-      lastActivityAt,
-      than: input.now.addingTimeInterval(-finishedPullRequestIdleWindow)
-    )
+    switch TaskTimestamps.read(input.lastActivityAt) {
+    case .malformed:
+      return false
+    case .missing:
+      return true
+    case .valid(let lastActivityAt):
+      return TaskTimestamps.isStrictlyOlder(
+        lastActivityAt,
+        than: input.now.addingTimeInterval(-finishedPullRequestIdleWindow)
+      )
+    }
   }
 
   /// Absent activity is not evidence of staleness, so this path refuses it —

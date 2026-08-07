@@ -5,29 +5,20 @@ import Testing
 
 // MARK: - Expected API (Phase 2, plan assertions A17 / A18)
 //
-// These tests are the RED half of the TDD pair: `TaskTimestamps` does not exist
-// yet. The green step must create
-// `supacode/Features/Repositories/BusinessLogic/TaskTimestamps.swift` with
-// exactly this surface — Foundation only, `nonisolated`, no `Date()` anywhere
-// (every boundary is passed in):
+// `supacode/Features/Repositories/BusinessLogic/TaskTimestamps.swift` —
+// Foundation only, `nonisolated`, no `Date()` anywhere (every boundary is
+// passed in):
 //
 //   nonisolated enum TaskTimestamps {
-//     /// nil-safe validity gate. Three DISTINCT policies, which is the whole
-//     /// point of the type:
-//     ///   - missing (`nil`)                → `nil`
-//     ///   - malformed (non-finite Double)  → `nil`, and callers must be able
-//     ///     to tell it apart from missing via `isMalformed`
-//     ///   - valid epoch (1970-01-01)       → returned as-is; a zero interval
-//     ///     is a real timestamp, never "absent" (the JS falsy-zero trap that
-//     ///     t3's `Date.parse` checks had to dodge).
-//     static func valid(_ date: Date?) -> Date?
-//
-//     /// `true` only for a present-but-unusable value. Missing is not
-//     /// malformed: the settlement cascade grants them different powers.
-//     static func isMalformed(_ date: Date?) -> Bool
-//
-//     /// First usable candidate in priority order; skips missing AND malformed.
-//     static func firstValid(_ candidates: [Date?]) -> Date?
+//     /// The three-way judgement, which is the whole point of the type:
+//     ///   - missing (`nil`)                → `.missing`
+//     ///   - malformed (non-finite Double)  → `.malformed`, which callers must
+//     ///     be able to tell apart from missing
+//     ///   - valid epoch (1970-01-01)       → `.valid`; a zero interval is a
+//     ///     real timestamp, never "absent" (the JS falsy-zero trap that t3's
+//     ///     `Date.parse` checks had to dodge).
+//     enum Reading: Equatable, Sendable { case missing, malformed, valid(Date) }
+//     static func read(_ date: Date?) -> Reading
 //
 //     /// Newest usable candidate; skips missing AND malformed. `nil` when none.
 //     static func latestValid(_ candidates: [Date?]) -> Date?
@@ -60,18 +51,19 @@ struct TaskTimestampsTests {
     reference.addingTimeInterval(offset)
   }
 
-  // MARK: - valid: missing vs malformed vs valid-epoch
+  // MARK: - read: missing vs malformed vs valid-epoch
 
-  @Test func missingIsNotUsable() {
-    #expect(TaskTimestamps.valid(nil) == nil)
+  @Test func missingReadsAsMissing() {
+    #expect(TaskTimestamps.read(nil) == .missing)
+    #expect(TaskTimestamps.read(nil).date == nil)
   }
 
   /// The trap this API exists to close: a timestamp of exactly zero is a real
   /// instant, not an absent one. Anything that folds it into "missing" silently
   /// re-dates 1970 rows to whatever the next fallback is.
   @Test func validEpochSurvives() {
-    #expect(TaskTimestamps.valid(Self.epoch) == Self.epoch)
-    #expect(TaskTimestamps.isMalformed(Self.epoch) == false)
+    #expect(TaskTimestamps.read(Self.epoch) == .valid(Self.epoch))
+    #expect(TaskTimestamps.read(Self.epoch).date == Self.epoch)
   }
 
   @Test(
@@ -82,46 +74,22 @@ struct TaskTimestampsTests {
     ]
   )
   func nonFiniteIsMalformed(_ date: Date) {
-    #expect(TaskTimestamps.valid(date) == nil)
-    #expect(TaskTimestamps.isMalformed(date) == true)
+    #expect(TaskTimestamps.read(date) == .malformed)
+    #expect(TaskTimestamps.read(date).date == nil)
   }
 
-  /// Missing and malformed both fail `valid`, but they are not the same input:
-  /// the settlement cascade lets a missing activity stamp auto-settle on a
-  /// finished PR while a malformed one blocks every auto path.
+  /// Missing and malformed both yield a `nil` date, but they are not the same
+  /// input: the settlement cascade lets a missing activity stamp auto-settle on
+  /// a finished PR while a malformed one blocks every auto path.
   @Test func missingIsDistinguishableFromMalformed() {
-    #expect(TaskTimestamps.isMalformed(nil) == false)
-    #expect(TaskTimestamps.isMalformed(Self.notANumber) == true)
+    #expect(TaskTimestamps.read(nil) != TaskTimestamps.read(Self.notANumber))
   }
 
   /// `distantPast` / `distantFuture` are finite doubles. They are extreme, not
   /// broken, and clamping them here would silently rewrite honest data.
   @Test(arguments: [Date.distantPast, Date.distantFuture])
   func extremeButFiniteDatesAreValid(_ date: Date) {
-    #expect(TaskTimestamps.valid(date) == date)
-    #expect(TaskTimestamps.isMalformed(date) == false)
-  }
-
-  // MARK: - firstValid
-
-  @Test func firstValidTakesThePriorityOrderNotTheNewest() {
-    let older = Self.at(-1_000)
-    let newer = Self.at(1_000)
-    #expect(TaskTimestamps.firstValid([nil, older, newer]) == older)
-  }
-
-  @Test func firstValidSkipsMalformedCandidates() {
-    let usable = Self.at(500)
-    #expect(TaskTimestamps.firstValid([Self.notANumber, nil, usable]) == usable)
-  }
-
-  @Test func firstValidReturnsNilWhenNothingIsUsable() {
-    #expect(TaskTimestamps.firstValid([]) == nil)
-    #expect(TaskTimestamps.firstValid([nil, Self.infinite, nil]) == nil)
-  }
-
-  @Test func firstValidPrefersAnEpochCandidateOverALaterOne() {
-    #expect(TaskTimestamps.firstValid([Self.epoch, Self.at(0)]) == Self.epoch)
+    #expect(TaskTimestamps.read(date) == .valid(date))
   }
 
   // MARK: - latestValid
@@ -195,43 +163,52 @@ struct TaskTimestampsTests {
     #expect(resolved == nil)
   }
 
-  /// A17's parity requirement stated as an executable claim: the sort key and
-  /// the displayed label are the SAME call, so they cannot drift. If a second
-  /// resolver ever appears, this test is the tripwire — it is the only resolver
-  /// either consumer is allowed to reach for.
-  @Test func sortKeyAndLabelShareOneResolver() {
-    let settledAt: Date? = nil
-    let activity: [Date?] = [Self.at(-3_600), Self.at(-60)]
-    let createdAt = Self.at(-10_000)
+  /// A17's parity requirement stated as an executable claim: the sidebar's
+  /// per-record adapter must *delegate* here rather than resolve a second time,
+  /// so the sort key and the displayed label cannot drift. If a second resolver
+  /// ever grows inside `TasksSidebarStructure`, this is the tripwire.
+  @Test func sidebarAdapterDelegatesToTheOneResolver() {
+    let records: [TaskRecord] = [
+      Self.record(settledAt: Self.at(900), lastVisitedAt: Self.at(1_000), createdAt: Self.at(-10)),
+      Self.record(settledAt: nil, lastVisitedAt: Self.at(-60), createdAt: Self.at(-10_000)),
+      Self.record(settledAt: Self.notANumber, lastVisitedAt: Self.at(200), createdAt: Self.at(-1)),
+      Self.record(settledAt: nil, lastVisitedAt: nil, createdAt: Self.at(-42)),
+      Self.record(
+        settledAt: Self.infinite,
+        lastVisitedAt: Self.notANumber,
+        createdAt: Self.negativelyInfinite
+      ),
+    ]
 
-    let sortKey = TaskTimestamps.resolvedSettledTimestamp(
-      settledAt: settledAt,
-      activityCandidates: activity,
-      createdAt: createdAt
-    )
-    let label = TaskTimestamps.resolvedSettledTimestamp(
-      settledAt: settledAt,
-      activityCandidates: activity,
-      createdAt: createdAt
-    )
-    #expect(sortKey == label)
-    #expect(sortKey == Self.at(-60))
+    for record in records {
+      #expect(
+        TasksSidebarStructure.resolvedSettledTimestamp(for: record)
+          == TaskTimestamps.resolvedSettledTimestamp(
+            settledAt: record.settledAt,
+            activityCandidates: [record.lastVisitedAt],
+            createdAt: record.createdAt
+          )
+      )
+    }
+
+    // …and the last record has nothing provable at all, so the adapter must
+    // hand the sidebar a `nil` rather than a fabricated instant.
+    #expect(TasksSidebarStructure.resolvedSettledTimestamp(for: records[3]) == Self.at(-42))
+    #expect(TasksSidebarStructure.resolvedSettledTimestamp(for: records[4]) == nil)
   }
 
-  /// Two rows resolving to the identical instant must not sort ambiguously; the
-  /// resolver is deterministic and the caller's ID tie-break does the rest.
-  @Test func equalInputsResolveToEqualTimestamps() {
-    let left = TaskTimestamps.resolvedSettledTimestamp(
-      settledAt: Self.at(5),
-      activityCandidates: [Self.at(9)],
-      createdAt: Self.at(1)
+  private static func record(
+    settledAt: Date?,
+    lastVisitedAt: Date?,
+    createdAt: Date
+  ) -> TaskRecord {
+    TaskRecord(
+      title: "t",
+      directoryPath: "/tmp/t",
+      createdAt: createdAt,
+      settledAt: settledAt,
+      lastVisitedAt: lastVisitedAt
     )
-    let right = TaskTimestamps.resolvedSettledTimestamp(
-      settledAt: Self.at(5),
-      activityCandidates: [Self.at(2)],
-      createdAt: Self.at(4)
-    )
-    #expect(left == right)
   }
 
   // MARK: - isStrictlyOlder (the auto-settle boundary, A17)
@@ -258,17 +235,37 @@ struct TaskTimestampsTests {
     #expect(TaskTimestamps.isStrictlyOlder(date, than: .distantFuture) == false)
   }
 
+  /// The other half of that guard, which callers cannot screen for themselves:
+  /// boundaries arrive as `now - window`, so a non-finite window makes an
+  /// otherwise perfectly good timestamp "older than everything". Without the
+  /// boundary check the `.infinity` case below answers `true`.
+  @Test(
+    arguments: [
+      TaskTimestampsTests.notANumber,
+      TaskTimestampsTests.infinite,
+      TaskTimestampsTests.negativelyInfinite,
+    ]
+  )
+  func aMalformedBoundaryMakesNothingOlder(_ boundary: Date) {
+    #expect(TaskTimestamps.isStrictlyOlder(Self.at(-1_000), than: boundary) == false)
+    #expect(TaskTimestamps.isStrictlyOlder(Self.epoch, than: boundary) == false)
+  }
+
   // MARK: - A18: pure-logic file stays pure
 
-  /// Grep assertion. Fails loudly right now because the file does not exist —
-  /// that absence IS the red state for this suite.
-  @Test func sourceFileIsPureFoundationLogic() {
-    let source = Self.readSource("TaskTimestamps.swift")
+  /// Grep assertion. A missing file is a recorded failure, not a silent pass —
+  /// see `readSource`.
+  @Test(arguments: ["TaskTimestamps.swift", "TaskPullRequestState.swift"])
+  func sourceFileIsPureFoundationLogic(_ fileName: String) {
+    let source = Self.readSource(fileName)
+    #expect(source.isEmpty == false)
     #expect(source.contains("import ComposableArchitecture") == false)
     #expect(source.contains("import SwiftUI") == false)
     #expect(source.contains("import AppKit") == false)
-    // No ambient clock: every boundary is an injected parameter.
+    // No ambient clock, in either spelling: every boundary is an injected
+    // parameter.
     #expect(source.contains("Date()") == false)
+    #expect(source.contains("Date.now") == false)
   }
 
   private static func readSource(_ fileName: String) -> String {

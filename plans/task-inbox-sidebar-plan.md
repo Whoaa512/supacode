@@ -144,7 +144,8 @@ AGENTS.md — `-only-testing` against the wrong bundle silently passes with 0).
 - A16. Snooze > pin > settled precedence; settle clears pin; snooze keeps it.
 - A17. Malformed/missing timestamps never cause surprise auto-settle or hidden
   tasks; settled sort key and displayed label use the same resolved timestamp
-  (settledAt → latest valid activity → updatedAt); equal timestamps produce
+  (settledAt → latest valid activity → createdAt; TaskRecord has no updatedAt);
+  equal timestamps produce
   deterministic order.
 - A18. Zero ComposableArchitecture/SwiftUI imports in pure-logic files (grep
   assertion).
