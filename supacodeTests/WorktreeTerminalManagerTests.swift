@@ -2149,7 +2149,7 @@ struct WorktreeTerminalManagerTests {
     let surfaceID = surface.id
     await probe.setListing([.init(name: session(for: surfaceID), clients: 0)])
 
-    surface.bridge.closeSurface(processAlive: true)
+    surface.bridge.closeSurface(processAlive: false)
     await probe.waitForListCalls(atLeast: 1)
     await waitUntil("detached zmx surface replacement") {
       guard let replacement = state.splitTree(for: tabId).root?.leftmostLeaf() else { return false }
@@ -2188,7 +2188,7 @@ struct WorktreeTerminalManagerTests {
     let siblingID = sibling.id
     await probe.setListing([.init(name: session(for: targetID), clients: 0)])
 
-    target.bridge.closeSurface(processAlive: true)
+    target.bridge.closeSurface(processAlive: false)
     await probe.waitForListCalls(atLeast: 1)
     await waitUntil("split zmx surface replacement") {
       let leaves = state.splitTree(for: tabId).leaves()
@@ -2229,7 +2229,7 @@ struct WorktreeTerminalManagerTests {
     let siblingID = sibling.id
     await probe.setListing([.init(name: session(for: targetID), clients: 1)])
 
-    target.bridge.closeSurface(processAlive: true)
+    target.bridge.closeSurface(processAlive: false)
     await probe.waitForListCalls(atLeast: 1)
     await waitUntil("split pane closes") {
       let leaves = state.splitTree(for: tabId).leaves()
