@@ -1,8 +1,198 @@
 import ComposableArchitecture
 import Foundation
+import IdentifiedCollections
 import Testing
 
+@testable import SupacodeSettingsShared
 @testable import supacode
+
+/// Temp repo plus the in-memory storage the reducer, `@SharedReader(.layouts)`
+/// and the test all read through, so no task-inbox suite touches the
+/// developer's real `~/.supacode`.
+///
+/// Shared by every task-inbox suite: they all need the same three things (a
+/// throwaway worktree directory, a `layouts.json` the reducer can resolve tabs
+/// through, and a `tasks.json` the test can read back), and three private copies
+/// drifted apart at the first fixture that only one of them needed.
+final class TaskInboxSandbox {
+  let rootURL: URL
+  let storage: SettingsFileStorage
+  let store = TaskStore()
+  private let files: InMemorySettingsFileStorage
+
+  init(name: String = "TaskInboxSandbox") throws {
+    rootURL = FileManager.default.temporaryDirectory
+      .appending(path: "\(name)-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+    let files = InMemorySettingsFileStorage()
+    self.files = files
+    storage = SettingsFileStorage(
+      load: { try files.load($0) },
+      save: { try files.save($0, $1) },
+      moveAside: { try files.moveAside($0, $1) }
+    )
+  }
+
+  /// Writes `layouts.json` for one worktree. Tab ids are pinned (promotion
+  /// addresses a tab by id) and a tab may hold several surfaces, which is the
+  /// case tab-granular claims exist for.
+  func seedLayout(
+    worktreeID: Worktree.ID,
+    tabs: [(id: TerminalTabID, surfaceIDs: [UUID])],
+    selectedTabIndex: Int = 0
+  ) throws {
+    let snapshot = TerminalLayoutSnapshot(
+      tabs: tabs.map { tab in
+        TerminalLayoutSnapshot.TabSnapshot(
+          id: tab.id.rawValue,
+          title: "tab",
+          customTitle: nil,
+          icon: nil,
+          tintColor: nil,
+          layout: Self.layout(for: tab.surfaceIDs),
+          focusedLeafIndex: 0
+        )
+      },
+      selectedTabIndex: selectedTabIndex
+    )
+    let payload = try JSONEncoder().encode([worktreeID.rawValue: snapshot])
+    try files.save(payload, SupacodePaths.layoutsURL)
+  }
+
+  /// One single-surface tab per id, which is what a restore of N tabs looks like
+  /// on disk when nothing was ever split.
+  func seedLayout(worktreeID: Worktree.ID, tabSurfaceIDs: [UUID]) throws {
+    try seedLayout(
+      worktreeID: worktreeID,
+      tabs: tabSurfaceIDs.map { (id: TerminalTabID(), surfaceIDs: [$0]) }
+    )
+  }
+
+  /// Right-leaning split tree over the surfaces, so a multi-surface tab is a
+  /// real split rather than a flat list.
+  private static func layout(for surfaceIDs: [UUID]) -> TerminalLayoutSnapshot.LayoutNode {
+    let leaves = surfaceIDs.map { id in
+      TerminalLayoutSnapshot.LayoutNode.leaf(
+        TerminalLayoutSnapshot.SurfaceSnapshot(id: id, workingDirectory: nil)
+      )
+    }
+    guard var node = leaves.last else {
+      return .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: nil))
+    }
+    for leaf in leaves.dropLast().reversed() {
+      node = .split(
+        TerminalLayoutSnapshot.SplitSnapshot(direction: .horizontal, ratio: 0.5, left: leaf, right: node)
+      )
+    }
+    return node
+  }
+
+  @discardableResult
+  func makeDirectory(_ name: String) throws -> URL {
+    let directory = rootURL.appending(path: name, directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory
+  }
+
+  /// A worktree directory with a `checkout: moving from main to <branch>` reflog
+  /// line at `activityAt` — the only activity source the seeder trusts.
+  @discardableResult
+  func makeDirectory(_ name: String, activityAt: Date, branch: String = "feature") throws -> URL {
+    let directory = rootURL.appending(path: name, directoryHint: .isDirectory)
+    let logs = directory.appending(path: ".git/logs", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+    let sha = String(repeating: "a", count: 40)
+    let line = """
+      \(sha) \(sha) Tester <t@example.com> \(Int(activityAt.timeIntervalSince1970)) -0700\t\
+      checkout: moving from main to \(branch)
+      """
+    try Data("\(line)\n".utf8).write(to: logs.appending(path: "HEAD", directoryHint: .notDirectory))
+    return directory
+  }
+
+  func loadFile() -> TaskStoreFile? {
+    withDependencies { $0.settingsFileStorage = storage } operation: { store.load().file }
+  }
+
+  func save(_ file: TaskStoreFile) throws {
+    try withDependencies { $0.settingsFileStorage = storage } operation: { try store.save(file) }
+  }
+
+  deinit {
+    try? FileManager.default.removeItem(at: rootURL)
+  }
+}
+
+/// Fixture builders shared by the task-inbox suites: one repository whose
+/// worktrees are the sandbox's directories, plus the record shape the
+/// assertions are written against.
+@MainActor
+enum TaskInboxFixture {
+  static let now = Date(timeIntervalSince1970: 1_800_000_000)
+  static let freshDate = now.addingTimeInterval(-3600)
+  static let staleDate = now.addingTimeInterval(-30 * 24 * 3600)
+
+  static func makeWorktree(_ directory: URL, rootURL: URL) -> Worktree {
+    Worktree(
+      id: WorktreeID(directory.path(percentEncoded: false)),
+      name: directory.lastPathComponent,
+      detail: "",
+      workingDirectory: directory,
+      repositoryRootURL: rootURL
+    )
+  }
+
+  /// Reconciled state with one row per directory, each owning `surfacesPerRow`
+  /// surfaces and reporting a terminal projection (so ownership reconciliation
+  /// treats the row as authoritative).
+  static func makeState(
+    sandbox: TaskInboxSandbox,
+    directories: [URL],
+    surfacesPerRow: [URL: Set<UUID>] = [:],
+    hasLoadedTasks: Bool = false
+  ) -> RepositoriesFeature.State {
+    let worktrees = directories.map { makeWorktree($0, rootURL: sandbox.rootURL) }
+    let repository = Repository(
+      id: RepositoryID(sandbox.rootURL.path(percentEncoded: false)),
+      rootURL: sandbox.rootURL,
+      name: sandbox.rootURL.lastPathComponent,
+      worktrees: IdentifiedArray(uniqueElements: worktrees)
+    )
+    // Built inside the sandbox's storage so `@SharedReader(.layouts)` reads the
+    // seeded layout rather than the developer's real `layouts.json`.
+    var state = withDependencies {
+      $0.settingsFileStorage = sandbox.storage
+    } operation: {
+      RepositoriesFeature.State(reconciledRepositories: [repository])
+    }
+    state.isInitialLoadComplete = true
+    state.hasLoadedTasks = hasLoadedTasks
+    for (directory, surfaceIDs) in surfacesPerRow {
+      let id = WorktreeID(directory.path(percentEncoded: false))
+      state.sidebarItems[id: id]?.surfaceIDs = surfaceIDs.sorted { $0.uuidString < $1.uuidString }
+      state.sidebarItems[id: id]?.hasTerminalProjection = true
+    }
+    state.applyPostReduceCacheRecomputes(.all)
+    return state
+  }
+
+  static func makeRecord(
+    directory: URL,
+    id: TaskID = TaskID(),
+    surfaceIDs: Set<UUID> = [],
+    settledAt: Date? = nil,
+    createdAt: Date = freshDate
+  ) -> TaskRecord {
+    TaskRecord(
+      id: id,
+      title: directory.lastPathComponent,
+      directoryPath: TaskDirectoryPath.canonical(directory),
+      createdAt: createdAt,
+      settledAt: settledAt,
+      surfaceIDs: surfaceIDs
+    )
+  }
+}
 
 extension AppFeature.State {
   /// Mirrors AppFeature's post-reduce hook for TestStore expectations.

@@ -19,122 +19,27 @@ import Testing
 /// seeder trusts (plan Resolved #2).
 @MainActor
 struct RepositoriesFeatureTasksTests {
-  private static let now = Date(timeIntervalSince1970: 1_800_000_000)
-  private static let freshDate = now.addingTimeInterval(-3600)
-  private static let staleDate = now.addingTimeInterval(-30 * 24 * 3600)
+  private typealias Sandbox = TaskInboxSandbox
+  private static let now = TaskInboxFixture.now
+  private static let freshDate = TaskInboxFixture.freshDate
+  private static let staleDate = TaskInboxFixture.staleDate
 
   // MARK: - Fixture
 
-  /// Temp repo whose worktree directories carry a real reflog, plus the shared
-  /// in-memory storage both the reducer and the test read `tasks.json` through.
-  private final class Sandbox {
-    let rootURL: URL
-    let storage: SettingsFileStorage
-    let store = TaskStore()
-    private let files: InMemorySettingsFileStorage
-
-    init() throws {
-      rootURL = FileManager.default.temporaryDirectory
-        .appending(path: "RepositoriesFeatureTasksTests-\(UUID().uuidString)", directoryHint: .isDirectory)
-      try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
-      let files = InMemorySettingsFileStorage()
-      self.files = files
-      storage = SettingsFileStorage(
-        load: { try files.load($0) },
-        save: { try files.save($0, $1) },
-        moveAside: { try files.moveAside($0, $1) }
-      )
-    }
-
-    /// Writes `layouts.json` so `@SharedReader(.layouts)` sees it. One tab per
-    /// surface, which is what a restore of N tabs looks like on disk.
-    func seedLayout(worktreeID: Worktree.ID, tabSurfaceIDs: [UUID]) throws {
-      let snapshot = TerminalLayoutSnapshot(
-        tabs: tabSurfaceIDs.map { surfaceID in
-          TerminalLayoutSnapshot.TabSnapshot(
-            id: UUID(),
-            title: "tab",
-            customTitle: nil,
-            icon: nil,
-            tintColor: nil,
-            layout: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: surfaceID, workingDirectory: nil)),
-            focusedLeafIndex: 0
-          )
-        },
-        selectedTabIndex: 0
-      )
-      let payload = try JSONEncoder().encode([worktreeID.rawValue: snapshot])
-      try files.save(payload, SupacodePaths.layoutsURL)
-    }
-
-    /// A worktree directory with a `checkout: moving from main to <branch>`
-    /// reflog line at `activityAt`.
-    func makeDirectory(_ name: String, activityAt: Date, branch: String = "feature") throws -> URL {
-      let directory = rootURL.appending(path: name, directoryHint: .isDirectory)
-      let logs = directory.appending(path: ".git/logs", directoryHint: .isDirectory)
-      try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
-      let sha = String(repeating: "a", count: 40)
-      let line = """
-        \(sha) \(sha) Tester <t@example.com> \(Int(activityAt.timeIntervalSince1970)) -0700\t\
-        checkout: moving from main to \(branch)
-        """
-      try Data("\(line)\n".utf8).write(to: logs.appending(path: "HEAD", directoryHint: .notDirectory))
-      return directory
-    }
-
-    func loadFile() -> TaskStoreFile? {
-      withDependencies { $0.settingsFileStorage = storage } operation: { store.load().file }
-    }
-
-    func save(_ file: TaskStoreFile) throws {
-      try withDependencies { $0.settingsFileStorage = storage } operation: { try store.save(file) }
-    }
-
-    deinit {
-      try? FileManager.default.removeItem(at: rootURL)
-    }
+  private func makeSandbox() throws -> Sandbox {
+    try Sandbox(name: "RepositoriesFeatureTasksTests")
   }
 
-  private func makeWorktree(_ directory: URL, rootURL: URL) -> Worktree {
-    Worktree(
-      id: WorktreeID(directory.path(percentEncoded: false)),
-      name: directory.lastPathComponent,
-      detail: "",
-      workingDirectory: directory,
-      repositoryRootURL: rootURL
-    )
-  }
-
-  /// Reconciled state with one row per directory, each owning `surfacesPerRow`
-  /// surfaces and reporting a terminal projection (so ownership reconciliation
-  /// treats the row as authoritative).
   private func makeState(
     sandbox: Sandbox,
     directories: [URL],
     surfacesPerRow: [URL: Set<UUID>] = [:]
   ) -> RepositoriesFeature.State {
-    let worktrees = directories.map { makeWorktree($0, rootURL: sandbox.rootURL) }
-    let repository = Repository(
-      id: RepositoryID(sandbox.rootURL.path(percentEncoded: false)),
-      rootURL: sandbox.rootURL,
-      name: sandbox.rootURL.lastPathComponent,
-      worktrees: IdentifiedArray(uniqueElements: worktrees)
+    TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: directories,
+      surfacesPerRow: surfacesPerRow
     )
-    // Built inside the sandbox's storage so `@SharedReader(.layouts)` reads the
-    // seeded layout rather than the developer's real `layouts.json`.
-    var state = withDependencies {
-      $0.settingsFileStorage = sandbox.storage
-    } operation: {
-      RepositoriesFeature.State(reconciledRepositories: [repository])
-    }
-    state.isInitialLoadComplete = true
-    for (directory, surfaceIDs) in surfacesPerRow {
-      let id = WorktreeID(directory.path(percentEncoded: false))
-      state.sidebarItems[id: id]?.surfaceIDs = surfaceIDs.sorted { $0.uuidString < $1.uuidString }
-      state.sidebarItems[id: id]?.hasTerminalProjection = true
-    }
-    state.applyPostReduceCacheRecomputes(.all)
-    return state
   }
 
   private func makeStore(
@@ -158,21 +63,20 @@ struct RepositoriesFeatureTasksTests {
     directory: URL,
     surfaceIDs: Set<UUID> = [],
     settledAt: Date? = nil,
-    createdAt: Date = Self.freshDate
+    createdAt: Date = TaskInboxFixture.freshDate
   ) -> TaskRecord {
-    TaskRecord(
-      title: directory.lastPathComponent,
-      directoryPath: TaskDirectoryPath.canonical(directory),
-      createdAt: createdAt,
+    TaskInboxFixture.makeRecord(
+      directory: directory,
+      surfaceIDs: surfaceIDs,
       settledAt: settledAt,
-      surfaceIDs: surfaceIDs
+      createdAt: createdAt
     )
   }
 
   // MARK: - A1 / A13: load, seed, idempotence
 
   @Test func loadSeedsOneTaskPerDirectoryAndPopulatesTheStructure() async throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let fresh = try sandbox.makeDirectory("fresh", activityAt: Self.freshDate)
     let stale = try sandbox.makeDirectory("stale", activityAt: Self.staleDate)
     let surfaceID = UUID()
@@ -212,7 +116,7 @@ struct RepositoriesFeatureTasksTests {
 
   /// A13: a second launch reads the flag and the records back and adds nothing.
   @Test func secondLaunchDoesNotReseed() async throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let directory = try sandbox.makeDirectory("fresh", activityAt: Self.freshDate)
     let existing = makeRecord(directory: directory)
     try sandbox.save(TaskStoreFile(didSeedTasks: true, tasks: [existing]))
@@ -230,7 +134,7 @@ struct RepositoriesFeatureTasksTests {
   /// Even with the flag unset, the seeder's per-directory dedupe keeps a re-seed
   /// from duplicating a record an older build already wrote.
   @Test func reseedAfterUpgradeDoesNotDuplicateExistingDirectories() async throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let directory = try sandbox.makeDirectory("fresh", activityAt: Self.freshDate)
     let existing = makeRecord(directory: directory)
     try sandbox.save(TaskStoreFile(didSeedTasks: false, tasks: [existing]))
@@ -250,7 +154,7 @@ struct RepositoriesFeatureTasksTests {
   /// An unreadable `tasks.json` must never be treated as a fresh install: no
   /// seed, and no save that would overwrite the bytes we failed to read.
   @Test func unreadableStoreDisablesSeedingAndSaving() async throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let directory = try sandbox.makeDirectory("fresh", activityAt: Self.freshDate)
     var state = makeState(sandbox: sandbox, directories: [directory])
     state.taskRecords = [makeRecord(directory: directory)]
@@ -289,7 +193,7 @@ struct RepositoriesFeatureTasksTests {
   /// asked to hibernate. A7: the request carries every other task's surfaces so
   /// the parent can subtract their tabs.
   @Test func settlingASoleOwnerStampsSettledAtAndRequestsHibernation() async throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let mine = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
     let theirs = try sandbox.makeDirectory("theirs", activityAt: Self.freshDate)
     let mySurface = UUID()
@@ -324,7 +228,7 @@ struct RepositoriesFeatureTasksTests {
   /// A7, at the payload level: the hibernation request targets exactly this
   /// task's surfaces and protects every other task's.
   @Test func hibernationRequestTargetsOnlyOwnedSurfaces() throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let mine = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
     let theirs = try sandbox.makeDirectory("theirs", activityAt: Self.freshDate)
     let mySurfaces: Set<UUID> = [UUID(), UUID()]
@@ -354,7 +258,7 @@ struct RepositoriesFeatureTasksTests {
   /// moves but no hibernation is requested, because hibernation is still
   /// worktree/tab-keyed and would take the other task's sessions with it.
   @Test func settlingASharedDirectoryDefersHibernation() async throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let shared = try sandbox.makeDirectory("shared", activityAt: Self.freshDate)
     let surfaceID = UUID()
     var state = makeState(sandbox: sandbox, directories: [shared], surfacesPerRow: [shared: [surfaceID]])
@@ -377,7 +281,7 @@ struct RepositoriesFeatureTasksTests {
   /// Settling the *last* live task on a shared directory may hibernate again:
   /// the other owner is already settled, so nothing live is left to protect.
   @Test func settlingTheLastLiveOwnerOfASharedDirectoryHibernates() throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let shared = try sandbox.makeDirectory("shared", activityAt: Self.freshDate)
     let surfaceID = UUID()
     var state = makeState(sandbox: sandbox, directories: [shared], surfacesPerRow: [shared: [surfaceID]])
@@ -388,7 +292,7 @@ struct RepositoriesFeatureTasksTests {
   }
 
   @Test func unsettleRestoresATaskToActive() async throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let directory = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
     var state = makeState(sandbox: sandbox, directories: [directory])
     var record = makeRecord(directory: directory, settledAt: Self.staleDate)
@@ -412,7 +316,7 @@ struct RepositoriesFeatureTasksTests {
   // MARK: - A5 / A11: selection
 
   @Test func selectingATaskStampsLastVisitedAndFocusesAnOwnedSurface() async throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let directory = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
     let surfaceID = UUID()
     var state = makeState(sandbox: sandbox, directories: [directory], surfacesPerRow: [directory: [surfaceID]])
@@ -442,7 +346,7 @@ struct RepositoriesFeatureTasksTests {
   /// A settled task must not mount a terminal either — focusing or rendering
   /// one would wake dormant sessions just by browsing the tail.
   @Test func settledTaskSelectionLeavesDetailWorktreeEmpty() throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let directory = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
     let surfaceID = UUID()
     var state = makeState(
@@ -460,7 +364,7 @@ struct RepositoriesFeatureTasksTests {
 
   /// Focus wakes a dormant tab, so browsing the settled tail must not request it.
   @Test func selectingASettledTaskDoesNotRequestFocus() throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let directory = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
     let surfaceID = UUID()
     var state = makeState(sandbox: sandbox, directories: [directory], surfacesPerRow: [directory: [surfaceID]])
@@ -472,7 +376,7 @@ struct RepositoriesFeatureTasksTests {
 
   /// A8's P1 form: the open task is pulled into a collapsed settled shelf.
   @Test func openSettledTaskStaysVisibleWithTheTailCollapsed() throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let directory = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
     var state = makeState(sandbox: sandbox, directories: [directory])
     let record = makeRecord(directory: directory, settledAt: Self.staleDate)
@@ -487,7 +391,7 @@ struct RepositoriesFeatureTasksTests {
   // MARK: - A10b: ownership reconciliation
 
   @Test func reconciliationDropsMissingSurfacesWithoutDeletingTheTask() async throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let directory = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
     let liveSurface = UUID()
     let closedSurface = UUID()
@@ -512,7 +416,7 @@ struct RepositoriesFeatureTasksTests {
   /// A directory whose worktree is gone has no authoritative row, so its claims
   /// are left alone — and the task survives either way.
   @Test func reconciliationKeepsClaimsForADirectoryWithNoRow() async throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let present = try sandbox.makeDirectory("present", activityAt: Self.freshDate)
     let vanished = try sandbox.makeDirectory("vanished", activityAt: Self.freshDate)
     var state = makeState(sandbox: sandbox, directories: [present])
@@ -532,7 +436,7 @@ struct RepositoriesFeatureTasksTests {
   /// the tabs that have not been rebuilt yet — and persist the loss. The layouts
   /// snapshot knows every tab, so ownership must survive an incremental restore.
   @Test(.dependencies) func incrementalRestoreProjectionsNeverShrinkOwnership() async throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let directory = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
     let rowID = WorktreeID(directory.path(percentEncoded: false))
     let tabSurfaces = [UUID(), UUID(), UUID()]
@@ -569,7 +473,7 @@ struct RepositoriesFeatureTasksTests {
   /// The other half of B1: a genuinely closed tab leaves both the projection and
   /// the rewritten layout, so exactly that tab's surface is pruned.
   @Test(.dependencies) func closingATabPrunesOnlyThatTabsSurfaces() async throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let directory = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
     let rowID = WorktreeID(directory.path(percentEncoded: false))
     let surviving = [UUID(), UUID()]
@@ -608,7 +512,7 @@ struct RepositoriesFeatureTasksTests {
   /// A row that has not reported a terminal projection yet still carries the
   /// UUIDs restored from the last-quit layout, so it must not be believed.
   @Test func reconciliationIgnoresRowsWithoutATerminalProjection() throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let directory = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
     var state = makeState(sandbox: sandbox, directories: [directory])
     let record = makeRecord(directory: directory, surfaceIDs: [UUID()])
@@ -623,7 +527,7 @@ struct RepositoriesFeatureTasksTests {
   // MARK: - A4 / A10: activity updates a leaf, never the order
 
   @Test func agentActivityUpdatesTheLeafAndLeavesTheStructureUnchanged() async throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let directory = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
     let surfaceID = UUID()
     var state = makeState(sandbox: sandbox, directories: [directory], surfacesPerRow: [directory: [surfaceID]])
@@ -658,7 +562,7 @@ struct RepositoriesFeatureTasksTests {
   /// body evaluation counts) is verified manually through
   /// `TaskRowBodyEvalCounter` — steps documented on that type.
   @Test func anAgentTickLeavesEverySiblingTasksRowInputsUntouched() async throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let mine = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
     let other = try sandbox.makeDirectory("other", activityAt: Self.freshDate)
     let mineSurface = UUID()
@@ -698,7 +602,7 @@ struct RepositoriesFeatureTasksTests {
   /// m9: settling twice must not re-stamp `settledAt` — the settled tail sorts by
   /// it, so a double settle would jump the task back to the head of the tail.
   @Test func settlingAnAlreadySettledTaskIsANoop() async throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let directory = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
     var state = makeState(sandbox: sandbox, directories: [directory])
     let record = makeRecord(directory: directory, settledAt: Self.staleDate)
@@ -716,7 +620,7 @@ struct RepositoriesFeatureTasksTests {
   /// going through `.tasks(.select)` (list view, hotkey, forward nav) still marks
   /// the task visited.
   @Test func directSelectionChangedStampsLastVisited() async throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let directory = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
     var state = makeState(sandbox: sandbox, directories: [directory])
     let record = makeRecord(directory: directory)
@@ -736,7 +640,7 @@ struct RepositoriesFeatureTasksTests {
   /// surfaces go to exactly one record, so no two seeded tasks can claim the same
   /// surface UUID.
   @Test func seededRecordsNeverShareASurfaceUUID() async throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let first = try sandbox.makeDirectory("first", activityAt: Self.freshDate)
     let second = try sandbox.makeDirectory("second", activityAt: Self.freshDate)
     let third = try sandbox.makeDirectory("third", activityAt: Self.staleDate)
@@ -763,7 +667,7 @@ struct RepositoriesFeatureTasksTests {
   // MARK: - Paging
 
   @Test func expandingTheSettledTailPagesAndCollapsingResets() async throws {
-    let sandbox = try Sandbox()
+    let sandbox = try makeSandbox()
     let directory = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
     let store = makeStore(makeState(sandbox: sandbox, directories: [directory]), sandbox: sandbox)
 
