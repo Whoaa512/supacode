@@ -72,6 +72,35 @@ D. No surface leak in the happy path: teardown still frees every surface
    `performHibernation` returns), not "seam was called" structural checks.
 5. **App quit never drains the queue** — abandon pending teardowns on quit.
 
+## Binding additions (post cycle-2 review)
+
+6. **Leak path retains (BL1):** "leak" = move to a retained `leaked` bucket
+   (capped, counted, logged). NEVER drop the view while its surface lives —
+   ghostty holds the bridge pointer as userdata with no liveness registry;
+   dropping = use-after-free on next callback.
+7. **Key `pending` by `ObjectIdentifier(view)` (BL2):** surface UUIDs are
+   reused on wake; UUID-keyed dedupe would skip hand-off of the new
+   generation → inline free → deadlock returns.
+8. **Kill once at hand-off, poll-only on retry (BL3):** the pkill pattern
+   matches any future client of the same session; re-killing on retry murders
+   the freshly-woken terminal. Prefer pgrep→PID at hand-off.
+9. **`@MainActor` on SurfaceTeardownQueue (M6)** before any async lands.
+10. **`prepareForDeferredTeardown` must also**: remove the NSEvent
+    `eventMonitor` (else app-wide monitor leak + Cmd-keyUp swallowing) and
+    set `passwordInput = false` (else SecureInput stays enabled app-wide).
+11. **Free via `view.performDeferredFree()`** (nils surface + bridge.surface,
+    single owner); queue never calls ghostty_surface_free directly. Inert
+    `closeSurface()` on a deferred view logs a warning.
+12. **Residual risk (M1):** `Surface.deinit` joins the RENDERER thread before
+    io; `process_exited` doesn't bound that join. Full non-blocking is not
+    achievable without upstream changes — measure free duration, log/count
+    frees > 250ms.
+13. **Inject deps as queue constructor params** (shell runner, clock) resolved
+    at runtime construction — never resolve @Dependency inside the queue's
+    escaping Tasks (loses test dependency scope). Per-surface state machine
+    (.killRequested → .awaitingExit(attempt:) → .freed/.leaked), one Task per
+    surface; no central driver loop.
+
 ## Cycle plan (revised)
 
 - Cycle 2: fix B1 — ownership transfer; deinit/queue design; rewrite cycle-1
@@ -80,7 +109,11 @@ D. No surface leak in the happy path: teardown still frees every surface
   leak-over-hang, injected clock, counter on leak.
 - Cycle 4 (B2): wake-while-teardown-pending — new surface on same session,
   `surfaces[id] === newView`, old view still pending, no callback crossover.
-- Cycle 5 (C): normal tab close path covered (should be free via placement).
+- Cycle 5 (C): normal tab close — NOT free via placement: audit + convert the
+  9 remaining closeSurface() call sites in WorktreeTerminalState (:1335,
+  :1403, :1990, :2946, :3364, :3375, :3396, :3404, :3416) and isolated deinit;
+  consider making closeSurface() itself hand off, with performDeferredFree()
+  the only real free.
 - Cycle 6 (D): no leak in happy path — every handed-off surface freed once.
 - Cycle 7 (E): app quit does not await teardown.
 - Also pin: `captureLayoutNode` runs before hand-off (dormant layout survives
