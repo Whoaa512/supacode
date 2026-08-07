@@ -44,8 +44,8 @@ extension RepositoriesFeature {
     /// Drop owned surfaces that no longer exist, without deleting the task (A10b).
     case reconcileSurfaceOwnership
     /// Claim a tab for the directory's task, creating one when there is none.
-    /// `tabID == nil` means the layout's selected tab, which is what a menu
-    /// command with no explicit target means.
+    /// `tabID == nil` means the tab the worktree currently has selected, which
+    /// is what a menu command with no explicit target means.
     case promoteTab(worktreeID: Worktree.ID, tabID: TerminalTabID?)
   }
 
@@ -167,14 +167,39 @@ extension RepositoriesFeature {
         guard state.reconcileTaskSurfaceOwnership() else { return .none }
         return Self.persistTasksEffect(state: state)
 
-      case .tasks(.promoteTab(let worktreeID, let tabID)):
+      case .tasks(.promoteTab(let worktreeID, let requestedTabID)):
         // An unreadable tasks.json disables the inbox for the launch: a claim
         // written on top of records we failed to read would erase them.
-        guard !state.isTaskPersistenceDisabled else { return .none }
-        guard state.promoteTab(worktreeID: worktreeID, tabID: tabID, now: now) else { return .none }
-        // Bookkeeping only: the live tab keeps its sessions, its scrollback and
-        // the selection it had (A21).
-        return Self.persistTasksEffect(state: state)
+        guard !state.isTaskPersistenceDisabled else {
+          tasksLogger.debug("Promote refused: task persistence is disabled for this launch.")
+          return .none
+        }
+        @Dependency(\.terminalClient) var terminalClient
+        // The *live* selected tab, never the persisted layout's
+        // `selectedTabIndex`: that snapshot is rewritten on quit / background, so
+        // between saves it names whatever tab was selected last time the file was
+        // written. A menu click means "the tab I am looking at now".
+        guard let tabID = requestedTabID ?? terminalClient.selectedTabID(worktreeID) else {
+          tasksLogger.debug("Promote refused: \(worktreeID) has no selected tab to claim.")
+          return .none
+        }
+        let liveSurfaceIDs = terminalClient.tabSurfaceIDs(worktreeID, tabID)
+        guard
+          let taskID = state.promoteTab(
+            worktreeID: worktreeID,
+            tabID: tabID,
+            liveSurfaceIDs: liveSurfaceIDs,
+            now: now
+          )
+        else {
+          tasksLogger.debug("Promote claimed nothing for tab \(tabID) of \(worktreeID).")
+          return .none
+        }
+        // Bookkeeping plus navigation: the live tab keeps its sessions, its
+        // scrollback and the tab selection it had (A21), and the sidebar opens
+        // the task so a click has a visible result. `.select` owns the persist
+        // (via `.selectionChanged`), so the claim is written exactly once.
+        return .send(.tasks(.select(taskID)))
 
       // A surface set drifted (a tab closed, a worktree restored). Ownership is
       // reconciled off the same projection the rows use, and only when there is
@@ -292,6 +317,13 @@ nonisolated struct TaskSeedInput: Equatable, Sendable {
 /// and safe to call from the reducer; `canonical` additionally resolves
 /// symlinks, which touches the filesystem and therefore belongs in an effect.
 /// Records always store the canonical form.
+///
+/// One documented exception: a reducer arm that *writes* a record's
+/// `directoryPath` must canonicalize inline, because the record is the
+/// idempotency key and a second spelling of one directory would create a second
+/// task. Those arms are user-initiated one-shots (promote-tab), so the cost is a
+/// single `stat` per click — not a per-row or per-tick walk, which stays in an
+/// effect.
 nonisolated enum TaskDirectoryPath {
   static func normalized(_ path: String) -> String {
     let trimmed = path.trimmingCharacters(in: .whitespaces)
@@ -332,8 +364,7 @@ extension RepositoriesFeature.State {
         customizationTitle: row.customTitle,
         worktreeName: row.name,
         worktreeDetail: row.subtitle,
-        // A detached or unreadable HEAD reports no branch rather than a guess (A2).
-        currentBranch: row.isAttached && !row.branchName.isEmpty ? row.branchName : nil,
+        currentBranch: row.provableBranch,
         surfaceIDs: Set(row.surfaceIDs),
         repositoryID: row.repositoryID
       )
@@ -443,61 +474,67 @@ extension RepositoriesFeature.State {
     return didChange
   }
 
-  /// Claims a tab's surfaces for the directory's task. Returns whether anything
-  /// changed, so a re-promotion of an already-owned tab writes no file (A21).
+  /// Claims a tab's surfaces for the directory's task. Returns the owning task,
+  /// or `nil` when nothing changed — so a re-promotion of an already-owned tab
+  /// writes no file (A21).
   ///
   /// Claims are tab-granular (plan Resolved #10): the whole split tree moves, so
-  /// a tab can never hold two tasks' surfaces. The only tab-to-surface map the
-  /// reducer has is the persisted layout snapshot, which also knows which tab is
-  /// selected when the caller names none.
+  /// a tab can never hold two tasks' surfaces.
+  ///
+  /// `liveSurfaceIDs` is the tab's current split tree, read from the terminal.
+  /// The persisted layout is unioned on top rather than used alone: it is
+  /// rewritten only on background / quit, so between saves it misses panes split
+  /// since (and knows nothing at all about a tab created since). Unioning also
+  /// keeps a hibernated tab's frozen leaves in the claim.
   ///
   /// Surfaces are stripped from every other record rather than shared: explicit
   /// user intent beats stale ownership (A3), and a stripped record is never
   /// deleted — losing a claim is not the end of a task (A10b).
   @MainActor
-  mutating func promoteTab(worktreeID: Worktree.ID, tabID: TerminalTabID?, now: Date) -> Bool {
-    guard let row = sidebarItems[id: worktreeID] else { return false }
-    guard let snapshot = persistedLayouts[worktreeID.rawValue] else { return false }
-    guard let tab = Self.tabSnapshot(in: snapshot, id: tabID) else { return false }
-    let surfaceIDs = Set(tab.layout.leafSurfaceIDs)
-    guard !surfaceIDs.isEmpty else { return false }
+  mutating func promoteTab(
+    worktreeID: Worktree.ID,
+    tabID: TerminalTabID,
+    liveSurfaceIDs: Set<UUID>,
+    now: Date
+  ) -> TaskID? {
+    guard let row = sidebarItems[id: worktreeID] else { return nil }
+    var surfaceIDs = liveSurfaceIDs
+    if let tab = persistedLayouts[worktreeID.rawValue]?.tabs.first(where: { $0.id == tabID.rawValue }) {
+      surfaceIDs.formUnion(tab.layout.leafSurfaceIDs)
+    }
+    guard !surfaceIDs.isEmpty else { return nil }
 
     let directoryPath = TaskDirectoryPath.canonical(row.workingDirectory)
     let target = newestActiveTask(inDirectory: directoryPath)
-    guard target?.surfaceIDs.isSuperset(of: surfaceIDs) != true else { return false }
+    guard target?.surfaceIDs.isSuperset(of: surfaceIDs) != true else { return nil }
 
-    for record in taskRecords where record.id != target?.id && !record.surfaceIDs.isDisjoint(with: surfaceIDs) {
+    for record in taskRecords where !record.surfaceIDs.isDisjoint(with: surfaceIDs) {
       taskRecords[id: record.id]?.surfaceIDs.subtract(surfaceIDs)
     }
     guard let target else {
-      taskRecords.append(
-        TaskRecord(
-          title: TaskActivitySeeder.title(
-            for: TaskActivitySeeder.Candidate(
-              directoryPath: directoryPath,
-              customizationTitle: row.customTitle,
-              worktreeName: row.name,
-              worktreeDetail: row.subtitle
-            ),
-            branch: provableBranch(for: row)
+      let branch = row.provableBranch
+      let record = TaskRecord(
+        title: TaskActivitySeeder.title(
+          for: TaskActivitySeeder.Candidate(
+            directoryPath: directoryPath,
+            customizationTitle: row.customTitle,
+            worktreeName: row.name,
+            worktreeDetail: row.subtitle
           ),
-          directoryPath: directoryPath,
-          branch: provableBranch(for: row),
-          repositoryID: row.repositoryID,
-          createdAt: now,
-          surfaceIDs: surfaceIDs,
-          seedEvidence: TaskRecord.SeedEvidence(source: .manual, confidence: .high)
-        )
+          branch: branch
+        ),
+        directoryPath: directoryPath,
+        branch: branch,
+        repositoryID: row.repositoryID,
+        createdAt: now,
+        surfaceIDs: surfaceIDs,
+        seedEvidence: TaskRecord.SeedEvidence(source: .manual, confidence: .high)
       )
-      return true
+      taskRecords.append(record)
+      return record.id
     }
     taskRecords[id: target.id]?.surfaceIDs.formUnion(surfaceIDs)
-    return true
-  }
-
-  /// A detached or unreadable HEAD reports no branch rather than a guess (A2).
-  private func provableBranch(for row: SidebarItemFeature.State) -> String? {
-    row.isAttached && !row.branchName.isEmpty ? row.branchName : nil
+    return target.id
   }
 
   /// Newest-created active task for the directory. Two active tasks may share a
@@ -509,18 +546,6 @@ extension RepositoriesFeature.State {
       .filter { !TasksSidebarStructure.isSettled($0) }
       .filter { TaskDirectoryPath.normalized($0.directoryPath) == target }
       .max { ($0.createdAt, $0.id.rawValue) < ($1.createdAt, $1.id.rawValue) }
-  }
-
-  /// The named tab, or the one the layout has selected when the caller named none.
-  private static func tabSnapshot(
-    in snapshot: TerminalLayoutSnapshot,
-    id: TerminalTabID?
-  ) -> TerminalLayoutSnapshot.TabSnapshot? {
-    guard let id else {
-      guard snapshot.tabs.indices.contains(snapshot.selectedTabIndex) else { return nil }
-      return snapshot.tabs[snapshot.selectedTabIndex]
-    }
-    return snapshot.tabs.first { $0.id == id.rawValue }
   }
 
   /// The worktree the terminal manager should treat as selected while a task row

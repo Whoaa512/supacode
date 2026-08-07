@@ -135,6 +135,13 @@ struct SidebarItemFeature {
     var isDragging: Bool = false
     /// One-shot focus token: set when a selection arrives with `focusTerminal: true`.
     var shouldFocusTerminal: Bool = false
+
+    /// The branch this row can *prove* it is on. A detached or unreadable HEAD
+    /// reports none rather than a guess (A2), so task records never carry a
+    /// branch the worktree isn't actually attached to.
+    var provableBranch: String? {
+      isAttached && !branchName.isEmpty ? branchName : nil
+    }
   }
 
   enum Action: Equatable, Sendable {
@@ -379,6 +386,10 @@ struct SidebarContextRow: Equatable, Sendable, Identifiable {
   let isAttached: Bool
   let host: RemoteHost?
   let workingDirectoryPath: String
+  /// Whether the row currently projects any terminal surface. Carried as a Bool
+  /// rather than the id list so the menu can gate surface-dependent actions
+  /// without re-publishing on every split.
+  let hasLiveSurfaces: Bool
 
   init(_ row: SidebarItemFeature.State) {
     self.id = row.id
@@ -392,6 +403,7 @@ struct SidebarContextRow: Equatable, Sendable, Identifiable {
     self.isAttached = row.isAttached
     self.host = row.host
     self.workingDirectoryPath = row.workingDirectoryPath
+    self.hasLiveSurfaces = !row.surfaceIDs.isEmpty
   }
 
   var isFolder: Bool { kind == .folder }
