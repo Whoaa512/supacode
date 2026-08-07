@@ -10,10 +10,14 @@ struct SidebarView: View {
   /// Raw string storage (AppStorage-native); mapped to `SidebarTab` for the picker.
   @Shared(.sidebarTab) private var sidebarTabRawValue: String
 
+  /// The setter goes through the reducer, not straight into the shared value:
+  /// ⌘N's menu label and gate follow the active panel, and the menu-bar snapshot
+  /// only recomputes on actions, so a view-only write would leave the menu
+  /// claiming "New Worktree…" while the inbox is on screen.
   private var sidebarTab: Binding<SidebarTab> {
     Binding(
       get: { SidebarTab.resolved(fromStoredValue: sidebarTabRawValue) },
-      set: { newTab in $sidebarTabRawValue.withLock { $0 = newTab.rawValue } }
+      set: { newTab in store.send(.setSidebarTab(newTab)) }
     )
   }
 

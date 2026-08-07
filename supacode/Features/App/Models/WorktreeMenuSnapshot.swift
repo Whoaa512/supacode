@@ -1,3 +1,4 @@
+import CasePaths
 import Foundation
 import SupacodeSettingsFeature
 import SupacodeSettingsShared
@@ -18,6 +19,9 @@ struct WorktreeMenuSnapshot: Equatable {
   var isInitialLoadComplete: Bool = false
   var selectedPullRequestURL: URL?
   var notificationIndicatorCount: Int = 0
+  /// ⌘N's meaning follows the panel on screen (A19), so the menu has to know
+  /// which one it is to label and gate the item honestly.
+  var activeSidebarTab: SidebarTab = .worktrees
 }
 
 extension AppFeature.State {
@@ -35,7 +39,8 @@ extension AppFeature.State {
       canNavigateForward: repositories.canNavigateWorktreeHistoryForward,
       isInitialLoadComplete: repositories.isInitialLoadComplete,
       selectedPullRequestURL: pullRequestURL,
-      notificationIndicatorCount: notificationIndicatorCount
+      notificationIndicatorCount: notificationIndicatorCount,
+      activeSidebarTab: repositories.activeSidebarTab
     )
   }
 
@@ -72,9 +77,23 @@ extension AppFeature.State {
       if old.notificationIndicatorCount != new.notificationIndicatorCount {
         diffs.append("notificationIndicatorCount")
       }
+      if old.activeSidebarTab != new.activeSidebarTab { diffs.append("activeSidebarTab") }
       menuSnapshotLogger.info("MenuSnapshot mutated. Fields: \(diffs.joined(separator: ", "))")
     }
   #endif
+}
+
+extension RepositoriesFeature.Action {
+  /// The three arms that write `@Shared(.sidebarTab)`. Named explicitly because
+  /// swapping panels invalidates no cache — `cacheInvalidations` is empty for
+  /// all three — yet the snapshot reads the active tab for ⌘N's label and gate.
+  /// A positive list rather than an exhaustive switch: the alternative is
+  /// classifying ~200 repository actions to catch three, and every write goes
+  /// through one of these (the picker included, which is why it sends an action
+  /// instead of writing the shared value from the view).
+  var writesSidebarTab: Bool {
+    self.is(\.toggleAgentsSidebarTab) || self.is(\.toggleTasksSidebarTab) || self.is(\.setSidebarTab)
+  }
 }
 
 extension AppFeature.Action {
@@ -92,7 +111,7 @@ extension AppFeature.Action {
     // canNavigate*, isInitialLoadComplete, selectedWorktreeSlice.pullRequest)
     // changes via an action that already invalidates at least one cache.
     case .repositories(let inner):
-      return !inner.cacheInvalidations.isEmpty
+      return inner.writesSidebarTab || !inner.cacheInvalidations.isEmpty
     // Settings can change `shortcutOverrides` or `githubIntegrationEnabled`.
     case .settings:
       return true

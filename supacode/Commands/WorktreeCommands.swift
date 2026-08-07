@@ -58,12 +58,17 @@ private struct WorktreeMainMenu: Commands {
     let stop = AppShortcuts.stopRunScript.effective(from: overrides)
     let jumpToLatestUnread = AppShortcuts.jumpToLatestUnread.effective(from: overrides)
     CommandMenu("Worktrees") {
-      Button("New Worktree…", systemImage: "plus") {
+      // One shortcut, two meanings (A19). On the inbox ⌘N captures a task, which
+      // needs no repository — so the worktree gate must not reach across and
+      // grey out the only way to create one.
+      let capturesTask = snapshot.activeSidebarTab.newItemCapturesTask
+      let newTitle = capturesTask ? "New Task" : "New Worktree"
+      Button("\(newTitle)…", systemImage: "plus") {
         store.send(.repositories(.createRandomWorktree))
       }
       .appKeyboardShortcut(newWt)
-      .help("New Worktree (\(newWt?.display ?? "none"))")
-      .disabled(!snapshot.canCreateWorktree)
+      .help("\(newTitle) (\(newWt?.display ?? "none"))")
+      .disabled(!capturesTask && !snapshot.canCreateWorktree)
       Divider()
       let openLabel = openActionSelection.map { "Open in \($0.labelTitle)" } ?? "Open"
       Button(openLabel, systemImage: "arrow.up.right.square") {

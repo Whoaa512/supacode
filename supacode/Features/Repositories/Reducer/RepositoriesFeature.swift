@@ -365,6 +365,12 @@ struct RepositoriesFeature {
     /// Worktrees when Agents is already showing.
     case toggleAgentsSidebarTab
     case toggleTasksSidebarTab
+    /// The sidebar's segmented picker. Routed through the reducer rather than
+    /// written straight to `@Shared(.sidebarTab)` from the view so every panel
+    /// swap is one action the menu-bar snapshot gate can see — ⌘N's label and
+    /// gate follow the active panel, and a view-only write would leave the menu
+    /// claiming "New Worktree…" until some unrelated action refreshed it.
+    case setSidebarTab(SidebarTab)
     /// Fired when `settingsFile.global.agentsSidebar` changes (file edit or the
     /// Settings editor), so the post-reduce hook re-resolves every row's
     /// configured segments.
@@ -3199,6 +3205,12 @@ struct RepositoriesFeature {
           case .worktrees, .agents: .tasks
           }
         $sidebarTabRawValue.withLock { $0 = next.rawValue }
+        return .none
+
+      case .setSidebarTab(let tab):
+        @Shared(.sidebarTab) var sidebarTabRawValue
+        guard SidebarTab.resolved(fromStoredValue: sidebarTabRawValue) != tab else { return .none }
+        $sidebarTabRawValue.withLock { $0 = tab.rawValue }
         return .none
 
       case .agentsSidebarRowsChanged(let config):

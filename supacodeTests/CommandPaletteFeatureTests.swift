@@ -32,6 +32,33 @@ struct CommandPaletteFeatureTests {
     expectNoDifference(items.map(\.id), expectedIDs)
   }
 
+  /// The row fires `.createRandomWorktree`, which the reducer routes to task
+  /// capture on the inbox (A19). Same id, same action, honest label — a palette
+  /// promising "New Worktree" and opening the capture prompt is a lie the user
+  /// pays for.
+  @Test func newWorktreeItemReadsAsNewTaskOnTheInbox() {
+    #expect(Self.newWorktreeItemTitle(on: .tasks) == "New Task")
+  }
+
+  @Test func newWorktreeItemKeepsItsLabelOffTheInbox() {
+    #expect(Self.newWorktreeItemTitle(on: .worktrees) == "New Worktree")
+    #expect(Self.newWorktreeItemTitle(on: .agents) == "New Worktree")
+  }
+
+  /// The tab lives in app storage, so the read is scoped to an in-memory store
+  /// (the `.sidebarTab` trait is in the feature-tests bundle, not this one).
+  private static func newWorktreeItemTitle(on tab: SidebarTab) -> String? {
+    withDependencies {
+      $0.defaultAppStorage = .inMemory
+    } operation: {
+      @Shared(.sidebarTab) var sidebarTabRawValue
+      $sidebarTabRawValue.withLock { $0 = tab.rawValue }
+      return CommandPaletteFeature.commandPaletteItems(from: RepositoriesFeature.State())
+        .first { $0.id == "global.new-worktree" }?
+        .title
+    }
+  }
+
   @Test func worktreeSwitcherItems_skipsPendingAndDeletingWorktrees() {
     let rootPath = "/tmp/repo"
     let keep = makeWorktree(id: "\(rootPath)/wt-keep", name: "keep", repoRoot: rootPath)

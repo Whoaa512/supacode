@@ -39,6 +39,17 @@ enum SidebarTab: String, CaseIterable, Codable, Sendable {
     case .tasks: "checklist"
     }
   }
+
+  /// What ⌘N means while this panel is on screen. A19: on the inbox it captures
+  /// work; everywhere else it still creates a worktree. Exhaustive so a new
+  /// panel has to declare which meaning it takes, and so the menu label and the
+  /// reducer's routing can never disagree about it.
+  var newItemCapturesTask: Bool {
+    switch self {
+    case .tasks: true
+    case .worktrees, .agents: false
+    }
+  }
 }
 
 /// Typed AppStorage handle for the sidebar's tab selection, mirroring the

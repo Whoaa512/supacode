@@ -508,7 +508,11 @@ struct CommandPaletteFeature {
   }
 
   /// The always-present global actions, shown regardless of selection.
-  static func globalActionItems() -> [CommandPaletteItem] {
+  ///
+  /// `activeSidebarTab` only reaches the new-worktree row: it fires
+  /// `.createRandomWorktree`, which the reducer routes to task capture on the
+  /// inbox (A19), so the palette has to say what the row will actually do.
+  static func globalActionItems(activeSidebarTab: SidebarTab = .worktrees) -> [CommandPaletteItem] {
     [
       {
         #if DEBUG
@@ -545,7 +549,7 @@ struct CommandPaletteFeature {
       ),
       CommandPaletteItem(
         id: CommandPaletteItemID.globalNewWorktree,
-        title: "New Worktree",
+        title: activeSidebarTab.newItemCapturesTask ? "New Task" : "New Worktree",
         subtitle: nil,
         kind: .newWorktree
       ),
@@ -570,7 +574,7 @@ struct CommandPaletteFeature {
     scripts: [ScriptDefinition] = [],
     runningScriptIDs: Set<UUID> = []
   ) -> [CommandPaletteItem] {
-    var items = globalActionItems()
+    var items = globalActionItems(activeSidebarTab: repositories.activeSidebarTab)
     if repositories.selectedWorktreeID != nil {
       items.append(contentsOf: ghosttyCommandItems(ghosttyCommands))
       items.append(contentsOf: scriptItems(scripts: scripts, runningScriptIDs: runningScriptIDs))
