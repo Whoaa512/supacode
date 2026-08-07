@@ -207,10 +207,10 @@ final class SurfaceTeardownQueue {
   /// Kills the surface's `zmx attach` CLIENT (never the session, which must
   /// survive to be re-attached on wake) so the wedged pty io-reader gets EOF.
   ///
-  /// Exactly ONE kill, at hand-off (binding 8): the `-f` pattern also matches any
-  /// FUTURE client of the same session, so re-killing later would murder a
-  /// freshly woken terminal. PID-targeted when `pgrep` finds the client, with a
-  /// single pattern `pkill` as the fallback for the race where it doesn't.
+  /// Exactly ONE kill, at hand-off, and always PID-targeted: the `-f` pattern also
+  /// matches any FUTURE client of the same (surviving) session, so both a retry and
+  /// a pattern-wide `pkill` risk murdering a freshly woken terminal. When `pgrep`
+  /// finds nothing there is no client left to EOF, so there is nothing to do.
   private nonisolated static func killAttachClient(
     sessionID: String,
     shell: SurfaceTeardownShell
@@ -218,12 +218,11 @@ final class SurfaceTeardownQueue {
     let pattern = "zmx attach \(sessionID)"
     let stdout = await shell.run(URL(fileURLWithPath: "/usr/bin/pgrep"), ["-f", pattern])
     let pids = Self.parsePIDs(stdout ?? "")
-    guard pids.isEmpty else {
-      _ = await shell.run(URL(fileURLWithPath: "/bin/kill"), ["-TERM"] + pids)
+    guard !pids.isEmpty else {
+      logger.warning("no zmx attach client found for \(sessionID); nothing to kill")
       return
     }
-    logger.warning("no zmx attach client found for \(sessionID); falling back to pkill")
-    _ = await shell.run(URL(fileURLWithPath: "/usr/bin/pkill"), ["-f", pattern])
+    _ = await shell.run(URL(fileURLWithPath: "/bin/kill"), ["-TERM"] + pids)
   }
 
   private nonisolated static func parsePIDs(_ stdout: String) -> [String] {

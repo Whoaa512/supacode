@@ -199,18 +199,19 @@ struct SurfaceTeardownQueueTests {
     #expect(await spy.commands == [["pgrep", "-f", pattern], ["kill", "-TERM", "4242"]])
   }
 
-  @Test func handOffFallsBackToASinglePkillWhenNoClientIsFound() async {
+  /// No client found means nothing is holding the pty open, so there is nothing to
+  /// EOF. A pattern-wide `pkill` here would only add a way to kill the NEXT client
+  /// of the surviving session (a freshly woken terminal).
+  @Test func handOffRunsNoKillWhenNoAttachClientIsFound() async {
     let runtime = GhosttyRuntime()
     let spy = ShellSpy(pgrepStdout: nil)
     let queue = makeQueue(spy)
-    let surfaceID = UUID()
-    let view = makeView(id: surfaceID, runtime: runtime)
+    let view = makeView(id: UUID(), runtime: runtime)
 
     queue.handOff(view)
     await queue.teardownTask(for: view)?.value
 
-    let pattern = "zmx attach \(ZmxSessionID.make(surfaceID: surfaceID))"
-    #expect(await spy.killCommands == [["pkill", "-f", pattern]])
+    #expect(await spy.killCommands.isEmpty)
   }
 
   /// A woken surface reuses its UUID, so its NEW attach client is a different
