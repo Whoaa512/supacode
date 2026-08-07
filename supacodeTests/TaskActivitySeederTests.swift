@@ -109,6 +109,10 @@ struct TaskActivitySeederTests {
     StalenessCase(ageInDays: 14, isStale: false),
     StalenessCase(ageInDays: 14.1, isStale: true),
     StalenessCase(ageInDays: 120, isStale: true),
+    // Clock skew: future evidence clamps to `now`, so it can never be stale and
+    // can never pin itself above genuinely newer work.
+    StalenessCase(ageInDays: -1, isStale: false),
+    StalenessCase(ageInDays: -400, isStale: false),
   ])
   func freshStaleSplitUsesThreshold(testCase: StalenessCase) {
     let evidenceDate = Self.daysAgo(testCase.ageInDays)
@@ -120,7 +124,7 @@ struct TaskActivitySeederTests {
       )
     ])
     let task = seeded.first
-    #expect(task?.createdAt == evidenceDate)
+    #expect(task?.createdAt == min(evidenceDate, Self.now))
     #expect((task?.settledAt != nil) == testCase.isStale)
     if testCase.isStale {
       // Same resolved timestamp drives the settled sort key and its label (A17).
@@ -200,6 +204,64 @@ struct TaskActivitySeederTests {
     ])
     #expect(seeded.first?.branch == nil)
     #expect(seeded.first?.seedEvidence == .init(source: .reflog, confidence: .low))
+  }
+
+  @Test func staleReflogBranchTieBreaksOnFileOrder() {
+    // Two checkouts in the same second: git wrote the last line last, so it is
+    // the later checkout. Sorting alone would be nondeterministic.
+    let sameSecond = Self.daysAgo(40)
+    let seeded = Self.seeds([
+      .init(
+        directoryPath: "/repos/app",
+        currentBranch: nil,
+        reflogEntries: [
+          Self.checkout(at: sameSecond, to: "earlier-line"),
+          Self.checkout(at: sameSecond, to: "later-line"),
+        ]
+      )
+    ])
+    #expect(seeded.first?.branch == "later-line")
+  }
+
+  @Test func staleReflogBranchIsDroppedWhenNotAKnownBranch() {
+    // `git checkout v1.2.3` writes the same reflog line as a branch checkout.
+    let seeded = Self.seeds([
+      .init(
+        directoryPath: "/repos/app",
+        currentBranch: nil,
+        reflogEntries: [Self.checkout(at: Self.daysAgo(40), to: "v1.2.3")],
+        knownBranches: ["main", "feature/x"]
+      )
+    ])
+    #expect(seeded.first?.branch == nil)
+    #expect(seeded.first?.seedEvidence == .init(source: .reflog, confidence: .low))
+  }
+
+  @Test func staleReflogBranchIsKeptWhenItIsAKnownBranch() {
+    let seeded = Self.seeds([
+      .init(
+        directoryPath: "/repos/app",
+        currentBranch: nil,
+        reflogEntries: [Self.checkout(at: Self.daysAgo(40), to: "feature/x")],
+        knownBranches: ["main", "feature/x"]
+      )
+    ])
+    #expect(seeded.first?.branch == "feature/x")
+    #expect(seeded.first?.seedEvidence == .init(source: .reflog, confidence: .medium))
+  }
+
+  @Test func nilKnownBranchesStillAllowsReflogFallback() {
+    // The caller could not read refs; dropping every stale label would be worse
+    // than the rare tag mislabel, so the fallback stays on.
+    let seeded = Self.seeds([
+      .init(
+        directoryPath: "/repos/app",
+        currentBranch: nil,
+        reflogEntries: [Self.checkout(at: Self.daysAgo(40), to: "v1.2.3")],
+        knownBranches: nil
+      )
+    ])
+    #expect(seeded.first?.branch == "v1.2.3")
   }
 
   @Test func staleSeedWithNoCheckoutHistoryHasNoBranch() {
@@ -343,9 +405,72 @@ struct TaskActivitySeederTests {
     #expect(seeded.isEmpty)
   }
 
+  @Test func duplicateCandidatePathsSeedOnce() {
+    // First candidate wins, so the richer earlier entry is not clobbered by a
+    // later bare duplicate coming from a different discovery source.
+    let seeded = Self.seeds([
+      .init(
+        directoryPath: "/repos/a",
+        customizationTitle: "first wins",
+        currentBranch: "main",
+        hasLiveSurfaces: true,
+        scrollbackLastMountedAt: Self.daysAgo(1)
+      ),
+      .init(
+        directoryPath: "/repos/a/",
+        customizationTitle: "second loses",
+        currentBranch: "main",
+        hasLiveSurfaces: true,
+        scrollbackLastMountedAt: Self.daysAgo(2)
+      ),
+    ])
+    #expect(seeded.count == 1)
+    #expect(seeded.first?.title == "first wins")
+  }
+
+  struct PathCase: Sendable, CustomStringConvertible {
+    var path: String
+    var description: String { "path=\(path.debugDescription)" }
+  }
+
+  @Test(arguments: [
+    PathCase(path: ""),
+    PathCase(path: "   "),
+    PathCase(path: "/"),
+    PathCase(path: "//"),
+  ])
+  func skipsEmptyOrRootDirectoryPaths(testCase: PathCase) {
+    let seeded = Self.seeds([
+      .init(
+        directoryPath: testCase.path,
+        currentBranch: "main",
+        hasLiveSurfaces: true,
+        scrollbackLastMountedAt: Self.daysAgo(1)
+      )
+    ])
+    #expect(seeded.isEmpty)
+  }
+
+  @Test func idempotencyIgnoresRedundantPathSegments() {
+    let seeded = Self.seeds(
+      [
+        .init(
+          directoryPath: "/repos//b/../a",
+          currentBranch: "main",
+          hasLiveSurfaces: true,
+          scrollbackLastMountedAt: Self.daysAgo(1)
+        )
+      ],
+      existing: [Self.existingTask(directoryPath: "/repos/a")]
+    )
+    #expect(seeded.isEmpty)
+  }
+
   // MARK: - Ordering
 
-  @Test func ordersByEvidenceDateDescendingWithPathTieBreak() {
+  @Test func returnsRecordsInCandidateOrder() {
+    // Ordering is the list's job (createdAt desc + id tie-break); the seeder must
+    // not reshuffle, so ids line up with the input positions.
     let candidates = [
       TaskActivitySeeder.Candidate(
         directoryPath: "/repos/zulu",
@@ -364,10 +489,8 @@ struct TaskActivitySeederTests {
       ),
     ]
     let seeded = Self.seeds(candidates)
-    #expect(seeded.map(\.directoryPath) == ["/repos/newest", "/repos/alpha", "/repos/zulu"])
+    #expect(seeded.map(\.directoryPath) == ["/repos/zulu", "/repos/alpha", "/repos/newest"])
     #expect(seeded.map(\.id.rawValue) == ["t0", "t1", "t2"])
-    // Input order must not leak into output order.
-    #expect(Self.seeds(candidates.reversed()).map(\.directoryPath) == seeded.map(\.directoryPath))
   }
 
   // MARK: - Reflog parsing
@@ -409,10 +532,34 @@ struct TaskActivitySeederTests {
       abc def CJ <cj@example.com> notanumber +0000\tcheckout: moving from main to x
       abc0000 def0000 CJ <cj@example.com> 1699990000 +0000\tcheckout: moving from main to good
       too few fields\tcheckout: moving from main to y
+      zzz yyy CJ <cj@example.com> 1699990000 +0000\tnon-hex object ids
       """
     let entries = GitReflogReader.parse(reflogText: text)
     #expect(entries.count == 1)
     #expect(entries.first?.checkoutTarget == "good")
+  }
+
+  @Test func parsesLineWithNoTabOrMessage() {
+    // The only line a freshly created linked worktree's reflog has; dropping it
+    // meant brand-new worktrees never seeded.
+    let text =
+      "0000000000000000000000000000000000000000 "
+      + "3f8a91c2b7d4e5f60718293a4b5c6d7e8f901234 CJ Winslow <cj@example.com> 1700000000 -0700"
+    let entries = GitReflogReader.parse(reflogText: text)
+    #expect(entries.count == 1)
+    #expect(entries.first?.message == "")
+    #expect(entries.first?.date == Date(timeIntervalSince1970: 1_700_000_000))
+    #expect(entries.first?.checkoutTarget == nil)
+  }
+
+  @Test func timezoneFieldDoesNotShiftTheParsedDate() {
+    let text = """
+      a0 b0 CJ <cj@example.com> 1700000000 +0530\tcommit: east
+      a0 b0 CJ <cj@example.com> 1700000000 -0800\tcommit: west
+      """
+    let entries = GitReflogReader.parse(reflogText: text)
+    #expect(entries.count == 2)
+    #expect(entries.first?.date == entries.last?.date)
   }
 
   @Test func parsesEmptyTextAsNoEntries() {

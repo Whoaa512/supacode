@@ -1,4 +1,5 @@
 import Foundation
+import SupacodeSettingsShared
 
 /// One parsed line of `.git/logs/HEAD`.
 ///
@@ -7,7 +8,12 @@ import Foundation
 /// ran (plan Resolved #2), while a reflog line carries a git-written timestamp
 /// and, for checkouts, the branch that was moved onto.
 nonisolated struct GitReflogEntry: Equatable, Sendable {
+  /// Absolute instant from the line's unix timestamp. The trailing `-0700`-style
+  /// timezone field is display-only — the unix timestamp is already absolute — so
+  /// it is deliberately not parsed or stored.
   let date: Date
+  /// Text after the tab, or `""` for a line git wrote without a message (the
+  /// only line a freshly created linked worktree's reflog has).
   let message: String
   /// The `X` of `checkout: moving from X to Y`, when this line is a checkout and
   /// `X` is a plausible branch name (not a bare sha).
@@ -29,9 +35,15 @@ nonisolated struct GitReflogEntry: Equatable, Sendable {
 /// `parse(reflogText:)` is pure so the seeder's evidence rules are testable
 /// without a fixture repo; `read(worktreeURL:fileManager:)` is the thin
 /// filesystem wrapper. No ComposableArchitecture / SwiftUI here.
-enum GitReflogReader {
+nonisolated enum GitReflogReader {
+  private static let logger = SupaLogger("GitReflogReader")
+
   /// Parses `.git/logs/HEAD` contents. Line shape:
   /// `<old-sha> <new-sha> <name> <email> <unix-ts> <tz>\t<message>`
+  ///
+  /// The tab and message are optional: `git worktree add` writes the worktree's
+  /// first reflog line with no message at all, and dropping it would mean a
+  /// brand-new worktree never seeds.
   ///
   /// A malformed line is skipped, never fatal: the file is append-only and a
   /// truncated tail (crash mid-write) must not cost the evidence in the lines
@@ -43,10 +55,18 @@ enum GitReflogReader {
   /// Reflog entries for `worktreeURL`, or `[]` when there is no readable one.
   /// A missing reflog is the normal case for a folder synthetic or a brand-new
   /// repo — it means "no evidence", never an error.
+  ///
+  /// A reflog that exists but cannot be read is a different situation — a real
+  /// permissions or encoding problem — so it is logged rather than swallowed.
   static func read(worktreeURL: URL, fileManager: FileManager = .default) -> [GitReflogEntry] {
     guard let logURL = reflogURL(for: worktreeURL, fileManager: fileManager) else { return [] }
-    guard let text = try? String(contentsOf: logURL, encoding: .utf8) else { return [] }
-    return parse(reflogText: text)
+    guard fileManager.fileExists(atPath: logURL.path(percentEncoded: false)) else { return [] }
+    do {
+      return parse(reflogText: try String(contentsOf: logURL, encoding: .utf8))
+    } catch {
+      logger.debug("unreadable reflog at \(logURL.path(percentEncoded: false)): \(error)")
+      return []
+    }
   }
 
   /// `<gitdir>/logs/HEAD`, resolving the `gitdir:` indirection that linked
@@ -59,9 +79,8 @@ enum GitReflogReader {
 
   private static func parseLine(_ line: some StringProtocol) -> GitReflogEntry? {
     let parts = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
-    guard parts.count == 2 else { return nil }
-    guard let date = parseDate(parts[0]) else { return nil }
-    let message = parts[1].trimmingCharacters(in: .whitespaces)
+    guard let prefix = parts.first, let date = parseDate(prefix) else { return nil }
+    let message = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces) : ""
     let checkout = parseCheckout(message)
     return GitReflogEntry(
       date: date,
@@ -73,9 +92,12 @@ enum GitReflogReader {
 
   /// The committer field holds spaces, so the timestamp is located from the end:
   /// the last field is the timezone offset and the one before it the unix time.
+  /// The two leading fields must be object ids as well, so an arbitrary line of
+  /// prose that happens to have a number in the right slot is still rejected.
   private static func parseDate(_ prefix: some StringProtocol) -> Date? {
     let fields = prefix.split(separator: " ", omittingEmptySubsequences: true)
     guard fields.count >= 4 else { return nil }
+    guard fields[0].allSatisfy(\.isHexDigit), fields[1].allSatisfy(\.isHexDigit) else { return nil }
     guard let seconds = TimeInterval(fields[fields.count - 2]) else { return nil }
     return Date(timeIntervalSince1970: seconds)
   }
@@ -103,6 +125,9 @@ enum GitReflogReader {
     return trimmed
   }
 
+  /// Known false positive: a branch literally named `deadbeef` is all-hex and
+  /// long enough, so it is treated as a sha and dropped. Silently omitting a
+  /// branch label is the safe direction — A2 forbids fabricating one.
   private static func isObjectSHA(_ value: String) -> Bool {
     guard value.count >= 7 else { return false }
     return value.allSatisfy(\.isHexDigit)

@@ -19,7 +19,11 @@ import Foundation
 /// - A branch is attached only when provable: the live watcher's current branch,
 ///   else a stale seed's last reflog checkout target. Never inferred from a path
 ///   or a title (A2).
-enum TaskActivitySeeder {
+/// `nonisolated` on purpose: the target compiles with
+/// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, which would otherwise pin this
+/// pure logic to the main actor and make the "no side effects" claim above only
+/// half true.
+nonisolated enum TaskActivitySeeder {
   /// Everything provable about one directory at seed time. All value types so
   /// the seeding decision is reproducible in a test without a repo on disk.
   nonisolated struct Candidate: Equatable, Sendable {
@@ -43,6 +47,13 @@ enum TaskActivitySeeder {
     var scrollbackLastMountedAt: Date?
     /// Parsed `.git/logs/HEAD`, oldest entry first. Empty when unreadable.
     var reflogEntries: [GitReflogEntry]
+    /// Branch names the caller could enumerate for this repo, used to validate
+    /// the reflog fallback: `git checkout v1.2.3` writes the same reflog shape as
+    /// a branch checkout, so a tag would otherwise be labelled as a branch (A2).
+    /// `nil` means the caller could not read the refs at all; the reflog fallback
+    /// is then still used, because dropping every stale branch label would be a
+    /// bigger regression than the rare tag mislabel.
+    var knownBranches: Set<String>?
     /// Owning repository, when the directory maps to a registered one.
     var repositoryID: Repository.ID?
 
@@ -55,6 +66,7 @@ enum TaskActivitySeeder {
       hasLiveSurfaces: Bool = false,
       scrollbackLastMountedAt: Date? = nil,
       reflogEntries: [GitReflogEntry] = [],
+      knownBranches: Set<String>? = nil,
       repositoryID: Repository.ID? = nil
     ) {
       self.directoryPath = directoryPath
@@ -65,6 +77,7 @@ enum TaskActivitySeeder {
       self.hasLiveSurfaces = hasLiveSurfaces
       self.scrollbackLastMountedAt = scrollbackLastMountedAt
       self.reflogEntries = reflogEntries
+      self.knownBranches = knownBranches
       self.repositoryID = repositoryID
     }
   }
@@ -75,12 +88,14 @@ enum TaskActivitySeeder {
   /// The caller passes it explicitly so the value stays a policy decision.
   static let defaultStalenessThreshold: TimeInterval = 14 * 24 * 60 * 60
 
-  /// Records to create, newest evidence first with a `directoryPath` tie-break.
+  /// Records to create, in candidate order. Ordering is not this type's job:
+  /// the Tasks list sorts by `createdAt` descending with an id tie-break, so any
+  /// sort here would be dead weight that only masks the real sort's behaviour.
   ///
   /// Idempotent by `directoryPath`: a directory that already has a task (active
-  /// or settled) is skipped, so a re-seed after an upgrade can never duplicate
-  /// (A13). `makeID` is injectable purely so tests can assert order without
-  /// fighting UUIDs; ids are minted after sorting.
+  /// or settled) is skipped, and duplicate candidates collapse to the first one,
+  /// so a re-seed after an upgrade can never duplicate (A13). `makeID` is
+  /// injectable purely so tests can pin ids.
   static func seeds(
     candidates: [Candidate],
     existingTasks: [TaskRecord],
@@ -88,59 +103,52 @@ enum TaskActivitySeeder {
     stalenessThreshold: TimeInterval = defaultStalenessThreshold,
     makeID: () -> TaskID = TaskID.init
   ) -> [TaskRecord] {
-    let claimed = Set(existingTasks.map { normalizedPath($0.directoryPath) })
-    let drafts =
+    var seen = Set(existingTasks.map { normalizedPath($0.directoryPath) })
+    return
       candidates
-      .filter { !claimed.contains(normalizedPath($0.directoryPath)) }
-      .compactMap { draft(for: $0, now: now, stalenessThreshold: stalenessThreshold) }
-      .sorted { lhs, rhs in
-        if lhs.activityAt != rhs.activityAt { return lhs.activityAt > rhs.activityAt }
-        return lhs.candidate.directoryPath < rhs.candidate.directoryPath
+      .filter { candidate in
+        let path = normalizedPath(candidate.directoryPath)
+        // An empty or root path has no leaf to title a row with, and no candidate
+        // the app builds should ever have one.
+        guard !path.isEmpty, path != "/" else { return false }
+        return seen.insert(path).inserted
       }
-    return drafts.map { $0.record(id: makeID()) }
+      .compactMap {
+        record(for: $0, now: now, stalenessThreshold: stalenessThreshold, makeID: makeID)
+      }
   }
 
-  // MARK: - Draft
+  // MARK: - Record
 
-  /// A qualifying candidate plus the facts the seed is built from. Separate from
-  /// `TaskRecord` so sorting can key off `activityAt` before ids are minted.
-  private struct Draft {
-    var candidate: Candidate
-    var activityAt: Date
-    var isStale: Bool
-    var branch: String?
-    var evidence: TaskRecord.SeedEvidence
-
-    func record(id: TaskID) -> TaskRecord {
-      TaskRecord(
-        id: id,
-        title: TaskActivitySeeder.title(for: candidate, branch: branch),
-        directoryPath: candidate.directoryPath,
-        branch: branch,
-        repositoryID: candidate.repositoryID,
-        createdAt: activityAt,
-        // The evidence timestamp doubles as `settledAt` so the settled tail's
-        // sort key and its displayed label are the same resolved date (A17).
-        settledAt: isStale ? activityAt : nil,
-        seedEvidence: evidence
-      )
-    }
-  }
-
-  private static func draft(
+  private static func record(
     for candidate: Candidate,
     now: Date,
-    stalenessThreshold: TimeInterval
-  ) -> Draft? {
+    stalenessThreshold: TimeInterval,
+    makeID: () -> TaskID
+  ) -> TaskRecord? {
     guard let activity = activityTimestamp(for: candidate) else { return nil }
-    let isStale = now.timeIntervalSince(activity.date) > stalenessThreshold
+    // Clock skew or a doctored mtime can date evidence in the future, which would
+    // make the row permanently fresh and permanently first; clamping keeps the
+    // age non-negative without inventing a timestamp.
+    let activityAt = min(activity.date, now)
+    let isStale = now.timeIntervalSince(activityAt) > stalenessThreshold
     let branch = resolvedBranch(for: candidate, isStale: isStale)
-    return Draft(
-      candidate: candidate,
-      activityAt: activity.date,
-      isStale: isStale,
+    return TaskRecord(
+      id: makeID(),
+      title: title(for: candidate, branch: branch?.name),
+      directoryPath: candidate.directoryPath,
       branch: branch?.name,
-      evidence: evidence(branch: branch, timestampSource: activity.source)
+      repositoryID: candidate.repositoryID,
+      createdAt: activityAt,
+      // The evidence timestamp doubles as `settledAt` so the settled tail's sort
+      // key and its displayed label are the same resolved date (A17).
+      //
+      // Coupling to name explicitly: a stale seed sets `settledAt` with *no*
+      // settled override, so Phase 2's `effectiveSettled` must read
+      // `settledAt != nil` as settled whenever there is no override. If that
+      // rule flips, every stale seed silently becomes active.
+      settledAt: isStale ? activityAt : nil,
+      seedEvidence: evidence(branch: branch, timestampSource: activity.source)
     )
   }
 
@@ -188,16 +196,25 @@ enum TaskActivitySeeder {
     // be on would misdescribe the row it renders next to.
     guard isStale else { return nil }
     guard let checkedOut = lastCheckedOutBranch(in: candidate.reflogEntries) else { return nil }
+    // `git checkout v1.2.3` writes the same reflog line a branch checkout does,
+    // so when the caller could enumerate refs, the name has to be one of them.
+    if let knownBranches = candidate.knownBranches, !knownBranches.contains(checkedOut) {
+      return nil
+    }
     return ResolvedBranch(name: checkedOut, source: .reflogCheckout)
   }
 
+  /// Latest checkout target, breaking ties by file position rather than sorting:
+  /// Swift's sort is not stable, so two same-second checkouts would otherwise
+  /// pick a nondeterministic branch. File order is git's append order, so the
+  /// later line is the later checkout.
   private static func lastCheckedOutBranch(in entries: [GitReflogEntry]) -> String? {
     entries
-      .sorted { $0.date < $1.date }
-      .reversed()
-      .lazy
-      .compactMap(\.checkoutTarget)
-      .first
+      .enumerated()
+      .filter { $0.element.checkoutTarget != nil }
+      .max { ($0.element.date, $0.offset) < ($1.element.date, $1.offset) }?
+      .element
+      .checkoutTarget
   }
 
   /// `source` names the strongest fact behind the seed; `confidence` says how
@@ -245,14 +262,27 @@ enum TaskActivitySeeder {
 
   // MARK: - Helpers
 
-  /// Trailing slashes are cosmetic in a path but would split the idempotency key,
-  /// so `/a/b` and `/a/b/` must collapse to the same directory.
+  /// Collapses the cosmetic differences that would split the idempotency key:
+  /// trailing slashes, `//`, and `..` segments. Case is preserved — APFS can be
+  /// case-sensitive, so lowercasing would merge two genuinely distinct
+  /// directories.
+  ///
+  /// Precondition: callers must already have canonicalized symlinks (via
+  /// `URL.resolvingSymlinksInPath()`) when they build candidates. The seeder is
+  /// pure and cannot touch the filesystem, so it cannot do that itself, and two
+  /// candidates that differ only by a symlink hop will seed twice.
   private static func normalizedPath(_ path: String) -> String {
-    var trimmed = path.trimmingCharacters(in: .whitespaces)
-    while trimmed.count > 1, trimmed.hasSuffix("/") {
-      trimmed.removeLast()
+    let trimmed = path.trimmingCharacters(in: .whitespaces)
+    guard !trimmed.isEmpty else { return "" }
+    // `standardizedFileURL` collapses `//` and `..` but keeps a trailing slash
+    // when the URL was built with a directory hint, so drop that separately.
+    var standardized = URL(fileURLWithPath: trimmed)
+      .standardizedFileURL
+      .path(percentEncoded: false)
+    while standardized.count > 1, standardized.hasSuffix("/") {
+      standardized.removeLast()
     }
-    return trimmed
+    return standardized
   }
 
   private static func nonEmpty(_ value: String?) -> String? {

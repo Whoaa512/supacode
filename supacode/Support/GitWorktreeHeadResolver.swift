@@ -1,7 +1,10 @@
 import Foundation
 
-enum GitWorktreeHeadResolver {
-  static func headURL(for worktreeURL: URL, fileManager: FileManager) -> URL? {
+/// `nonisolated` on purpose: the target compiles with
+/// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so without it these filesystem
+/// reads would be main-actor work that background callers must hop for.
+nonisolated enum GitWorktreeHeadResolver {
+  static func headURL(for worktreeURL: URL, fileManager: FileManager = .default) -> URL? {
     gitDirectoryURL(for: worktreeURL, fileManager: fileManager)?.appending(path: "HEAD")
   }
 
