@@ -1063,7 +1063,9 @@ final class WorktreeTerminalState {
         terminalStateLogger.debug("confirmPendingClose: surface \(surfaceID) already gone.")
         return
       }
-      completeCloseRequest(for: surface)
+      // The confirmation alert only ever appears for a live child, which is what
+      // made it worth confirming.
+      completeCloseRequest(for: surface, processAlive: true)
     case .tabs(let tabIDs):
       for tabId in tabIDs {
         closeTab(tabId)
@@ -2324,9 +2326,9 @@ final class WorktreeTerminalState {
       guard self.isLiveSurface(view) else { return }
       self.handleContextSignal(surfaceID: view.id, id: id, metadata: metadata)
     }
-    view.bridge.onCloseRequest = { [weak self, weak view] needsConfirmation in
+    view.bridge.onCloseRequest = { [weak self, weak view] processAlive in
       guard let self, let view else { return }
-      self.handleCloseRequest(for: view, needsConfirmation: needsConfirmation)
+      self.handleCloseRequest(for: view, processAlive: processAlive)
     }
     view.onFocusChange = { [weak self, weak view] focused in
       guard let self, let view, focused else { return }
@@ -3252,11 +3254,14 @@ final class WorktreeTerminalState {
     }
   }
 
-  private func handleCloseRequest(for view: GhosttySurfaceView, needsConfirmation: Bool) {
+  /// - Parameter processAlive: ghostty's `close_surface` payload — whether the
+  ///   surface's child is still running. Doubles as "needs confirmation": closing a
+  ///   pane out from under a live process is the case worth confirming.
+  private func handleCloseRequest(for view: GhosttySurfaceView, processAlive: Bool) {
     guard surfaces[view.id] === view else { return }
     if bypassCloseConfirmationSurfaceIDs.remove(view.id) != nil {
       terminalStateLogger.debug("handleCloseRequest: bypassing confirmation for \(view.id).")
-      completeCloseRequest(for: view)
+      completeCloseRequest(for: view, processAlive: processAlive)
       return
     }
     let isExplicitClose = pendingExplicitSurfaceCloseIDs.contains(view.id)
@@ -3268,7 +3273,7 @@ final class WorktreeTerminalState {
     }
 
     @Shared(.settingsFile) var settingsFile
-    if needsConfirmation,
+    if processAlive,
       isExplicitClose,
       settingsFile.global.confirmCloseSurface,
       !isFrozenBlockingScriptSurface(view.id)
@@ -3276,15 +3281,16 @@ final class WorktreeTerminalState {
       pendingCloseConfirmation = .surface(view.id)
       return
     }
-    completeCloseRequest(for: view)
+    completeCloseRequest(for: view, processAlive: processAlive)
   }
 
-  private func completeCloseRequest(for view: GhosttySurfaceView) {
+  private func completeCloseRequest(for view: GhosttySurfaceView, processAlive: Bool) {
     guard surfaces[view.id] === view else { return }
     let isExplicitClose = pendingExplicitSurfaceCloseIDs.remove(view.id) != nil
     if shouldHandleAsUnexpectedZmxClose(
       surfaceID: view.id,
-      isExplicitClose: isExplicitClose
+      isExplicitClose: isExplicitClose,
+      processAlive: processAlive
     ) {
       handleUnexpectedZmxClose(for: view)
       return
@@ -3295,11 +3301,16 @@ final class WorktreeTerminalState {
     closeSurfaceAndUpdateTabs(view, killZmxSession: true, includeRemoteSession: isExplicitClose)
   }
 
+  /// The reattach branch is for a zmx CLIENT that died under a session that is still
+  /// alive. A close request whose child is still running (`processAlive`) came from
+  /// inside that session instead, so there is nothing to reattach to and minting a
+  /// replacement would resurrect a pane the user just closed.
   private func shouldHandleAsUnexpectedZmxClose(
     surfaceID: UUID,
-    isExplicitClose: Bool
+    isExplicitClose: Bool,
+    processAlive: Bool
   ) -> Bool {
-    guard !isExplicitClose else { return false }
+    guard !isExplicitClose, !processAlive else { return false }
     return surfaceLaunchMetadata[surfaceID]?.usesZmx == true
   }
 

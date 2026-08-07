@@ -167,6 +167,29 @@ struct CloseTeardownTests {
     #expect(queue.pendingSurfaceIDs == surfaceIDs)
   }
 
+  /// The reattach branch exists for a zmx CLIENT that died under a surviving
+  /// session. Ghostty reports `processAlive == true` when the surface's child is
+  /// still running, i.e. the close came from the shell/app inside the session — there
+  /// is nothing to reattach to, and minting a replacement would resurrect a pane the
+  /// user just closed.
+  @Test func closeRequestWithALiveProcessNeverTakesTheReattachBranch() async {
+    let runtime = GhosttyRuntime()
+    let sessions = LockIsolated<[ZmxSessionListParser.Entry]>([])
+    let state = makeState(runtime: runtime, sessions: sessions)
+    let tab = state.createTab(focusing: false)!
+    let view = leaves(state, tab: tab)[0]
+    // An idle session we own: everything the reattach branch needs is in place, so
+    // only `processAlive` can keep it from firing.
+    sessions.setValue([.init(name: ZmxSessionID.make(surfaceID: view.id), clients: 0)])
+
+    view.bridge.closeSurface(processAlive: true)
+    await Task.megaYield()
+
+    #expect(leaves(state, tab: tab).isEmpty)
+    #expect(state.surfaceIDs(inTab: tab).isEmpty)
+    #expect(!state.hasTab(tab))
+  }
+
   /// The zmx reattach path is the ONE hand-off that must not kill an attach client.
   /// The replacement surface reuses the exited surface's id, i.e. its zmx session,
   /// and the kill matches by session pattern — so killing here would take out the
