@@ -254,3 +254,25 @@ D. No surface leak in the happy path: teardown still frees every surface
 - `make check` exit 0 (6 unrelated pre-existing swift-format drift files reverted
   again). `make build-app` succeeded.
 
+### RED→GREEN (cycle 3, slice 1 — queue hygiene, no async yet)
+
+- New suite `SurfaceTeardownQueueTests`
+  (`supacodeTests/WorktreeTerminalManagerSurfaceTeardownTests.swift`, routes to
+  supacodeTerminalTests). RED first: 2 of 4 tests failed for the right reasons —
+  `queue.pendingCount → 1) == 2` (two DIFFERENT view instances sharing one
+  surface UUID collapsed to one entry) and `view.passwordInput → true) == false`.
+- Fixes (bindings 7, 9, 10):
+  - `@MainActor` on `SurfaceTeardownQueue` (landed before any async — binding 9).
+  - `pending` re-keyed by `ObjectIdentifier(view)`; `pendingSurfaceIDs` now
+    derived from the values. Surface UUIDs are reused on wake, so UUID keying
+    would have skipped the hand-off of the woken generation → inline free →
+    deadlock returns.
+  - `prepareForDeferredTeardown()` also removes the NSEvent local monitor (nils
+    it so `deinit` can't double-remove) and sets `passwordInput = false`. Both
+    are APP-WIDE state: a pending view would otherwise keep intercepting
+    Cmd-keyUp for live surfaces and keep SecureInput enabled everywhere.
+    Pinned by tests via a new read-only `hasLocalEventMonitor` seam +
+    `passwordInput`.
+- `-only-testing:supacodeTerminalTests/SurfaceTeardownQueueTests` +
+  `HibernationTeardownTests` → exit 0, totalTestCount 5, passed 5, failed 0.
+

@@ -312,12 +312,24 @@ final class GhosttySurfaceView: NSView, Identifiable {
     return ghostty_surface_needs_confirm_quit(surface)
   }
 
+  /// Test seam for `prepareForDeferredTeardown`: the local event monitor is
+  /// app-wide state, so a pending view holding one keeps swallowing Cmd-keyUp for
+  /// every other surface.
+  var hasLocalEventMonitor: Bool { eventMonitor != nil }
+
   /// Hands surface teardown to `SurfaceTeardownQueue`. Drops everything the view
   /// owns *except* the ghostty surface (whose free would block on a wedged pty io
   /// thread): the runtime registration goes now, so a pending surface no longer
-  /// receives color-scheme / config broadcasts.
+  /// receives color-scheme / config broadcasts, and the two pieces of APP-WIDE
+  /// state go now too — the local event monitor (else it keeps intercepting keys
+  /// for live surfaces) and SecureInput scoping via `passwordInput`.
   func prepareForDeferredTeardown() {
     clearNotificationObservers()
+    if let eventMonitor {
+      NSEvent.removeMonitor(eventMonitor)
+      self.eventMonitor = nil
+    }
+    passwordInput = false
     if let surfaceRef {
       runtime.unregisterSurface(surfaceRef)
       self.surfaceRef = nil

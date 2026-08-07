@@ -13,21 +13,28 @@ import Foundation
 /// The resolve policy (kill the zmx attach client, gate on
 /// `ghostty_surface_process_exited`, bounded poll, leak-over-hang) lands in a
 /// later slice; for now a handed-off surface stays pending forever.
+@MainActor
 final class SurfaceTeardownQueue {
-  private var pending: [UUID: GhosttySurfaceView] = [:]
+  /// Keyed by VIEW identity, not surface UUID: a dormant tab reuses its surface
+  /// UUIDs on wake, so a UUID-keyed map would treat the woken generation as
+  /// already pending, skip the hand-off, and let its free run inline again.
+  private var pending: [ObjectIdentifier: GhosttySurfaceView] = [:]
 
-  /// Number of `handOff(_:)` calls seen. Distinct from `pendingSurfaceIDs.count`
-  /// so a surface handed off twice is observable.
+  /// Number of `handOff(_:)` calls seen. Distinct from `pendingCount` so a view
+  /// handed off twice is observable.
   private(set) var handOffCount = 0
 
-  var pendingSurfaceIDs: Set<UUID> { Set(pending.keys) }
+  var pendingSurfaceIDs: Set<UUID> { Set(pending.values.map(\.id)) }
+
+  var pendingCount: Int { pending.count }
 
   /// Takes ownership of `view`'s surface teardown and returns without touching
   /// ghostty, so the caller's turn on the main actor never waits on a free.
   func handOff(_ view: GhosttySurfaceView) {
     handOffCount += 1
-    guard pending[view.id] == nil else { return }
-    pending[view.id] = view
+    let key = ObjectIdentifier(view)
+    guard pending[key] == nil else { return }
+    pending[key] = view
     view.prepareForDeferredTeardown()
   }
 }
