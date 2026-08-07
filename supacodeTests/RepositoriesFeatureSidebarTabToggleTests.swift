@@ -71,4 +71,59 @@ struct RepositoriesFeatureSidebarTabToggleTests {
       #expect(tab == SidebarTab.agents.rawValue)
     }
   }
+
+  // MARK: - ⌘⇧T Tasks toggle
+
+  @Test func togglingTasksFromWorktreesSelectsTasks() async {
+    await withDependencies {
+      $0.defaultAppStorage = .inMemory
+    } operation: {
+      @Shared(.sidebarTab) var tab
+      $tab.withLock { $0 = SidebarTab.worktrees.rawValue }
+
+      await makeStore().send(.toggleTasksSidebarTab)
+
+      #expect(tab == SidebarTab.tasks.rawValue)
+    }
+  }
+
+  /// Same chord semantics as ⌘⇧A: from Agents it jumps to Tasks, not back to
+  /// Worktrees.
+  @Test func togglingTasksFromAgentsSelectsTasks() async {
+    await withDependencies {
+      $0.defaultAppStorage = .inMemory
+    } operation: {
+      @Shared(.sidebarTab) var tab
+      $tab.withLock { $0 = SidebarTab.agents.rawValue }
+
+      await makeStore().send(.toggleTasksSidebarTab)
+
+      #expect(tab == SidebarTab.tasks.rawValue)
+    }
+  }
+
+  @Test func togglingTasksFromTasksReturnsToWorktrees() async {
+    await withDependencies {
+      $0.defaultAppStorage = .inMemory
+    } operation: {
+      @Shared(.sidebarTab) var tab
+      $tab.withLock { $0 = SidebarTab.tasks.rawValue }
+
+      await makeStore().send(.toggleTasksSidebarTab)
+
+      #expect(tab == SidebarTab.worktrees.rawValue)
+    }
+  }
+
+  /// Tasks is the home panel: with nothing persisted, the sidebar opens on the
+  /// inbox.
+  @Test func freshInstallDefaultsToTasksTab() async {
+    await withDependencies {
+      $0.defaultAppStorage = .inMemory
+    } operation: {
+      @Shared(.sidebarTab) var tab
+
+      #expect(SidebarTab.resolved(fromStoredValue: tab) == .tasks)
+    }
+  }
 }

@@ -153,6 +153,12 @@ struct ContentView: View {
       }
       store.send(.repositories(.toggleAgentsSidebarTab))
     }
+    .focusedSceneAction(\.toggleTasksSidebarTabAction, enabled: true) {
+      withAnimation(.easeOut(duration: 0.2)) {
+        leftSidebarVisibility = .all
+      }
+      store.send(.repositories(.toggleTasksSidebarTab))
+    }
     .focusedSceneAction(
       \.expandAllSidebarGroupsAction,
       enabled: !repositoriesStore.repositories.isEmpty

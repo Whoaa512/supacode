@@ -6,6 +6,7 @@ struct SidebarCommands: Commands {
   @FocusedValue(\.toggleLeftSidebarAction) private var toggleLeftSidebarAction
   @FocusedValue(\.revealInSidebarAction) private var revealInSidebarAction
   @FocusedValue(\.toggleAgentsSidebarTabAction) private var toggleAgentsSidebarTabAction
+  @FocusedValue(\.toggleTasksSidebarTabAction) private var toggleTasksSidebarTabAction
   @FocusedValue(\.expandAllSidebarGroupsAction) private var expandAllSidebarGroupsAction
   @FocusedValue(\.collapseAllSidebarGroupsAction) private var collapseAllSidebarGroupsAction
   @FocusedValue(\.toggleInspectorPaneAction) private var toggleInspectorPaneAction
@@ -75,6 +76,7 @@ struct SidebarCommands: Commands {
     let toggleLeftSidebar = AppShortcuts.toggleLeftSidebar.effective(from: overrides)
     let revealInSidebar = AppShortcuts.revealInSidebar.effective(from: overrides)
     let toggleAgentsTab = AppShortcuts.toggleAgentsSidebarTab.effective(from: overrides)
+    let toggleTasksTab = AppShortcuts.toggleTasksSidebarTab.effective(from: overrides)
     let expandAll = AppShortcuts.expandAllSidebarGroups.effective(from: overrides)
     let collapseAll = AppShortcuts.collapseAllSidebarGroups.effective(from: overrides)
     let togglePullRequestInspector = AppShortcuts.togglePullRequestInspector.effective(from: overrides)
@@ -101,6 +103,15 @@ struct SidebarCommands: Commands {
           + "if it is already showing (\(toggleAgentsTab?.display ?? "none"))"
       )
       .disabled(toggleAgentsSidebarTabAction?.isEnabled != true)
+      Button("Show Tasks Panel", systemImage: "checklist") {
+        toggleTasksSidebarTabAction?()
+      }
+      .appKeyboardShortcut(toggleTasksTab)
+      .help(
+        "Show the Tasks panel in the sidebar, or return to Worktrees "
+          + "if it is already showing (\(toggleTasksTab?.display ?? "none"))"
+      )
+      .disabled(toggleTasksSidebarTabAction?.isEnabled != true)
       Section {
         Button("Expand All", systemImage: "chevron.down") {
           expandAllSidebarGroupsAction?()
@@ -153,6 +164,10 @@ private struct ToggleAgentsSidebarTabActionKey: FocusedValueKey {
   typealias Value = FocusedAction<Void>
 }
 
+private struct ToggleTasksSidebarTabActionKey: FocusedValueKey {
+  typealias Value = FocusedAction<Void>
+}
+
 private struct ExpandAllSidebarGroupsActionKey: FocusedValueKey {
   typealias Value = FocusedAction<Void>
 }
@@ -179,6 +194,11 @@ extension FocusedValues {
   var toggleAgentsSidebarTabAction: FocusedAction<Void>? {
     get { self[ToggleAgentsSidebarTabActionKey.self] }
     set { self[ToggleAgentsSidebarTabActionKey.self] = newValue }
+  }
+
+  var toggleTasksSidebarTabAction: FocusedAction<Void>? {
+    get { self[ToggleTasksSidebarTabActionKey.self] }
+    set { self[ToggleTasksSidebarTabActionKey.self] = newValue }
   }
 
   var expandAllSidebarGroupsAction: FocusedAction<Void>? {

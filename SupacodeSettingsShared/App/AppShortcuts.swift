@@ -7,7 +7,7 @@ import SwiftUI
 // Compile-time checkable shortcut identifier.
 public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRepresentable {
   case commandPalette, worktreeSwitcher, branchSearch, openSettings, checkForUpdates, showMainWindow
-  case toggleLeftSidebar, revealInSidebar, toggleAgentsSidebarTab
+  case toggleLeftSidebar, revealInSidebar, toggleAgentsSidebarTab, toggleTasksSidebarTab
   case expandAllSidebarGroups, collapseAllSidebarGroups
   case newWorktree, refreshWorktrees, archivedWorktrees, archiveWorktree
   case deleteWorktree, confirmWorktreeAction
@@ -49,6 +49,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     case .toggleLeftSidebar: "toggleLeftSidebar"
     case .revealInSidebar: "revealInSidebar"
     case .toggleAgentsSidebarTab: "toggleAgentsSidebarTab"
+    case .toggleTasksSidebarTab: "toggleTasksSidebarTab"
     case .expandAllSidebarGroups: "expandAllSidebarGroups"
     case .collapseAllSidebarGroups: "collapseAllSidebarGroups"
     case .newWorktree: "newWorktree"
@@ -89,6 +90,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     "toggleLeftSidebar": .toggleLeftSidebar,
     "revealInSidebar": .revealInSidebar,
     "toggleAgentsSidebarTab": .toggleAgentsSidebarTab,
+    "toggleTasksSidebarTab": .toggleTasksSidebarTab,
     "expandAllSidebarGroups": .expandAllSidebarGroups,
     "collapseAllSidebarGroups": .collapseAllSidebarGroups,
     "newWorktree": .newWorktree,
@@ -146,6 +148,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     case .toggleLeftSidebar: "Toggle Left Sidebar"
     case .revealInSidebar: "Reveal in Sidebar"
     case .toggleAgentsSidebarTab: "Toggle Agents Sidebar Tab"
+    case .toggleTasksSidebarTab: "Toggle Tasks Sidebar Tab"
     case .expandAllSidebarGroups: "Expand All Sidebar Groups"
     case .collapseAllSidebarGroups: "Collapse All Sidebar Groups"
     case .newWorktree: "New Worktree"
@@ -383,6 +386,11 @@ public enum AppShortcuts {
   public static let toggleAgentsSidebarTab = AppShortcut(
     id: .toggleAgentsSidebarTab, key: "a", modifiers: [.command, .shift]
   )
+  // ⌘⇧T is free: ⌘T stays with the terminal, and nothing else claims the
+  // shifted chord.
+  public static let toggleTasksSidebarTab = AppShortcut(
+    id: .toggleTasksSidebarTab, key: "t", modifiers: [.command, .shift]
+  )
   // `]` expands (opens rightward), `[` collapses, mirroring the outline-view
   // Right/Left arrow convention, and pairs with ⌘[ for the sidebar toggle.
   public static let expandAllSidebarGroups = AppShortcut(
@@ -516,7 +524,7 @@ public enum AppShortcuts {
     AppShortcutGroup(
       category: .sidebar,
       shortcuts: [
-        toggleLeftSidebar, revealInSidebar, toggleAgentsSidebarTab,
+        toggleLeftSidebar, revealInSidebar, toggleAgentsSidebarTab, toggleTasksSidebarTab,
         expandAllSidebarGroups, collapseAllSidebarGroups,
       ]
     ),

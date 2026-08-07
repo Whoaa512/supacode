@@ -359,6 +359,7 @@ struct RepositoriesFeature {
     /// ⌘⇧A (or the View menu item): shows the Agents panel, or returns to
     /// Worktrees when Agents is already showing.
     case toggleAgentsSidebarTab
+    case toggleTasksSidebarTab
     /// Fired when `settingsFile.global.agentsSidebar` changes (file edit or the
     /// Settings editor), so the post-reduce hook re-resolves every row's
     /// configured segments.
@@ -3174,6 +3175,18 @@ struct RepositoriesFeature {
           switch SidebarTab.resolved(fromStoredValue: sidebarTabRawValue) {
           case .agents: .worktrees
           case .worktrees, .tasks: .agents
+          }
+        $sidebarTabRawValue.withLock { $0 = next.rawValue }
+        return .none
+
+      case .toggleTasksSidebarTab:
+        @Shared(.sidebarTab) var sidebarTabRawValue
+        // Same shape as ⌘⇧A: "show me the tasks", returning to Worktrees only
+        // when the inbox is already up.
+        let next: SidebarTab =
+          switch SidebarTab.resolved(fromStoredValue: sidebarTabRawValue) {
+          case .tasks: .worktrees
+          case .worktrees, .agents: .tasks
           }
         $sidebarTabRawValue.withLock { $0 = next.rawValue }
         return .none
