@@ -6,24 +6,26 @@ import Testing
 
 @testable import supacode
 
-/// Hibernation must not sit on the main actor waiting for ghostty surface
-/// teardown: `ghostty_surface_free` joins the surface's io thread, so one wedged
-/// pty reader freezes the whole app. Teardown is handed to the `surfaceTeardown`
-/// seam; hibernation itself completes regardless of what that teardown does.
+/// Hibernation must not free ghostty surfaces on its own turn: the free joins the
+/// surface's io thread, so one wedged pty reader freezes the whole app. Dropping
+/// the last strong reference is NOT enough — `GhosttySurfaceView.isolated deinit`
+/// frees inline — so hibernation has to hand OWNERSHIP to the teardown queue.
 @MainActor
 @Suite(.serialized, .dependencies)
 struct HibernationTeardownTests {
-  /// Records every surface handed to teardown and never frees it, standing in
-  /// for a surface whose `ghostty_surface_free` wedges forever.
-  private final class WedgedTeardown {
-    var handedOff: [UUID] = []
+  private final class WeakSurfaceRef {
+    weak var view: GhosttySurfaceView?
+
+    init(_ view: GhosttySurfaceView) {
+      self.view = view
+    }
   }
 
-  private func makeState() -> WorktreeTerminalState {
+  private func makeState(runtime: GhosttyRuntime) -> WorktreeTerminalState {
     HibernationTestSupport.enableHibernation()
     let id = "/tmp/repo/wt-hibernation-teardown"
     return WorktreeTerminalState(
-      runtime: GhosttyRuntime(),
+      runtime: runtime,
       worktree: Worktree(
         id: WorktreeID(id),
         name: URL(fileURLWithPath: id).lastPathComponent,
@@ -35,23 +37,44 @@ struct HibernationTeardownTests {
     )
   }
 
-  @Test func hibernationCompletesWhenSurfaceTeardownNeverFinishes() {
-    let state = makeState()
-    let tab = state.createTab(focusing: false)!
-    let leafIDs = Set(state.splitTree(for: tab).root!.leaves().map(\.id))
+  /// Returns only the leaf IDs plus weak references, so the caller holds no strong
+  /// reference that would mask an inline free during hibernation.
+  private func snapshotLeaves(
+    of state: WorktreeTerminalState,
+    tab: TerminalTabID
+  ) -> (ids: Set<UUID>, refs: [WeakSurfaceRef]) {
+    let leaves = state.splitTree(for: tab).root!.leaves()
+    return (Set(leaves.map(\.id)), leaves.map(WeakSurfaceRef.init))
+  }
 
-    let teardown = WedgedTeardown()
-    state.surfaceTeardown = { view in teardown.handedOff.append(view.id) }
+  @Test func hibernationTransfersSurfaceOwnershipAndStillCompletes() {
+    let runtime = GhosttyRuntime()
+    let state = makeState(runtime: runtime)
     var hibernatedSurfaces: Set<UUID>?
     state.onSurfacesHibernated = { hibernatedSurfaces = $0 }
     var dormancyChanged = false
     state.onDormancyChanged = { dormancyChanged = true }
 
-    state.hibernateTabForTesting(tab)
+    var leafIDs: Set<UUID> = []
+    var refs: [WeakSurfaceRef] = []
+    var tab: TerminalTabID!
+    // Surface creation autoreleases the views, so create AND hibernate inside one
+    // pool: the weak checks below must run after that pool has drained, otherwise
+    // an autoreleased reference masks an inline free.
+    autoreleasepool {
+      tab = state.createTab(focusing: false)!
+      (leafIDs, refs) = snapshotLeaves(of: state, tab: tab)
+      state.hibernateTabForTesting(tab)
+    }
 
-    // Teardown was handed off, not performed inline.
-    #expect(Set(teardown.handedOff) == leafIDs)
-    // ...and hibernation still completed despite that teardown never finishing.
+    // Ownership moved to the queue: nothing was freed on hibernation's turn, so
+    // every view outlives the call (a dealloc'd view means `deinit` freed inline).
+    #expect(refs.allSatisfy { $0.view != nil })
+    #expect(runtime.surfaceTeardownQueue.pendingSurfaceIDs == leafIDs)
+    // Every leaf handed off exactly once — no surface skipped, none handed twice.
+    #expect(runtime.surfaceTeardownQueue.handOffCount == leafIDs.count)
+
+    // ...and hibernation completed despite owning no completed teardown.
     #expect(state.isTabDormant(tab))
     #expect(Set(state.dormantTabLayouts[tab]?.layout.leafSurfaceIDs ?? []) == leafIDs)
     #expect(hibernatedSurfaces == leafIDs)

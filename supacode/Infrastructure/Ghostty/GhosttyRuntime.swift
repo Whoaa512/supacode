@@ -33,6 +33,9 @@ final class GhosttyRuntime {
   private(set) var app: ghostty_app_t?
   private var observers: [NSObjectProtocol] = []
   private var surfaceRefs: [SurfaceReference] = []
+  /// Deferred-teardown owner for surfaces leaving a live tree. Lives on the
+  /// runtime (not per `WorktreeTerminalState`) so every close path can share it.
+  let surfaceTeardownQueue = SurfaceTeardownQueue()
   private var lastColorScheme: ghostty_color_scheme_e?
   /// Whether the user has toggled background opacity to force
   /// an opaque window, overriding the configured transparency.

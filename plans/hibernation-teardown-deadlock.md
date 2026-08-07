@@ -160,3 +160,30 @@ D. No surface leak in the happy path: teardown still frees every surface
 - `make check` exit 0. swift-format touched 6 unrelated files (pre-existing
   drift) — reverted to keep the commit focused.
 
+### RED (cycle 2 — B1 ownership) — cycle-1 test replaced
+
+- Cycle-1's test was a FALSE GREEN: it only pinned "the seam was called".
+  `GhosttySurfaceView` has an `isolated deinit` that calls `closeSurface()`
+  inline, so a teardown double that merely records the hand-off still let the
+  last strong reference drop inside `performHibernation` → surface freed
+  synchronously on the main actor → production still deadlocks.
+- Test rewritten to pin OWNERSHIP + completeness:
+  `hibernationTransfersSurfaceOwnershipAndStillCompletes()` takes weak refs to
+  the leaf views, hibernates, then asserts the views are STILL ALIVE, that the
+  teardown queue holds exactly the leaf IDs, and that hand-off count == leaf
+  count (no double hand-off) — plus the cycle-1 completeness assertions (dormant
+  tab, dormant layout leaves, `onSurfacesHibernated`, `onDormancyChanged`).
+- Gotcha: surface creation autoreleases the views, so tab creation AND
+  hibernation must happen inside one `autoreleasepool` and the weak checks after
+  it drains. Without that the weak assertion passes vacuously (first run of this
+  test did exactly that — it only failed on the queue assertions).
+- Declaration only (cycle-1 pattern): new `SurfaceTeardownQueue`
+  (`supacode/Infrastructure/Ghostty/SurfaceTeardownQueue.swift`) owning
+  `[UUID: GhosttySurfaceView]` + `handOffCount`, exposed as
+  `GhosttyRuntime.surfaceTeardownQueue`. NOT wired into `performHibernation`
+  yet, so the test fails for the right reason.
+- Observed failure (3 assertions): `refs.allSatisfy { $0.view != nil }` false
+  (views dealloc'd → `deinit` freed inline), `pendingSurfaceIDs → []`,
+  `handOffCount → 0`.
+- Verified tests ran: xcresult summary `failedTests: 1, passedTests: 0`.
+
