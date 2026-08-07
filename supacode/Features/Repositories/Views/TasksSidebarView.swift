@@ -144,7 +144,7 @@ private struct TaskSidebarRowView: View {
         title: record?.title ?? "",
         directoryName: Self.directoryName(for: record),
         branch: record?.branch,
-        isLowConfidenceSeed: record?.seedEvidence?.confidence == .low,
+        isLowConfidenceSeed: (record?.seedEvidence).map { $0.confidence != .high } ?? false,
         hasUnseenNotifications: leaf?.hasUnseenNotifications == true,
         activity: TaskRowActivity(leaf: leaf),
         settledTimestamp: settledTimestamp,

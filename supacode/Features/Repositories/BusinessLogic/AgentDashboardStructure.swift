@@ -247,12 +247,7 @@ extension RepositoriesFeature.State {
     return SidebarTab.resolved(fromStoredValue: sidebarTabRawValue)
   }
 
-  /// True while the Agents panel is the one on screen.
-  var isAgentsSidebarTabActive: Bool {
-    activeSidebarTab == .agents
-  }
-
-  /// Wrapping move through the flat visual order, matching worktree arrow nav
+    /// Wrapping move through the flat visual order, matching worktree arrow nav
   /// (which also wraps). Grouped sections are cut from the same sorted list, so
   /// this walks across section boundaries in the order the user sees. Returns
   /// nil when there is no row to land on, which the caller turns into a beep.

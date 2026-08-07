@@ -58,8 +58,6 @@ nonisolated struct TaskRecord: Codable, Equatable, Identifiable, Sendable {
       case currentBranch
       /// `.git/logs/HEAD` checkout history for the directory.
       case reflog
-      /// A tab/surface present in `layouts.json`.
-      case layoutSnapshot
       /// Scrollback file mtime — a *last-mounted* signal only, never activity.
       case scrollbackMtime
       /// Created by the user, not inferred.

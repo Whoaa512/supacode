@@ -311,6 +311,8 @@ struct RepositoriesFeatureTasksTests {
     await store.finish()
 
     #expect(store.state.taskRecords[id: myTask.id]?.settledAt == Self.now)
+    // A11: the settle stamp survives the round-trip to disk.
+    #expect(sandbox.loadFile()?.tasks.first { $0.id == myTask.id }?.settledAt == Self.now)
     // A11: settling writes `tasks.json` only — `sidebar.json` is untouched.
     #expect(store.state.sidebar == priorSidebar)
     #expect(store.state.tasksSidebarStructure.activeTaskIDs == [otherTask.id])
