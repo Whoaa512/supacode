@@ -1,3 +1,4 @@
+import ComposableArchitecture
 import Foundation
 
 /// The per-task invalidation unit — the task-row analogue of
@@ -5,10 +6,18 @@ import Foundation
 ///
 /// Everything a task row renders that is *not* in `TaskRecord` lives here:
 /// title, branch and directory come from the record, activity comes from this
-/// leaf. The reducer holds one leaf per task (`[TaskID: TaskLeafState]`), so an
-/// agent tick or a notification mutates exactly one dictionary value and only
-/// that row's observation invalidates — sibling rows and the cached
-/// `TasksSidebarStructure` are untouched (assertion A10).
+/// leaf. The reducer holds one leaf per task in an
+/// `IdentifiedArrayOf<TaskLeafState>`, and every leaf is `@ObservableState`, so
+/// an agent tick mutates exactly one element and only that row's observation
+/// invalidates — sibling rows and the cached `TasksSidebarStructure` are
+/// untouched (assertion A10).
+///
+/// The container is deliberately *not* a `[TaskID: TaskLeafState]` dictionary:
+/// TCA ships no `ObservableState` conformance for `Dictionary`, so a dictionary
+/// would publish a whole-container change on every leaf tick and fan out to
+/// every row view — exactly what A10 forbids. `IdentifiedArray` does conform
+/// (element-wise), which is why the recompute must mutate per element and never
+/// replace the container wholesale.
 ///
 /// Deliberately *not* an input to `TasksSidebarStructure.compute`: activity
 /// updates a row and can never reorder it (A4).
@@ -21,6 +30,7 @@ import Foundation
 /// this is reducer state, MainActor-isolated by the target's
 /// `SWIFT_DEFAULT_ACTOR_ISOLATION` exactly like `SidebarItemFeature.State`, and
 /// it is never touched off the main actor.
+@ObservableState
 struct TaskLeafState: Equatable, Sendable, Identifiable {
   let id: TaskID
   /// Agents reported on the surfaces this task owns, projected from

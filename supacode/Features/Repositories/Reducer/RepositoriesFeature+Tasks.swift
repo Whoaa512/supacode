@@ -17,6 +17,10 @@ private enum TaskCancelID {
   /// Every save writes the whole file, so a newer save fully supersedes an
   /// in-flight one and cancelling it can never drop state.
   static let persist = "repositories.tasks.persist"
+  /// Seeding is armed from two launch paths (`.loaded` and `.repositoriesLoaded`),
+  /// so the later arming supersedes an in-flight one instead of racing it into a
+  /// duplicate `.seeded`.
+  static let seed = "repositories.tasks.seed"
 }
 
 extension RepositoriesFeature {
@@ -85,6 +89,7 @@ extension RepositoriesFeature {
           let records = Self.seedRecords(inputs: inputs, existingTasks: existing, now: now)
           await send(.tasks(.seeded(records)))
         }
+        .cancellable(id: TaskCancelID.seed, cancelInFlight: true)
 
       case .tasks(.seeded(let records)):
         guard !state.didSeedTasks, !state.isTaskPersistenceDisabled else { return .none }
@@ -98,12 +103,12 @@ extension RepositoriesFeature {
 
       case .tasks(.select(let id)):
         guard state.taskRecords[id: id] != nil else { return .none }
-        state.taskRecords[id: id]?.lastVisitedAt = now
         // `.selectionChanged` owns the exclusivity rules (a task selection drops
-        // the worktree selection) and leaves `sidebar.json` alone (A11).
+        // the worktree selection), stamps `lastVisitedAt` and persists, and
+        // leaves `sidebar.json` alone (A11). This arm only adds focus, so a
+        // selection that arrives by any other route still gets the stamp.
         var effects: [Effect<Action>] = [
-          .send(.selectionChanged([.task(id)])),
-          Self.persistTasksEffect(state: state),
+          .send(.selectionChanged([.task(id)]))
         ]
         if let focus = state.taskFocusDelegate(for: id) {
           effects.append(.send(.delegate(focus)))
@@ -112,6 +117,9 @@ extension RepositoriesFeature {
 
       case .tasks(.settle(let id)):
         guard let record = state.taskRecords[id: id] else { return .none }
+        // Idempotent: a second settle must not re-stamp `settledAt` and jump the
+        // task back to the head of the settled tail (which sorts by that stamp).
+        guard record.settledAt == nil else { return .none }
         let hibernation = state.taskHibernationDelegate(for: record)
         // Always stamped, never derived: the settled tail sorts and labels by
         // this one timestamp (A17), and an explicit `.active` override would
@@ -395,6 +403,15 @@ extension RepositoriesFeature.State {
   /// and reconciling against it would erase live claims. A directory with no row
   /// at all (deleted worktree) keeps its claims untouched — the task survives
   /// either way (A10b).
+  ///
+  /// A surface is only pruned when it is absent from the live projection *and*
+  /// from the row's persisted layout. Restore emits one projection per tab
+  /// (`WorktreeTerminalState` calls `onTabCreated` inside the restore loop), and
+  /// `hasTerminalProjection` latches on the first of them, so a projection-only
+  /// check would prune tabs 2..n of a multi-tab restore and persist the loss.
+  /// The layouts snapshot knows every tab, so it is the backstop; a genuinely
+  /// closed tab drops out of both (the close path marks the layout dirty and
+  /// rewrites it).
   @MainActor
   mutating func reconcileTaskSurfaceOwnership() -> Bool {
     var didChange = false
@@ -403,12 +420,26 @@ extension RepositoriesFeature.State {
       guard let row = sidebarItemForTaskDirectory(record.directoryPath), row.hasTerminalProjection else {
         continue
       }
-      let live = record.surfaceIDs.intersection(row.surfaceIDs)
+      var known = Set(row.surfaceIDs)
+      known.formUnion(persistedLayouts[row.id.rawValue]?.allSurfaceIDs ?? [])
+      let live = record.surfaceIDs.intersection(known)
       guard live != record.surfaceIDs else { continue }
       taskRecords[id: record.id]?.surfaceIDs = live
       didChange = true
     }
     return didChange
+  }
+
+  /// The worktree the terminal manager should treat as selected while a task row
+  /// is open. A task selection clears the worktree selection, and a nil terminal
+  /// selection makes `refreshTabVisibility` arm the hibernation grace timer on
+  /// every tab of the owning worktree — including the tab the user just opened.
+  /// Pointing the manager at the owning worktree keeps the focused task tab
+  /// visible without touching `sidebar.json` (A11).
+  var taskTerminalWorktreeID: Worktree.ID? {
+    guard let taskID = selection?.taskID, let record = taskRecords[id: taskID] else { return nil }
+    guard !record.surfaceIDs.isEmpty, !TasksSidebarStructure.isSettled(record) else { return nil }
+    return sidebarItemForTaskDirectory(record.directoryPath)?.id
   }
 
   // MARK: - Cache recomputes
@@ -438,34 +469,41 @@ extension RepositoriesFeature.State {
   /// row's snapshot. Exact for Phase 1, where a seeded task owns every surface
   /// in its directory; Phase 3's promote-tab claims are the case that will need
   /// per-surface presence.
+  ///
+  /// Rows are found by directory rather than by inverting every surface: Phase 1
+  /// has exactly one row per task, and this runs on every agent tick, so a
+  /// per-tick `surfaceToItemID` rebuild would be paid for nothing.
+  ///
+  /// Mutates `taskLeaves` per element. Replacing the container would publish a
+  /// whole-array change and fan invalidation out to every row (A10).
   @MainActor
   mutating func recomputeTaskLeavesIfChanged() {
     guard !taskRecords.isEmpty || !taskLeaves.isEmpty else { return }
-    let rowIDsBySurface = surfaceToItemID
-    var leaves: [TaskID: TaskLeafState] = [:]
-    leaves.reserveCapacity(taskRecords.count)
-    for record in taskRecords {
-      // Sorted so the merged agent order is stable: an unordered walk would make
-      // the Equatable diff flap and republish an unchanged leaf.
-      let rowIDs = Set(record.surfaceIDs.compactMap { rowIDsBySurface[$0] })
-        .sorted { $0.rawValue < $1.rawValue }
-      var leaf = TaskLeafState(id: record.id)
-      var agents: [AgentPresenceFeature.AgentInstance] = []
-      var dormantRowCount = 0
-      for rowID in rowIDs {
-        guard let row = sidebarItems[id: rowID] else { continue }
-        agents.append(contentsOf: row.agentSnapshot.agents)
-        leaf.agentSnapshot.isWorking = leaf.agentSnapshot.isWorking || row.agentSnapshot.isWorking
-        leaf.agentSnapshot.hasError = leaf.agentSnapshot.hasError || row.agentSnapshot.hasError
-        leaf.hasUnseenNotifications = leaf.hasUnseenNotifications || row.hasUnseenNotifications
-        if row.allTabsDormant { dormantRowCount += 1 }
-      }
-      leaf.agentSnapshot.agents = agents
-      leaf.allSurfacesDormant = !rowIDs.isEmpty && dormantRowCount == rowIDs.count
-      leaves[record.id] = leaf
+    var rowIDsByPath: [String: SidebarItemID] = [:]
+    rowIDsByPath.reserveCapacity(sidebarItems.count)
+    for row in sidebarItems where row.host == nil {
+      rowIDsByPath[TaskDirectoryPath.normalized(row.workingDirectory.path(percentEncoded: false))] = row.id
     }
-    if leaves != taskLeaves {
-      taskLeaves = leaves
+
+    var liveIDs: Set<TaskID> = []
+    liveIDs.reserveCapacity(taskRecords.count)
+    for record in taskRecords {
+      liveIDs.insert(record.id)
+      var leaf = TaskLeafState(id: record.id)
+      if !record.surfaceIDs.isEmpty,
+        let rowID = rowIDsByPath[TaskDirectoryPath.normalized(record.directoryPath)],
+        let row = sidebarItems[id: rowID]
+      {
+        leaf.agentSnapshot = row.agentSnapshot
+        leaf.hasUnseenNotifications = row.hasUnseenNotifications
+        leaf.allSurfacesDormant = row.allTabsDormant
+      }
+      if taskLeaves[id: record.id] != leaf {
+        taskLeaves[id: record.id] = leaf
+      }
+    }
+    for staleID in Array(taskLeaves.ids) where !liveIDs.contains(staleID) {
+      taskLeaves.remove(id: staleID)
     }
   }
 }

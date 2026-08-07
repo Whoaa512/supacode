@@ -280,8 +280,10 @@ struct RepositoriesFeature {
     /// reader of the cached structure — exactly the fan-out the per-leaf
     /// doctrine forbids.
     var taskRecords: IdentifiedArrayOf<TaskRecord> = []
-    /// Per-task activity projection: the per-leaf invalidation unit.
-    var taskLeaves: [TaskID: TaskLeafState] = [:]
+    /// Per-task activity projection: the per-leaf invalidation unit. Identified,
+    /// not a dictionary, so a single leaf tick invalidates one element instead of
+    /// republishing the whole container (see `TaskLeafState`).
+    var taskLeaves: IdentifiedArrayOf<TaskLeafState> = []
     /// Cached Tasks render plan, recomputed in the post-reduce hook and
     /// Equatable-diffed before publish (`AgentDashboardStructure` precedent).
     var tasksSidebarStructure: TasksSidebarStructure = .empty
@@ -298,18 +300,6 @@ struct RepositoriesFeature {
     /// written by a newer build is refused by `TaskStore.save` (which logs)
     /// instead of being silently downgraded (A13).
     var taskStoreSchemaVersion = TaskStoreFile.currentSchemaVersion
-    /// Reverse index from surface UUID to owning task. Derived from
-    /// `taskRecords` and never persisted, exactly like `surfaceToItemID`, so it
-    /// cannot drift out of sync with the records it describes.
-    var surfaceToTaskID: [UUID: TaskID] {
-      var index: [UUID: TaskID] = [:]
-      for record in taskRecords {
-        for surfaceID in record.surfaceIDs {
-          index[surfaceID] = record.id
-        }
-      }
-      return index
-    }
   }
 
   // Removal pipeline types + helpers live in
@@ -6126,7 +6116,19 @@ extension RepositoriesFeature.State {
     if let taskID = selections.compactMap(\.taskID).first {
       selection = .task(taskID)
       sidebarSelectedWorktreeIDs = []
-      return .send(.delegate(.selectedWorktreeChanged(nil)))
+      var effects: [Effect<RepositoriesFeature.Action>] = [
+        .send(.delegate(.selectedWorktreeChanged(nil)))
+      ]
+      // Stamped here rather than in `.tasks(.select)` so *every* path that opens
+      // a task (row click, list view, hotkey, forward nav) marks it visited: the
+      // assignment of `.task` and the stamp cannot drift apart if they are the
+      // same statement. `.tasks(.select)` stays as sugar that adds focus.
+      if taskRecords[id: taskID] != nil {
+        @Dependency(\.date.now) var now
+        taskRecords[id: taskID]?.lastVisitedAt = now
+        effects.append(RepositoriesFeature.persistTasksEffect(state: self))
+      }
+      return .merge(effects)
     }
 
     // Validate against the live roster + pending entries so a reselect of a
