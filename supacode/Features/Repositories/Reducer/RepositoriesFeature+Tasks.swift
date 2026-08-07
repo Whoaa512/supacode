@@ -20,6 +20,7 @@ private enum TaskCancelID {
 }
 
 extension RepositoriesFeature {
+  @CasePathable
   enum TaskInboxAction: Equatable {
     /// Launch: read `~/.supacode/tasks.json`.
     case load
