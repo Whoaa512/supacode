@@ -104,7 +104,12 @@ final class SurfaceTeardownQueue {
 
   /// Takes ownership of `view`'s surface teardown and returns without touching
   /// ghostty, so the caller's turn on the main actor never waits on a free.
-  func handOff(_ view: GhosttySurfaceView) {
+  ///
+  /// - Parameter killAttachClient: `false` skips the client kill for a surface whose
+  ///   child is already gone but whose zmx session is being reattached under the
+  ///   same surface id: the kill matches by session pattern, so it would take out
+  ///   the replacement's client instead (binding 8, same hazard as re-killing).
+  func handOff(_ view: GhosttySurfaceView, killAttachClient: Bool = true) {
     let key = ObjectIdentifier(view)
     guard pending[key] == nil else { return }
     pending[key] = Entry(view: view, stage: .killRequested)
@@ -112,7 +117,9 @@ final class SurfaceTeardownQueue {
     let sessionID = ZmxSessionID.make(surfaceID: view.id)
     let shell = shell
     teardownTasks[key] = Task { [weak self] in
-      await Self.killAttachClient(sessionID: sessionID, shell: shell)
+      if killAttachClient {
+        await Self.killAttachClient(sessionID: sessionID, shell: shell)
+      }
       await self?.awaitExitThenFree(key)
     }
   }

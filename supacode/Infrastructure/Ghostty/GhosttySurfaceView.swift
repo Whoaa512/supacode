@@ -278,7 +278,11 @@ final class GhosttySurfaceView: NSView, Identifiable {
     MainActor.assumeIsolated {
       SecureInput.shared.removeScoped(id)
     }
-    closeSurface()
+    // NOT `closeSurface()`: that hands off to `SurfaceTeardownQueue`, which would
+    // retain `self` from inside `deinit` (illegal resurrection). Every owner is
+    // expected to close first, which is why a live surface here is logged as a bug
+    // — see `freeSurfaceInline()`.
+    freeSurfaceInline()
     if let workingDirectoryCString {
       free(workingDirectoryCString)
     }
@@ -357,26 +361,46 @@ final class GhosttySurfaceView: NSView, Identifiable {
     lastSurfaceFocus = nil
   }
 
-  func closeSurface() {
-    // Inert once the queue owns this view's teardown (binding 11): the only real
-    // free is `performDeferredFree()`. Logged because a caller reaching here
-    // expects the surface to be gone and it is not (yet).
+  /// Retires this surface. NEVER frees inline: `ghostty_surface_free` joins the
+  /// surface's pty io thread, so a wedged reader would freeze the main actor (and
+  /// the whole app) on the closing turn. Ownership goes to
+  /// `SurfaceTeardownQueue`, which kills the attach client, waits for the child to
+  /// exit, and frees via `performDeferredFree()` — the only real free.
+  ///
+  /// - Parameter killAttachClient: pass `false` when the surface's child is already
+  ///   gone AND another surface is (or is about to be) attached to the same zmx
+  ///   session under the same surface id. The kill matches by session pattern, so
+  ///   it would murder that other client. Only the zmx reattach path needs this.
+  func closeSurface(killAttachClient: Bool = true) {
+    // Inert once the queue owns this view's teardown (binding 11). Logged because a
+    // caller reaching here expects the surface to be gone and it is not (yet).
     if isTeardownDeferred {
       surfaceLogger.warning("closeSurface() ignored for \(id): teardown is deferred")
       return
     }
+    runtime.surfaceTeardownQueue.handOff(self, killAttachClient: killAttachClient)
+  }
+
+  /// Last-resort inline free, reachable only from `deinit`. A view that reaches
+  /// `deinit` still owning a surface was released without anyone calling
+  /// `closeSurface()`, so the queue never got the chance to make the free safe:
+  /// freeing here can block the main actor on a wedged io thread. That is a bug in
+  /// the owner, hence the error log — but it is also the only legal option, since
+  /// handing off from `deinit` would resurrect `self`.
+  private func freeSurfaceInline() {
     clearNotificationObservers()
-    if let surface {
-      if let surfaceRef {
-        runtime.unregisterSurface(surfaceRef)
-        self.surfaceRef = nil
-      }
-      ghostty_surface_free(surface)
-      self.surface = nil
-      bridge.surface = nil
-      lastOcclusion = nil
-      lastSurfaceFocus = nil
+    guard let surface else { return }
+    surfaceLogger.error(
+      "surface \(id) reached deinit without closeSurface(); freeing inline (may block)")
+    if let surfaceRef {
+      runtime.unregisterSurface(surfaceRef)
+      self.surfaceRef = nil
     }
+    ghostty_surface_free(surface)
+    self.surface = nil
+    bridge.surface = nil
+    lastOcclusion = nil
+    lastSurfaceFocus = nil
   }
 
   private func updateScreenObservers() {
