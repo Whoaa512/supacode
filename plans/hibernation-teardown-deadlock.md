@@ -310,3 +310,33 @@ D. No surface leak in the happy path: teardown still frees every surface
   freed — no `ghostty_surface_process_exited` poll, no free, no leak bucket. That
   is slices 3–5 (poll → free-or-leak → counters).
 
+
+### RED→GREEN (cycle 3, slice 3 — poll `process_exited`, then free)
+
+- RED: new test `pollingFreesTheSurfaceOnceTheProcessHasExited()` referenced
+  `SurfaceTeardownQueue(shell:clock:hasProcessExited:free:)` and
+  `GhosttySurfaceView.performDeferredFree()` — compile failure (`no member
+  performDeferredFree`, `extra arguments at positions #2, #3, #4`).
+- Queue now takes an injected `clock: any Clock<Duration>` (default
+  `ContinuousClock()`) plus two main-actor closures — `hasProcessExited`
+  (production: `view.hasSurfaceProcessExited` → `ghostty_surface_process_exited`)
+  and `free` (production: `view.performDeferredFree()`). Closures take the VIEW,
+  so `GhosttySurfaceView` needs no test seam of its own.
+- `pending` values became `Entry(view:stage:)` with the binding-13 state machine
+  (`.killRequested` → `.awaitingExit(attempt:)` → `.freed`), readable via
+  `stage(for:)`. The per-view Task now runs kill → `awaitExitThenFree`: poll the
+  probe, `clock.sleep(50ms)` between attempts, max 40 attempts (2s bound —
+  generous for a normal `zmx attach` exit, short enough that a wedged pty doesn't
+  pile up pending surfaces). On probe true → `free(view)` → drop the pending entry
+  and the Task, which releases the queue's last strong reference.
+- `GhosttySurfaceView.performDeferredFree()` is the only real free for a deferred
+  view (binding 11): `ghostty_surface_free` + nils `surface`, `bridge.surface`,
+  `lastOcclusion`, `lastSurfaceFocus`.
+- Test drives a `TestClock` (never `Task.sleep`): asserts nothing is freed while
+  the probe says the child lives (5 ticks), then flips the probe, advances, and
+  asserts freed exactly once (by surface ID), `pendingCount == 0`, and the view
+  DEALLOCATED (weak ref nil, hand-off inside an `autoreleasepool`).
+- `-only-testing:supacodeTerminalTests/SurfaceTeardownQueueTests` +
+  `HibernationTeardownTests` → exit 0, totalTestCount 10, passed 10, failed 0.
+- Still pending after slice 3: probe never true → the entry stays pending forever
+  (no leak bucket, no counter). Slice 4.

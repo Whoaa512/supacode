@@ -337,6 +337,26 @@ final class GhosttySurfaceView: NSView, Identifiable {
     isTeardownDeferred = true
   }
 
+  /// Whether the surface's child process is gone, so `ghostty_surface_free` no
+  /// longer has a live pty io thread to join. A surface that is already freed
+  /// counts as exited.
+  var hasSurfaceProcessExited: Bool {
+    guard let surface else { return true }
+    return ghostty_surface_process_exited(surface)
+  }
+
+  /// The ONLY real free for a view whose teardown was deferred (binding 11):
+  /// `SurfaceTeardownQueue` calls this on the main actor once the child has exited,
+  /// so the view stays the single owner that nils the surface pointers.
+  func performDeferredFree() {
+    guard let surface else { return }
+    ghostty_surface_free(surface)
+    self.surface = nil
+    bridge.surface = nil
+    lastOcclusion = nil
+    lastSurfaceFocus = nil
+  }
+
   func closeSurface() {
     guard !isTeardownDeferred else { return }
     clearNotificationObservers()

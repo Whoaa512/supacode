@@ -1,3 +1,5 @@
+import Clocks
+import ConcurrencyExtras
 import Dependencies
 import DependenciesTestSupport
 import Foundation
@@ -27,6 +29,38 @@ private actor ShellSpy {
   }
 }
 
+/// Stands in for `ghostty_surface_process_exited`, so a test decides exactly when
+/// the wedged pty child is gone.
+@MainActor
+private final class ProbeSpy {
+  var hasExited = false
+  private(set) var callCount = 0
+
+  func probe(_ view: GhosttySurfaceView) -> Bool {
+    callCount += 1
+    return hasExited
+  }
+}
+
+/// Counts frees and performs the REAL one, so a test can assert "freed exactly
+/// once" without leaking the ghostty surface in the test process.
+@MainActor
+private final class FreeSpy {
+  private(set) var freedSurfaceIDs: [UUID] = []
+
+  func free(_ view: GhosttySurfaceView) {
+    freedSurfaceIDs.append(view.id)
+    view.performDeferredFree()
+  }
+}
+
+/// Weak handle: the queue must be the LAST strong reference, so a test can only
+/// check ownership through a weak box.
+@MainActor
+private final class WeakSurfaceRef {
+  weak var view: GhosttySurfaceView?
+}
+
 /// Pins `SurfaceTeardownQueue`'s bookkeeping. Surface UUIDs are REUSED when a
 /// dormant tab wakes, so the queue must track view identity, not surface identity:
 /// a UUID-keyed queue would treat the woken generation as already pending, skip the
@@ -44,12 +78,35 @@ struct SurfaceTeardownQueueTests {
     )
   }
 
-  private func makeQueue(_ spy: ShellSpy) -> SurfaceTeardownQueue {
+  private func makeQueue(
+    _ spy: ShellSpy,
+    clock: any Clock<Duration> = TestClock(),
+    probe: ProbeSpy? = nil,
+    free: FreeSpy? = nil
+  ) -> SurfaceTeardownQueue {
     SurfaceTeardownQueue(
       shell: SurfaceTeardownShell { executable, arguments in
         await spy.run([executable.lastPathComponent] + arguments)
-      }
+      },
+      clock: clock,
+      hasProcessExited: { probe?.probe($0) ?? true },
+      free: { free?.free($0) ?? $0.performDeferredFree() }
     )
+  }
+
+  /// Advances the TestClock in poll-interval ticks until `condition` holds. A
+  /// freshly spawned teardown Task can register its sleep after an advance, so one
+  /// tick isn't guaranteed to be enough; the bound only stops a regression from
+  /// spinning forever.
+  private func advance(
+    _ clock: TestClock<Duration>,
+    ticks: Int = 200,
+    until condition: () -> Bool
+  ) async {
+    for _ in 0..<ticks where !condition() {
+      await Task.megaYield()
+      await clock.advance(by: .milliseconds(50))
+    }
   }
 
   @Test func handOffTracksEachViewGenerationOfAReusedSurfaceID() {
@@ -150,6 +207,42 @@ struct SurfaceTeardownQueueTests {
     await queue.teardownTask(for: secondGeneration)?.value
 
     #expect(await spy.killCommands.count == 2)
+  }
+
+  /// The whole point of the deferred path: the free waits for the pty child to
+  /// actually exit (`ghostty_surface_process_exited`), and only then frees — once —
+  /// releasing the queue's last strong reference to the view.
+  @Test func pollingFreesTheSurfaceOnceTheProcessHasExited() async {
+    let runtime = GhosttyRuntime()
+    let clock = TestClock()
+    let probe = ProbeSpy()
+    let free = FreeSpy()
+    let queue = makeQueue(ShellSpy(pgrepStdout: "4242\n"), clock: clock, probe: probe, free: free)
+    let weakRef = WeakSurfaceRef()
+    let surfaceID = UUID()
+    var task: Task<Void, Never>?
+    // Surface creation autoreleases the view; the weak check has to run after this
+    // pool drains, else an autoreleased reference masks the ownership question.
+    autoreleasepool {
+      let view = makeView(id: surfaceID, runtime: runtime)
+      weakRef.view = view
+      queue.handOff(view)
+      task = queue.teardownTask(for: view)
+    }
+
+    // Child still running: nothing may be freed no matter how much time passes.
+    await advance(clock, ticks: 5, until: { false })
+    #expect(free.freedSurfaceIDs.isEmpty)
+    #expect(queue.pendingCount == 1)
+    #expect(weakRef.view != nil)
+
+    probe.hasExited = true
+    await advance(clock, until: { !free.freedSurfaceIDs.isEmpty })
+    await task?.value
+
+    #expect(free.freedSurfaceIDs == [surfaceID])
+    #expect(queue.pendingCount == 0)
+    #expect(weakRef.view == nil)
   }
 
   /// A surface still in the tree must never lose its client.
