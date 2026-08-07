@@ -129,16 +129,19 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
   /// stamp when there is one, otherwise the last visit, with `createdAt` as the
   /// final net.
   ///
+  /// Resolution lives in `TaskTimestamps` so the sort key and the displayed
+  /// label cannot drift (A17); this is only the `TaskRecord` adapter.
+  ///
   /// `lastVisitedAt` is *not* activity — it is when the user last opened the
-  /// task, and it is Phase 1's only persisted proxy for "when did this stop
-  /// moving". Phase 2's `TaskTimestamps` replaces it with real activity stamps
-  /// and becomes the single resolver shared by sort key and label; the shape
-  /// stays the same. Because the fallbacks are proxies, the settle arm must
+  /// task, and it is the only persisted proxy for "when did this stop moving"
+  /// until real activity stamps land. Because it is a proxy, the settle arm must
   /// always stamp `settledAt` so a settled row sorts by a real end time.
   static func resolvedSettledTimestamp(for task: TaskRecord) -> Date? {
-    if let settledAt = validTimestamp(task.settledAt) { return settledAt }
-    if let lastVisitedAt = validTimestamp(task.lastVisitedAt) { return lastVisitedAt }
-    return validTimestamp(task.createdAt)
+    TaskTimestamps.resolvedSettledTimestamp(
+      settledAt: task.settledAt,
+      activityCandidates: [task.lastVisitedAt],
+      createdAt: task.createdAt
+    )
   }
 
   /// Newest-created-first; equal creation times fall back to the opaque ID so
@@ -177,13 +180,5 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
       visible.append(open)
     }
     return visible
-  }
-
-  /// Guards against a timestamp that survived decoding but can't be reasoned
-  /// about (a non-finite interval). Such a value must never sort a row into a
-  /// surprising position or hide it.
-  private static func validTimestamp(_ date: Date?) -> Date? {
-    guard let date, date.timeIntervalSince1970.isFinite else { return nil }
-    return date
   }
 }
