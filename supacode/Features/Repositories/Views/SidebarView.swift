@@ -54,7 +54,7 @@ struct SidebarView: View {
       case .agents:
         AgentDashboardListView(store: store)
       case .tasks:
-        TasksSidebarPlaceholderView()
+        TasksSidebarView(store: store)
       }
     }
     .toolbar {
@@ -126,17 +126,5 @@ struct SidebarView: View {
     ) {
       store.send(.requestDeleteSidebarItems(deleteTargets))
     }
-  }
-}
-
-/// Stand-in for the Tasks panel so the tab is selectable and routing is
-/// exercised before the real list exists. Replaced by the task list view.
-private struct TasksSidebarPlaceholderView: View {
-  var body: some View {
-    ContentUnavailableView(
-      "No Tasks",
-      systemImage: SidebarTab.tasks.systemImage,
-      description: Text("The task inbox isn't wired up yet.")
-    )
   }
 }

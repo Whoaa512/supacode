@@ -621,6 +621,56 @@ struct RepositoriesFeatureTasksTests {
     #expect(store.state.taskLeaves[id: record.id]?.agentSnapshot.agents == [instance])
   }
 
+  /// A10's state half: a `TaskSidebarRowView` body reads exactly its own
+  /// `taskRecords[id:]` and `taskLeaves[id:]`, and the panel body reads only
+  /// `tasksSidebarStructure`. So "a tick can't reach a sibling row" reduces to a
+  /// claim about state: after an agent tick on one task, every *other* task's
+  /// record and leaf must be byte-identical and the cached structure unchanged.
+  /// If any of those moved, a sibling row's inputs moved with it.
+  ///
+  /// Deliberately not asserted via `withObservationTracking` on `store.state`:
+  /// that observes a value copy of the reducer's state and reports on TCA's
+  /// registrar plumbing rather than on this design. The SwiftUI half (actual
+  /// body evaluation counts) is verified manually through
+  /// `TaskRowBodyEvalCounter` — steps documented on that type.
+  @Test func anAgentTickLeavesEverySiblingTasksRowInputsUntouched() async throws {
+    let sandbox = try Sandbox()
+    let mine = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
+    let other = try sandbox.makeDirectory("other", activityAt: Self.freshDate)
+    let mineSurface = UUID()
+    let otherSurface = UUID()
+    var state = makeState(
+      sandbox: sandbox,
+      directories: [mine, other],
+      surfacesPerRow: [mine: [mineSurface], other: [otherSurface]]
+    )
+    let mineRecord = makeRecord(directory: mine, surfaceIDs: [mineSurface])
+    let otherRecord = makeRecord(directory: other, surfaceIDs: [otherSurface])
+    state.taskRecords = [mineRecord, otherRecord]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+    #expect(store.state.taskLeaves.count == 2)
+
+    let structureBefore = store.state.tasksSidebarStructure
+    let otherLeafBefore = store.state.taskLeaves[id: otherRecord.id]
+
+    await store.send(
+      .sidebarItems(
+        .element(
+          id: WorktreeID(mine.path(percentEncoded: false)),
+          action: .agentSnapshotChanged(.init(agents: [], isWorking: true))
+        )
+      )
+    )
+    await store.finish()
+
+    #expect(store.state.taskLeaves[id: mineRecord.id]?.agentSnapshot.isWorking == true)
+    // The sibling's row inputs: leaf, record, and the order/label plan.
+    #expect(store.state.taskLeaves[id: otherRecord.id] == otherLeafBefore)
+    #expect(store.state.taskRecords[id: otherRecord.id] == otherRecord)
+    #expect(store.state.tasksSidebarStructure == structureBefore)
+  }
+
   /// m9: settling twice must not re-stamp `settledAt` — the settled tail sorts by
   /// it, so a double settle would jump the task back to the head of the tail.
   @Test func settlingAnAlreadySettledTaskIsANoop() async throws {
