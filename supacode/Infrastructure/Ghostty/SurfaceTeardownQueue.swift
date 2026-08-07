@@ -71,6 +71,8 @@ final class SurfaceTeardownQueue {
   /// short enough that a truly wedged pty doesn't pile up pending surfaces.
   private static let exitPollInterval: Duration = .milliseconds(50)
   private static let maxExitPollAttempts = 40
+  /// Above this, the free stalled the main actor long enough to be user-visible.
+  private static let slowFreeThreshold: Duration = .milliseconds(250)
 
   init(
     shell: SurfaceTeardownShell,
@@ -85,10 +87,6 @@ final class SurfaceTeardownQueue {
     self.hasProcessExited = hasProcessExited
     self.free = free
   }
-
-  /// Number of `handOff(_:)` calls seen. Distinct from `pendingCount` so a view
-  /// handed off twice is observable.
-  private(set) var handOffCount = 0
 
   var pendingSurfaceIDs: Set<UUID> { Set(pending.values.map(\.view.id)) }
 
@@ -107,7 +105,6 @@ final class SurfaceTeardownQueue {
   /// Takes ownership of `view`'s surface teardown and returns without touching
   /// ghostty, so the caller's turn on the main actor never waits on a free.
   func handOff(_ view: GhosttySurfaceView) {
-    handOffCount += 1
     let key = ObjectIdentifier(view)
     guard pending[key] == nil else { return }
     pending[key] = Entry(view: view, stage: .killRequested)
@@ -162,7 +159,17 @@ final class SurfaceTeardownQueue {
   /// Frees on the main actor (constraint 1) through the view (binding 11), then
   /// drops the queue's last strong reference.
   private func performFree(_ key: ObjectIdentifier, _ view: GhosttySurfaceView) {
+    // Measured on a REAL clock, not the injected one: `Surface.deinit` also joins
+    // the RENDERER thread, which `process_exited` does not bound (binding 12), so
+    // this is the residual main-actor stall and only wall time describes it.
+    let start = ContinuousClock.now
     free(view)
+    let elapsed = ContinuousClock.now - start
+    if elapsed > Self.slowFreeThreshold {
+      Self.logger.warning(
+        "slow surface free for \(view.id): \(elapsed) (main actor stalled)"
+      )
+    }
     pending[key]?.stage = .freed
     pending[key] = nil
     teardownTasks[key] = nil

@@ -67,12 +67,24 @@ struct HibernationTeardownTests {
       state.hibernateTabForTesting(tab)
     }
 
+    // Guard against a vacuous pass: `allSatisfy` on an empty array is true, so the
+    // tab must actually have had leaves to hand off.
+    #expect(refs.count > 0)
     // Ownership moved to the queue: nothing was freed on hibernation's turn, so
     // every view outlives the call (a dealloc'd view means `deinit` freed inline).
     #expect(refs.allSatisfy { $0.view != nil })
+    // Each handed-off view is parked at the first state-machine stage, i.e. the
+    // free is still ahead of it, not behind it. (Surface liveness itself can't be
+    // asserted here: `createSurface()` needs `runtime.app`, which a headless test
+    // process doesn't get, so `view.surface` is nil from birth in unit tests. The
+    // real surface's fate is pinned in `SurfaceTeardownQueueTests` through the
+    // injected free.)
+    #expect(
+      refs.compactMap { $0.view }.allSatisfy {
+        runtime.surfaceTeardownQueue.stage(for: $0) == .killRequested
+      })
     #expect(runtime.surfaceTeardownQueue.pendingSurfaceIDs == leafIDs)
-    // Every leaf handed off exactly once — no surface skipped, none handed twice.
-    #expect(runtime.surfaceTeardownQueue.handOffCount == leafIDs.count)
+    #expect(runtime.surfaceTeardownQueue.pendingCount == leafIDs.count)
 
     // ...and hibernation completed despite owning no completed teardown.
     #expect(state.isTabDormant(tab))

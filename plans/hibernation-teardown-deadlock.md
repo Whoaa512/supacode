@@ -362,3 +362,40 @@ D. No surface leak in the happy path: teardown still frees every surface
   event `surface_teardown_leaked`, and the weak ref STILL non-nil.
 - `SurfaceTeardownQueueTests` + `HibernationTeardownTests` → exit 0,
   totalTestCount 11, passed 11, failed 0.
+
+### GREEN (cycle 3, slice 5 — instrumentation + test hardening)
+
+- Free duration measured around `free(view)` and logged via SupaLogger when
+  > 250ms (binding 12). Measured on a REAL `ContinuousClock`, not the injected
+  one: the injected clock exists to schedule polls, and `Surface.deinit` also joins
+  the RENDERER thread (which `process_exited` does not bound), so only wall time
+  describes the residual main-actor stall. TestClock would always report zero.
+- `closeSurface()` on a deferred view now logs a SupaLogger warning before its
+  early return (binding 11) — a caller reaching there believes the surface is gone
+  and it isn't yet.
+- `HibernationTeardownTests` hardened: `refs.count > 0` (an empty `allSatisfy` is
+  vacuously true), and each pending view is parked at stage `.killRequested`.
+  `handOffCount` REMOVED from queue + test: `pendingCount == leafIDs.count` covers
+  "nothing skipped", and double hand-off idempotence is pinned directly in
+  `SurfaceTeardownQueueTests`.
+- Attempted and dropped: `view.surface != nil` while pending. `createSurface()`
+  needs `runtime.app`, which a headless test process never gets, so `view.surface`
+  is nil from birth in unit tests (the assert failed for that reason, not a
+  regression). Real surface liveness is pinned in `SurfaceTeardownQueueTests` via
+  the injected free/probe instead.
+- `SurfaceTeardownQueueTests` + `HibernationTeardownTests` → exit 0,
+  totalTestCount 11, passed 11, failed 0.
+- Full bundle `-only-testing:supacodeTerminalTests` → 416 tests, 414 passed,
+  2 failed: the same known pre-existing `GhosttyRuntimeBundledOverridesTests`
+  failures as cycles 1–2.
+- `make check` exit 0 (same 6 unrelated swift-format drift files reverted).
+  `make build-app` succeeded.
+- **End-to-end production semantics after cycle 3:** hibernating a tab (or any
+  path through `handOff`) returns immediately; per surface, the queue kills the
+  `zmx attach` client once, polls `ghostty_surface_process_exited` up to 40x50ms on
+  the real clock, then frees on the main actor via `performDeferredFree()`. If the
+  child never exits, the surface is deliberately leaked (retained, logged,
+  counted). No path frees a surface whose pty child is still alive, so the
+  spindump deadlock cannot recur.
+- Remaining (cycles 4–7): wake-while-pending, the 9 other `closeSurface()` call
+  sites, happy-path no-leak proof across a whole tab, quit abandoning pending.

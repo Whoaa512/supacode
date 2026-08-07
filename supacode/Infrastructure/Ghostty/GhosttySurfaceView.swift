@@ -358,7 +358,13 @@ final class GhosttySurfaceView: NSView, Identifiable {
   }
 
   func closeSurface() {
-    guard !isTeardownDeferred else { return }
+    // Inert once the queue owns this view's teardown (binding 11): the only real
+    // free is `performDeferredFree()`. Logged because a caller reaching here
+    // expects the surface to be gone and it is not (yet).
+    if isTeardownDeferred {
+      surfaceLogger.warning("closeSurface() ignored for \(id): teardown is deferred")
+      return
+    }
     clearNotificationObservers()
     if let surface {
       if let surfaceRef {
