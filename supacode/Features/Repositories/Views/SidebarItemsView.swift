@@ -670,10 +670,18 @@ private struct SidebarItemContextMenu: View {
       if !rowIsFolder, !row.isMissing, row.host == nil {
         // No tab id: the claim lands on whichever tab the row currently has
         // selected, which is what the user is looking at when they right-click.
+        // Phase 3 follow-up: bulk promote for a multi-row selection (plan
+        // Resolved #10 makes one claim per tab, so a bulk arm needs its own
+        // per-row tab resolution rather than a loop over this action).
         Button("Promote Tab to Task", systemImage: "checklist") {
           store.send(.tasks(.promoteTab(worktreeID: rowID, tabID: nil)))
         }
-        .help("Track this worktree's selected tab as a task in the Tasks tab")
+        .disabled(!row.hasLiveSurfaces)
+        .help(
+          row.hasLiveSurfaces
+            ? "Track this worktree's selected tab as a task in the Tasks tab"
+            : "This worktree has no open terminal tab to promote"
+        )
       }
       Divider()
       if rowIsFolder {
