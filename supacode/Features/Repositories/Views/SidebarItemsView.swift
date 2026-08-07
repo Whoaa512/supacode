@@ -667,6 +667,14 @@ private struct SidebarItemContextMenu: View {
         }
         .help("Create a new worktree branching from this one")
       }
+      if !rowIsFolder, !row.isMissing, row.host == nil {
+        // No tab id: the claim lands on whichever tab the row currently has
+        // selected, which is what the user is looking at when they right-click.
+        Button("Promote Tab to Task", systemImage: "checklist") {
+          store.send(.tasks(.promoteTab(worktreeID: rowID, tabID: nil)))
+        }
+        .help("Track this worktree's selected tab as a task in the Tasks tab")
+      }
       Divider()
       if rowIsFolder {
         // Folder rows render through SidebarItemRow, which reads customization from the per-row
