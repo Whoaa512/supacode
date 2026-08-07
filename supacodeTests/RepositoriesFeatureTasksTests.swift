@@ -1,5 +1,6 @@
 import ComposableArchitecture
 import Dependencies
+import DependenciesTestSupport
 import Foundation
 import IdentifiedCollections
 import Sharing
@@ -30,12 +31,40 @@ struct RepositoriesFeatureTasksTests {
     let rootURL: URL
     let storage: SettingsFileStorage
     let store = TaskStore()
+    private let files: InMemorySettingsFileStorage
 
     init() throws {
       rootURL = FileManager.default.temporaryDirectory
         .appending(path: "RepositoriesFeatureTasksTests-\(UUID().uuidString)", directoryHint: .isDirectory)
       try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
-      storage = .inMemory()
+      let files = InMemorySettingsFileStorage()
+      self.files = files
+      storage = SettingsFileStorage(
+        load: { try files.load($0) },
+        save: { try files.save($0, $1) },
+        moveAside: { try files.moveAside($0, $1) }
+      )
+    }
+
+    /// Writes `layouts.json` so `@SharedReader(.layouts)` sees it. One tab per
+    /// surface, which is what a restore of N tabs looks like on disk.
+    func seedLayout(worktreeID: Worktree.ID, tabSurfaceIDs: [UUID]) throws {
+      let snapshot = TerminalLayoutSnapshot(
+        tabs: tabSurfaceIDs.map { surfaceID in
+          TerminalLayoutSnapshot.TabSnapshot(
+            id: UUID(),
+            title: "tab",
+            customTitle: nil,
+            icon: nil,
+            tintColor: nil,
+            layout: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: surfaceID, workingDirectory: nil)),
+            focusedLeafIndex: 0
+          )
+        },
+        selectedTabIndex: 0
+      )
+      let payload = try JSONEncoder().encode([worktreeID.rawValue: snapshot])
+      try files.save(payload, SupacodePaths.layoutsURL)
     }
 
     /// A worktree directory with a `checkout: moving from main to <branch>`
@@ -91,7 +120,13 @@ struct RepositoriesFeatureTasksTests {
       name: sandbox.rootURL.lastPathComponent,
       worktrees: IdentifiedArray(uniqueElements: worktrees)
     )
-    var state = RepositoriesFeature.State(reconciledRepositories: [repository])
+    // Built inside the sandbox's storage so `@SharedReader(.layouts)` reads the
+    // seeded layout rather than the developer's real `layouts.json`.
+    var state = withDependencies {
+      $0.settingsFileStorage = sandbox.storage
+    } operation: {
+      RepositoriesFeature.State(reconciledRepositories: [repository])
+    }
     state.isInitialLoadComplete = true
     for (directory, surfaceIDs) in surfacesPerRow {
       let id = WorktreeID(directory.path(percentEncoded: false))
@@ -468,6 +503,84 @@ struct RepositoriesFeatureTasksTests {
     #expect(store.state.taskRecords[id: orphan.id] == orphan)
   }
 
+  /// B1: restore emits one projection per tab, and `hasTerminalProjection` latches
+  /// on the first one, so reconciling against the live projection alone would prune
+  /// the tabs that have not been rebuilt yet — and persist the loss. The layouts
+  /// snapshot knows every tab, so ownership must survive an incremental restore.
+  @Test(.dependencies) func incrementalRestoreProjectionsNeverShrinkOwnership() async throws {
+    let sandbox = try Sandbox()
+    let directory = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
+    let rowID = WorktreeID(directory.path(percentEncoded: false))
+    let tabSurfaces = [UUID(), UUID(), UUID()]
+    try sandbox.seedLayout(worktreeID: rowID, tabSurfaceIDs: tabSurfaces)
+    var state = makeState(sandbox: sandbox, directories: [directory])
+    let record = makeRecord(directory: directory, surfaceIDs: Set(tabSurfaces))
+    state.taskRecords = [record]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    // Tab 1 restores, then 2, then 3 — one projection each, cumulative.
+    for count in 1...tabSurfaces.count {
+      await store.send(
+        .sidebarItems(
+          .element(
+            id: rowID,
+            action: .terminalProjectionChanged(
+              WorktreeRowProjection(
+                surfaceIDs: Array(tabSurfaces.prefix(count)),
+                isProgressBusy: false,
+                hasUnseenNotifications: false,
+                notifications: []
+              )
+            )
+          )
+        )
+      )
+      await store.receive(\.tasks.reconcileSurfaceOwnership)
+      await store.finish()
+      #expect(store.state.taskRecords[id: record.id]?.surfaceIDs == Set(tabSurfaces))
+    }
+  }
+
+  /// The other half of B1: a genuinely closed tab leaves both the projection and
+  /// the rewritten layout, so exactly that tab's surface is pruned.
+  @Test(.dependencies) func closingATabPrunesOnlyThatTabsSurfaces() async throws {
+    let sandbox = try Sandbox()
+    let directory = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
+    let rowID = WorktreeID(directory.path(percentEncoded: false))
+    let surviving = [UUID(), UUID()]
+    let closed = UUID()
+    // Closing a tab marks the layout dirty, so the snapshot on disk no longer
+    // mentions it while the surviving tabs are still listed.
+    try sandbox.seedLayout(worktreeID: rowID, tabSurfaceIDs: surviving)
+    var state = makeState(sandbox: sandbox, directories: [directory])
+    let record = makeRecord(directory: directory, surfaceIDs: Set(surviving + [closed]))
+    state.taskRecords = [record]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(
+      .sidebarItems(
+        .element(
+          id: rowID,
+          action: .terminalProjectionChanged(
+            WorktreeRowProjection(
+              surfaceIDs: [surviving[0]],
+              isProgressBusy: false,
+              hasUnseenNotifications: false,
+              notifications: []
+            )
+          )
+        )
+      )
+    )
+    await store.receive(\.tasks.reconcileSurfaceOwnership)
+    await store.finish()
+
+    #expect(store.state.taskRecords[id: record.id]?.surfaceIDs == Set(surviving))
+    #expect(store.state.taskRecords.count == 1)
+  }
+
   /// A row that has not reported a terminal projection yet still carries the
   /// UUIDs restored from the last-quit layout, so it must not be believed.
   @Test func reconciliationIgnoresRowsWithoutATerminalProjection() throws {
@@ -504,8 +617,73 @@ struct RepositoriesFeatureTasksTests {
     await store.finish()
 
     #expect(store.state.tasksSidebarStructure == structureBefore)
-    #expect(store.state.taskLeaves[record.id]?.agentSnapshot.isWorking == true)
-    #expect(store.state.taskLeaves[record.id]?.agentSnapshot.agents == [instance])
+    #expect(store.state.taskLeaves[id: record.id]?.agentSnapshot.isWorking == true)
+    #expect(store.state.taskLeaves[id: record.id]?.agentSnapshot.agents == [instance])
+  }
+
+  /// m9: settling twice must not re-stamp `settledAt` — the settled tail sorts by
+  /// it, so a double settle would jump the task back to the head of the tail.
+  @Test func settlingAnAlreadySettledTaskIsANoop() async throws {
+    let sandbox = try Sandbox()
+    let directory = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
+    var state = makeState(sandbox: sandbox, directories: [directory])
+    let record = makeRecord(directory: directory, settledAt: Self.staleDate)
+    state.taskRecords = [record]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(.tasks(.settle(record.id)))
+    await store.finish()
+
+    #expect(store.state.taskRecords[id: record.id]?.settledAt == Self.staleDate)
+  }
+
+  /// M4: the stamp lives in the selection arm, so a selection that arrives without
+  /// going through `.tasks(.select)` (list view, hotkey, forward nav) still marks
+  /// the task visited.
+  @Test func directSelectionChangedStampsLastVisited() async throws {
+    let sandbox = try Sandbox()
+    let directory = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
+    var state = makeState(sandbox: sandbox, directories: [directory])
+    let record = makeRecord(directory: directory)
+    state.taskRecords = [record]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(.selectionChanged([.task(record.id)]))
+    await store.finish()
+
+    #expect(store.state.selection == .task(record.id))
+    #expect(store.state.taskRecords[id: record.id]?.lastVisitedAt == Self.now)
+    #expect(sandbox.loadFile()?.tasks.first?.lastVisitedAt == Self.now)
+  }
+
+  /// A3, at the representable level: seeding is per directory, and a directory's
+  /// surfaces go to exactly one record, so no two seeded tasks can claim the same
+  /// surface UUID.
+  @Test func seededRecordsNeverShareASurfaceUUID() async throws {
+    let sandbox = try Sandbox()
+    let first = try sandbox.makeDirectory("first", activityAt: Self.freshDate)
+    let second = try sandbox.makeDirectory("second", activityAt: Self.freshDate)
+    let third = try sandbox.makeDirectory("third", activityAt: Self.staleDate)
+    let surfaces = [first: Set([UUID(), UUID()]), second: Set([UUID()]), third: Set([UUID()])]
+    let state = makeState(
+      sandbox: sandbox,
+      directories: [first, second, third],
+      surfacesPerRow: surfaces
+    )
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(.tasks(.load))
+    await store.receive(\.tasks.loaded)
+    await store.receive(\.tasks.seedIfNeeded)
+    await store.receive(\.tasks.seeded)
+    await store.finish()
+
+    #expect(store.state.taskRecords.count == 3)
+    let claimed = store.state.taskRecords.flatMap { Array($0.surfaceIDs) }
+    #expect(claimed.count == Set(claimed).count)
+    #expect(Set(claimed) == surfaces.values.reduce(into: Set<UUID>()) { $0.formUnion($1) })
   }
 
   // MARK: - Paging
