@@ -620,6 +620,9 @@ extension RepositoriesFeature.Action {
       .requestRenameAgent, .agentRename,
       .contextMenuOpenWorktree,
       .worktreeCreationPrompt,
+      // Presentation plumbing only; the `.createTask` it forwards to declares
+      // its own bits.
+      .taskCreationPrompt,
       .delegate:
       return []
     }

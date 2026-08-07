@@ -47,6 +47,11 @@ extension RepositoriesFeature {
     /// `tabID == nil` means the tab the worktree currently has selected, which
     /// is what a menu command with no explicit target means.
     case promoteTab(worktreeID: Worktree.ID, tabID: TerminalTabID?)
+    /// ⌘N on the Tasks tab: open the capture prompt over the live roster.
+    case presentCreationPrompt
+    /// Create a task in `directoryURL`. `title == nil` hands naming to the
+    /// seeder's cascade, which is the fast path for an untitled capture.
+    case createTask(title: String?, directoryURL: URL)
   }
 
   var tasksReducer: some Reducer<State, Action> {
@@ -200,6 +205,82 @@ extension RepositoriesFeature {
         // the task so a click has a visible result. `.select` owns the persist
         // (via `.selectionChanged`), so the claim is written exactly once.
         return .send(.tasks(.select(taskID)))
+
+      case .tasks(.presentCreationPrompt):
+        state.taskCreationPrompt = TaskCreationPromptFeature.State(
+          candidates: state.taskCreationCandidates()
+        )
+        return .none
+
+      case .tasks(.createTask(let title, let directoryURL)):
+        // An unreadable tasks.json disables the inbox for the launch: writing a
+        // new record on top of ones we failed to read would erase them.
+        guard !state.isTaskPersistenceDisabled else {
+          tasksLogger.debug("Task creation refused: task persistence is disabled for this launch.")
+          return .none
+        }
+        // A19 counts interactions, and a sheet the user has to dismiss is a
+        // third one, so submit closes the prompt itself.
+        state.taskCreationPrompt = nil
+        // Canonicalized inline, the documented one-shot exception: the directory
+        // path is the record's identity, so a second spelling would fork the task.
+        let directoryPath = TaskDirectoryPath.canonical(directoryURL)
+        // Resolved #11's isolation cascade is Phase 3c. `resolve` is the seam:
+        // it answers `.share` today, so creation lands in the directory the user
+        // picked and a busy directory just gets a second task with zero surfaces
+        // (A3) rather than a worktree decision in the user's face (A19).
+        if TaskDirectoryConflictPolicy.resolve(directoryPath: directoryPath) == .isolate {
+          tasksLogger.error(
+            """
+            TaskDirectoryConflictPolicy asked to isolate \(directoryPath), which Phase 3b \
+            cannot honor; sharing the directory instead.
+            """
+          )
+        }
+        let row = state.sidebarItemForTaskDirectory(directoryPath)
+        let branch = row?.provableBranch
+        let typedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let record = TaskRecord(
+          title: typedTitle.flatMap { $0.isEmpty ? nil : $0 }
+            ?? TaskActivitySeeder.title(
+              for: TaskActivitySeeder.Candidate(
+                directoryPath: directoryPath,
+                customizationTitle: row?.customTitle,
+                worktreeName: row?.name,
+                worktreeDetail: row?.subtitle
+              ),
+              branch: branch
+            ),
+          directoryPath: directoryPath,
+          branch: branch,
+          repositoryID: row?.repositoryID,
+          createdAt: now,
+          // A3: a fresh task steals nothing. Its terminal arrives via the delegate.
+          surfaceIDs: [],
+          // A2: created, not inferred — the row must never render seeded confidence.
+          seedEvidence: TaskRecord.SeedEvidence(source: .manual, confidence: .high)
+        )
+        state.taskRecords.append(record)
+        // Selection is applied inline rather than routed through `.tasks(.select)`:
+        // the terminal request has to leave with the new task already open (A4),
+        // and a `.select` round-trip would land the selection one hop *after* the
+        // delegate the parent acts on. `reduceSelectionChangedEffect` is the same
+        // code `.selectionChanged` runs, so the stamp and the persist are identical.
+        var effects: [Effect<Action>] = [
+          state.reduceSelectionChangedEffect(selections: [.task(record.id)], focusTerminal: false)
+        ]
+        if let terminal = state.taskTerminalRequestDelegate(for: record) {
+          effects.append(.send(.delegate(terminal)))
+        }
+        return .merge(effects)
+
+      case .taskCreationPrompt(.presented(.delegate(.cancel))):
+        // A20b: cancel leaves nothing behind — no record, and no write at all.
+        state.taskCreationPrompt = nil
+        return .none
+
+      case .taskCreationPrompt(.presented(.delegate(.createTask(let title, let directoryURL)))):
+        return .send(.tasks(.createTask(title: title, directoryURL: directoryURL)))
 
       // A surface set drifted (a tab closed, a worktree restored). Ownership is
       // reconciled off the same projection the rows use, and only when there is
@@ -425,6 +506,50 @@ extension RepositoriesFeature.State {
     )
   }
 
+  /// The terminal request for a freshly created task, or `nil` when its
+  /// directory has no live worktree row — the inbox outlives worktrees (A10b),
+  /// so the task is still created, but there is nothing to open a terminal in
+  /// and guessing one would be worse than skipping it. What a row-less directory
+  /// deserves is Phase 3c's call.
+  ///
+  /// Payload-level lock mirroring `taskHibernationDelegate`: the request names
+  /// the row that owns the directory and the task it is for, so the parent never
+  /// re-resolves either.
+  func taskTerminalRequestDelegate(for record: TaskRecord) -> RepositoriesFeature.Delegate? {
+    guard let row = sidebarItemForTaskDirectory(record.directoryPath) else { return nil }
+    return .openTaskTerminal(worktreeID: row.id, taskID: record.id)
+  }
+
+  /// Pickable directories for the ⌘N capture prompt, straight from the live rows.
+  ///
+  /// Remote rows are excluded for the same reason seeding excludes them: a task
+  /// is a local directory lifecycle, and reading a remote path as a local one
+  /// reads the wrong directory.
+  ///
+  /// Symlinks are resolved here rather than inside the prompt: the candidate's
+  /// id has to be comparable with `TaskRecord.directoryPath` (canonical), and a
+  /// child reducer must not touch the filesystem. One `stat` per row on a
+  /// user-initiated one-shot, which is the documented exception.
+  func taskCreationCandidates() -> [TaskCreationPromptFeature.Candidate] {
+    let busyPaths = Set(
+      taskRecords
+        .filter { !TasksSidebarStructure.isSettled($0) }
+        .map { TaskDirectoryPath.normalized($0.directoryPath) }
+    )
+    return sidebarItems.compactMap { row in
+      guard row.host == nil, !row.isMissing else { return nil }
+      let directoryURL = row.workingDirectory.resolvingSymlinksInPath()
+      let path = TaskDirectoryPath.normalized(directoryURL.path(percentEncoded: false))
+      return TaskCreationPromptFeature.Candidate(
+        directoryURL: directoryURL,
+        repositoryName: repositories[id: row.repositoryID]?.name ?? "",
+        branch: row.provableBranch,
+        worktreeID: row.id,
+        isBusy: busyPaths.contains(path)
+      )
+    }
+  }
+
   /// The focus request for opening a task, or `nil` when there is nothing to
   /// focus. A settled task is deliberately excluded: focusing wakes a dormant
   /// tab, which would undo the settle just by browsing the tail.
@@ -646,10 +771,17 @@ extension RepositoriesFeature.TaskInboxAction {
     // Effect launchers: they mutate nothing the caches project.
     case .load, .seedIfNeeded:
       return []
+    // Presentation only: the prompt is `@Presents` state no cache projects.
+    case .presentCreationPrompt:
+      return []
     // Every arm that can change the record set, its lifecycle, or the page window.
     case .loaded, .seeded, .select, .settle, .unsettle,
       .setSettledTailExpanded, .expandSettledTail, .reconcileSurfaceOwnership, .promoteTab:
       return .sidebarStructure
+    // Creation also moves the selection inline, so it owes the two
+    // selection-derived caches on top of the record set.
+    case .createTask:
+      return [.sidebarStructure, .selectedWorktreeSlice, .sidebarSelectionSlice]
     }
   }
 }

@@ -241,6 +241,7 @@ struct RepositoriesFeature {
     /// `recomputeMenuBarSectionsIfChanged()`.
     var menuBarSectionsCache = MenuBarSections()
     @Presents var worktreeCreationPrompt: WorktreeCreationPromptFeature.State?
+    @Presents var taskCreationPrompt: TaskCreationPromptFeature.State?
     @Presents var repositoryCustomization: RepositoryCustomizationFeature.State?
     @Presents var worktreeCustomization: WorktreeCustomizationFeature.State?
     @Presents var agentRename: AgentRenameFeature.State?
@@ -582,6 +583,7 @@ struct RepositoriesFeature {
     case agentRename(PresentationAction<AgentRenameFeature.Action>)
     case contextMenuOpenWorktree(Worktree.ID, OpenWorktreeAction)
     case worktreeCreationPrompt(PresentationAction<WorktreeCreationPromptFeature.Action>)
+    case taskCreationPrompt(PresentationAction<TaskCreationPromptFeature.Action>)
     case repositoryCustomization(PresentationAction<RepositoryCustomizationFeature.Action>)
     case worktreeCustomization(PresentationAction<WorktreeCustomizationFeature.Action>)
     case renameBranchPrompt(PresentationAction<RenameBranchFeature.Action>)
@@ -656,6 +658,10 @@ struct RepositoriesFeature {
     )
     /// Selecting a task pre-positions its owning worktree on one owned surface.
     case focusTaskSurface(worktreeID: Worktree.ID, surfaceID: UUID)
+    /// A freshly created task wants a terminal of its own. A3: it steals no
+    /// existing surface, so the parent — which owns the terminal — mints a tab
+    /// for the named worktree and hands it back through the promote path.
+    case openTaskTerminal(worktreeID: Worktree.ID, taskID: TaskID)
   }
 
   @Dependency(AnalyticsClient.self) private var analyticsClient
@@ -3742,6 +3748,17 @@ struct RepositoriesFeature {
         return .none
 
       case .createRandomWorktree:
+        switch state.activeSidebarTab {
+        case .tasks:
+          // A19: on the Tasks tab ⌘N captures work, so it opens the task prompt
+          // and never the worktree prompt — a worktree decision at capture time
+          // is exactly what A19 forbids. The prompt opens even with nothing to
+          // pick; an alert here would make ⌘N feel broken on a fresh install.
+          return .send(.tasks(.presentCreationPrompt))
+        case .agents, .worktrees:
+          // A9: the existing tabs are unchanged; ⌘N still means "new worktree".
+          break
+        }
         guard let repository = state.repositoryForWorktreeCreation else {
           let message: String
           if state.repositories.isEmpty {
@@ -4142,6 +4159,11 @@ struct RepositoriesFeature {
       case .worktreeCreationPrompt:
         return .none
 
+      // The task prompt's delegate and dismiss arms live in `tasksReducer`, next
+      // to the rest of the inbox lifecycle.
+      case .taskCreationPrompt:
+        return .none
+
       case .pendingWorktreeProgressUpdated(let id, let progress):
         guard state.updatePendingWorktreeProgress(id, progress: progress) else { return .none }
         Self.syncSidebar(&state)
@@ -4429,6 +4451,9 @@ struct RepositoriesFeature {
     }
     .ifLet(\.$worktreeCreationPrompt, action: \.worktreeCreationPrompt) {
       WorktreeCreationPromptFeature()
+    }
+    .ifLet(\.$taskCreationPrompt, action: \.taskCreationPrompt) {
+      TaskCreationPromptFeature()
     }
     .ifLet(\.$repositoryCustomization, action: \.repositoryCustomization) {
       RepositoryCustomizationFeature()

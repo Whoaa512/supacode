@@ -24,7 +24,11 @@ struct AppFeatureCommandPaletteTests {
     }
   }
 
-  @Test(.dependencies) func newWorktreeDispatchesCreateRandomWorktree() async {
+  /// Pinned to Worktrees: ⌘N is tab-aware since the task inbox landed, and on
+  /// the (default) Tasks tab it opens the capture prompt instead. This test is
+  /// about the palette reaching the worktree path, so it states its tab.
+  @Test(.dependencies, .sidebarTab(.worktrees))
+  func newWorktreeDispatchesCreateRandomWorktree() async {
     let store = TestStore(initialState: AppFeature.State()) {
       AppFeature()
     }
