@@ -272,7 +272,9 @@ struct WorktreeDetailView: View {
           )
           store.send(.repositories(.requestDeleteSidebarItems([target])))
         }
-      } else if selectedWorktree != nil, !terminalManager.hasResolvedLiveZmxSessions {
+      } else if selectedWorktree != nil || repositories.taskDetailWorktreeID != nil,
+        !terminalManager.hasResolvedLiveZmxSessions
+      {
         // Defer the first terminal mount until launch-time zmx session
         // resolution lands: `ensureInitialTab` restores the layout synchronously
         // in the terminal view's body, and if it wins the race against `zmx ls`
@@ -300,6 +302,35 @@ struct WorktreeDetailView: View {
             store.send(.repositories(.consumeTerminalFocus(selectedWorktree.id)))
           }
         }
+      } else if let taskWorktree = repositories.worktree(for: repositories.taskDetailWorktreeID) {
+        // A task selection clears the worktree selection, so the branches above
+        // all miss; without this one the select→focus plumbing runs behind the
+        // global empty state. Setup script and lifecycle affordances are
+        // worktree concerns, so the task mount skips them; focus is driven by
+        // the `.focusTaskSurface` delegate, not `forceAutoFocus`.
+        WorktreeTerminalTabsView(
+          worktree: taskWorktree,
+          manager: terminalManager,
+          terminalsStore: store.scope(state: \.terminals, action: \.terminals),
+          shouldRunSetupScript: false,
+          isLifecycleBusy: false,
+          forceAutoFocus: false,
+          createTab: { store.send(.newTerminal) }
+        )
+        .id(taskWorktree.id)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea(.container, edges: .bottom)
+      } else if repositories.selection?.taskID != nil {
+        // Selected task with no live worktree or no owned surfaces (settled,
+        // deleted directory, or an evidence-only seed). Honest placeholder
+        // instead of the app-wide "add a repository" empty state.
+        ContentUnavailableView(
+          "No Live Sessions",
+          systemImage: "moon.zzz",
+          description: Text(
+            "This task has no running terminals. Unsettle it or open its directory to start one."
+          )
+        )
       } else if !repositories.isInitialLoadComplete {
         DetailPlaceholderView()
       } else {

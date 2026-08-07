@@ -287,6 +287,10 @@ struct RepositoriesFeature {
     /// Cached Tasks render plan, recomputed in the post-reduce hook and
     /// Equatable-diffed before publish (`AgentDashboardStructure` precedent).
     var tasksSidebarStructure: TasksSidebarStructure = .empty
+    /// Cached `taskTerminalWorktreeID`, recomputed in the post-reduce hook so
+    /// the detail view can mount the selected task's terminal without scanning
+    /// `sidebarItems` from a body (the `selectedWorktreeSlice` precedent).
+    var taskDetailWorktreeID: Worktree.ID?
     /// Settled-tail page window; grows by `expandedSettledVisibleCount`.
     var settledTailVisibleCount = TasksSidebarStructure.settledTailInitialCount
     var isSettledTailExpanded = false

@@ -652,6 +652,7 @@ extension RepositoriesFeature.State {
     // two-bit dependency `recomputeMenuBarSectionsIfChanged` has.
     if !invalidations.isDisjoint(with: [.sidebarStructure, .sidebarSelectionSlice]) {
       recomputeTasksSidebarStructureIfChanged()
+      recomputeTaskDetailWorktreeIDIfChanged()
     }
     if invalidations.contains(.selectedWorktreeSlice) {
       recomputeSelectedWorktreeSliceIfChanged()

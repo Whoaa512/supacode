@@ -431,9 +431,31 @@ struct RepositoriesFeatureTasksTests {
     #expect(store.state.taskRecords[id: record.id]?.lastVisitedAt == Self.now)
     #expect(store.state.selection == .task(record.id))
     #expect(store.state.selectedWorktreeID == nil)
+    // The detail pane mounts the task's owning worktree through this cache;
+    // without it a task selection renders the app-wide empty state.
+    #expect(store.state.taskDetailWorktreeID == WorktreeID(directory.path(percentEncoded: false)))
     // A11: task operations leave `sidebar.json` alone.
     #expect(store.state.sidebar.focusedWorktreeID == priorFocus)
     #expect(sandbox.loadFile()?.tasks.first?.lastVisitedAt == Self.now)
+  }
+
+  /// A settled task must not mount a terminal either — focusing or rendering
+  /// one would wake dormant sessions just by browsing the tail.
+  @Test func settledTaskSelectionLeavesDetailWorktreeEmpty() throws {
+    let sandbox = try Sandbox()
+    let directory = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
+    let surfaceID = UUID()
+    var state = makeState(
+      sandbox: sandbox,
+      directories: [directory],
+      surfacesPerRow: [directory: [surfaceID]]
+    )
+    let record = makeRecord(directory: directory, surfaceIDs: [surfaceID], settledAt: Self.staleDate)
+    state.taskRecords = [record]
+    state.selection = .task(record.id)
+    state.applyPostReduceCacheRecomputes(.all)
+
+    #expect(state.taskDetailWorktreeID == nil)
   }
 
   /// Focus wakes a dormant tab, so browsing the settled tail must not request it.

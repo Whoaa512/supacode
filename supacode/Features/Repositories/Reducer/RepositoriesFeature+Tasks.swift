@@ -460,6 +460,18 @@ extension RepositoriesFeature.State {
     }
   }
 
+  /// Refreshes the cached worktree the detail pane renders for a selected task,
+  /// Equatable-diffed like every other post-reduce cache. Rides the same
+  /// invalidation bits as the Tasks render plan: it reads the selection, the
+  /// task records, and the row roster, nothing else.
+  @MainActor
+  mutating func recomputeTaskDetailWorktreeIDIfChanged() {
+    let new = taskTerminalWorktreeID
+    if new != taskDetailWorktreeID {
+      taskDetailWorktreeID = new
+    }
+  }
+
   /// Projects per-row agent / notification / dormancy state onto the tasks that
   /// own those surfaces. Activity is never an input to the structure, so this
   /// updates a row without reordering it (A4).
