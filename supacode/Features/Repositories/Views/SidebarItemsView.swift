@@ -516,6 +516,11 @@ private struct SidebarItemBody: View {
       // whole repository roster from every row).
       SidebarItemContextMenu(
         row: SidebarContextRow(store.state),
+        // Read off this leaf, never off `sidebarSelectionSlice`: a surface count
+        // is terminal-projection churn, and putting it on the slice makes a
+        // 0 -> N split re-publish the whole selection cache. Per-row it
+        // invalidates one row, which per-leaf doctrine allows.
+        hasLiveSurfaces: !store.state.surfaceIDs.isEmpty,
         isRepositoryRemoving: isRepositoryRemoving,
         store: parentStore
       )
@@ -579,6 +584,10 @@ private struct SidebarItemContextMenu: View {
   /// The right-clicked row, projected from its own leaf store. Sole input: the
   /// menu resolves nothing from the parent's repository roster.
   let row: SidebarContextRow
+  /// Whether the right-clicked row currently projects any terminal surface.
+  /// Threaded from the row's own leaf rather than carried on `SidebarContextRow`
+  /// so terminal churn never widens the selection slice's Equatable surface.
+  let hasLiveSurfaces: Bool
   let isRepositoryRemoving: Bool
   @Bindable var store: StoreOf<RepositoriesFeature>
   @Shared(.settingsFile) private var settingsFile
@@ -676,9 +685,9 @@ private struct SidebarItemContextMenu: View {
         Button("Promote Tab to Task", systemImage: "checklist") {
           store.send(.tasks(.promoteTab(worktreeID: rowID, tabID: nil)))
         }
-        .disabled(!row.hasLiveSurfaces)
+        .disabled(!hasLiveSurfaces)
         .help(
-          row.hasLiveSurfaces
+          hasLiveSurfaces
             ? "Track this worktree's selected tab as a task in the Tasks tab"
             : "This worktree has no open terminal tab to promote"
         )

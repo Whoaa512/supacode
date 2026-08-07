@@ -386,10 +386,6 @@ struct SidebarContextRow: Equatable, Sendable, Identifiable {
   let isAttached: Bool
   let host: RemoteHost?
   let workingDirectoryPath: String
-  /// Whether the row currently projects any terminal surface. Carried as a Bool
-  /// rather than the id list so the menu can gate surface-dependent actions
-  /// without re-publishing on every split.
-  let hasLiveSurfaces: Bool
 
   init(_ row: SidebarItemFeature.State) {
     self.id = row.id
@@ -403,7 +399,6 @@ struct SidebarContextRow: Equatable, Sendable, Identifiable {
     self.isAttached = row.isAttached
     self.host = row.host
     self.workingDirectoryPath = row.workingDirectoryPath
-    self.hasLiveSurfaces = !row.surfaceIDs.isEmpty
   }
 
   var isFolder: Bool { kind == .folder }
