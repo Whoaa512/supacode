@@ -11,6 +11,11 @@ struct TerminalClient {
   var surfaceExistsInWorktree: @MainActor @Sendable (Worktree.ID, UUID) -> Bool
   var tabID: @MainActor @Sendable (Worktree.ID, UUID) -> TerminalTabID?
   var selectedTabID: @MainActor @Sendable (Worktree.ID) -> TerminalTabID?
+  /// Surfaces in one tab's live split tree, or its frozen leaves when the tab is
+  /// hibernated. Empty when the worktree or the tab is gone. Lets a reducer
+  /// address a tab's panes without going through the persisted layout snapshot,
+  /// which lags every split and every tab created since the last save.
+  var tabSurfaceIDs: @MainActor @Sendable (Worktree.ID, TerminalTabID) -> Set<UUID>
   /// Active surface in the selected tab. Lets the reducer capture the target
   /// synchronously before an async dispatch races against AppKit focus reshuffle
   /// (e.g. when a palette dismisses and the leftmost pane reclaims first responder).
@@ -157,6 +162,7 @@ extension TerminalClient: DependencyKey {
     surfaceExistsInWorktree: { _, _ in fatalError("TerminalClient.surfaceExistsInWorktree not configured") },
     tabID: { _, _ in fatalError("TerminalClient.tabID not configured") },
     selectedTabID: { _ in fatalError("TerminalClient.selectedTabID not configured") },
+    tabSurfaceIDs: { _, _ in fatalError("TerminalClient.tabSurfaceIDs not configured") },
     selectedSurfaceID: { _ in fatalError("TerminalClient.selectedSurfaceID not configured") },
     sendTextToSurface: { _, _, _ in fatalError("TerminalClient.sendTextToSurface not configured") },
     surfaceScreenText: { _, _ in fatalError("TerminalClient.surfaceScreenText not configured") },
@@ -182,6 +188,7 @@ extension TerminalClient: DependencyKey {
     surfaceExistsInWorktree: unimplemented("TerminalClient.surfaceExistsInWorktree", placeholder: true),
     tabID: unimplemented("TerminalClient.tabID", placeholder: nil),
     selectedTabID: unimplemented("TerminalClient.selectedTabID", placeholder: nil),
+    tabSurfaceIDs: unimplemented("TerminalClient.tabSurfaceIDs", placeholder: []),
     selectedSurfaceID: unimplemented("TerminalClient.selectedSurfaceID", placeholder: nil),
     sendTextToSurface: unimplemented("TerminalClient.sendTextToSurface", placeholder: false),
     surfaceScreenText: unimplemented("TerminalClient.surfaceScreenText", placeholder: nil),
