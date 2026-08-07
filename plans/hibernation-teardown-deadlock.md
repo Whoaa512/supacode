@@ -565,3 +565,21 @@ D. No surface leak in the happy path: teardown still frees every surface
 - Full bundle: 425 tests, 423 passed, 2 failed = the known pre-existing
   `GhosttyRuntimeBundledOverridesTests` pair. `make check` clean (6 known drift
   files reverted). `make build-app` succeeded.
+
+### Cycle 7 (behavior E — quit abandons pending) — audit, no code
+
+- `applicationWillTerminate` (supacode/App/supacodeApp.swift:55) does layout
+  saves only: `cancelPendingLayoutSaves` → `saveAllLayoutSnapshots` →
+  `rememberSelectedWorktreeZoomOnQuit`. It never calls `closeAllSurfaces`,
+  never touches `SurfaceTeardownQueue`, never frees a surface — quit already
+  abandons pending teardowns (decision 5). Nothing to change.
+- Pending teardown Tasks are ordinary Tasks; process exit discards them. No
+  atexit/deinit hook awaits them, so they can neither keep the app alive nor
+  crash at exit.
+- The quit-adjacent teardown path that DOES run in-process
+  (`closeAllSurfaces`, used by worktree removal) is already pinned by
+  `CloseTeardownTests/closingAllSurfacesHandsEveryLiveSurfaceToTheTeardownQueue`:
+  with a never-resolving teardown it returns synchronously, all views pending,
+  none freed — i.e. no path drains the queue on the caller's turn.
+- No test added: pinning "AppDelegate doesn't call X" would need NSApplication
+  scaffolding for a tautology; the reachable behavior is covered above.
