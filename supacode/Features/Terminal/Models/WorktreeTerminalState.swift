@@ -3700,9 +3700,13 @@ final class WorktreeTerminalState {
   /// killing their zmx sessions or dropping presence, and keep the tab in
   /// `tabManager` so its row, title, and unseen count survive. Surfaces return
   /// with the same UUIDs on wake so `zmx attach` reattaches.
-  func hibernateTab(_ tabId: TerminalTabID) {
-    guard canHibernate(tabId: tabId) else { return }
+  /// Returns whether the tab actually went dormant, so explicit call sites (task
+  /// settle) can report a refusal instead of silently leaving a session awake.
+  @discardableResult
+  func hibernateTab(_ tabId: TerminalTabID) -> Bool {
+    guard canHibernate(tabId: tabId) else { return false }
     performHibernation(tabId)
+    return true
   }
 
   /// Explicit wake for CLI / deeplink / unread-jump call sites. Routes through

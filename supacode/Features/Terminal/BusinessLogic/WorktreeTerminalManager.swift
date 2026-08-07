@@ -485,8 +485,13 @@ final class WorktreeTerminalManager {
       // `stateIfExists`, never `state(for:)`: settling a task must not
       // materialize a worktree state just to put it to sleep.
       guard let state = stateIfExists(for: worktree.id) else { return }
-      for tabID in tabIDs {
-        state.hibernateTab(tabID)
+      for tabID in tabIDs where !state.hibernateTab(tabID) {
+        // The explicit path only: a settle that reports "hibernated" while a
+        // non-zmx (or blocked) tab stays awake is an A6 failure, and without this
+        // it is invisible. The timer-driven path refuses constantly by design.
+        terminalLogger.warning(
+          "hibernateTabs refused for tab \(tabID.rawValue) in \(worktree.id.rawValue): tab cannot hibernate."
+        )
       }
     case .setSelectedWorktreeID(let id):
       guard id != selectedWorktreeID else { return }

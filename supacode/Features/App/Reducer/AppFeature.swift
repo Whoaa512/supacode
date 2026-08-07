@@ -530,9 +530,15 @@ struct AppFeature {
               sidebar.focusedWorktreeID = lastFocusedWorktreeID
             }
           }
+          // A task row owns no worktree, but its surfaces live in one. Leaving the
+          // terminal manager's selection nil would arm the hibernation grace timer
+          // on every tab of the owning worktree, including the tab the user just
+          // opened, so point the manager at that worktree. The info watcher stays
+          // nil: a task selection is not a worktree visit.
+          let terminalSelection = state.repositories.taskTerminalWorktreeID
           return .merge(
             .run { _ in
-              await terminalClient.send(.setSelectedWorktreeID(nil))
+              await terminalClient.send(.setSelectedWorktreeID(terminalSelection))
             },
             .run { _ in
               await worktreeInfoWatcher.send(.setSelectedWorktreeID(nil))
