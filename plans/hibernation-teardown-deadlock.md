@@ -619,3 +619,38 @@ Consensus: deadlock fix correct; ONE regression blocker + majors. Fix round:
 - **Ship gate (manual, cj):** dogfood hibernate → wake → re-hibernate → close
   + stop-script on a real repo; deliberately wedged pty. Confirms SIGTERM'd
   attach client leaves session cleanly re-attachable.
+
+### Fix round items 6-7 (simplification + observability)
+
+- **Stale tests (found while verifying, `797879d1`):** three
+  `WorktreeTerminalManagerTests` unexpected-close tests still sent ghostty's
+  payload as `processAlive: true` and waited on a zmx probe that M1's gate no
+  longer runs (`Timed out waiting for zmx list probe call`). They model a dead
+  attach client under a surviving session, so the payload is child-gone. These
+  failed at HEAD before item 6 — confirmed by stashing.
+- **Item 6 (`53ee292d`):** `Stage`/`Entry` deleted (nothing branched on the
+  stage; `.freed` was written to a slot cleared on the next line) — `pending` is
+  now `[ObjectIdentifier: GhosttySurfaceView]` and tests use `isPending(_:)`.
+  `leakedWarningCap` → `leakedLogEscalationThreshold`. `freeSurfaceInline` is
+  log + unregister + `performDeferredFree()` (one free body). `teardownTasks`
+  comment no longer claims quit abandons them. Plan citations
+  ("(binding N)", "(decision N)", "(constraint N)") stripped from the queue, the
+  view, `GhosttyRuntime`, and the teardown tests; prose reasons kept.
+- **Item 7:** `surface_teardown_freed` (`used_zmx`) on every deferred free — the
+  leak-rate denominator, asserted in
+  `pollingFreesTheSurfaceOnceTheProcessHasExited`. Slow free (>250ms) now emits
+  `surface_teardown_slow_free` (`stall_ms`, `used_zmx`) alongside the warning.
+  No `no_client_kill_possible` leak reason exists BY DESIGN: item 1 frees a
+  non-zmx surface on poll expiry, so only `wedged` / `cancelled` can leak —
+  documented on `leak(_:reason:)`. `freeSurfaceInline` reports
+  `surface_freed_inline_at_deinit` through
+  `SurfaceTeardownQueue.recordInlineFreeAtDeinit(surfaceID:)` (+ a counter):
+  `deinit` cannot resolve a `@Dependency` without resurrecting `self`, and the
+  queue already owns the analytics client for this path. Poll bound 2s → 10s
+  (200 × 50ms): a busy shell can take seconds to unwind, and the outcomes are
+  asymmetric — waiting costs one Task, giving up costs a retained surface. Test
+  helper `advance` bound raised 200 → 400 ticks to stay above the poll bound.
+- **Verified:** `make test -only-testing:supacodeTerminalTests` →
+  `totalTestCount: 429, passed: 427, failed: 2` (the two known pre-existing
+  `GhosttyRuntimeBundledOverridesTests` color failures). `make check`,
+  `make build-app` green.

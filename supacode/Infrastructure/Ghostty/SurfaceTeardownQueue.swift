@@ -54,10 +54,12 @@ final class SurfaceTeardownQueue {
   private static let leakedLogEscalationThreshold = 32
 
   /// How long the child gets to die after the SIGTERM before the surface is
-  /// abandoned: 40 * 50ms = 2s. Long enough for a normal `zmx attach` teardown,
-  /// short enough that a truly wedged pty doesn't pile up pending surfaces.
+  /// abandoned: 200 * 50ms = 10s. A busy shell (agent flushing output, shell exit
+  /// hooks) can take seconds to unwind after its attach client is EOF'd, and the
+  /// two outcomes are wildly asymmetric — waiting longer costs one 50ms-interval
+  /// Task, giving up costs a permanently retained surface.
   private static let exitPollInterval: Duration = .milliseconds(50)
-  private static let maxExitPollAttempts = 40
+  private static let maxExitPollAttempts = 200
   /// Above this, the free stalled the main actor long enough to be user-visible.
   private static let slowFreeThreshold: Duration = .milliseconds(250)
 
@@ -91,6 +93,21 @@ final class SurfaceTeardownQueue {
 
   func isPending(_ view: GhosttySurfaceView) -> Bool {
     pending[ObjectIdentifier(view)] != nil
+  }
+
+  /// Surfaces freed inline from `GhosttySurfaceView.deinit` — the residual deadlock
+  /// path, where no owner called `closeSurface()` so the free was never made safe.
+  /// Reported through the queue rather than the view because `deinit` cannot resolve
+  /// a `@Dependency` without resurrecting `self`, and the queue already holds the
+  /// analytics client the rest of the teardown path reports on.
+  private(set) var inlineFreeAtDeinitCount = 0
+
+  func recordInlineFreeAtDeinit(surfaceID: UUID) {
+    inlineFreeAtDeinitCount += 1
+    analytics.capture(
+      "surface_freed_inline_at_deinit",
+      ["inline_free_count": inlineFreeAtDeinitCount]
+    )
   }
 
   /// Takes ownership of `view`'s surface teardown and returns without touching
@@ -161,7 +178,9 @@ final class SurfaceTeardownQueue {
   /// a wedged io thread and freeze the app. Skip the free and keep the view.
   ///
   /// - Parameter reason: `wedged` (kill went out, child never exited) or `cancelled`
-  ///   (poll interrupted, child's state unknown).
+  ///   (poll interrupted, child's state unknown). There is deliberately no
+  ///   "no kill possible" reason: a surface with no attach client to kill is FREED
+  ///   when the poll expires (see `resolveExpiredPoll`), so it never leaks.
   private func leak(_ key: ObjectIdentifier, reason: String) {
     guard let view = pending[key] else { return }
     pending[key] = nil
@@ -191,9 +210,17 @@ final class SurfaceTeardownQueue {
     let start = ContinuousClock.now
     free(view)
     let elapsed = ContinuousClock.now - start
+    let usedZmx = view.usesZmx
+    // The denominator for the leak rate: every resolved surface reports exactly one
+    // of `surface_teardown_freed` / `surface_teardown_leaked`.
+    analytics.capture("surface_teardown_freed", ["used_zmx": usedZmx])
     if elapsed > Self.slowFreeThreshold {
       Self.logger.warning(
         "slow surface free for \(view.id): \(elapsed) (main actor stalled)"
+      )
+      analytics.capture(
+        "surface_teardown_slow_free",
+        ["stall_ms": Self.milliseconds(elapsed), "used_zmx": usedZmx]
       )
     }
     pending[key] = nil
@@ -219,6 +246,11 @@ final class SurfaceTeardownQueue {
       return
     }
     _ = await shell.run(URL(fileURLWithPath: "/bin/kill"), ["-TERM"] + pids)
+  }
+
+  private nonisolated static func milliseconds(_ duration: Duration) -> Int {
+    let components = duration.components
+    return Int(components.seconds * 1000 + components.attoseconds / 1_000_000_000_000_000)
   }
 
   private nonisolated static func parsePIDs(_ stdout: String) -> [String] {

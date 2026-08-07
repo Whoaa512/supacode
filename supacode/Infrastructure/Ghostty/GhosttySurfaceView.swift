@@ -407,6 +407,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
     guard let surface else { return }
     surfaceLogger.error(
       "surface \(id) reached deinit without closeSurface(); freeing inline (may block)")
+    runtime.surfaceTeardownQueue.recordInlineFreeAtDeinit(surfaceID: id)
     if let surfaceRef {
       runtime.unregisterSurface(surfaceRef)
       self.surfaceRef = nil

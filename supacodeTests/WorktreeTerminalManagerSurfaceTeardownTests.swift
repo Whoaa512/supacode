@@ -55,15 +55,20 @@ private final class FreeSpy {
   }
 }
 
-/// Records analytics events so the leak path's counter is observable.
+/// Records analytics events so the teardown path's freed / leaked reporting is
+/// observable (the two together are the leak-rate denominator).
 @MainActor
 private final class AnalyticsSpy {
   private(set) var events: [String] = []
+  private(set) var properties: [[String: Any]] = []
 
   var client: AnalyticsClient {
     AnalyticsClient(
-      capture: { [weak self] event, _ in
-        MainActor.assumeIsolated { self?.events.append(event) }
+      capture: { [weak self] event, properties in
+        MainActor.assumeIsolated {
+          self?.events.append(event)
+          self?.properties.append(properties ?? [:])
+        }
       },
       identify: { _ in }
     )
@@ -120,10 +125,10 @@ struct SurfaceTeardownQueueTests {
   /// Advances the TestClock in poll-interval ticks until `condition` holds. A
   /// freshly spawned teardown Task can register its sleep after an advance, so one
   /// tick isn't guaranteed to be enough; the bound only stops a regression from
-  /// spinning forever.
+  /// spinning forever, so it sits comfortably above the queue's poll bound.
   private func advance(
     _ clock: TestClock<Duration>,
-    ticks: Int = 200,
+    ticks: Int = 400,
     until condition: () -> Bool
   ) async {
     for _ in 0..<ticks where !condition() {
@@ -248,13 +253,21 @@ struct SurfaceTeardownQueueTests {
 
   /// The whole point of the deferred path: the free waits for the pty child to
   /// actually exit (`ghostty_surface_process_exited`), and only then frees — once —
-  /// releasing the queue's last strong reference to the view.
+  /// releasing the queue's last strong reference to the view. The free is also
+  /// reported, since it is the denominator the leak rate is read against.
   @Test func pollingFreesTheSurfaceOnceTheProcessHasExited() async {
     let runtime = GhosttyRuntime()
     let clock = TestClock()
     let probe = ProbeSpy()
     let free = FreeSpy()
-    let queue = makeQueue(ShellSpy(pgrepStdout: "4242\n"), clock: clock, probe: probe, free: free)
+    let analytics = AnalyticsSpy()
+    let queue = makeQueue(
+      ShellSpy(pgrepStdout: "4242\n"),
+      clock: clock,
+      probe: probe,
+      free: free,
+      analytics: analytics
+    )
     let weakRef = WeakSurfaceRef()
     let surfaceID = UUID()
     var task: Task<Void, Never>?
@@ -280,6 +293,8 @@ struct SurfaceTeardownQueueTests {
     #expect(free.freedSurfaceIDs == [surfaceID])
     #expect(queue.pendingCount == 0)
     #expect(weakRef.view == nil)
+    #expect(analytics.events == ["surface_teardown_freed"])
+    #expect(analytics.properties.first?["used_zmx"] as? Bool == true)
   }
 
   /// Leak over hang: if the child never exits, the free is SKIPPED —
