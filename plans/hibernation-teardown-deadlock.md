@@ -456,3 +456,89 @@ D. No surface leak in the happy path: teardown still frees every surface
   failures as cycles 1–3.
 - `make check` exit 0 (same 6 unrelated swift-format drift files reverted). No
   `make build-app` needed — no production code changed this cycle.
+
+### GREEN (cycle 5 — behavior C: every close goes through the queue)
+
+- **Placement fix, not per-site conversion.** `GhosttySurfaceView.closeSurface()`
+  itself now hands off (`runtime.surfaceTeardownQueue.handOff(self)`) and does no
+  freeing at all, so all 9 remaining `WorktreeTerminalState` call sites plus any
+  future one are safe by default (decision 3). `performDeferredFree()` is the only
+  real free; `rg ghostty_surface_free supacode/` shows exactly two callers —
+  `performDeferredFree()` and the deinit-only `freeSurfaceInline()`.
+- **Per-call-site table** (all in `WorktreeTerminalState`; all converted *by
+  placement*, i.e. the line is unchanged and now defers):
+
+  | site | path | semantics preserved |
+  | --- | --- | --- |
+  | :1335 | `performSplitAction` insert failure | `discardSurfaceBookkeeping` still runs; no session kill (never had one) |
+  | :1403 | `closeAllSurfaces` | bookkeeping + `onSurfacesClosed` (incl. dormant ids) unchanged; kills done by callers off `allSurfaceIDs`, untouched |
+  | :1990 | `createRestorationSplit` failure | `discardSurfaceBookkeeping` unchanged; no session kill |
+  | :2946 | `removeTree` (tab close) | `cleanupSurfaceState` per leaf, then `killZmxSessions(includeRemote: true)` — still fires (pinned by test) |
+  | :3364 | `replaceUnexpectedZmxSurface` success | **only exception**: `closeSurface(killAttachClient: false)` — see below |
+  | :3375 / :3396 / :3404 | reattach failure / `closeSurfaceAndUpdateTabs` early-outs | bookkeeping + conditional `killZmxSessions(killZmxSession:)` unchanged |
+  | :3416 | `closeSurfaceAndUpdateTabs` main path | focus target, tree removal, `cleanupSurfaceState`, conditional session kill — all unchanged and still ordered before/after exactly as before |
+  | :3731 | `performHibernation` | already `handOff` since cycle 2; left explicit |
+
+- **Session-kill semantics are untouched everywhere.** The queue only ever kills
+  the attach CLIENT; `killZmxSessions` still owns the SESSION. They are
+  orthogonal, so no call site needed reordering — verified by reading each site and
+  pinned for tab close via the `terminal_persistence_session_killed` analytics
+  event.
+- **The one real hazard found by the audit:** `replaceUnexpectedZmxSurface` creates
+  the replacement surface *under the same surface id* (same zmx session) BEFORE
+  closing the old view. A hand-off there would `pgrep -f "zmx attach <session>"`
+  and kill the REPLACEMENT's freshly spawned client — binding 8's hazard reached by
+  ordering instead of by retry. Fix: `handOff(_:killAttachClient:)` /
+  `closeSurface(killAttachClient:)`, default `true`, `false` at that one site (the
+  old child already exited, so there is nothing to unblock). Rejected alternative:
+  auto-skip the kill when `hasProcessExited` is already true — it silently couples
+  the kill to a probe that returns `true` for every headless test view, and would
+  have made the existing kill tests vacuous.
+- **deinit decision (documented, deliberate):** `isolated deinit` must NOT hand
+  off — the queue retains the view, and retaining `self` inside `deinit` is
+  resurrection. So `deinit` calls a new private `freeSurfaceInline()`: the old
+  inline-free body, plus a SupaLogger **error** when `surface != nil`, because
+  reaching there with a live surface now means an owner released the view without
+  ever calling `closeSurface()` (a bug, and the only path that can still block the
+  main actor). In the normal flow the queue is the last owner and frees via
+  `performDeferredFree()`, so `deinit` sees `surface == nil` and does nothing. No
+  test: the only observable is a log line, and the "owners hand off first" premise
+  is already pinned by the weak-ref ownership assertions in all four suites.
+- Re-entrancy checked: `handOff` → `prepareForDeferredTeardown()` never calls
+  `closeSurface()`; a second `closeSurface()` hits the `isTeardownDeferred` warning
+  guard, and `handOff` is idempotent by view identity anyway. `unregisterSurface`
+  still happens at hand-off (decision 4), now for close as well as hibernation.
+- New suite `CloseTeardownTests`
+  (`supacodeTests/WorktreeTerminalManagerCloseTeardownTests.swift`), 3 tests:
+  - `closingATabHandsEveryLeafToTheTeardownQueue` — RED first
+    (`queue.pendingCount → 0) == 2`, i.e. `closeTab` freed both leaves inline).
+    Split tab → `closeTab`: both leaves alive (weak refs, checked after the
+    `autoreleasepool` drains), pending at `.killRequested`, `pendingSurfaceIDs`
+    matches, tab gone, `onTabClosed` fired once, session kill still requested.
+    Trap hit on the first run: holding the views in a local array made the weak
+    assertion vacuous — the stage check moved inside the pool, ownership check
+    outside it.
+  - `closingAllSurfacesHandsEveryLiveSurfaceToTheTeardownQueue` — the quit /
+    worktree-teardown path, two tabs, same ownership assertions.
+  - `reattachingAnExitedZmxSurfaceNeverKillsTheAttachClient` — drives the real
+    reattach (`bridge.closeSurface(processAlive: false)` + an idle session in the
+    injected listing), then asserts NO shell command so much as mentions the
+    session id. Needs a runtime built inside `withDependencies` with a spying
+    `shellClient.run` (the queue resolves the shell at construction, binding 13),
+    and must DRAIN the view's teardown Task first — without that drain the test
+    passed under the mutation, i.e. it was vacuous.
+- **Mutation-verified:** `killAttachClient: false` → `true` at :3364 →
+  `reattachingAnExitedZmxSurfaceNeverKillsTheAttachClient` FAILS (`commands`
+  contains the session pattern). Reverted. The centralization itself was verified
+  by its RED run.
+- `CloseTeardownTests` + `HibernationTeardownTests` + `SurfaceTeardownQueueTests`
+  + `WakeWhileTeardownPendingTests` → exit 0, totalTestCount 17, passed 17,
+  failed 0.
+- Full bundle `-only-testing:supacodeTerminalTests` → 422 tests, 420 passed,
+  2 failed: the same known pre-existing `GhosttyRuntimeBundledOverridesTests`
+  failures as cycles 1–4.
+- `make check` exit 0 (same 6 unrelated swift-format drift files reverted).
+  `make build-app` succeeded.
+- Remaining (cycles 6–7): happy-path no-leak proof across a whole tab, and app
+  quit abandoning pending teardowns (the `view → runtime → queue → view` cycle
+  from cycle 2 now also keeps closed tabs' surfaces alive until they resolve).
