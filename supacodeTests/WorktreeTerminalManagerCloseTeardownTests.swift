@@ -34,9 +34,24 @@ struct CloseTeardownTests {
     )
   }
 
+  /// Runtime whose teardown queue runs against a recorded shell instead of the real
+  /// one: the queue resolves `shellClient` at CONSTRUCTION (binding 13), so the spy
+  /// has to be in scope here.
+  private func makeRuntime(commands: LockIsolated<[[String]]>) -> GhosttyRuntime {
+    withDependencies {
+      $0.shellClient.run = { executable, arguments, _ in
+        commands.withValue { $0.append([executable.lastPathComponent] + arguments) }
+        return ShellOutput(stdout: "", stderr: "", exitCode: 0)
+      }
+    } operation: {
+      GhosttyRuntime()
+    }
+  }
+
   private func makeState(
     runtime: GhosttyRuntime,
-    events: LockIsolated<[String]> = LockIsolated([])
+    events: LockIsolated<[String]> = LockIsolated([]),
+    sessions: LockIsolated<[ZmxSessionListParser.Entry]> = LockIsolated([])
   ) -> WorktreeTerminalState {
     withDependencies {
       $0.continuousClock = ImmediateClock()
@@ -47,7 +62,7 @@ struct CloseTeardownTests {
         isBundled: { true },
         killSession: { _ in },
         killRemoteSession: { _, _ in },
-        listSessionsWithClients: { [] }
+        listSessionsWithClients: { sessions.value }
       )
     } operation: {
       WorktreeTerminalState(
@@ -115,5 +130,79 @@ struct CloseTeardownTests {
     #expect(queue.pendingCount == 2)
     #expect(queue.pendingSurfaceIDs == surfaceIDs)
     #expect(queue.leakedCount == 0)
+  }
+
+  /// `closeAllSurfaces` (worktree teardown / quit) must not free inline either: it
+  /// walks every live surface at once, so one wedged pty there would freeze the app
+  /// during quit.
+  @Test func closingAllSurfacesHandsEveryLiveSurfaceToTheTeardownQueue() {
+    let runtime = GhosttyRuntime()
+    let state = makeState(runtime: runtime)
+    let queue = runtime.surfaceTeardownQueue
+
+    var refs: [WeakRef] = []
+    var surfaceIDs: Set<UUID> = []
+    autoreleasepool {
+      let firstTab = state.createTab(focusing: false)!
+      let secondTab = state.createTab(focusing: false)!
+      let views = leaves(state, tab: firstTab) + leaves(state, tab: secondTab)
+      #expect(views.count == 2)
+      surfaceIDs = Set(views.map(\.id))
+      refs = views.map { view in
+        let ref = WeakRef()
+        ref.view = view
+        return ref
+      }
+
+      state.closeAllSurfaces()
+
+      #expect(views.allSatisfy { queue.stage(for: $0) == .killRequested })
+      #expect(state.surfaceIDs(inTab: firstTab).isEmpty)
+      #expect(state.surfaceIDs(inTab: secondTab).isEmpty)
+    }
+
+    #expect(refs.count == 2)
+    #expect(refs.allSatisfy { $0.view != nil })
+    #expect(queue.pendingCount == 2)
+    #expect(queue.pendingSurfaceIDs == surfaceIDs)
+  }
+
+  /// The zmx reattach path is the ONE hand-off that must not kill an attach client.
+  /// The replacement surface reuses the exited surface's id, i.e. its zmx session,
+  /// and the kill matches by session pattern — so killing here would take out the
+  /// client the reattach just spawned (binding 8's hazard, reached by ordering
+  /// instead of by retry).
+  @Test func reattachingAnExitedZmxSurfaceNeverKillsTheAttachClient() async {
+    let commands = LockIsolated<[[String]]>([])
+    let runtime = makeRuntime(commands: commands)
+    // The session id is only known after the surface exists, so the listing is a
+    // mutable box the injected client reads at call time.
+    let sessions = LockIsolated<[ZmxSessionListParser.Entry]>([])
+    let state = makeState(runtime: runtime, sessions: sessions)
+    let tab = state.createTab(focusing: false)!
+    let view = leaves(state, tab: tab)[0]
+    let sessionID = ZmxSessionID.make(surfaceID: view.id)
+    // An idle session we own is what sends `handleUnexpectedZmxClose` down the
+    // reattach branch instead of the close branch.
+    sessions.setValue([.init(name: sessionID, clients: 0)])
+
+    view.bridge.closeSurface(processAlive: false)
+    for _ in 0..<50 where leaves(state, tab: tab).first === view {
+      await Task.megaYield()
+    }
+
+    // Drain the old view's teardown Task, otherwise a kill it WOULD have run has
+    // simply not happened yet and the assertion below is vacuous.
+    for _ in 0..<50 {
+      guard let task = runtime.surfaceTeardownQueue.teardownTask(for: view) else { break }
+      await task.value
+    }
+    await Task.megaYield()
+
+    let replacement = leaves(state, tab: tab).first
+    #expect(replacement !== view)
+    #expect(replacement?.id == view.id)
+    // Nothing may go looking for — let alone kill — this session's client.
+    #expect(!commands.value.contains { $0.contains(where: { $0.contains(sessionID) }) })
   }
 }
