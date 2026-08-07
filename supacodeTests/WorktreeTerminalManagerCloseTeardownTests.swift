@@ -35,7 +35,7 @@ struct CloseTeardownTests {
   }
 
   /// Runtime whose teardown queue runs against a recorded shell instead of the real
-  /// one: the queue resolves `shellClient` at CONSTRUCTION (binding 13), so the spy
+  /// one: the queue resolves `shellClient` at CONSTRUCTION, so the spy
   /// has to be in scope here.
   private func makeRuntime(commands: LockIsolated<[[String]]>) -> GhosttyRuntime {
     withDependencies {
@@ -84,7 +84,7 @@ struct CloseTeardownTests {
   }
 
   /// Closing a tab must not free its surfaces inline. Every leaf ends up owned by
-  /// the teardown queue (still alive, parked at `.killRequested`), while the tab
+  /// the teardown queue (still alive, still pending), while the tab
   /// itself is gone and the zmx SESSION kill an explicit close asks for still
   /// happens — session kill and attach-client kill are orthogonal.
   @Test func closingATabHandsEveryLeafToTheTeardownQueue() {
@@ -122,7 +122,7 @@ struct CloseTeardownTests {
       #expect(events.value.contains("terminal_persistence_session_killed"))
       // Checked in here, where the view objects still exist; ownership is checked
       // after the pool drains, where holding one would make it vacuous.
-      #expect(views.allSatisfy { queue.stage(for: $0) == .killRequested })
+      #expect(views.allSatisfy { queue.isPending($0) })
     }
 
     #expect(refs.count == 2)
@@ -156,7 +156,7 @@ struct CloseTeardownTests {
 
       state.closeAllSurfaces()
 
-      #expect(views.allSatisfy { queue.stage(for: $0) == .killRequested })
+      #expect(views.allSatisfy { queue.isPending($0) })
       #expect(state.surfaceIDs(inTab: firstTab).isEmpty)
       #expect(state.surfaceIDs(inTab: secondTab).isEmpty)
     }
@@ -193,7 +193,7 @@ struct CloseTeardownTests {
   /// The zmx reattach path is the ONE hand-off that must not kill an attach client.
   /// The replacement surface reuses the exited surface's id, i.e. its zmx session,
   /// and the kill matches by session pattern — so killing here would take out the
-  /// client the reattach just spawned (binding 8's hazard, reached by ordering
+  /// client the reattach just spawned (the pattern-kill hazard, reached by ordering
   /// instead of by retry).
   @Test func reattachingAnExitedZmxSurfaceNeverKillsTheAttachClient() async {
     let commands = LockIsolated<[[String]]>([])

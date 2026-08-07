@@ -81,7 +81,7 @@ struct HibernationTeardownTests {
     // injected free.)
     #expect(
       refs.compactMap { $0.view }.allSatisfy {
-        runtime.surfaceTeardownQueue.stage(for: $0) == .killRequested
+        runtime.surfaceTeardownQueue.isPending($0)
       })
     #expect(runtime.surfaceTeardownQueue.pendingSurfaceIDs == leafIDs)
     #expect(runtime.surfaceTeardownQueue.pendingCount == leafIDs.count)

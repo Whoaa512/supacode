@@ -54,7 +54,7 @@ final class GhosttyRuntime {
   ///   the teardown policy (exit probe, clock, free) while exercising the real close
   ///   and hibernate paths. Production passes nil and gets the live queue.
   init(initialColorScheme: ColorScheme? = nil, surfaceTeardownQueue: SurfaceTeardownQueue? = nil) {
-    // Resolved HERE, at construction (binding 13): the queue's teardown Tasks
+    // Resolved HERE, at construction: the queue's teardown Tasks
     // escape the caller's dependency scope, so resolving inside them would pick
     // up the live shell in tests.
     @Dependency(\.shellClient) var shellClient

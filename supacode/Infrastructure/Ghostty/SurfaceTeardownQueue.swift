@@ -29,26 +29,13 @@ nonisolated struct SurfaceTeardownShell: Sendable {
 /// attempts, and free only once the child is gone.
 @MainActor
 final class SurfaceTeardownQueue {
-  /// Per-surface state machine (binding 13). One Task drives one surface through
-  /// it; there is no central driver loop.
-  enum Stage: Equatable {
-    case killRequested
-    case awaitingExit(attempt: Int)
-    case freed
-    case leaked
-  }
-
-  private struct Entry {
-    let view: GhosttySurfaceView
-    var stage: Stage
-  }
-
   /// Keyed by VIEW identity, not surface UUID: a dormant tab reuses its surface
   /// UUIDs on wake, so a UUID-keyed map would treat the woken generation as
   /// already pending, skip the hand-off, and let its free run inline again.
-  private var pending: [ObjectIdentifier: Entry] = [:]
-  /// One Task per pending view (binding 13: no central driver loop). Retained so
-  /// callers can observe completion and so quit can abandon them.
+  private var pending: [ObjectIdentifier: GhosttySurfaceView] = [:]
+  /// One Task per pending view: no central driver loop. Retained so callers (and
+  /// tests) can await a surface's teardown, and so a resolved surface drops its
+  /// Task instead of accumulating one per hibernate.
   private var teardownTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
   private let shell: SurfaceTeardownShell
   private let clock: any Clock<Duration>
@@ -56,7 +43,7 @@ final class SurfaceTeardownQueue {
   private let hasProcessExited: (GhosttySurfaceView) -> Bool
   private let free: (GhosttySurfaceView) -> Void
   private nonisolated static let logger = SupaLogger("SurfaceTeardown")
-  /// Deliberately leaked surfaces, kept RETAINED (binding 6): ghostty holds the
+  /// Deliberately leaked surfaces, kept RETAINED: ghostty holds the
   /// bridge as userdata with no liveness registry, so dropping a view whose surface
   /// is still alive is a use-after-free on the next callback. Retention is
   /// therefore not optional — the cap below only escalates logging.
@@ -64,7 +51,7 @@ final class SurfaceTeardownQueue {
   /// Past this many leaks something systemic is wrong (a wedged pty is rare; 32 of
   /// them means every hibernate is wedging), so the log switches to `error`. The
   /// views are still retained.
-  private static let leakedWarningCap = 32
+  private static let leakedLogEscalationThreshold = 32
 
   /// How long the child gets to die after the SIGTERM before the surface is
   /// abandoned: 40 * 50ms = 2s. Long enough for a normal `zmx attach` teardown,
@@ -88,7 +75,7 @@ final class SurfaceTeardownQueue {
     self.free = free
   }
 
-  var pendingSurfaceIDs: Set<UUID> { Set(pending.values.map(\.view.id)) }
+  var pendingSurfaceIDs: Set<UUID> { Set(pending.values.map(\.id)) }
 
   var pendingCount: Int { pending.count }
 
@@ -102,8 +89,8 @@ final class SurfaceTeardownQueue {
     teardownTasks[ObjectIdentifier(view)]
   }
 
-  func stage(for view: GhosttySurfaceView) -> Stage? {
-    pending[ObjectIdentifier(view)]?.stage
+  func isPending(_ view: GhosttySurfaceView) -> Bool {
+    pending[ObjectIdentifier(view)] != nil
   }
 
   /// Takes ownership of `view`'s surface teardown and returns without touching
@@ -112,11 +99,11 @@ final class SurfaceTeardownQueue {
   /// - Parameter killAttachClient: `false` skips the client kill for a surface whose
   ///   child is already gone but whose zmx session is being reattached under the
   ///   same surface id: the kill matches by session pattern, so it would take out
-  ///   the replacement's client instead (binding 8, same hazard as re-killing).
+  ///   the replacement's client instead (same hazard as re-killing).
   func handOff(_ view: GhosttySurfaceView, killAttachClient: Bool = true) {
     let key = ObjectIdentifier(view)
     guard pending[key] == nil else { return }
-    pending[key] = Entry(view: view, stage: .killRequested)
+    pending[key] = view
     view.prepareForDeferredTeardown()
     let sessionID = ZmxSessionID.make(surfaceID: view.id)
     let shell = shell
@@ -135,11 +122,10 @@ final class SurfaceTeardownQueue {
   /// once the pty child is gone: freeing earlier is exactly the join that wedges
   /// the main actor.
   private func awaitExitThenFree(_ key: ObjectIdentifier) async {
-    for attempt in 0..<Self.maxExitPollAttempts {
-      guard let entry = pending[key] else { return }
-      pending[key]?.stage = .awaitingExit(attempt: attempt)
-      if hasProcessExited(entry.view) {
-        performFree(key, entry.view)
+    for _ in 0..<Self.maxExitPollAttempts {
+      guard let view = pending[key] else { return }
+      if hasProcessExited(view) {
+        performFree(key, view)
         return
       }
       do {
@@ -163,9 +149,9 @@ final class SurfaceTeardownQueue {
   /// anyway, which is what closing the pty did before this queue existed (the free
   /// SIGHUPs the child; only a wedged reader can block it).
   private func resolveExpiredPoll(_ key: ObjectIdentifier) {
-    guard let entry = pending[key] else { return }
-    guard entry.view.usesZmx else {
-      performFree(key, entry.view)
+    guard let view = pending[key] else { return }
+    guard view.usesZmx else {
+      performFree(key, view)
       return
     }
     leak(key, reason: "wedged")
@@ -177,31 +163,31 @@ final class SurfaceTeardownQueue {
   /// - Parameter reason: `wedged` (kill went out, child never exited) or `cancelled`
   ///   (poll interrupted, child's state unknown).
   private func leak(_ key: ObjectIdentifier, reason: String) {
-    guard let entry = pending[key] else { return }
+    guard let view = pending[key] else { return }
     pending[key] = nil
     teardownTasks[key] = nil
-    leaked.append(entry.view)
+    leaked.append(view)
     let message = """
-      leaked surface \(entry.view.id): pty child still alive after \
+      leaked surface \(view.id): pty child still alive after \
       \(Self.maxExitPollAttempts) polls; skipping free (leaked: \(leaked.count))
       """
-    if leaked.count > Self.leakedWarningCap {
+    if leaked.count > Self.leakedLogEscalationThreshold {
       Self.logger.error(message)
     } else {
       Self.logger.warning(message)
     }
     analytics.capture(
       "surface_teardown_leaked",
-      ["leaked_count": leaked.count, "reason": reason, "used_zmx": entry.view.usesZmx]
+      ["leaked_count": leaked.count, "reason": reason, "used_zmx": view.usesZmx]
     )
   }
 
-  /// Frees on the main actor (constraint 1) through the view (binding 11), then
-  /// drops the queue's last strong reference.
+  /// Frees on the main actor through the view, then drops the queue's last strong
+  /// reference.
   private func performFree(_ key: ObjectIdentifier, _ view: GhosttySurfaceView) {
     // Measured on a REAL clock, not the injected one: `Surface.deinit` also joins
-    // the RENDERER thread, which `process_exited` does not bound (binding 12), so
-    // this is the residual main-actor stall and only wall time describes it.
+    // the RENDERER thread, which `process_exited` does not bound, so this is the
+    // residual main-actor stall and only wall time describes it.
     let start = ContinuousClock.now
     free(view)
     let elapsed = ContinuousClock.now - start
@@ -210,7 +196,6 @@ final class SurfaceTeardownQueue {
         "slow surface free for \(view.id): \(elapsed) (main actor stalled)"
       )
     }
-    pending[key]?.stage = .freed
     pending[key] = nil
     teardownTasks[key] = nil
   }

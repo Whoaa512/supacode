@@ -229,7 +229,7 @@ struct SurfaceTeardownQueueTests {
 
   /// A woken surface reuses its UUID, so its NEW attach client is a different
   /// process and must be killed on ITS hand-off. (Re-killing the SAME hand-off
-  /// later is what murders a freshly woken terminal — that's binding 8.)
+  /// later is what murders a freshly woken terminal.)
   @Test func eachHandOffOfAReusedSurfaceIDKillsItsOwnClient() async {
     let runtime = GhosttyRuntime()
     let spy = ShellSpy(pgrepStdout: "4242\n")
@@ -282,8 +282,8 @@ struct SurfaceTeardownQueueTests {
     #expect(weakRef.view == nil)
   }
 
-  /// Leak over hang (decision 1): if the child never exits, the free is SKIPPED —
-  /// but the view must stay RETAINED (binding 6). ghostty holds the bridge pointer
+  /// Leak over hang: if the child never exits, the free is SKIPPED —
+  /// but the view must stay RETAINED. ghostty holds the bridge pointer
   /// as userdata with no liveness registry, so dropping a view whose surface is
   /// still alive is a use-after-free on the next callback.
   @Test func abandonedTeardownRetainsTheViewInsteadOfFreeingIt() async {

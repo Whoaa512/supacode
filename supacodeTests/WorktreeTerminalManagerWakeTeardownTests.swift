@@ -94,10 +94,10 @@ struct WakeWhileTeardownPendingTests {
     // ...and the OLD generation is still queued: a wake neither frees nor drops it.
     #expect(queue.pendingCount == oldViews.count)
     #expect(queue.pendingSurfaceIDs == Set(surfaceIDs))
-    #expect(oldViews.allSatisfy { queue.stage(for: $0) == .killRequested })
+    #expect(oldViews.allSatisfy { queue.isPending($0) })
     // The pending entries are the OLD views, never the live ones — freeing a
     // surface that is back in the tree would tear down a working terminal.
-    #expect(newViews.allSatisfy { queue.stage(for: $0) == nil })
+    #expect(newViews.allSatisfy { !queue.isPending($0) })
     // Reattach never kills the session.
     #expect(killed.value.isEmpty)
   }
@@ -128,8 +128,8 @@ struct WakeWhileTeardownPendingTests {
     // the one reused surface id.
     #expect(queue.pendingCount == 2 * firstGeneration.count)
     #expect(queue.pendingSurfaceIDs == Set(surfaceIDs))
-    #expect(firstGeneration.allSatisfy { queue.stage(for: $0) == .killRequested })
-    #expect(secondGeneration.allSatisfy { queue.stage(for: $0) == .killRequested })
+    #expect(firstGeneration.allSatisfy { queue.isPending($0) })
+    #expect(secondGeneration.allSatisfy { queue.isPending($0) })
     // Each generation got its OWN teardown Task, i.e. its own attach-client kill:
     // the second hand-off was not deduped away.
     #expect(secondGeneration.allSatisfy { queue.teardownTask(for: $0) != nil })

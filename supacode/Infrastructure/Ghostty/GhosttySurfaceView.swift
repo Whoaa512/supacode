@@ -364,9 +364,9 @@ final class GhosttySurfaceView: NSView, Identifiable {
     return ghostty_surface_process_exited(surface)
   }
 
-  /// The ONLY real free for a view whose teardown was deferred (binding 11):
-  /// `SurfaceTeardownQueue` calls this on the main actor once the child has exited,
-  /// so the view stays the single owner that nils the surface pointers.
+  /// The ONLY real free of a ghostty surface: `SurfaceTeardownQueue` calls this on
+  /// the main actor once the child has exited, so the view stays the single owner
+  /// that nils the surface pointers.
   func performDeferredFree() {
     guard let surface else { return }
     ghostty_surface_free(surface)
@@ -387,7 +387,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
   ///   session under the same surface id. The kill matches by session pattern, so
   ///   it would murder that other client. Only the zmx reattach path needs this.
   func closeSurface(killAttachClient: Bool = true) {
-    // Inert once the queue owns this view's teardown (binding 11). Logged because a
+    // Inert once the queue owns this view's teardown. Logged because a
     // caller reaching here expects the surface to be gone and it is not (yet).
     if isTeardownDeferred {
       surfaceLogger.warning("closeSurface() ignored for \(id): teardown is deferred")
@@ -411,11 +411,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
       runtime.unregisterSurface(surfaceRef)
       self.surfaceRef = nil
     }
-    ghostty_surface_free(surface)
-    self.surface = nil
-    bridge.surface = nil
-    lastOcclusion = nil
-    lastSurfaceFocus = nil
+    performDeferredFree()
   }
 
   private func updateScreenObservers() {
