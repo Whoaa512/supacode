@@ -386,6 +386,7 @@ struct AppFeature {
   @Dependency(WorktreeInfoWatcherClient.self) private var worktreeInfoWatcher
   @Dependency(\.date.now) private var now
   @Dependency(\.continuousClock) private var clock
+  @Dependency(\.uuid) private var uuid
 
   var body: some Reducer<State, Action> {
     let core = Reduce<State, Action> { state, action in
@@ -720,6 +721,21 @@ struct AppFeature {
         return .run { _ in
           guard let tabID = await terminalClient.tabID(worktree.id, surfaceID) else { return }
           await terminalClient.send(.focusSurface(worktree, tabID: tabID, surfaceID: surfaceID))
+        }
+
+      case .repositories(.delegate(.openTaskTerminal(let worktreeID, _))):
+        guard let worktree = state.repositories.worktree(for: worktreeID), !worktree.isMissing else {
+          return .none
+        }
+        // A3: the new task steals no existing surface, so it gets a tab of its
+        // own. The id is minted here so the claim can name that exact tab instead
+        // of racing whatever the worktree happens to have selected afterwards.
+        let tabID = TerminalTabID(rawValue: uuid())
+        return .run { send in
+          await terminalClient.send(.createTab(worktree, runSetupScriptIfNew: false, id: tabID.rawValue))
+          // Promotion claims the tab for the newest active task in the
+          // directory, which is the task that just asked for it.
+          await send(.repositories(.tasks(.promoteTab(worktreeID: worktreeID, tabID: tabID))))
         }
 
       case .settings(.delegate(.settingsChanged(let settings))):
