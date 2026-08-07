@@ -94,6 +94,10 @@ final class SurfaceTeardownQueue {
 
   var leakedCount: Int { leaked.count }
 
+  /// Live per-view Tasks. A resolved (freed or leaked) surface must drop its Task,
+  /// so a long session cannot accumulate them.
+  var teardownTaskCount: Int { teardownTasks.count }
+
   func teardownTask(for view: GhosttySurfaceView) -> Task<Void, Never>? {
     teardownTasks[ObjectIdentifier(view)]
   }

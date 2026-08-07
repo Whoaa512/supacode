@@ -1191,10 +1191,13 @@ final class GhosttySurfaceView: NSView, Identifiable {
     let currentDelay = delay ?? 0
     guard currentDelay < maxDelay else { return }
     let nextDelay: TimeInterval = if let delay { delay * 2 } else { 0.05 }
-    Task { @MainActor in
+    // Weak captures: a delayed retry must not extend the view's lifetime past its
+    // teardown — focusing a dealloc'd (or deallocating) surface is meaningless.
+    Task { @MainActor [weak view, weak previous] in
       if let delay {
         try? await ContinuousClock().sleep(for: .seconds(delay))
       }
+      guard let view else { return }
       guard let window = view.window else {
         moveFocus(to: view, from: previous, delay: nextDelay)
         return

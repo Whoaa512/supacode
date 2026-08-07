@@ -50,16 +50,21 @@ final class GhosttyRuntime {
   }
   var onConfigChange: (() -> Void)?
 
-  init(initialColorScheme: ColorScheme? = nil) {
+  /// - Parameter surfaceTeardownQueue: injection point for tests that need to drive
+  ///   the teardown policy (exit probe, clock, free) while exercising the real close
+  ///   and hibernate paths. Production passes nil and gets the live queue.
+  init(initialColorScheme: ColorScheme? = nil, surfaceTeardownQueue: SurfaceTeardownQueue? = nil) {
     // Resolved HERE, at construction (binding 13): the queue's teardown Tasks
     // escape the caller's dependency scope, so resolving inside them would pick
     // up the live shell in tests.
     @Dependency(\.shellClient) var shellClient
     @Dependency(\.analyticsClient) var analyticsClient
-    self.surfaceTeardownQueue = SurfaceTeardownQueue(
-      shell: .live(shellClient),
-      analytics: analyticsClient
-    )
+    self.surfaceTeardownQueue =
+      surfaceTeardownQueue
+      ?? SurfaceTeardownQueue(
+        shell: .live(shellClient),
+        analytics: analyticsClient
+      )
     guard let loaded = Self.loadConfig() else {
       preconditionFailure("ghostty_config_new failed")
     }

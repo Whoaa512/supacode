@@ -542,3 +542,26 @@ D. No surface leak in the happy path: teardown still frees every surface
 - Remaining (cycles 6–7): happy-path no-leak proof across a whole tab, and app
   quit abandoning pending teardowns (the `view → runtime → queue → view` cycle
   from cycle 2 now also keeps closed tabs' surfaces alive until they resolve).
+### Cycle 6 (behavior D — happy-path no-leak) — green
+
+- New suite `HappyPathTeardownTests`
+  (`supacodeTests/WorktreeTerminalManagerHappyPathTeardownTests.swift`), 3 tests
+  driving the REAL close/hibernate paths with only the queue's edges doubled
+  (ShellSpy / ProbeSpy / FreeSpy / TestClock; `GhosttyRuntime.init` gained an
+  optional `surfaceTeardownQueue` injection param for exactly this):
+  - close multi-leaf tab, healthy probe → every surface freed EXACTLY once,
+    pending/leaked/teardownTasks all empty, views deallocated (weak refs nil).
+  - same proof for hibernation, plus dormant entry + layout intact after frees.
+  - `dormantLayoutIsCapturedBeforeSurfaceHandOff` — wedged probe; agents source
+    derived from the LIVE tree pins that `captureLayoutNode` runs while the tree
+    still exists. MUTATION-VERIFIED: moving capture after `trees.removeValue`
+    fails the test (`agents.keys → []`); reverted.
+- Production fix found by the dealloc assertions: `GhosttySurfaceView.moveFocus`
+  retry Tasks captured the view STRONGLY through real-clock delays (~0.75s),
+  extending surface lifetime past teardown. Now `[weak view, weak previous]` —
+  a delayed focus retry can no longer resurrect/retain a torn-down surface.
+- `SurfaceTeardownQueue.teardownTaskCount` added: resolved surfaces must drop
+  their Task (asserted 0 after drain — no accumulation over a long session).
+- Full bundle: 425 tests, 423 passed, 2 failed = the known pre-existing
+  `GhosttyRuntimeBundledOverridesTests` pair. `make check` clean (6 known drift
+  files reverted). `make build-app` succeeded.
