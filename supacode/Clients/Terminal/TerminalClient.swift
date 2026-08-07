@@ -91,6 +91,10 @@ struct TerminalClient {
     /// Fans a hibernation Beta-flag flip into every worktree state: enabling
     /// re-arms grace timers for hidden tabs, disabling cancels pending ones.
     case setTerminalHibernationEnabled(Bool)
+    /// Puts specific tabs to sleep (scrollback and zmx sessions preserved).
+    /// Tab-granular on purpose: a task settle may only ever target tabs it owns,
+    /// so the caller resolves surfaces → tabs and subtracts foreign ones first.
+    case hibernateTabs(Worktree, tabIDs: Set<TerminalTabID>)
   }
 
   enum Event: Equatable {

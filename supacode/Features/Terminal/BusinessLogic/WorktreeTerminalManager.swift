@@ -438,7 +438,7 @@ final class WorktreeTerminalManager {
       .performBindingActionOnSurface, .selectTab, .selectTabAtIndex, .focusSurface, .splitSurface,
       .destroyTab, .destroySurface, .renameTab, .setImagePasteAgents, .prune, .setNotificationsEnabled,
       .enforceNotificationRetentionLimit, .setSelectedWorktreeID, .beginTabRename,
-      .setTerminalHibernationEnabled:
+      .setTerminalHibernationEnabled, .hibernateTabs:
       return false
     }
     return true
@@ -457,7 +457,7 @@ final class WorktreeTerminalManager {
       .navigateSearchNext, .navigateSearchPrevious, .endSearch, .selectTab, .selectTabAtIndex,
       .focusSurface, .splitSurface, .destroyTab, .destroySurface, .renameTab, .prune, .setNotificationsEnabled,
       .enforceNotificationRetentionLimit, .setSelectedWorktreeID, .beginTabRename,
-      .setTerminalHibernationEnabled:
+      .setTerminalHibernationEnabled, .hibernateTabs:
       return false
     }
     return true
@@ -480,6 +480,13 @@ final class WorktreeTerminalManager {
     case .setTerminalHibernationEnabled(let enabled):
       for state in states.values {
         state.applyHibernationEnabled(enabled)
+      }
+    case .hibernateTabs(let worktree, let tabIDs):
+      // `stateIfExists`, never `state(for:)`: settling a task must not
+      // materialize a worktree state just to put it to sleep.
+      guard let state = stateIfExists(for: worktree.id) else { return }
+      for tabID in tabIDs {
+        state.hibernateTab(tabID)
       }
     case .setSelectedWorktreeID(let id):
       guard id != selectedWorktreeID else { return }

@@ -690,6 +690,32 @@ struct AppFeature {
           await terminalClient.send(.selectTab(worktree, tabID: tabId))
         }
 
+      case .repositories(
+        .delegate(.hibernateTaskSurfaces(let worktreeID, let surfaceIDs, let protectedSurfaceIDs))):
+        guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
+        return .run { _ in
+          var targets: Set<TerminalTabID> = []
+          for surfaceID in surfaceIDs {
+            guard let tabID = await terminalClient.tabID(worktree.id, surfaceID) else { continue }
+            targets.insert(tabID)
+          }
+          // The A7 guarantee, in one line: a tab holding any other task's surface
+          // drops out of the target set before anything hibernates.
+          for surfaceID in protectedSurfaceIDs {
+            guard let tabID = await terminalClient.tabID(worktree.id, surfaceID) else { continue }
+            targets.remove(tabID)
+          }
+          guard !targets.isEmpty else { return }
+          await terminalClient.send(.hibernateTabs(worktree, tabIDs: targets))
+        }
+
+      case .repositories(.delegate(.focusTaskSurface(let worktreeID, let surfaceID))):
+        guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
+        return .run { _ in
+          guard let tabID = await terminalClient.tabID(worktree.id, surfaceID) else { return }
+          await terminalClient.send(.focusSurface(worktree, tabID: tabID, surfaceID: surfaceID))
+        }
+
       case .settings(.delegate(.settingsChanged(let settings))):
         let shouldCheckSystemNotificationPermission =
           settings.systemNotificationsEnabled && !state.lastKnownSystemNotificationsEnabled

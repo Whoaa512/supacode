@@ -271,6 +271,45 @@ struct RepositoriesFeature {
       }
       return index
     }
+
+    // MARK: - Task inbox (arms and helpers live in `RepositoriesFeature+Tasks.swift`).
+
+    /// Every known task. Deliberately flat on `State` rather than nested in one
+    /// `TaskInbox` container: `@ObservableState` tracks access per stored
+    /// property, so a container would make a single leaf tick invalidate every
+    /// reader of the cached structure — exactly the fan-out the per-leaf
+    /// doctrine forbids.
+    var taskRecords: IdentifiedArrayOf<TaskRecord> = []
+    /// Per-task activity projection: the per-leaf invalidation unit.
+    var taskLeaves: [TaskID: TaskLeafState] = [:]
+    /// Cached Tasks render plan, recomputed in the post-reduce hook and
+    /// Equatable-diffed before publish (`AgentDashboardStructure` precedent).
+    var tasksSidebarStructure: TasksSidebarStructure = .empty
+    /// Settled-tail page window; grows by `expandedSettledVisibleCount`.
+    var settledTailVisibleCount = TasksSidebarStructure.settledTailInitialCount
+    var isSettledTailExpanded = false
+    /// Mirror of `TaskStoreFile.didSeedTasks`, written back on every save.
+    var didSeedTasks = false
+    var hasLoadedTasks = false
+    /// Set after a `.unreadable` load: bytes we could not read are still on
+    /// disk, so neither a save nor a seed may follow for the rest of the launch.
+    var isTaskPersistenceDisabled = false
+    /// Schema version the loaded file carried, echoed back on save so a file
+    /// written by a newer build is refused by `TaskStore.save` (which logs)
+    /// instead of being silently downgraded (A13).
+    var taskStoreSchemaVersion = TaskStoreFile.currentSchemaVersion
+    /// Reverse index from surface UUID to owning task. Derived from
+    /// `taskRecords` and never persisted, exactly like `surfaceToItemID`, so it
+    /// cannot drift out of sync with the records it describes.
+    var surfaceToTaskID: [UUID: TaskID] {
+      var index: [UUID: TaskID] = [:]
+      for record in taskRecords {
+        for surfaceID in record.surfaceIDs {
+          index[surfaceID] = record.id
+        }
+      }
+      return index
+    }
   }
 
   // Removal pipeline types + helpers live in
@@ -308,6 +347,8 @@ struct RepositoriesFeature {
   enum Action {
     case sidebarItems(IdentifiedActionOf<SidebarItemFeature>)
     case task
+    /// Task-inbox lifecycle. Every arm lives in `RepositoriesFeature+Tasks.swift`.
+    case tasks(TaskInboxAction)
     /// Fired by `SidebarListView.onChange` whenever `@Shared(.sidebarGroupPinnedRows)`
     /// or `@Shared(.sidebarGroupActiveRows)` mutates while the sidebar is mounted.
     /// The post-reduce hook picks up the new toggle state and rebuilds the cached
@@ -609,6 +650,17 @@ struct RepositoriesFeature {
     /// The parent owns `AgentPresenceFeature`, so it resolves the presence key
     /// for this (worktree, agent) pair and applies the rename.
     case renameAgent(worktreeID: Worktree.ID, agent: SkillAgent, name: String?)
+    /// A settled task asked for its own tabs to go dormant. The parent owns the
+    /// terminal, so it resolves surfaces → tabs; `protectedSurfaceIDs` carries
+    /// every other task's surfaces and must subtract out of the target set, so
+    /// settling one task can never hibernate a tab holding another's (A7).
+    case hibernateTaskSurfaces(
+      worktreeID: Worktree.ID,
+      surfaceIDs: Set<UUID>,
+      protectedSurfaceIDs: Set<UUID>
+    )
+    /// Selecting a task pre-positions its owning worktree on one owned surface.
+    case focusTaskSurface(worktreeID: Worktree.ID, surfaceID: UUID)
   }
 
   @Dependency(AnalyticsClient.self) private var analyticsClient
@@ -3091,7 +3143,15 @@ struct RepositoriesFeature {
         // so `.task` has no persistence fan-out left, it just flags
         // the focus restore and kicks off the repository load.
         state.shouldRestoreLastFocusedWorktree = state.sidebar.focusedWorktreeID != nil
-        return .send(.loadPersistedRepositories)
+        // Tasks load in parallel with the repository roster: `.tasks(.loaded)`
+        // re-arms seeding itself if the roster hasn't landed yet, and
+        // `.repositoriesLoaded` re-arms it if the roster landed first.
+        return .merge(.send(.loadPersistedRepositories), .send(.tasks(.load)))
+
+      case .tasks:
+        // Handled by `tasksReducer` in `RepositoriesFeature+Tasks.swift`, which
+        // owns every task arm.
+        return .none
 
       case .sidebarGroupingTogglesChanged:
         // The post-reduce hook below picks up the toggle state and rebuilds.
@@ -3274,6 +3334,12 @@ struct RepositoriesFeature {
         // Re-probe remotes on every reload so refreshes re-list them.
         if mergedRemote.repositories.contains(where: { $0.host != nil }) {
           allEffects.append(.send(.resolveRemoteRepositories))
+        }
+        // Day-one seeding needs the roster (titles, branches, surfaces), so a
+        // load that arrived before it re-arms here. Gated on `hasLoadedTasks` so
+        // a build that never sent `.task` fires no task effects at all.
+        if state.hasLoadedTasks, !state.didSeedTasks, !state.isTaskPersistenceDisabled {
+          allEffects.append(.send(.tasks(.seedIfNeeded)))
         }
         return .merge(allEffects)
 
@@ -4383,6 +4449,7 @@ struct RepositoriesFeature {
       .ifLet(\.$cloneRepositoryForm, action: \.cloneRepositoryForm) {
         CloneRepositoryFormFeature()
       }
+    tasksReducer
     worktreeArchiveReducer
     worktreeRemovalReducer
     worktreeCreateInRepoReducer

@@ -443,6 +443,9 @@ extension RepositoriesFeature.Action {
     case .sidebarItems:
       return []
 
+    case .tasks(let inner):
+      return inner.cacheInvalidations
+
     // Sidebar layout toggles only. `setMoveNotifiedWorktreeToTop` re-sorts the
     // highlight sections (unread float), so a runtime toggle must recompute.
     case .sidebarGroupingTogglesChanged, .sidebarNestByBranchChanged,
@@ -640,6 +643,15 @@ extension RepositoriesFeature.State {
       // agent snapshots, titles, branch names, lifecycle), so it rides the same
       // bit instead of adding one every action arm would have to classify.
       recomputeAgentDashboardStructureIfChanged()
+      // Task leaves project the same per-row agent / notification / dormancy
+      // state, so an agent tick updates a task row on this bit alone.
+      recomputeTaskLeavesIfChanged()
+    }
+    // The Tasks render plan keys off the record set *and* the open-task pull-in
+    // (A8), and a selection change declares only the selection bits — the same
+    // two-bit dependency `recomputeMenuBarSectionsIfChanged` has.
+    if !invalidations.isDisjoint(with: [.sidebarStructure, .sidebarSelectionSlice]) {
+      recomputeTasksSidebarStructureIfChanged()
     }
     if invalidations.contains(.selectedWorktreeSlice) {
       recomputeSelectedWorktreeSliceIfChanged()
