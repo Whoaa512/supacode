@@ -86,6 +86,11 @@ final class GhosttySurfaceView: NSView, Identifiable {
   /// Argv prepended to Ghostty's resolved command (e.g. `zmx attach <id>`), so
   /// the real shell runs as a child of the wrapper. Empty means no wrapper.
   private let commandWrapper: [String]
+  /// Whether this surface's child is a `zmx attach <session>` client. Teardown needs
+  /// it: only such a surface has a client that can be killed to EOF a wedged pty
+  /// reader, and only such a surface is therefore allowed to be leaked instead of
+  /// freed when the child refuses to exit.
+  let usesZmx: Bool
   /// Forces `shell-integration = none` for this surface only. Used by
   /// self-managing surfaces (blocking-script runners) that emit their own OSC
   /// sequences and must not have Ghostty's integration injected.
@@ -214,6 +219,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
     initialInput: String? = nil,
     environmentVariables: [String: String] = [:],
     commandWrapper: [String] = [],
+    usesZmx: Bool = false,
     disableShellIntegration: Bool = false,
     fontSize: Float32? = nil,
     context: ghostty_surface_context_e,
@@ -226,6 +232,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
     self.context = context
     self.environmentVariables = environmentVariables
     self.commandWrapper = commandWrapper
+    self.usesZmx = usesZmx
     self.disableShellIntegration = disableShellIntegration
     if let workingDirectory {
       let path = Self.normalizedWorkingDirectoryPath(

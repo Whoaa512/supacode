@@ -85,11 +85,16 @@ private final class WeakSurfaceRef {
 @MainActor
 @Suite(.serialized, .dependencies)
 struct SurfaceTeardownQueueTests {
-  private func makeView(id: UUID, runtime: GhosttyRuntime) -> GhosttySurfaceView {
+  private func makeView(
+    id: UUID,
+    runtime: GhosttyRuntime,
+    usesZmx: Bool = true
+  ) -> GhosttySurfaceView {
     GhosttySurfaceView(
       id: id,
       runtime: runtime,
       workingDirectory: nil,
+      usesZmx: usesZmx,
       context: GHOSTTY_SURFACE_CONTEXT_TAB
     )
   }
@@ -299,6 +304,37 @@ struct SurfaceTeardownQueueTests {
     #expect(analytics.events == ["surface_teardown_leaked"])
     // STILL ALIVE — the leak is deliberate and owned, not a dropped reference.
     #expect(weakRef.view != nil)
+  }
+
+  /// A surface with no zmx attach client (script tabs / unbundled zmx) has no kill
+  /// mechanism at all, so there is nothing to look for and nothing to EOF. Leaking
+  /// it would be strictly worse than the pre-branch behavior: freeing SIGHUPs the
+  /// child through the pty, and only a WEDGED reader can hang the free. So after the
+  /// poll bound it is freed anyway.
+  @Test func nonZmxSurfaceIsFreedAfterThePollBoundInsteadOfLeaked() async {
+    let runtime = GhosttyRuntime()
+    let clock = TestClock()
+    let probe = ProbeSpy()
+    let free = FreeSpy()
+    let spy = ShellSpy(pgrepStdout: "4242\n")
+    let queue = makeQueue(spy, clock: clock, probe: probe, free: free)
+    let surfaceID = UUID()
+    var task: Task<Void, Never>?
+    autoreleasepool {
+      let view = makeView(id: surfaceID, runtime: runtime, usesZmx: false)
+      queue.handOff(view)
+      task = queue.teardownTask(for: view)
+    }
+
+    // The child never reports an exit: burn past the poll bound.
+    await advance(clock, until: { !free.freedSurfaceIDs.isEmpty })
+    await task?.value
+
+    #expect(free.freedSurfaceIDs == [surfaceID])
+    #expect(queue.leakedCount == 0)
+    #expect(queue.pendingCount == 0)
+    // No kill mechanism exists for a non-zmx surface, so not even a pgrep may run.
+    #expect(await spy.commands.isEmpty)
   }
 
   /// A surface still in the tree must never lose its client.

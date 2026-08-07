@@ -2215,6 +2215,7 @@ final class WorktreeTerminalState {
       initialInput: launch.initialInput,
       environmentVariables: surfaceEnvironment(tabId: tabId, surfaceID: surfaceID),
       commandWrapper: launch.commandWrapper,
+      usesZmx: launch.usesZmx,
       // Blocking-script runners (bypassZmx) emit their own OSC 133/7 and must
       // not get Ghostty's shell integration injected into the host shell.
       disableShellIntegration: bypassZmx,

@@ -120,8 +120,11 @@ final class SurfaceTeardownQueue {
     view.prepareForDeferredTeardown()
     let sessionID = ZmxSessionID.make(surfaceID: view.id)
     let shell = shell
+    // A non-zmx surface (script tab, or zmx unbundled) has no attach client, so
+    // there is nothing to pgrep for and nothing to EOF.
+    let shouldKill = killAttachClient && view.usesZmx
     teardownTasks[key] = Task { [weak self] in
-      if killAttachClient {
+      if shouldKill {
         await Self.killAttachClient(sessionID: sessionID, shell: shell)
       }
       await self?.awaitExitThenFree(key)
@@ -144,6 +147,21 @@ final class SurfaceTeardownQueue {
       } catch {
         return
       }
+    }
+    resolveExpiredPoll(key)
+  }
+
+  /// Poll bound exhausted. Leaking is only earned when a client kill was possible:
+  /// for a zmx surface the kill already went out, so a still-live child means a
+  /// genuinely wedged reader and the free would hang the app. A non-zmx surface has
+  /// no kill mechanism at all, so "never exited" carries no such evidence — free it
+  /// anyway, which is what closing the pty did before this queue existed (the free
+  /// SIGHUPs the child; only a wedged reader can block it).
+  private func resolveExpiredPoll(_ key: ObjectIdentifier) {
+    guard let entry = pending[key] else { return }
+    guard entry.view.usesZmx else {
+      performFree(key, entry.view)
+      return
     }
     leak(key)
   }
