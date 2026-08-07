@@ -276,3 +276,37 @@ D. No surface leak in the happy path: teardown still frees every surface
 - `-only-testing:supacodeTerminalTests/SurfaceTeardownQueueTests` +
   `HibernationTeardownTests` → exit 0, totalTestCount 5, passed 5, failed 0.
 
+### RED→GREEN (cycle 3, slice 2 — kill the attach client at hand-off)
+
+- `SurfaceTeardownQueue.init(shell:)` takes a new one-closure
+  `SurfaceTeardownShell` (`run: (URL, [String]) async -> String?`, nil = failed /
+  non-zero, since `pgrep` exits 1 on no match). Narrower than `ShellClient` so a
+  test double is one closure. `GhosttyRuntime.init` resolves
+  `@Dependency(\.shellClient)` AT CONSTRUCTION and passes `.live(shellClient)`
+  (binding 13) — the queue's Tasks escape the caller's dependency scope, so
+  resolving inside them would grab the live shell in tests.
+- `handOff` now spawns ONE Task per view (binding 13, no central driver) that
+  kills that surface's `zmx attach` client: `pgrep -f "zmx attach <sessionID>"` →
+  `kill -TERM <pids>`; single `pkill -f "zmx attach <sessionID>"` only when pgrep
+  finds nothing (logged). Session ID from `ZmxSessionID.make(surfaceID:)`. Never
+  re-killed later (binding 8) — the pattern matches any FUTURE client of the
+  surviving session, so a retry kill would murder a freshly woken terminal.
+  Tasks retained in `teardownTasks` keyed by view identity; `teardownTask(for:)`
+  lets tests await completion without `Task.sleep` (and cycle 7 can abandon them).
+- RED first: 3 new tests failed on `spy.commands`/`killCommands` while the queue
+  only did bookkeeping; 4 slice-1 tests stayed green.
+- 4 new tests: kill-by-PID with exact argv, pkill fallback (exactly one kill
+  command), each hand-off of a REUSED surface UUID kills its own client (2 kills),
+  and no commands at all without a hand-off. Slice-1 tests now use the spy shell
+  too, so the suite runs no real processes.
+- `-only-testing:supacodeTerminalTests/SurfaceTeardownQueueTests` +
+  `HibernationTeardownTests` → exit 0, totalTestCount 9, passed 9, failed 0.
+- Full bundle `-only-testing:supacodeTerminalTests` → 414 tests, 412 passed,
+  2 failed: the same known pre-existing `GhosttyRuntimeBundledOverridesTests`
+  failures as cycles 1–2.
+- `make check` exit 0 (same 6 unrelated swift-format drift files reverted).
+  `make build-app` succeeded.
+- **Still pending after slice 2:** the client is killed but the surface is NEVER
+  freed — no `ghostty_surface_process_exited` poll, no free, no leak bucket. That
+  is slices 3–5 (poll → free-or-leak → counters).
+

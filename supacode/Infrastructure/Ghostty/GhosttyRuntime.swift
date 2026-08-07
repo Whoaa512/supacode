@@ -1,4 +1,5 @@
 import AppKit
+import Dependencies
 import GhosttyKit
 import Sharing
 import SupacodeSettingsShared
@@ -35,7 +36,7 @@ final class GhosttyRuntime {
   private var surfaceRefs: [SurfaceReference] = []
   /// Deferred-teardown owner for surfaces leaving a live tree. Lives on the
   /// runtime (not per `WorktreeTerminalState`) so every close path can share it.
-  let surfaceTeardownQueue = SurfaceTeardownQueue()
+  let surfaceTeardownQueue: SurfaceTeardownQueue
   private var lastColorScheme: ghostty_color_scheme_e?
   /// Whether the user has toggled background opacity to force
   /// an opaque window, overriding the configured transparency.
@@ -50,6 +51,11 @@ final class GhosttyRuntime {
   var onConfigChange: (() -> Void)?
 
   init(initialColorScheme: ColorScheme? = nil) {
+    // Resolved HERE, at construction (binding 13): the queue's teardown Tasks
+    // escape the caller's dependency scope, so resolving inside them would pick
+    // up the live shell in tests.
+    @Dependency(\.shellClient) var shellClient
+    self.surfaceTeardownQueue = SurfaceTeardownQueue(shell: .live(shellClient))
     guard let loaded = Self.loadConfig() else {
       preconditionFailure("ghostty_config_new failed")
     }
