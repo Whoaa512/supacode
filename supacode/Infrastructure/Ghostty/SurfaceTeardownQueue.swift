@@ -28,5 +28,6 @@ final class SurfaceTeardownQueue {
     handOffCount += 1
     guard pending[view.id] == nil else { return }
     pending[view.id] = view
+    view.prepareForDeferredTeardown()
   }
 }

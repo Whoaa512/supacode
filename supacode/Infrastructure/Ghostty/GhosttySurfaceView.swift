@@ -74,6 +74,10 @@ final class GhosttySurfaceView: NSView, Identifiable {
   let bridge: GhosttySurfaceBridge
   private(set) var surface: ghostty_surface_t?
   private var surfaceRef: GhosttyRuntime.SurfaceReference?
+  /// Set once `SurfaceTeardownQueue` owns this view's surface teardown. From then
+  /// on `closeSurface()` (and therefore `deinit`) is inert, so nothing frees the
+  /// surface on an arbitrary main-actor turn — the queue does it.
+  private var isTeardownDeferred = false
   private let workingDirectoryCString: UnsafeMutablePointer<CChar>?
   private let commandCString: UnsafeMutablePointer<CChar>?
   private let initialInputCString: UnsafeMutablePointer<CChar>?
@@ -308,7 +312,21 @@ final class GhosttySurfaceView: NSView, Identifiable {
     return ghostty_surface_needs_confirm_quit(surface)
   }
 
+  /// Hands surface teardown to `SurfaceTeardownQueue`. Drops everything the view
+  /// owns *except* the ghostty surface (whose free would block on a wedged pty io
+  /// thread): the runtime registration goes now, so a pending surface no longer
+  /// receives color-scheme / config broadcasts.
+  func prepareForDeferredTeardown() {
+    clearNotificationObservers()
+    if let surfaceRef {
+      runtime.unregisterSurface(surfaceRef)
+      self.surfaceRef = nil
+    }
+    isTeardownDeferred = true
+  }
+
   func closeSurface() {
+    guard !isTeardownDeferred else { return }
     clearNotificationObservers()
     if let surface {
       if let surfaceRef {

@@ -187,3 +187,37 @@ D. No surface leak in the happy path: teardown still frees every surface
   `handOffCount → 0`.
 - Verified tests ran: xcresult summary `failedTests: 1, passedTests: 0`.
 
+### GREEN (cycle 2 — B1 ownership) — test passes
+
+- `performHibernation`'s leaf loop now calls
+  `runtime.surfaceTeardownQueue.handOff(leaf)`. `SurfaceTeardownQueue` retains the
+  view, so the free can no longer happen on hibernation's turn — not via
+  `closeSurface()` and not via `deinit`.
+- `GhosttySurfaceView.prepareForDeferredTeardown()` (called from `handOff`)
+  clears notification observers and unregisters from `GhosttyRuntime.surfaceRefs`
+  AT HAND-OFF (decision 4), then sets `isTeardownDeferred`. `closeSurface()`
+  early-returns when that flag is set, so a queued view's `deinit` is inert and
+  cycle 3 owns the only free.
+- `WorktreeTerminalState.surfaceTeardown` seam REMOVED (decision 3): the queue is
+  reachable through the runtime, so tests observe hand-off at the queue instead of
+  through a per-state closure. No `@MainActor`/`@ObservationIgnored` hygiene
+  needed on a seam that no longer exists.
+- **What production does with a queued surface at the end of cycle 2:** nothing.
+  The queue holds it pending FOREVER — the surface is not freed and the zmx attach
+  client is not killed, so hibernating a tab currently leaks the surface (and its
+  pty stays attached) instead of hanging the app. Deliberate interim state:
+  leak-over-hang without the policy. Cycle 3 adds kill-client →
+  `ghostty_surface_process_exited` poll → free-or-leak, which is what actually
+  drains the queue.
+  - Side effect of that retention: `view → runtime → queue → view` is a cycle, so
+    a runtime with pending surfaces outlives its last external reference. Matches
+    decision 5 (quit abandons pending teardowns); revisit in cycle 7.
+- `-only-testing:supacodeTerminalTests/HibernationTeardownTests` → exit 0,
+  totalTestCount 1, passed 1.
+- Full bundle `-only-testing:supacodeTerminalTests` → 406 tests, 404 passed,
+  2 failed: the known pre-existing `GhosttyRuntimeBundledOverridesTests`
+  (`backgroundColorTracksColorScheme`,
+  `initSeedsResolvedColorSchemeBeforeFirstRead`). Same two as cycle 1.
+- `make check` exit 0 (6 unrelated pre-existing swift-format drift files reverted
+  again). `make build-app` succeeded.
+

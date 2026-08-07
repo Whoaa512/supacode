@@ -319,11 +319,6 @@ final class WorktreeTerminalState {
   /// Fires when a tab hibernates. Manager cancels the debounced idle hooks for
   /// those surfaces WITHOUT the presence drop `onSurfacesClosed` would trigger.
   var onSurfacesHibernated: ((Set<UUID>) -> Void)?
-  /// Seam for surface teardown, so hibernation / close can hand a surface off
-  /// instead of freeing it inline on the main actor (a wedged pty io thread makes
-  /// `ghostty_surface_free` block forever). Tests replace it to observe the
-  /// hand-off and simulate a teardown that never finishes.
-  var surfaceTeardown: (GhosttySurfaceView) -> Void = { $0.closeSurface() }
   /// Fires when the worktree's dormant composition changes (a tab hibernates or
   /// wakes). Manager re-emits the row projection so the sidebar sleep marker
   /// tracks `allTabsDormant`; nothing else re-emits on these transitions.
@@ -3728,7 +3723,10 @@ final class WorktreeTerminalState {
     surfaceGenerationByTab.removeValue(forKey: tabId)
     focusedSurfaceIdByTab.removeValue(forKey: tabId)
     for leaf in leaves {
-      surfaceTeardown(leaf)
+      // Ownership goes to the queue instead of `leaf.closeSurface()`: freeing here
+      // would block this turn (and the whole app) on a wedged pty io thread, and
+      // just dropping our reference would hit the same free from `deinit`.
+      runtime.surfaceTeardownQueue.handOff(leaf)
       discardSurfaceBookkeeping(for: leaf.id, preserveSurfaceState: true)
     }
     onSurfacesHibernated?(Set(leafIDs))
