@@ -45,8 +45,12 @@ enum SidebarTab: String, CaseIterable, Codable, Sendable {
 /// `sidebarGroupPinnedRows` pattern so the key string and default live in one
 /// place. Stored as the raw string so it round-trips through `UserDefaults`
 /// without a custom coder.
+///
+/// Tasks is the home panel: a fresh launch lands on the inbox. A previously
+/// picked tab still wins — the default only applies before the first explicit
+/// switch is persisted.
 nonisolated extension SharedReaderKey where Self == AppStorageKey<String>.Default {
   static var sidebarTab: Self {
-    Self[.appStorage("sidebarTab"), default: SidebarTab.worktrees.rawValue]
+    Self[.appStorage("sidebarTab"), default: SidebarTab.tasks.rawValue]
   }
 }
