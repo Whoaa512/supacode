@@ -47,6 +47,45 @@ C. Normal tab close gets the same protection (same closeSurface path).
 D. No surface leak in the happy path: teardown still frees every surface
    handed off (verify via injectable teardown/test double).
 
+## Decisions (post cycle-1 review — binding)
+
+1. **Leak-over-hang policy (M5):** teardown must NEVER block the main actor
+   indefinitely. Sequence per surface: kill the zmx attach client → poll
+   `ghostty_surface_process_exited(surface)` (ghostty.h:1087) via an injected
+   clock, bounded attempts → only when true, call `ghostty_surface_free` on
+   the main actor. If the child never exits within the bound: SKIP the free,
+   deliberately leak the surface, log via SupaLogger + analytics counter.
+2. **Kill mechanism (M4):** `pkill -f "zmx attach <sessionID>"` via the
+   existing `ShellClient`, off-main. Session IDs are deterministic
+   (`ZmxSessionID.make(surfaceID:)`). Do NOT use `killSurfaceSessions` (kills
+   the session — violates constraint 3).
+3. **Placement (M3):** the teardown queue lives at the surface layer (inside
+   `GhosttySurfaceView.closeSurface()` or a `SurfaceTeardownQueue` owned by
+   `GhosttyRuntime`), NOT per-`WorktreeTerminalState` — so all ~12 call sites
+   including `isolated deinit` (GhosttySurfaceView.swift:277) and the runtime
+   callback path are covered. `WorktreeTerminalState.surfaceTeardown` shrinks
+   to a test-observability hook or is removed.
+4. **Ownership (B1):** the deferred path must RETAIN the view
+   (`pendingTeardown: [UUID: GhosttySurfaceView]`) until free-or-leak
+   resolves; unregister from `GhosttyRuntime.surfaceRefs` at hand-off, not at
+   free. Tests assert ownership via weak refs (surface alive after
+   `performHibernation` returns), not "seam was called" structural checks.
+5. **App quit never drains the queue** — abandon pending teardowns on quit.
+
+## Cycle plan (revised)
+
+- Cycle 2: fix B1 — ownership transfer; deinit/queue design; rewrite cycle-1
+  test to pin ownership + hibernation completeness (weak-ref based).
+- Cycle 3 (B): kill attach client + process_exited gate + bounded poll +
+  leak-over-hang, injected clock, counter on leak.
+- Cycle 4 (B2): wake-while-teardown-pending — new surface on same session,
+  `surfaces[id] === newView`, old view still pending, no callback crossover.
+- Cycle 5 (C): normal tab close path covered (should be free via placement).
+- Cycle 6 (D): no leak in happy path — every handed-off surface freed once.
+- Cycle 7 (E): app quit does not await teardown.
+- Also pin: `captureLayoutNode` runs before hand-off (dormant layout survives
+  a wedge); no double hand-off of one surfaceID; bounded queue growth.
+
 ## Design guidance (keep it grug)
 
 - Introduce a small injectable seam (e.g. a teardown hook/closure on
