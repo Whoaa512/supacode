@@ -118,11 +118,19 @@ final class GhosttySurfaceView: NSView, Identifiable {
     [weak self] in
     self?.readScreenContents() ?? ""
   }
-  var passwordInput: Bool = false {
-    didSet {
+  private var storedPasswordInput = false
+  /// Scopes app-wide SecureInput to this surface. Inert once teardown is deferred: a
+  /// leaked surface's shell can still emit OSC 2026 (its pty is what wedged), and
+  /// re-enabling secure event input from a view nobody can see or focus would leave
+  /// it on for the whole app with no way to turn it off.
+  var passwordInput: Bool {
+    get { storedPasswordInput }
+    set {
+      guard !isTeardownDeferred else { return }
+      storedPasswordInput = newValue
       let input = SecureInput.shared
       let id = ObjectIdentifier(self)
-      if passwordInput {
+      if newValue {
         input.setScoped(id, focused: focused)
       } else {
         input.removeScoped(id)
@@ -412,7 +420,11 @@ final class GhosttySurfaceView: NSView, Identifiable {
 
   private func updateScreenObservers() {
     clearNotificationObservers()
-    guard let window else { return }
+    // A deferred view keeps its ghostty surface but is out of the view tree; AppKit
+    // can still move it to nil-window and back during that teardown, and re-adding
+    // window/runtime observers would resurrect appearance work for a surface that is
+    // on its way out.
+    guard !isTeardownDeferred, let window else { return }
     let center = NotificationCenter.default
     notificationObservers.append(
       center.addObserver(

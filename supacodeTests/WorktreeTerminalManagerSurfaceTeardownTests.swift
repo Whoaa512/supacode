@@ -170,6 +170,19 @@ struct SurfaceTeardownQueueTests {
     #expect(view.passwordInput == false)
   }
 
+  /// A leaked surface's shell keeps running (its wedged pty is the whole problem), so
+  /// it can still emit the password-input OSC. Honoring it would re-enable app-wide
+  /// SecureInput from a view the user can neither see nor focus.
+  @Test func passwordInputCannotBeReEnabledAfterHandOff() {
+    let runtime = GhosttyRuntime()
+    let view = makeView(id: UUID(), runtime: runtime)
+
+    makeQueue(ShellSpy()).handOff(view)
+    view.passwordInput = true
+
+    #expect(view.passwordInput == false)
+  }
+
   /// The local monitor sees every key event in the app, so a pending view that
   /// kept one would keep swallowing Cmd-keyUp for the surfaces still in the tree.
   @Test func handOffRemovesTheLocalEventMonitor() {
