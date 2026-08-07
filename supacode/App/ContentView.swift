@@ -85,6 +85,11 @@ struct ContentView: View {
       WorktreeCreationPromptView(store: promptStore)
     }
     .sheet(
+      item: $repositoriesStore.scope(state: \.taskCreationPrompt, action: \.taskCreationPrompt)
+    ) { promptStore in
+      TaskCreationPromptView(store: promptStore)
+    }
+    .sheet(
       item: $repositoriesStore.scope(
         state: \.repositoryCustomization,
         action: \.repositoryCustomization

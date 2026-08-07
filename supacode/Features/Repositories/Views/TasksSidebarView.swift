@@ -1,4 +1,6 @@
 import ComposableArchitecture
+import Sharing
+import SupacodeSettingsShared
 import SwiftUI
 
 /// The Tasks panel. Phase 1's deliberately plain list: the point here is the
@@ -13,13 +15,43 @@ import SwiftUI
 /// observation-track every task and fan every tick out to the whole List.
 struct TasksSidebarView: View {
   @Bindable var store: StoreOf<RepositoriesFeature>
+  @Shared(.settingsFile) private var settingsFile
 
   var body: some View {
     let structure = store.tasksSidebarStructure
     let selectedTaskID = store.selection?.taskID
     let isSettledTailExpanded = store.isSettledTailExpanded
 
-    return List(selection: selectionBinding(current: selectedTaskID)) {
+    return VStack(spacing: 0) {
+      newTaskBar
+      Divider()
+      taskList(structure: structure, selectedTaskID: selectedTaskID, isSettledTailExpanded: isSettledTailExpanded)
+    }
+  }
+
+  /// The discoverable half of ⌘N: the shortcut is the fast path, this is how
+  /// someone finds out it exists.
+  private var newTaskBar: some View {
+    let shortcut = AppShortcuts.newWorktree.effective(from: settingsFile.global.shortcutOverrides)
+    return Button {
+      store.send(.tasks(.presentCreationPrompt))
+    } label: {
+      Label("New Task", systemImage: "plus")
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(.rect)
+    }
+    .buttonStyle(.plain)
+    .padding(.horizontal, 12)
+    .padding(.vertical, 6)
+    .help("Capture a new task — name it and pick where it runs (\(shortcut?.display ?? "none"))")
+  }
+
+  private func taskList(
+    structure: TasksSidebarStructure,
+    selectedTaskID: TaskID?,
+    isSettledTailExpanded: Bool
+  ) -> some View {
+    List(selection: selectionBinding(current: selectedTaskID)) {
       if structure.visibleTaskIDs.isEmpty, structure.settledTotalCount == 0 {
         emptyRow
       }
