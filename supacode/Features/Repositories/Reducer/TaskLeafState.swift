@@ -16,6 +16,11 @@ import Foundation
 /// Population lands with the task reducer arms; this type only declares the
 /// shape. Kept minimal for Phase 1 — status pills, working-elapsed
 /// (`workingSince`) and PR projection arrive in Phase 5.
+///
+/// The missing `nonisolated` (unlike `TasksSidebarStructure`) is intentional:
+/// this is reducer state, MainActor-isolated by the target's
+/// `SWIFT_DEFAULT_ACTOR_ISOLATION` exactly like `SidebarItemFeature.State`, and
+/// it is never touched off the main actor.
 struct TaskLeafState: Equatable, Sendable, Identifiable {
   let id: TaskID
   /// Agents reported on the surfaces this task owns, projected from
@@ -31,9 +36,4 @@ struct TaskLeafState: Equatable, Sendable, Identifiable {
   init(id: TaskID) {
     self.id = id
   }
-
-  var agents: [AgentPresenceFeature.AgentInstance] { agentSnapshot.agents }
-  var isWorking: Bool { agentSnapshot.isWorking }
-  /// Sticky until the agent restarts or the user focuses the surface.
-  var hasAgentError: Bool { agentSnapshot.hasError }
 }

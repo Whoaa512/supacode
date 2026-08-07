@@ -38,14 +38,18 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
 
   /// Active rows, newest-created-first with a deterministic ID tie-break.
   var activeTaskIDs: [TaskID] = []
-  /// Every settled task in tail order — newest-*ended* first, because settled
-  /// rows are history and read as "how long ago did this wrap up". The full
-  /// list, not the page window, so the paging math has a single home.
-  var settledTail: [SettledEntry] = []
-  /// The slice of `settledTail` the view actually renders: the page window,
-  /// plus the open task when it would otherwise be paged or collapsed away.
+  /// How many tasks are settled in total. A count, not the entries: the
+  /// collapsed shelf header is the only thing that needs the whole-tail number,
+  /// and carrying N entries here would double every Equatable diff.
+  var settledTotalCount: Int = 0
+  /// The settled rows the view actually renders, newest-*ended* first (settled
+  /// rows are history and read as "how long ago did this wrap up"): the page
+  /// window, plus the open task when it would otherwise be paged or collapsed
+  /// away.
   var visibleSettledTail: [SettledEntry] = []
-  /// Rows behind "Show more". Zero when everything settled is on screen.
+  /// Rows behind "Show more". Zero when everything settled is on screen, and
+  /// zero while the shelf is collapsed — there is no "Show more" affordance
+  /// then, and the collapsed header reads `settledTotalCount` instead.
   var hiddenSettledCount: Int = 0
   /// Top-down render order of every visible row (active, then visible settled).
   /// Hotkey slots and keyboard navigation key off this in later phases.
@@ -55,7 +59,7 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
 
   /// Next page window after a "Show more" tap.
   static func expandedSettledVisibleCount(from current: Int) -> Int {
-    max(current, 0) + settledTailPageCount
+    current + settledTailPageCount
   }
 
   /// Deterministic projection of the task collection.
@@ -70,8 +74,8 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
   static func compute(
     tasks: [TaskRecord],
     openTaskID: TaskID? = nil,
-    settledVisibleCount: Int = settledTailInitialCount,
-    isSettledTailExpanded: Bool = true
+    settledVisibleCount: Int,
+    isSettledTailExpanded: Bool
   ) -> TasksSidebarStructure {
     var active: [TaskRecord] = []
     var settled: [TaskRecord] = []
@@ -96,9 +100,9 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
 
     return TasksSidebarStructure(
       activeTaskIDs: activeTaskIDs,
-      settledTail: settledTail,
+      settledTotalCount: settledTail.count,
       visibleSettledTail: visibleSettledTail,
-      hiddenSettledCount: settledTail.count - visibleSettledTail.count,
+      hiddenSettledCount: isSettledTailExpanded ? settledTail.count - visibleSettledTail.count : 0,
       visibleTaskIDs: activeTaskIDs + visibleSettledTail.map(\.id)
     )
   }
@@ -109,6 +113,10 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
   /// Phase 2's `effectiveSettled` cascade (inactivity window, PR state, activity
   /// blockers) replaces this predicate; the structure keeps taking a partition
   /// decision, not the evidence behind it.
+  ///
+  /// Fields a later build writes but Phase 1 doesn't read — a `pinnedAt`, a
+  /// `snoozedUntil` — have no effect here: such a task renders as a plain active
+  /// row, which is the safe degrade (visible and unstyled beats hidden).
   static func isSettled(_ task: TaskRecord) -> Bool {
     switch task.settledOverride {
     case .active: return false
@@ -118,9 +126,15 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
   }
 
   /// The timestamp a settled row both sorts and labels by: the explicit settle
-  /// stamp when there is one, otherwise the latest provable activity, with
-  /// `createdAt` as the final net. Phase 2 moves this to `TaskTimestamps` as the
-  /// single resolver shared by sort key and label; the shape stays the same.
+  /// stamp when there is one, otherwise the last visit, with `createdAt` as the
+  /// final net.
+  ///
+  /// `lastVisitedAt` is *not* activity — it is when the user last opened the
+  /// task, and it is Phase 1's only persisted proxy for "when did this stop
+  /// moving". Phase 2's `TaskTimestamps` replaces it with real activity stamps
+  /// and becomes the single resolver shared by sort key and label; the shape
+  /// stays the same. Because the fallbacks are proxies, the settle arm must
+  /// always stamp `settledAt` so a settled row sorts by a real end time.
   static func resolvedSettledTimestamp(for task: TaskRecord) -> Date? {
     if let settledAt = validTimestamp(task.settledAt) { return settledAt }
     if let lastVisitedAt = validTimestamp(task.lastVisitedAt) { return lastVisitedAt }
@@ -157,10 +171,9 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
       guard let open = settledTail.first(where: { $0.id == openTaskID }) else { return [] }
       return [open]
     }
-    let windowCount = max(settledVisibleCount, 0)
-    guard settledTail.count > windowCount else { return settledTail }
-    var visible = Array(settledTail.prefix(windowCount))
-    if let open = settledTail.dropFirst(windowCount).first(where: { $0.id == openTaskID }) {
+    guard settledTail.count > settledVisibleCount else { return settledTail }
+    var visible = Array(settledTail.prefix(settledVisibleCount))
+    if let open = settledTail.dropFirst(settledVisibleCount).first(where: { $0.id == openTaskID }) {
       visible.append(open)
     }
     return visible

@@ -24,6 +24,23 @@ struct TasksSidebarStructureTests {
     )
   }
 
+  /// The common wiring: the initial page window with the shelf expanded.
+  /// `compute` itself takes both explicitly so a caller can't forget to thread
+  /// its real paging state through.
+  private static func compute(
+    _ tasks: [TaskRecord],
+    openTaskID: TaskID? = nil,
+    settledVisibleCount: Int = TasksSidebarStructure.settledTailInitialCount,
+    isSettledTailExpanded: Bool = true
+  ) -> TasksSidebarStructure {
+    TasksSidebarStructure.compute(
+      tasks: tasks,
+      openTaskID: openTaskID,
+      settledVisibleCount: settledVisibleCount,
+      isSettledTailExpanded: isSettledTailExpanded
+    )
+  }
+
   private static func settledTasks(count: Int) -> [TaskRecord] {
     // Settle stamps descend with the index, so `s-0` is the newest-ended row.
     (0..<count).map { index in
@@ -34,14 +51,11 @@ struct TasksSidebarStructureTests {
   // MARK: - Empty
 
   @Test func emptyInputProducesEmptyStructure() {
-    #expect(TasksSidebarStructure.compute(tasks: []) == .empty)
+    #expect(Self.compute([]) == .empty)
   }
 
   @Test func openTaskThatDoesNotExistIsIgnored() {
-    let structure = TasksSidebarStructure.compute(
-      tasks: [Self.task("a")],
-      openTaskID: TaskID("missing")
-    )
+    let structure = Self.compute([Self.task("a")], openTaskID: TaskID("missing"))
     #expect(structure.activeTaskIDs == [TaskID("a")])
     #expect(structure.visibleSettledTail.isEmpty)
   }
@@ -57,23 +71,22 @@ struct TasksSidebarStructureTests {
   func activeRowsAreNewestCreatedFirst(input: [String], expected: [String]) {
     let byID = ["a": 0.0, "b": 60.0, "c": 120.0]
     let tasks = input.map { Self.task($0, createdAt: byID[$0]!) }
-    let structure = TasksSidebarStructure.compute(tasks: tasks)
+    let structure = Self.compute(tasks)
     #expect(structure.activeTaskIDs.map(\.rawValue) == expected)
   }
 
   @Test func equalCreatedAtFallsBackToIDOrder() {
     let tasks = [Self.task("zzz"), Self.task("aaa"), Self.task("mmm")]
-    let structure = TasksSidebarStructure.compute(tasks: tasks)
+    let structure = Self.compute(tasks)
     #expect(structure.activeTaskIDs.map(\.rawValue) == ["aaa", "mmm", "zzz"])
     // Same records shuffled produce the same order: no input-order dependence.
-    let reshuffled = TasksSidebarStructure.compute(tasks: tasks.reversed())
+    let reshuffled = Self.compute(tasks.reversed())
     #expect(reshuffled == structure)
   }
 
-  /// A4 by construction: `compute` accepts only records plus the open-task
-  /// selection, so there is no activity input that could reorder a row. This
-  /// test documents that signature — if activity is ever threaded in, it stops
-  /// compiling and the invariant gets re-litigated deliberately.
+  /// Signature lock only: it asserts nothing about behaviour, it just pins the
+  /// shape of `compute` (records, selection, paging) so threading an activity
+  /// input in stops compiling here and A4 gets re-litigated deliberately.
   @Test func computeTakesOnlyRecordsAndSelection() {
     let projection: ([TaskRecord], TaskID?, Int, Bool) -> TasksSidebarStructure =
       TasksSidebarStructure.compute
@@ -85,28 +98,35 @@ struct TasksSidebarStructureTests {
   // MARK: - Active / settled partition
 
   @Test func settledStampMovesTaskToTheTail() {
-    let structure = TasksSidebarStructure.compute(
-      tasks: [Self.task("active"), Self.task("done", settledAt: 30)]
-    )
+    let structure = Self.compute([Self.task("active"), Self.task("done", settledAt: 30)])
     #expect(structure.activeTaskIDs.map(\.rawValue) == ["active"])
-    #expect(structure.settledTail.map(\.id.rawValue) == ["done"])
+    #expect(structure.visibleSettledTail.map(\.id.rawValue) == ["done"])
+    #expect(structure.settledTotalCount == 1)
     #expect(structure.visibleTaskIDs.map(\.rawValue) == ["active", "done"])
   }
 
   @Test func explicitActiveOverrideBeatsAStaleSettleStamp() {
-    let structure = TasksSidebarStructure.compute(
-      tasks: [Self.task("resumed", settledAt: 30, override: .active)]
-    )
+    let structure = Self.compute([Self.task("resumed", settledAt: 30, override: .active)])
     #expect(structure.activeTaskIDs.map(\.rawValue) == ["resumed"])
-    #expect(structure.settledTail.isEmpty)
+    #expect(structure.settledTotalCount == 0)
+    #expect(structure.visibleSettledTail.isEmpty)
   }
 
   @Test func explicitSettledOverrideSettlesWithoutAStamp() {
-    let structure = TasksSidebarStructure.compute(
-      tasks: [Self.task("parked", override: .settled)]
-    )
+    let structure = Self.compute([Self.task("parked", override: .settled)])
     #expect(structure.activeTaskIDs.isEmpty)
-    #expect(structure.settledTail.map(\.id.rawValue) == ["parked"])
+    #expect(structure.visibleSettledTail.map(\.id.rawValue) == ["parked"])
+  }
+
+  /// Phase 1 classifies on `settledAt` / the override and nothing else: a
+  /// snoozed task is still an active row until something stamps it settled.
+  @Test func snoozeAloneDoesNotSettleATask() {
+    var snoozed = Self.task("snoozed")
+    snoozed.snoozedUntil = Self.reference.addingTimeInterval(3600)
+    snoozed.snoozedAt = Self.reference
+    let structure = Self.compute([snoozed])
+    #expect(structure.activeTaskIDs.map(\.rawValue) == ["snoozed"])
+    #expect(structure.settledTotalCount == 0)
   }
 
   // MARK: - A17: settled tail order + sort key == label key
@@ -117,10 +137,19 @@ struct TasksSidebarStructureTests {
       Self.task("newest", createdAt: 0, settledAt: 900),
       Self.task("middle", createdAt: 100, settledAt: 400),
     ]
-    let structure = TasksSidebarStructure.compute(tasks: tasks)
+    let structure = Self.compute(tasks)
     // Creation order is deliberately the inverse: settled rows sort by when the
     // work ENDED, not when the task started.
-    #expect(structure.settledTail.map(\.id.rawValue) == ["newest", "middle", "old"])
+    #expect(structure.visibleSettledTail.map(\.id.rawValue) == ["newest", "middle", "old"])
+  }
+
+  /// Same ordering with the page window wide open, so tail order is asserted
+  /// independently of paging.
+  @Test func settledTailOrderHoldsWithTheWindowWideOpen() {
+    let structure = Self.compute(Self.settledTasks(count: 14), settledVisibleCount: 500)
+    #expect(structure.visibleSettledTail.map(\.id.rawValue) == (0..<14).map { "s-\($0)" })
+    #expect(structure.settledTotalCount == 14)
+    #expect(structure.hiddenSettledCount == 0)
   }
 
   @Test func equalSettledTimestampsFallBackToIDOrder() {
@@ -128,29 +157,31 @@ struct TasksSidebarStructureTests {
       Self.task("zzz", settledAt: 42),
       Self.task("aaa", settledAt: 42),
     ]
-    let structure = TasksSidebarStructure.compute(tasks: tasks)
-    #expect(structure.settledTail.map(\.id.rawValue) == ["aaa", "zzz"])
-    #expect(TasksSidebarStructure.compute(tasks: tasks.reversed()) == structure)
+    let structure = Self.compute(tasks)
+    #expect(structure.visibleSettledTail.map(\.id.rawValue) == ["aaa", "zzz"])
+    #expect(Self.compute(tasks.reversed()) == structure)
   }
 
   @Test func settledEntryCarriesTheTimestampItSortedBy() {
     let stamped = Self.task("stamped", createdAt: 0, settledAt: 90, lastVisitedAt: 50)
     let visited = Self.task("visited", createdAt: 0, lastVisitedAt: 60, override: .settled)
     let bare = Self.task("bare", createdAt: 10, override: .settled)
-    let structure = TasksSidebarStructure.compute(tasks: [stamped, visited, bare])
+    let structure = Self.compute([stamped, visited, bare])
 
     let byID = Dictionary(
-      uniqueKeysWithValues: structure.settledTail.map { ($0.id.rawValue, $0.settledTimestamp) }
+      uniqueKeysWithValues: structure.visibleSettledTail.map {
+        ($0.id.rawValue, $0.settledTimestamp)
+      }
     )
-    // Cascade: settledAt → latest activity (lastVisitedAt) → createdAt. Each
-    // entry reports exactly the value it was ordered by, so the row's label
-    // cannot diverge from the sort key.
+    // Cascade: settledAt → lastVisitedAt → createdAt. Each entry reports exactly
+    // the value it was ordered by, so the row's label cannot diverge from the
+    // sort key.
     #expect(byID["stamped"] == stamped.settledAt)
     #expect(byID["visited"] == visited.lastVisitedAt)
     #expect(byID["bare"] == bare.createdAt)
     // Ordered by those resolved values: 90 (stamp) > 60 (visit) > 10 (created).
-    #expect(structure.settledTail.map(\.id.rawValue) == ["stamped", "visited", "bare"])
-    for entry in structure.settledTail {
+    #expect(structure.visibleSettledTail.map(\.id.rawValue) == ["stamped", "visited", "bare"])
+    for entry in structure.visibleSettledTail {
       let record = [stamped, visited, bare].first { $0.id == entry.id }!
       #expect(entry.settledTimestamp == TasksSidebarStructure.resolvedSettledTimestamp(for: record))
     }
@@ -159,13 +190,13 @@ struct TasksSidebarStructureTests {
   // MARK: - Paging
 
   @Test func settledTailUnderThePageWindowIsFullyVisible() {
-    let structure = TasksSidebarStructure.compute(tasks: Self.settledTasks(count: 4))
+    let structure = Self.compute(Self.settledTasks(count: 4))
     #expect(structure.visibleSettledTail.count == 4)
     #expect(structure.hiddenSettledCount == 0)
   }
 
   @Test func settledTailBeyondThePageWindowIsTruncated() {
-    let structure = TasksSidebarStructure.compute(tasks: Self.settledTasks(count: 14))
+    let structure = Self.compute(Self.settledTasks(count: 14))
     #expect(structure.visibleSettledTail.count == TasksSidebarStructure.settledTailInitialCount)
     #expect(structure.hiddenSettledCount == 4)
     #expect(structure.visibleSettledTail.map(\.id.rawValue).first == "s-0")
@@ -177,29 +208,29 @@ struct TasksSidebarStructureTests {
     let expanded = TasksSidebarStructure.expandedSettledVisibleCount(
       from: TasksSidebarStructure.settledTailInitialCount
     )
-    let structure = TasksSidebarStructure.compute(tasks: tasks, settledVisibleCount: expanded)
+    let structure = Self.compute(tasks, settledVisibleCount: expanded)
     #expect(expanded == 35)
     #expect(structure.visibleSettledTail.count == 14)
     #expect(structure.hiddenSettledCount == 0)
   }
 
   @Test func collapsedShelfRendersNoSettledRows() {
-    let structure = TasksSidebarStructure.compute(
-      tasks: Self.settledTasks(count: 3) + [Self.task("live", createdAt: 999)],
+    let structure = Self.compute(
+      Self.settledTasks(count: 3) + [Self.task("live", createdAt: 999)],
       isSettledTailExpanded: false
     )
     #expect(structure.visibleSettledTail.isEmpty)
-    #expect(structure.hiddenSettledCount == 3)
+    // Collapsed has no "Show more" affordance, so nothing is "hidden behind" it:
+    // the header reads the total instead.
+    #expect(structure.hiddenSettledCount == 0)
+    #expect(structure.settledTotalCount == 3)
     #expect(structure.visibleTaskIDs.map(\.rawValue) == ["live"])
   }
 
   // MARK: - A8: the open task is never hidden
 
   @Test func openSettledTaskBeyondThePageWindowIsPulledIn() {
-    let structure = TasksSidebarStructure.compute(
-      tasks: Self.settledTasks(count: 14),
-      openTaskID: TaskID("s-13")
-    )
+    let structure = Self.compute(Self.settledTasks(count: 14), openTaskID: TaskID("s-13"))
     #expect(structure.visibleSettledTail.map(\.id.rawValue).contains("s-13"))
     #expect(structure.visibleSettledTail.count == TasksSidebarStructure.settledTailInitialCount + 1)
     // Pulled in without displacing the window: it appends after the page.
@@ -208,18 +239,15 @@ struct TasksSidebarStructureTests {
   }
 
   @Test func openSettledTaskInsideThePageWindowIsNotDuplicated() {
-    let structure = TasksSidebarStructure.compute(
-      tasks: Self.settledTasks(count: 14),
-      openTaskID: TaskID("s-2")
-    )
+    let structure = Self.compute(Self.settledTasks(count: 14), openTaskID: TaskID("s-2"))
     let ids = structure.visibleSettledTail.map(\.id.rawValue)
     #expect(ids.count == TasksSidebarStructure.settledTailInitialCount)
     #expect(ids.filter { $0 == "s-2" }.count == 1)
   }
 
   @Test func openSettledTaskIsVisibleEvenWithTheShelfCollapsed() {
-    let structure = TasksSidebarStructure.compute(
-      tasks: Self.settledTasks(count: 14),
+    let structure = Self.compute(
+      Self.settledTasks(count: 14),
       openTaskID: TaskID("s-13"),
       isSettledTailExpanded: false
     )
@@ -228,8 +256,8 @@ struct TasksSidebarStructureTests {
   }
 
   @Test func openActiveTaskIsTriviallyVisible() {
-    let structure = TasksSidebarStructure.compute(
-      tasks: Self.settledTasks(count: 14) + [Self.task("live", createdAt: 999)],
+    let structure = Self.compute(
+      Self.settledTasks(count: 14) + [Self.task("live", createdAt: 999)],
       openTaskID: TaskID("live"),
       isSettledTailExpanded: false
     )
@@ -238,14 +266,23 @@ struct TasksSidebarStructureTests {
 
   // MARK: - Timestamp robustness (A17)
 
-  @Test func aTaskWithNoUsableTimestampStillRendersAtTheTailEnd() {
+  @Test(arguments: [Double.infinity, -.infinity, .nan])
+  func aTaskWithNoUsableTimestampStillRendersAtTheTailEnd(interval: Double) {
     var broken = Self.task("broken", override: .settled)
-    broken.createdAt = Date(timeIntervalSince1970: .infinity)
-    let structure = TasksSidebarStructure.compute(
-      tasks: [broken, Self.task("fine", settledAt: 10)]
-    )
-    #expect(structure.settledTail.map(\.id.rawValue) == ["fine", "broken"])
-    #expect(structure.settledTail.last?.settledTimestamp == nil)
+    broken.createdAt = Date(timeIntervalSince1970: interval)
+    let structure = Self.compute([broken, Self.task("fine", settledAt: 10)])
+    #expect(structure.visibleSettledTail.map(\.id.rawValue) == ["fine", "broken"])
+    #expect(structure.visibleSettledTail.last?.settledTimestamp == nil)
     #expect(structure.visibleTaskIDs.map(\.rawValue).contains("broken"))
+  }
+
+  /// A non-finite stamp on the settle field itself falls through the cascade
+  /// rather than sorting the row somewhere surprising.
+  @Test(arguments: [Double.infinity, -.infinity, .nan])
+  func aNonFiniteSettleStampFallsBackToCreatedAt(interval: Double) {
+    var broken = Self.task("broken", createdAt: 5, override: .settled)
+    broken.settledAt = Date(timeIntervalSince1970: interval)
+    let structure = Self.compute([broken])
+    #expect(structure.visibleSettledTail.first?.settledTimestamp == broken.createdAt)
   }
 }
