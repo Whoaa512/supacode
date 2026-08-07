@@ -18,6 +18,11 @@ final class TaskInboxSandbox {
   let rootURL: URL
   let storage: SettingsFileStorage
   let store = TaskStore()
+  /// Every URL written through `storage`, in order. The save spy for flows that
+  /// must write *nothing*: `loadFile()` hands back a default `TaskStoreFile`
+  /// when `tasks.json` is absent, so a load-based check cannot tell "never
+  /// wrote" from "wrote an empty inbox".
+  let writtenURLs = LockIsolated<[URL]>([])
   private let files: InMemorySettingsFileStorage
 
   init(name: String = "TaskInboxSandbox") throws {
@@ -26,11 +31,20 @@ final class TaskInboxSandbox {
     try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
     let files = InMemorySettingsFileStorage()
     self.files = files
+    let writtenURLs = self.writtenURLs
     storage = SettingsFileStorage(
       load: { try files.load($0) },
-      save: { try files.save($0, $1) },
+      save: { data, url in
+        writtenURLs.withValue { $0.append(url) }
+        try files.save(data, url)
+      },
       moveAside: { try files.moveAside($0, $1) }
     )
+  }
+
+  /// Whether `tasks.json` was ever written through this sandbox's storage.
+  var didWriteTasksFile: Bool {
+    writtenURLs.value.contains(SupacodePaths.tasksURL)
   }
 
   /// Writes `layouts.json` for one worktree. Tab ids are pinned (promotion
