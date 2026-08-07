@@ -340,3 +340,25 @@ D. No surface leak in the happy path: teardown still frees every surface
   `HibernationTeardownTests` → exit 0, totalTestCount 10, passed 10, failed 0.
 - Still pending after slice 3: probe never true → the entry stays pending forever
   (no leak bucket, no counter). Slice 4.
+
+### RED→GREEN (cycle 3, slice 4 — leak over hang)
+
+- RED: `abandonedTeardownRetainsTheViewInsteadOfFreeingIt()` referenced
+  `queue.leakedCount` and an `analytics:` constructor param — compile failure.
+- Poll bound exhausted → `leak(key)`: entry removed from `pending`, Task dropped,
+  view APPENDED to a retained `leaked` array (binding 6). The view is never
+  released while its surface lives — ghostty holds the bridge as userdata with no
+  liveness registry, so dropping it would be a use-after-free on the next
+  callback. `leakedCount` exposes it.
+- Cap choice: `leakedWarningCap = 32` only escalates SupaLogger `warning` → `error`;
+  it never drops a view (retention is a correctness requirement, not a budget). 32
+  because a wedged pty is rare — 32 of them means every hibernate is wedging, i.e.
+  systemic, not incidental.
+- Analytics counter: `analyticsClient.capture("surface_teardown_leaked",
+  ["leaked_count": n])`, following the existing `AnalyticsClient` convention.
+  Injected as a queue constructor param resolved in `GhosttyRuntime.init`
+  (binding 13, same reason as the shell).
+- Test asserts: nothing freed, `pendingCount == 0`, `leakedCount == 1`, analytics
+  event `surface_teardown_leaked`, and the weak ref STILL non-nil.
+- `SurfaceTeardownQueueTests` + `HibernationTeardownTests` → exit 0,
+  totalTestCount 11, passed 11, failed 0.

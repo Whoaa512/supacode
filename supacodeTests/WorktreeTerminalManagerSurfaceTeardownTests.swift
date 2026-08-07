@@ -6,6 +6,7 @@ import Foundation
 import GhosttyKit
 import Testing
 
+@testable import SupacodeSettingsShared
 @testable import supacode
 
 /// Records every command the teardown queue runs, and lets a test decide what
@@ -54,6 +55,21 @@ private final class FreeSpy {
   }
 }
 
+/// Records analytics events so the leak path's counter is observable.
+@MainActor
+private final class AnalyticsSpy {
+  private(set) var events: [String] = []
+
+  var client: AnalyticsClient {
+    AnalyticsClient(
+      capture: { [weak self] event, _ in
+        MainActor.assumeIsolated { self?.events.append(event) }
+      },
+      identify: { _ in }
+    )
+  }
+}
+
 /// Weak handle: the queue must be the LAST strong reference, so a test can only
 /// check ownership through a weak box.
 @MainActor
@@ -82,13 +98,15 @@ struct SurfaceTeardownQueueTests {
     _ spy: ShellSpy,
     clock: any Clock<Duration> = TestClock(),
     probe: ProbeSpy? = nil,
-    free: FreeSpy? = nil
+    free: FreeSpy? = nil,
+    analytics: AnalyticsSpy? = nil
   ) -> SurfaceTeardownQueue {
     SurfaceTeardownQueue(
       shell: SurfaceTeardownShell { executable, arguments in
         await spy.run([executable.lastPathComponent] + arguments)
       },
       clock: clock,
+      analytics: analytics?.client ?? .testValue,
       hasProcessExited: { probe?.probe($0) ?? true },
       free: { free?.free($0) ?? $0.performDeferredFree() }
     )
@@ -243,6 +261,44 @@ struct SurfaceTeardownQueueTests {
     #expect(free.freedSurfaceIDs == [surfaceID])
     #expect(queue.pendingCount == 0)
     #expect(weakRef.view == nil)
+  }
+
+  /// Leak over hang (decision 1): if the child never exits, the free is SKIPPED —
+  /// but the view must stay RETAINED (binding 6). ghostty holds the bridge pointer
+  /// as userdata with no liveness registry, so dropping a view whose surface is
+  /// still alive is a use-after-free on the next callback.
+  @Test func abandonedTeardownRetainsTheViewInsteadOfFreeingIt() async {
+    let runtime = GhosttyRuntime()
+    let clock = TestClock()
+    let probe = ProbeSpy()
+    let free = FreeSpy()
+    let analytics = AnalyticsSpy()
+    let queue = makeQueue(
+      ShellSpy(pgrepStdout: "4242\n"),
+      clock: clock,
+      probe: probe,
+      free: free,
+      analytics: analytics
+    )
+    let weakRef = WeakSurfaceRef()
+    var task: Task<Void, Never>?
+    autoreleasepool {
+      let view = makeView(id: UUID(), runtime: runtime)
+      weakRef.view = view
+      queue.handOff(view)
+      task = queue.teardownTask(for: view)
+    }
+
+    // The child never exits: burn past the poll bound.
+    await advance(clock, until: { queue.leakedCount == 1 })
+    await task?.value
+
+    #expect(free.freedSurfaceIDs.isEmpty)
+    #expect(queue.pendingCount == 0)
+    #expect(queue.leakedCount == 1)
+    #expect(analytics.events == ["surface_teardown_leaked"])
+    // STILL ALIVE — the leak is deliberate and owned, not a dropped reference.
+    #expect(weakRef.view != nil)
   }
 
   /// A surface still in the tree must never lose its client.

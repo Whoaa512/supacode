@@ -55,7 +55,11 @@ final class GhosttyRuntime {
     // escape the caller's dependency scope, so resolving inside them would pick
     // up the live shell in tests.
     @Dependency(\.shellClient) var shellClient
-    self.surfaceTeardownQueue = SurfaceTeardownQueue(shell: .live(shellClient))
+    @Dependency(\.analyticsClient) var analyticsClient
+    self.surfaceTeardownQueue = SurfaceTeardownQueue(
+      shell: .live(shellClient),
+      analytics: analyticsClient
+    )
     guard let loaded = Self.loadConfig() else {
       preconditionFailure("ghostty_config_new failed")
     }
