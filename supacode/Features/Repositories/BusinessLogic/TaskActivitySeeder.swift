@@ -246,7 +246,9 @@ nonisolated enum TaskActivitySeeder {
   /// branch → directory leaf. Provable facts only, duplicates allowed and honest
   /// (a five-copy pool all on `main` really is five rows named `main`); the row's
   /// secondary line disambiguates, so there is no `(2)` suffix machinery.
-  private static func title(for candidate: Candidate, branch: String?) -> String {
+  /// Also used by the manual promote path, so the two ways a task can be born
+  /// title it identically.
+  static func title(for candidate: Candidate, branch: String?) -> String {
     nonEmpty(candidate.customizationTitle)
       ?? nonEmpty(candidate.worktreeName)
       ?? nonEmpty(candidate.worktreeDetail)

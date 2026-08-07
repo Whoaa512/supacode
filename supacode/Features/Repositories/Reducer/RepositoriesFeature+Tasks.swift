@@ -43,6 +43,10 @@ extension RepositoriesFeature {
     case expandSettledTail
     /// Drop owned surfaces that no longer exist, without deleting the task (A10b).
     case reconcileSurfaceOwnership
+    /// Claim a tab for the directory's task, creating one when there is none.
+    /// `tabID == nil` means the layout's selected tab, which is what a menu
+    /// command with no explicit target means.
+    case promoteTab(worktreeID: Worktree.ID, tabID: TerminalTabID?)
   }
 
   var tasksReducer: some Reducer<State, Action> {
@@ -161,6 +165,15 @@ extension RepositoriesFeature {
 
       case .tasks(.reconcileSurfaceOwnership):
         guard state.reconcileTaskSurfaceOwnership() else { return .none }
+        return Self.persistTasksEffect(state: state)
+
+      case .tasks(.promoteTab(let worktreeID, let tabID)):
+        // An unreadable tasks.json disables the inbox for the launch: a claim
+        // written on top of records we failed to read would erase them.
+        guard !state.isTaskPersistenceDisabled else { return .none }
+        guard state.promoteTab(worktreeID: worktreeID, tabID: tabID, now: now) else { return .none }
+        // Bookkeeping only: the live tab keeps its sessions, its scrollback and
+        // the selection it had (A21).
         return Self.persistTasksEffect(state: state)
 
       // A surface set drifted (a tab closed, a worktree restored). Ownership is
@@ -430,6 +443,86 @@ extension RepositoriesFeature.State {
     return didChange
   }
 
+  /// Claims a tab's surfaces for the directory's task. Returns whether anything
+  /// changed, so a re-promotion of an already-owned tab writes no file (A21).
+  ///
+  /// Claims are tab-granular (plan Resolved #10): the whole split tree moves, so
+  /// a tab can never hold two tasks' surfaces. The only tab-to-surface map the
+  /// reducer has is the persisted layout snapshot, which also knows which tab is
+  /// selected when the caller names none.
+  ///
+  /// Surfaces are stripped from every other record rather than shared: explicit
+  /// user intent beats stale ownership (A3), and a stripped record is never
+  /// deleted — losing a claim is not the end of a task (A10b).
+  @MainActor
+  mutating func promoteTab(worktreeID: Worktree.ID, tabID: TerminalTabID?, now: Date) -> Bool {
+    guard let row = sidebarItems[id: worktreeID] else { return false }
+    guard let snapshot = persistedLayouts[worktreeID.rawValue] else { return false }
+    guard let tab = Self.tabSnapshot(in: snapshot, id: tabID) else { return false }
+    let surfaceIDs = Set(tab.layout.leafSurfaceIDs)
+    guard !surfaceIDs.isEmpty else { return false }
+
+    let directoryPath = TaskDirectoryPath.canonical(row.workingDirectory)
+    let target = newestActiveTask(inDirectory: directoryPath)
+    guard target?.surfaceIDs.isSuperset(of: surfaceIDs) != true else { return false }
+
+    for record in taskRecords where record.id != target?.id && !record.surfaceIDs.isDisjoint(with: surfaceIDs) {
+      taskRecords[id: record.id]?.surfaceIDs.subtract(surfaceIDs)
+    }
+    guard let target else {
+      taskRecords.append(
+        TaskRecord(
+          title: TaskActivitySeeder.title(
+            for: TaskActivitySeeder.Candidate(
+              directoryPath: directoryPath,
+              customizationTitle: row.customTitle,
+              worktreeName: row.name,
+              worktreeDetail: row.subtitle
+            ),
+            branch: provableBranch(for: row)
+          ),
+          directoryPath: directoryPath,
+          branch: provableBranch(for: row),
+          repositoryID: row.repositoryID,
+          createdAt: now,
+          surfaceIDs: surfaceIDs,
+          seedEvidence: TaskRecord.SeedEvidence(source: .manual, confidence: .high)
+        )
+      )
+      return true
+    }
+    taskRecords[id: target.id]?.surfaceIDs.formUnion(surfaceIDs)
+    return true
+  }
+
+  /// A detached or unreadable HEAD reports no branch rather than a guess (A2).
+  private func provableBranch(for row: SidebarItemFeature.State) -> String? {
+    row.isAttached && !row.branchName.isEmpty ? row.branchName : nil
+  }
+
+  /// Newest-created active task for the directory. Two active tasks may share a
+  /// directory (plan Resolved #11), so the join target has to be deterministic;
+  /// newest-created is the order the Tasks tab already puts at the top (A4).
+  private func newestActiveTask(inDirectory path: String) -> TaskRecord? {
+    let target = TaskDirectoryPath.normalized(path)
+    return taskRecords
+      .filter { !TasksSidebarStructure.isSettled($0) }
+      .filter { TaskDirectoryPath.normalized($0.directoryPath) == target }
+      .max { ($0.createdAt, $0.id.rawValue) < ($1.createdAt, $1.id.rawValue) }
+  }
+
+  /// The named tab, or the one the layout has selected when the caller named none.
+  private static func tabSnapshot(
+    in snapshot: TerminalLayoutSnapshot,
+    id: TerminalTabID?
+  ) -> TerminalLayoutSnapshot.TabSnapshot? {
+    guard let id else {
+      guard snapshot.tabs.indices.contains(snapshot.selectedTabIndex) else { return nil }
+      return snapshot.tabs[snapshot.selectedTabIndex]
+    }
+    return snapshot.tabs.first { $0.id == id.rawValue }
+  }
+
   /// The worktree the terminal manager should treat as selected while a task row
   /// is open. A task selection clears the worktree selection, and a nil terminal
   /// selection makes `refreshTabVisibility` arm the hibernation grace timer on
@@ -530,7 +623,7 @@ extension RepositoriesFeature.TaskInboxAction {
       return []
     // Every arm that can change the record set, its lifecycle, or the page window.
     case .loaded, .seeded, .select, .settle, .unsettle,
-      .setSettledTailExpanded, .expandSettledTail, .reconcileSurfaceOwnership:
+      .setSettledTailExpanded, .expandSettledTail, .reconcileSurfaceOwnership, .promoteTab:
       return .sidebarStructure
     }
   }
