@@ -12,6 +12,7 @@ import Testing
 @testable import supacode
 
 @MainActor
+@Suite(.sidebarTab(.worktrees))
 struct RepositoriesFeatureTests {
   @Test func toggleInspectorPaneOpensSwapsAndCloses() async {
     let store = TestStore(initialState: RepositoriesFeature.State()) {
