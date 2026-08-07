@@ -16,6 +16,9 @@ import Foundation
 /// re-arms it from an injected clock, so a wake a year out costs exactly what one
 /// an hour out costs.
 ///
+/// Classification only: the settle-clears-pin mutation (A16) lives in the
+/// reducer's settle arm, which owns the write.
+///
 /// `nonisolated` on purpose: the target compiles with
 /// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, which would otherwise pin this
 /// pure logic to the main actor.
@@ -27,6 +30,10 @@ nonisolated enum TaskSnooze {
     /// measured against it, so without it they refuse rather than guess.
     var snoozedAt: Date?
     var activity: TaskSettlement.ActivitySnapshot = .idle
+    /// Unlike `TaskStatusModel`, snooze needs the *instant* of the failure, not
+    /// the fact of it: A25 only re-surfaces an error that is newer than
+    /// `snoozedAt`. Producer arrives with the Phase 4/5 wiring (the presence
+    /// layer's last-transition timestamp for `.error`).
     var errorAt: Date?
     var completedTurnAt: Date?
   }
@@ -39,15 +46,7 @@ nonisolated enum TaskSnooze {
     case active
   }
 
-  /// The lifecycle mutations that a pin has to survive — or not.
-  nonisolated enum Transition: Hashable, Sendable {
-    case settle
-    case unsettle
-    case snooze
-    case unsnooze
-  }
-
-  nonisolated enum Preset: Hashable, Sendable, CaseIterable {
+  nonisolated enum Preset: Hashable, Sendable {
     case oneHour
     case thisEvening
     case tomorrow
@@ -67,6 +66,10 @@ nonisolated enum TaskSnooze {
     case tomorrow(Date)
     case weekday(Date)
     case date(Date)
+    /// Unreadable `until` or `now`. Distinct from `.date` because there is no
+    /// honest `Date` to hand the view — rendering a malformed instant would
+    /// print "Dec 31, 1969" or worse (A17: never invent a time).
+    case unknown
   }
 
   private static let eveningHour = 18
@@ -200,7 +203,7 @@ nonisolated enum TaskSnooze {
         from: calendar.startOfDay(for: now),
         to: calendar.startOfDay(for: until)
       ).day
-    else { return .date(until) }
+    else { return .unknown }
 
     switch dayDelta {
     case 0: return .today(until)
@@ -220,12 +223,5 @@ nonisolated enum TaskSnooze {
     if isPinned { return .pinned }
     if isSettled { return .settled }
     return .active
-  }
-
-  /// Settling is the user declaring the work done, which makes an "always show me
-  /// this" pin meaningless — leaving it would strand a pinned row in the settled
-  /// tail forever. Snoozing is temporary, so the pin comes back with the task.
-  static func clearsPin(on transition: Transition) -> Bool {
-    transition == .settle
   }
 }

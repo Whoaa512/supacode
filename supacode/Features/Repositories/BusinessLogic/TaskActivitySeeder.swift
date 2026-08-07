@@ -4,8 +4,8 @@ import Foundation
 /// `TaskRecord`s so the Tasks tab is populated the first time cj launches a
 /// build that has it (assertion A1).
 ///
-/// Pure logic — Foundation only, `now` passed in, no `Date()`, no filesystem, no
-/// TCA (A18). The reducer gathers `Candidate`s (from the sidebar's live
+/// Pure logic — Foundation only, `now` passed in, no ambient clock, no
+/// filesystem, no TCA (A18). The reducer gathers `Candidate`s (from the sidebar's live
 /// worktrees, `layouts.json`, scrollback mtimes and `GitReflogReader`) and hands
 /// them here; everything this type decides is derived from its arguments.
 ///

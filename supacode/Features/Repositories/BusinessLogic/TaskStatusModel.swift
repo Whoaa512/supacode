@@ -2,9 +2,9 @@ import Foundation
 
 /// The one status a task row shows (A18, A27).
 ///
-/// Pure logic — Foundation only, and deliberately without a `now`: every input is
-/// already a recorded fact, so the status is a function of the record alone and
-/// cannot drift between two renders of the same snapshot.
+/// Pure logic — Foundation only, and deliberately without a `now` or any
+/// timestamp: the status is a function of the current presence snapshot alone,
+/// so it cannot drift between two renders of the same snapshot.
 ///
 /// `nonisolated` on purpose: the target compiles with
 /// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, which would otherwise pin this
@@ -20,8 +20,11 @@ nonisolated enum TaskStatusModel {
     case failed
     case ready
 
-    /// Lives on the status rather than being re-derived at each call site, so the
-    /// hint pill and the jump target can never disagree (A33).
+    /// The status half of A33's jump predicate, which is
+    /// `needsHuman || unread-done || woke`. Lives on the status rather than
+    /// being re-derived at each call site, so the hint pill and the jump target
+    /// can never disagree about the part this type owns; the other two
+    /// disjuncts are not status readings and are combined by the caller.
     var needsHuman: Bool {
       switch self {
       case .approval, .input, .failed: true
@@ -30,10 +33,11 @@ nonisolated enum TaskStatusModel {
     }
   }
 
+  /// One field, because the status is one reading of the presence snapshot.
+  /// There is no timestamp input: `failed` is whatever the agent currently
+  /// reports, exactly like the other four.
   nonisolated struct Input: Equatable, Sendable {
     var activity: TaskSettlement.ActivitySnapshot = .idle
-    var errorAt: Date?
-    var lastActivityAt: Date?
   }
 
   /// Ladder: approval → input → working → failed → ready. The order is the
@@ -48,21 +52,7 @@ nonisolated enum TaskStatusModel {
     if input.activity.isAwaitingApproval == true { return .approval }
     if input.activity.isAwaitingInput { return .input }
     if input.activity.isWorking { return .working }
-    return failureReading(input)
-  }
-
-  /// An error counts only while it is the newest thing that happened: activity
-  /// after it means the agent kept going, so the row is `ready` rather than
-  /// permanently red. Ties go to the error — the two stamps come from different
-  /// second-granularity writers, and the failure is the more actionable reading of
-  /// the same moment.
-  ///
-  /// A malformed *error* stamp shows no failure nobody can date (A17); a malformed
-  /// *activity* stamp must not suppress a real error, or a garbage write would
-  /// silently hide failures.
-  private static func failureReading(_ input: Input) -> Status {
-    guard let errorAt = TaskTimestamps.read(input.errorAt).date else { return .ready }
-    guard let lastActivityAt = TaskTimestamps.read(input.lastActivityAt).date else { return .failed }
-    return errorAt >= lastActivityAt ? .failed : .ready
+    if input.activity.isErrored { return .failed }
+    return .ready
   }
 }

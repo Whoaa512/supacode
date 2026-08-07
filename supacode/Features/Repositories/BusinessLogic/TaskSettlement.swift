@@ -21,6 +21,11 @@ nonisolated enum TaskSettlement {
     /// never "no approval pending" (Resolved #1). Reading `nil` as pending would
     /// pin every non-emitting agent's task permanently active.
     var isAwaitingApproval: Bool?
+    /// `AgentPresenceFeature.Activity.error` — the live failure signal, and the
+    /// only one there is. A `failed` reading is a *state* the presence layer
+    /// reports, not something derived from an error timestamp: no writer in the
+    /// app records one.
+    var isErrored: Bool = false
 
     static let idle = ActivitySnapshot()
   }

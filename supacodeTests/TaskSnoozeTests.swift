@@ -352,6 +352,28 @@ struct TaskSnoozeTests {
     )
   }
 
+  /// The same inclusive boundary `effectiveSnoozed` uses, stated for the pill:
+  /// at exactly the wake instant the task is awake and the pill dates from
+  /// `snoozedUntil`. A `>` here would leave the row awake with no wake instant
+  /// on the tick that the boundary-armed effect fires on.
+  @Test func theWakeInstantItselfIsAWake() {
+    let wake = Self.date(2026, 6, 1, 12)
+    #expect(
+      TaskSnooze.wokeAt(
+        Self.input(now: wake, snoozedUntil: wake, snoozedAt: wake.addingTimeInterval(-Self.hour))
+      ) == wake
+    )
+    #expect(
+      TaskSnooze.wokeAt(
+        Self.input(
+          now: wake.addingTimeInterval(-0.001),
+          snoozedUntil: wake,
+          snoozedAt: wake.addingTimeInterval(-Self.hour)
+        )
+      ) == nil
+    )
+  }
+
   /// A conditional raise carries its own instant, so the pill dates from the
   /// event rather than from whenever the tick noticed it.
   @Test func aRaisedHandWakesAtTheTriggerInstant() {
@@ -557,6 +579,21 @@ struct TaskSnoozeTests {
     #expect(presets.map(\.preset) == [.oneHour, .thisEvening, .tomorrow, .nextWeek])
   }
 
+  /// An unreadable `now` makes every preset arithmetic meaningless, so the menu
+  /// offers nothing rather than a set of wake times computed off garbage. The
+  /// caller shows a disabled affordance; it never gets a plausible-looking date
+  /// derived from a NaN.
+  @Test(
+    arguments: [
+      TaskSnoozeTests.malformedDate,
+      Date(timeIntervalSince1970: .infinity),
+      Date(timeIntervalSince1970: -.infinity),
+    ]
+  )
+  func aMalformedNowOffersNoPresets(_ malformed: Date) {
+    #expect(TaskSnooze.resolveSnoozePresets(now: malformed, calendar: Self.calendar).isEmpty)
+  }
+
   /// A calendar with a different first weekday must not move Monday. The rule
   /// is "the coming Monday", not "the start of the next calendar week".
   @Test func nextWeekIgnoresTheCalendarsFirstWeekday() {
@@ -637,6 +674,23 @@ struct TaskSnoozeTests {
     #expect(TaskSnooze.snoozeWakeLabel(until: wake, now: now, calendar: Self.calendar) == .date(wake))
   }
 
+  /// `.unknown`, not `.date(until)`: there is no honest instant to hand the
+  /// view, and formatting a non-finite `Date` prints nonsense. A17 again — the
+  /// label refuses rather than invents.
+  @Test(
+    arguments: [
+      TaskSnoozeTests.malformedDate,
+      Date(timeIntervalSince1970: .infinity),
+      Date(timeIntervalSince1970: -.infinity),
+    ]
+  )
+  func anUnreadableWakeOrNowLabelsAsUnknown(_ malformed: Date) {
+    let now = Self.date(2026, 6, 1, 12)
+    let wake = Self.date(2026, 6, 2, 8)
+    #expect(TaskSnooze.snoozeWakeLabel(until: malformed, now: now, calendar: Self.calendar) == .unknown)
+    #expect(TaskSnooze.snoozeWakeLabel(until: wake, now: malformed, calendar: Self.calendar) == .unknown)
+  }
+
   // MARK: - Placement precedence (A16)
 
   /// Snooze > pin > settled. Snooze wins over a pin because it is the more
@@ -675,22 +729,5 @@ struct TaskSnoozeTests {
         }
       }
     }
-  }
-
-  /// A16's mutation half. Settling is the user declaring the work done, which
-  /// makes an "always show me this" pin meaningless — leaving it would strand a
-  /// pinned row in the settled tail forever. Snoozing is temporary, so the pin
-  /// has to come back with the task when it wakes.
-  @Test func settlingClearsThePinAndSnoozingKeepsIt() {
-    #expect(TaskSnooze.clearsPin(on: .settle) == true)
-    #expect(TaskSnooze.clearsPin(on: .snooze) == false)
-  }
-
-  /// The inverse transitions never touch the pin either — unsettling a task
-  /// cannot resurrect a pin it already dropped, and unsnoozing had nothing to
-  /// restore.
-  @Test func theInverseTransitionsLeaveThePinAlone() {
-    #expect(TaskSnooze.clearsPin(on: .unsettle) == false)
-    #expect(TaskSnooze.clearsPin(on: .unsnooze) == false)
   }
 }

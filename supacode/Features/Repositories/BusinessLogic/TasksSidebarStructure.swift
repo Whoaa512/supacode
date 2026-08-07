@@ -15,7 +15,7 @@ import Foundation
 /// true by construction here, not by a runtime check.
 ///
 /// Pure logic — Foundation only, no ComposableArchitecture, no SwiftUI, no
-/// `Date()` (A18). `nonisolated` because the target compiles with
+/// ambient clock (A18). `nonisolated` because the target compiles with
 /// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, which would otherwise pin this
 /// to the main actor (`TaskActivitySeeder` precedent).
 nonisolated struct TasksSidebarStructure: Equatable, Sendable {

@@ -570,31 +570,22 @@ struct TaskSettlementTests {
     #expect(TaskSettlement.canSnooze(Self.input(lastActivityAt: Self.freshActivity)) == true)
   }
 
-  // MARK: - A18: pure-logic file stays pure
+  // MARK: - The one non-port only a grep can hold
 
-  /// Grep assertion. Fails loudly right now because the file does not exist —
-  /// that absence IS the red state for this suite.
-  @Test func sourceFileIsPureFoundationLogic() {
-    let repositoryRoot = URL(filePath: #filePath)
+  /// t3's `hasQueuedTurnStart` blocker is absent by design, so there is no
+  /// queued-turn input and no behavioural test that can notice it coming back.
+  /// This is the tripwire. (The generic A18 purity sweep over the whole
+  /// BusinessLogic directory lives in `TaskTimestampsTests`.)
+  @Test func theQueuedTurnStartPortStaysDropped() {
+    let url = URL(filePath: #filePath)
       .deletingLastPathComponent()  // supacodeTests
       .deletingLastPathComponent()  // repo root
-    let url =
-      repositoryRoot
-      .appending(path: "supacode/Features/Repositories/BusinessLogic")
-      .appending(path: "TaskSettlement.swift")
+      .appending(path: "supacode/Features/Repositories/BusinessLogic/TaskSettlement.swift")
 
     guard let source = try? String(contentsOf: url, encoding: .utf8) else {
       Issue.record("Missing pure-logic source file at \(url.path)")
       return
     }
-    #expect(source.contains("import ComposableArchitecture") == false)
-    #expect(source.contains("import SwiftUI") == false)
-    #expect(source.contains("import AppKit") == false)
-    // No ambient clock, in either spelling: `now` is always an injected
-    // parameter.
-    #expect(source.contains("Date()") == false)
-    #expect(source.contains("Date.now") == false)
-    // The dropped t3 port must stay dropped.
     #expect(source.contains("hasQueuedTurnStart") == false)
   }
 }

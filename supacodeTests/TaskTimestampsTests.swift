@@ -251,43 +251,91 @@ struct TaskTimestampsTests {
     #expect(TaskTimestamps.isStrictlyOlder(Self.epoch, than: boundary) == false)
   }
 
-  // MARK: - A18: pure-logic file stays pure
+  // MARK: - A18: the pure-logic registry
 
-  /// Grep assertion. A missing file is a recorded failure, not a silent pass —
-  /// see `readSource`.
-  /// The registry of pure-logic files, deliberately in one place: a per-suite
-  /// copy of this check drifts the moment someone adds a file and forgets the
-  /// sixth copy. `TaskSettlement.swift` keeps its own variant only because it
-  /// carries an extra, file-specific assertion.
-  @Test(
-    arguments: [
-      "TaskTimestamps.swift",
-      "TaskPullRequestState.swift",
-      "TaskSnooze.swift",
-      "TaskStatusModel.swift",
-      "TaskForwardNavigation.swift",
-    ]
-  )
-  func sourceFileIsPureFoundationLogic(_ fileName: String) {
-    let source = Self.readSource(fileName)
-    #expect(source.isEmpty == false)
-    #expect(source.contains("import ComposableArchitecture") == false)
-    #expect(source.contains("import SwiftUI") == false)
-    #expect(source.contains("import AppKit") == false)
-    // No ambient clock, in either spelling: every boundary is an injected
-    // parameter.
-    #expect(source.contains("Date()") == false)
-    #expect(source.contains("Date.now") == false)
+  /// Every file in `BusinessLogic` is classified exactly once, here. The old
+  /// shape of this check was a hand-written list of pure files, which is only
+  /// as good as the memory of whoever adds the next one: a new impure
+  /// `TaskWhatever.swift` simply wasn't in the list, so nothing failed.
+  ///
+  /// Enumerating the directory inverts that. An unclassified file is a failure,
+  /// so adding one forces a deliberate choice between the pure registry and the
+  /// exempt list — and the exempt list is the diff a reviewer will notice.
+  private static let pureLogicFiles: Set<String> = [
+    "TaskActivitySeeder.swift",
+    "TaskForwardNavigation.swift",
+    "TaskPullRequestState.swift",
+    "TaskRecord.swift",
+    "TaskSettlement.swift",
+    "TaskSnooze.swift",
+    "TasksSidebarStructure.swift",
+    "TaskStatusModel.swift",
+    "TaskTimestamps.swift",
+  ]
+
+  /// Impure *by design*: reducer-facing state, `@Shared` persistence keys, and
+  /// the FSEvents watcher. Each one is TCA/Dependencies/Darwin on purpose and
+  /// nothing in A18 claims otherwise.
+  private static let exemptFromPurity: Set<String> = [
+    "AgentDashboardStructure.swift",
+    "BranchMenuNode.swift",
+    "OpenActionResolution.swift",
+    "SidebarPersistenceKey.swift",
+    "SidebarPersistenceMigrator.swift",
+    "SidebarState.swift",
+    "SidebarStructure.swift",
+    "SidebarTab.swift",
+    "TaskStore.swift",
+    "WorktreeInfoWatcherManager.swift",
+  ]
+
+  private static let businessLogicDirectory = URL(filePath: #filePath)
+    .deletingLastPathComponent()  // supacodeTests
+    .deletingLastPathComponent()  // repo root
+    .appending(path: "supacode/Features/Repositories/BusinessLogic")
+
+  @Test func everyBusinessLogicFileIsClassified() {
+    let onDisk = Self.swiftFileNames()
+    #expect(onDisk.isEmpty == false)
+    #expect(onDisk.subtracting(Self.pureLogicFiles).subtracting(Self.exemptFromPurity).isEmpty)
+    // Both registries must also describe files that still exist, or a rename
+    // silently drops a file out of the sweep.
+    #expect(Self.pureLogicFiles.subtracting(onDisk).isEmpty)
+    #expect(Self.exemptFromPurity.subtracting(onDisk).isEmpty)
+  }
+
+  @Test func registeredPureFilesImportNothingImpureAndReadNoAmbientClock() {
+    for fileName in Self.pureLogicFiles.sorted() {
+      let source = Self.readSource(fileName)
+      #expect(source.isEmpty == false, "\(fileName) is unreadable")
+      #expect(source.contains("import ComposableArchitecture") == false, "\(fileName)")
+      #expect(source.contains("import SwiftUI") == false, "\(fileName)")
+      #expect(source.contains("import AppKit") == false, "\(fileName)")
+      #expect(source.contains("import Dependencies") == false, "\(fileName)")
+      // No ambient clock, in any spelling: every boundary is an injected
+      // parameter. The comparisons are on the raw text, so even a doc comment
+      // mentioning one of these has to be reworded — cheap, and it keeps the
+      // check free of a parser.
+      #expect(source.contains("Date()") == false, "\(fileName)")
+      #expect(source.contains("Date.now") == false, "\(fileName)")
+      #expect(source.contains("Date(timeIntervalSinceNow") == false, "\(fileName)")
+    }
+  }
+
+  private static func swiftFileNames() -> Set<String> {
+    let contents = try? FileManager.default.contentsOfDirectory(
+      at: businessLogicDirectory,
+      includingPropertiesForKeys: nil
+    )
+    guard let contents else {
+      Issue.record("Cannot enumerate \(businessLogicDirectory.path)")
+      return []
+    }
+    return Set(contents.map(\.lastPathComponent).filter { $0.hasSuffix(".swift") })
   }
 
   private static func readSource(_ fileName: String) -> String {
-    let repositoryRoot = URL(filePath: #filePath)
-      .deletingLastPathComponent()  // supacodeTests
-      .deletingLastPathComponent()  // repo root
-    let url =
-      repositoryRoot
-      .appending(path: "supacode/Features/Repositories/BusinessLogic")
-      .appending(path: fileName)
+    let url = businessLogicDirectory.appending(path: fileName)
     guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
       Issue.record("Missing pure-logic source file at \(url.path)")
       return ""
