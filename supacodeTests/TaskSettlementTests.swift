@@ -3,74 +3,14 @@ import Testing
 
 @testable import supacode
 
-// MARK: - Expected API (Phase 2, plan assertions A14 / A15 / A17 / A18 / A18b)
-//
-// RED half of the TDD pair: `TaskSettlement` does not exist yet. The green step
-// must create `supacode/Features/Repositories/BusinessLogic/TaskSettlement.swift`
-// with exactly this surface — Foundation only, `nonisolated`, no `Date()`:
-//
-//   nonisolated enum TaskSettlement {
-//     /// What the agent signals say right now. Supacode's mapping of t3's
-//     /// session statuses (plan P2): t3 `running`/`starting` → `isWorking`
-//     /// (`AgentPresenceFeature.Activity.busy || .compacting`); t3
-//     /// `hasPendingUserInput` → `isAwaitingInput` (`.awaitingInput`); t3
-//     /// `hasPendingApprovals` → `isAwaitingApproval`, which is `Bool?`
-//     /// because the hook wire protocol only grows an approval discriminator
-//     /// in this phase: `nil` means THIS AGENT CANNOT REPORT IT, never
-//     /// "no approval pending" (plan Resolved #1 — never a guessed approval).
-//     struct ActivitySnapshot: Equatable, Sendable {
-//       var isWorking: Bool = false
-//       var isAwaitingInput: Bool = false
-//       var isAwaitingApproval: Bool? = nil
-//       static let idle: ActivitySnapshot
-//     }
-//
-//     /// All inputs as one value: pure function, injected `now`, no clock.
-//     /// Declaration order below IS the memberwise-init order these tests use.
-//     struct Input: Equatable, Sendable {
-//       var now: Date
-//       var activity: ActivitySnapshot = .idle
-//       var settledOverride: TaskRecord.SettledOverride? = nil   // tri-state
-//       // PR knowledge is explicitly tri-partite (top-level
-//       // `TaskPullRequestState`): a real state, an absence, or an admission
-//       // that we do not know. `unknown`/`loading`/`failed` are never collapsed
-//       // into `none` — "no PR" and "we could not ask" have different settle
-//       // consequences (A29).
-//       var pullRequest: TaskPullRequestState = .none
-//       var lastActivityAt: Date? = nil
-//       var inactivityWindow: TimeInterval? = nil                // nil = off
-//       var isAutoSettleEnabled: Bool = true                     // global switch
-//       var settlesOnFinishedPullRequest: Bool = true
-//     }
-//
-//     /// A merged/closed PR settles its task only once the task has been idle
-//     /// this long. Ported from t3's CHANGE_REQUEST_SETTLE_IDLE_MS: the merge
-//     /// signal never clears, so without the guard a follow-up message would
-//     /// un-settle the row only until its turn ended, then snap it straight
-//     /// back into the settled tail.
-//     static let finishedPullRequestIdleWindow: TimeInterval  // 60 * 60
-//
-//     static func effectiveSettled(_ input: Input) -> Bool
-//     static func canSettle(_ input: Input) -> Bool
-//     static func canSnooze(_ input: Input) -> Bool
-//   }
-//
-// Cascade order (A14 precedence, asserted combinatorially below):
-//   1. activity blockers  (working / awaiting input / awaiting approval)
-//   2. explicit override  (.settled → true, .active → false)
-//   3. finished-PR auto-settle (gated on idle window + per-setting toggle)
-//   4. inactivity auto-settle  (blocked by an OPEN PR)
-//   with the global `isAutoSettleEnabled` switch killing steps 3 and 4 only.
-//
-// DELIBERATELY NOT PORTED: t3's `hasQueuedTurnStart` (and its 2-minute grace
-// window, clock-skew bounds, and `serverAdjudicated` forgiveness). It exists
-// solely for t3's dispatch → session-adoption race, where a `turn.start`
-// command can sit unadopted while `session` is still null. Supacode's agent
-// hook socket is local with no queue layer between dispatch and session, so
-// the condition it detects cannot arise; porting it would add a clock-derived
-// blocker with no signal behind it. There is therefore no queued-turn input on
-// `Input`, and no test for one — the absence is the design.
-
+/// Table tests for `TaskSettlement` (plan assertions A14 / A15 / A17 / A18 /
+/// A18b). The cascade, the signal mapping, and the rationale for every
+/// deliberate non-port live in `TaskSettlement.swift` itself — this file
+/// asserts the behaviour, it does not re-document the design.
+///
+/// The one thing only a test can hold: t3's `hasQueuedTurnStart` is absent by
+/// design, so there is no queued-turn input and no test for one. The grep
+/// assertion at the bottom is what keeps it absent.
 struct TaskSettlementTests {
   // MARK: - Fixtures
 

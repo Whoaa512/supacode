@@ -255,7 +255,19 @@ struct TaskTimestampsTests {
 
   /// Grep assertion. A missing file is a recorded failure, not a silent pass —
   /// see `readSource`.
-  @Test(arguments: ["TaskTimestamps.swift", "TaskPullRequestState.swift"])
+  /// The registry of pure-logic files, deliberately in one place: a per-suite
+  /// copy of this check drifts the moment someone adds a file and forgets the
+  /// sixth copy. `TaskSettlement.swift` keeps its own variant only because it
+  /// carries an extra, file-specific assertion.
+  @Test(
+    arguments: [
+      "TaskTimestamps.swift",
+      "TaskPullRequestState.swift",
+      "TaskSnooze.swift",
+      "TaskStatusModel.swift",
+      "TaskForwardNavigation.swift",
+    ]
+  )
   func sourceFileIsPureFoundationLogic(_ fileName: String) {
     let source = Self.readSource(fileName)
     #expect(source.isEmpty == false)
