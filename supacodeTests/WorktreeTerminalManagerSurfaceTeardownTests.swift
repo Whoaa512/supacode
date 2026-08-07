@@ -351,6 +351,33 @@ struct SurfaceTeardownQueueTests {
     #expect(await spy.commands.isEmpty)
   }
 
+  /// A cancelled teardown must not leave the view in limbo: its Task is gone, so
+  /// nothing would ever free it, and dropping it is a use-after-free while its
+  /// surface lives. It lands in the leak bucket like any other unresolvable teardown.
+  @Test func cancelledTeardownLeaksTheViewInsteadOfLeavingItPending() async {
+    let runtime = GhosttyRuntime()
+    let probe = ProbeSpy()
+    let free = FreeSpy()
+    let queue = makeQueue(ShellSpy(pgrepStdout: "4242\n"), probe: probe, free: free)
+    let weakRef = WeakSurfaceRef()
+    var task: Task<Void, Never>?
+    autoreleasepool {
+      let view = makeView(id: UUID(), runtime: runtime)
+      weakRef.view = view
+      queue.handOff(view)
+      task = queue.teardownTask(for: view)
+    }
+
+    task?.cancel()
+    await task?.value
+
+    #expect(free.freedSurfaceIDs.isEmpty)
+    #expect(queue.pendingCount == 0)
+    #expect(queue.teardownTaskCount == 0)
+    #expect(queue.leakedCount == 1)
+    #expect(weakRef.view != nil)
+  }
+
   /// A surface still in the tree must never lose its client.
   @Test func noCommandsRunWithoutAHandOff() async {
     let runtime = GhosttyRuntime()

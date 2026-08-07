@@ -145,6 +145,11 @@ final class SurfaceTeardownQueue {
       do {
         try await clock.sleep(for: Self.exitPollInterval)
       } catch {
+        // Cancelled mid-poll: nothing knows whether the child is gone, so the free
+        // is not safe and the view must not simply be dropped either (ghostty holds
+        // its bridge as userdata). Leak it — retained, logged, counted — instead of
+        // leaving it pending with no Task to resolve it.
+        leak(key, reason: "cancelled")
         return
       }
     }
@@ -163,12 +168,15 @@ final class SurfaceTeardownQueue {
       performFree(key, entry.view)
       return
     }
-    leak(key)
+    leak(key, reason: "wedged")
   }
 
-  /// Leak over hang (decision 1): the child never exited, so freeing would join a
-  /// wedged io thread and freeze the app. Skip the free and keep the view.
-  private func leak(_ key: ObjectIdentifier) {
+  /// Leak over hang: freeing a surface whose child may still hold the pty would join
+  /// a wedged io thread and freeze the app. Skip the free and keep the view.
+  ///
+  /// - Parameter reason: `wedged` (kill went out, child never exited) or `cancelled`
+  ///   (poll interrupted, child's state unknown).
+  private func leak(_ key: ObjectIdentifier, reason: String) {
     guard let entry = pending[key] else { return }
     pending[key] = nil
     teardownTasks[key] = nil
@@ -182,7 +190,10 @@ final class SurfaceTeardownQueue {
     } else {
       Self.logger.warning(message)
     }
-    analytics.capture("surface_teardown_leaked", ["leaked_count": leaked.count])
+    analytics.capture(
+      "surface_teardown_leaked",
+      ["leaked_count": leaked.count, "reason": reason, "used_zmx": entry.view.usesZmx]
+    )
   }
 
   /// Frees on the main actor (constraint 1) through the view (binding 11), then
