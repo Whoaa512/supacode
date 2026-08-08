@@ -129,7 +129,13 @@ struct TasksSidebarView: View {
     isSnoozedShelfExpanded: Bool,
     shortcutHintByID: [TaskID: String]
   ) -> some View {
-    List(selection: selectionBinding(current: selectedTaskID)) {
+    // A live query forces both shelves open (A37), so the chevrons have to say
+    // so — a section rendering its rows under a collapsed arrow is the header
+    // lying about what is on screen.
+    let isSettledTailExpanded = isSettledTailExpanded || structure.isSearching
+    let isSnoozedShelfExpanded = isSnoozedShelfExpanded || structure.isSearching
+
+    return List(selection: selectionBinding(current: selectedTaskID)) {
       // Three different blanks that mean three different things, in the order
       // that keeps them honest: the file has not been read yet, the query found
       // nothing, or there is genuinely no work. Collapsing them into one "No
