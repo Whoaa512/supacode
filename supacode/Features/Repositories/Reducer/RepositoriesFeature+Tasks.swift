@@ -1168,9 +1168,11 @@ extension RepositoriesFeature {
     return TaskActivitySeeder.seeds(candidates: candidates, existingTasks: existingTasks, now: now)
       .map { record in
         var record = record
-        // Claims are per directory in Phase 1, so a task owns every surface of
-        // the directory it seeded from — which makes "one tab, one task"
-        // (plan Resolved #10) true by construction.
+        // A seeded task stands for its directory's whole working state, so its
+        // claim is directory-granular: it owns every surface open there. Later
+        // captures in the same directory (promote-tab, ⌘N) claim tab by tab and
+        // take those tabs off this record, which is what keeps "one tab, one
+        // task" (plan Resolved #10) true as the two granularities coexist.
         record.surfaceIDs = surfacesByPath[record.directoryPath] ?? []
         return record
       }
@@ -1449,14 +1451,21 @@ extension RepositoriesFeature.State {
   /// nothing to put to sleep: no owned surfaces, or no live worktree row for the
   /// directory to name them in.
   ///
-  /// A shared directory is *not* a refusal any more (A6 full form). The request
-  /// is keyed by the surfaces this task owns, and claims are tab-granular — a
-  /// claim takes a whole tab and takes it away from whoever held it — so the
-  /// tabs behind `record.surfaceIDs` belong to this task alone. The co-tenants'
-  /// surfaces still ride along as `protectedSurfaceIDs` so the parent can drop
-  /// any tab they somehow share before it hibernates anything (A7): that is
-  /// defence in depth against a split the claim rules did not anticipate, not a
-  /// case we expect to hit.
+  /// A shared directory is *not* a refusal any more (A6 full form): the request
+  /// is keyed by the surfaces this task owns, never by the directory.
+  ///
+  /// Ownership comes in two granularities on purpose. A *seeded* task claims its
+  /// whole directory — it stands for that directory's entire working state, so
+  /// `seedRecords` gives it every surface open there. A *capture-created* task
+  /// (promote-tab, ⌘N) claims one tab, and the claim takes that tab away from
+  /// whoever held it before. So a seeded task and a later capture in the same
+  /// directory both own real, disjoint surface sets.
+  ///
+  /// A6's consequence: settling a seeded task sleeps its directory *minus* the
+  /// tabs other tasks have since claimed. `protectedSurfaceIDs` carries those
+  /// co-tenant tabs so the parent subtracts them before hibernating anything
+  /// (A7) — that is the mechanism that makes the split hold, not just a
+  /// belt-and-braces check.
   func taskHibernationDelegate(for record: TaskRecord) -> RepositoriesFeature.Delegate? {
     guard !record.surfaceIDs.isEmpty else { return nil }
     guard let row = sidebarItemForTaskDirectory(record.directoryPath) else { return nil }
