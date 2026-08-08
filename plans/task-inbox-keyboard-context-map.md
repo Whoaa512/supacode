@@ -1,9 +1,11 @@
 # Task Inbox — Keyboard Context Map (A31 gate)
 
-**Status: awaiting cj review.** This is Phase 6 deliverable 1. No code ships
-from it until cj signs off on §4. Where cj has not ruled, implementation
-proceeds with the choices marked **CONSERVATIVE** and defers the ones marked
-**NEEDS-CJ**.
+**Status: reviewed and shipped.** This was Phase 6 deliverable 1, written as a
+review request. cj signed off on §4; every item — including the three that were
+**NEEDS-CJ** — is now implemented, and each §4 heading records the decision that
+shipped rather than the recommendation that was made. The review-request framing
+is kept because §1–§2 are the observed *before* picture, which is what makes the
+§5 regression inventory legible; §2.3 is now shipped behaviour, not a proposal.
 
 Everything in §1–§2 is **observed reality on branch `task-inbox-sidebar`**, with
 file:line. Where a claim is inferred rather than read, it is labelled
@@ -138,20 +140,22 @@ letter is *already someone's typing* (M8). A34's "never intercept typing" is
 therefore not a soft goal — it is a live constraint that any bare-key task
 binding would violate the moment cj is on the Worktrees tab.
 
-### 2.3 Proposed shortcuts — Tasks tab active
+### 2.3 Shipped shortcuts — Tasks tab active
 
-Same notation. `FIRES*` = new behaviour this phase adds.
+Same notation. `FIRES*` = new behaviour this phase added; every row below is
+implemented. The `H` column is the one that moved during review: it read
+`FIRES ⚠️` in the review draft and is `INERT` everywhere now (§4.6).
 
-| Chord | Proposed action | T | S | F | H | M |
+| Chord | Action | T | S | F | H | M |
 |---|---|---|---|---|---|---|
-| ⌃1–9 | **task slot** → open visible task *n* | FIRES\* (M4→M7 `.tasks` arm) | FIRES\* | FIRES\* | FIRES\* ⚠️ see §4.6 | N/A |
-| ⌃⌘↓ / ⌃⌘↑ | **next / prev task** over `visibleTaskIDs` | FIRES\* (M7) | FIRES\* | FIRES\* | FIRES\* | N/A |
-| ⌃⌘J | **jump to next needing me** (A33) | FIRES\* (M1) | FIRES\* | FIRES\* | FIRES\* | N/A |
-| ⌃⌘S | **settle focused task** | FIRES\* (M1+M6) | FIRES\* | FIRES\* | INERT (M6, token drops while a sheet owns the tab) | N/A |
-| ⌃⌘Z | **snooze focused task** (default preset) | FIRES\* | FIRES\* | FIRES\* | INERT (M6) | N/A |
-| ⌃⌘K | **pin / unpin focused task** | FIRES\* | FIRES\* | FIRES\* | INERT (M6) | N/A |
+| ⌃1–9 | **task slot** → open visible task *n* | FIRES\* (M4→M7 `.tasks` arm) | FIRES\* | FIRES\* | INERT\* (`hasBlockingSheet`) | N/A |
+| ⌃⌘↓ / ⌃⌘↑ | **next / prev task** over `visibleTaskIDs` | FIRES\* (M7) | FIRES\* | FIRES\* | INERT\* | N/A |
+| ⌃⌘J | **jump to next needing me** (A33) | FIRES\* (M1) | FIRES\* | FIRES\* | INERT\* | N/A |
+| ⌃⌘S | **settle / unsettle focused task** | FIRES\* (M1+M6) | FIRES\* | FIRES\* | INERT\* | N/A |
+| ⌃⌘Z | **snooze for an hour / wake now** | FIRES\* | FIRES\* | FIRES\* | INERT\* | N/A |
+| ⌃⌘K | **pin / unpin focused task** (refused when settled) | FIRES\* | FIRES\* | FIRES\* | INERT\* | N/A |
 | → (bare) | **escape hatch: sidebar → task terminal** | →TERM (unchanged) | FIRES\* (new Tasks-side M9) | N/A | N/A | N/A |
-| ⌘⇧E | **escape hatch: terminal → task row** | FIRES\* (M6 re-enabled for a task selection) | FIRES\* | FIRES\* | INERT | N/A |
+| ⌘⇧E | **escape hatch: terminal → task row** | FIRES\* (M6 re-enabled for a task selection) | FIRES\* | FIRES\* | INERT\* | N/A |
 
 On **Worktrees / Agents tabs**, every row in 2.3 is unchanged from 2.2: the new
 `AppShortcutID`s (⌃⌘J/S/Z/K) publish `FocusedAction`s only from
@@ -201,6 +205,15 @@ untouched (M7) — this is the whole of A35's protection.
    (`App/CommandKeyObserver.swift:59`), has no debounce, resyncs on
    `didBecomeActive`, and forces false on `didResignActive`. Its
    `tabSelectionHints` cache is for the terminal tab bar and is not touched.
+
+   **Known wart, pre-existing, all three panels — ticket-worthy on its own:**
+   `CommandKeyObserver.isPressed` flips on ⌘ *or* ⌃, so **holding ⌘ reveals the
+   ⌃n hint pills** — pills advertising a chord the held modifier does not fire.
+   Inherited verbatim by the Tasks panel rather than diverging one panel's hint
+   rule from the other two. The fix is to split the observer into per-modifier
+   state and have each hint join read the modifier its own chord actually
+   carries; not attempted here because it moves the Worktrees and Agents panels
+   too, which is A35 surface this phase deliberately does not touch.
 
 ### Why visible-only falls out for free
 
@@ -279,7 +292,22 @@ must return nil for it — assert that, mirroring
 adjacent but it is notification-scoped over worktrees; overloading it makes one
 chord mean three things across three tabs with three different orderings.
 
-### 4.4 Mouseless settle / snooze / pin → **⌃⌘S / ⌃⌘Z / ⌃⌘K on the selected row** · settle+pin CONSERVATIVE, snooze preset NEEDS-CJ
+### 4.4 Mouseless settle / snooze / pin → **⌃⌘S / ⌃⌘Z / ⌃⌘K on the selected row** · DECIDED, shipped
+
+**Shipped semantics**, all three resolving the focused task in the reducer:
+
+- **⌃⌘S** settle ⇄ unsettle, refused while an agent is awaiting a person (A18b).
+- **⌃⌘Z** snooze **one hour** ⇄ **Wake Now**. The one-hour preset is the ruling
+  on the open question below; the toggle is the review's addition — without it
+  the chord was a one-way door whose only undo was a right-click, which is the
+  mouse A34 exists to avoid. `canSnooze` gates only the parking direction: a
+  task waiting on a person must always be able to come *back*.
+- **⌃⌘K** pin ⇄ unpin, **refused on a settled row**: A16 makes settling clear
+  the pin, so a pin there is a write that means nothing the moment it lands. The
+  row's context menu hides the item for the same reason (hidden, not greyed —
+  it is not a refusal the user can satisfy).
+
+The original recommendation, for the record:
 
 New IDs `settleTask`, `snoozeTask`, `pinTask`, in a **new
 `AppShortcutCategory.tasks`** group (required — `groupsCoverAllShortcuts`
@@ -299,8 +327,8 @@ each reading a `FocusedAction<Void>` published by `TasksSidebarView`.
   **Recommendation: snooze to the first preset, "In an Hour"**
   (`TasksSidebarView.swift:376-381`, `TaskSnooze.resolveSnoozePresets`) — it is
   the cheapest, most reversible one, and Wake Now (`.unsnooze`) is one context
-  menu away. **NEEDS-CJ on the preset choice only**; the binding and action ship
-  either way.
+  menu away. ~~**NEEDS-CJ on the preset choice only**~~ — **ruled: one hour**,
+  and Wake Now moved from "one context menu away" to the same chord again.
 
 **Why chords and not the row's context menu:** the context menu already covers
 all three (`TasksSidebarView.swift:298-397`) but requires a pointer. A34's whole
@@ -309,7 +337,33 @@ content is that these must work mouselessly.
 **Why ⌃⌘ and not ⌘⇧:** the ⌘⇧ space is dense (⌘⇧A T E B P R C O K U ⌫ all
 taken), and ⌘⇧S/Z/K would collide or read as Save/Undo relatives.
 
-### 4.5 Escape hatch — **bare → out, ⌘⇧E back in** · → is CONSERVATIVE, ⌘⇧E is NEEDS-CJ
+### 4.5 Escape hatch — **bare → out, ⌘⇧E back in** · DECIDED, both halves shipped
+
+**Shipped semantics.** cj took the full round trip rather than the additive-only
+half:
+
+- `revealInSidebarAction`'s enablement is now
+  `selectedWorktreeID != nil || selection?.taskID != nil`
+  (`ContentView.swift`). The task branch is checked **first**, so a stale
+  worktree id can never win over the row actually open. The Worktrees path is
+  untouched below that guard, which is what keeps A35's regression risk at zero.
+- A task selection fires `.tasks(.revealSelectedInSidebar)`: the arm flips
+  `@Shared(.sidebarTab)` to `.tasks` (⌘⇧E from a terminal means "show me where I
+  am", and the panel may not be the one on screen) and posts a
+  `PendingTaskReveal`. No section uncollapse is needed — A8 already pulls the
+  open task into the visible order whatever shelf it lives on.
+- `TasksSidebarView` consumes it exactly as `SidebarListView` consumes the
+  worktree reveal: two `Task.yield()`s, `isTasksSidebarFocused = true`,
+  `scrollTo(taskID, anchor: .center)`, then `.tasks(.consumeSidebarReveal(id))`.
+  A monotonic id means a stale consumer cannot clear a newer request.
+
+**QA must verify** the one half unit tests cannot reach: that after ⌘⇧E from a
+terminal the *keyboard* is genuinely in the Tasks list — ↑/↓ move the task
+selection rather than going to the terminal. Tests cover the tab flip, the
+posted request, and the consume/stale-consume rules; `@FocusState` restoration
+into an `NSOutlineView` is only observable in the running app.
+
+The original recommendation, for the record:
 
 This is the item with the most missing scaffolding, because the Tasks panel has
 **no `@FocusState` at all** (§1c). Both halves need one first.
@@ -336,7 +390,34 @@ This is the item with the most missing scaffolding, because the Tasks panel has
   additive-only, defer the return half and ship the → half; the return path is
   then "click the sidebar", which is what it is today.
 
-### 4.6 Sheet gating — **NEEDS-CJ (bug, pre-existing)**
+### 4.6 Sheet gating — **DECIDED, shipped (narrowed to the Tasks panel)**
+
+**Shipped mechanism**, which is *not* the `WorktreeMenuSnapshot` route
+recommended below: `RepositoriesFeature.State.hasBlockingSheet` — one computed
+property over every `@Presents` field the reducer owns plus
+`taskDirectoryConflict` (a sheet without a child reducer). Two consumers, one
+property, so they cannot drift:
+
+- The reducer refuses `.tasks(.jumpToNextNeedingAttention / .settleSelected /
+  .snoozeSelected / .togglePinSelected)` and the `.tasks` branch of
+  `selectWorktreeAtHotkeySlot` / `selectNext` / `selectPreviousWorktree`.
+  **Silently, not with a beep** — the sheet has a text field in it, and beeping
+  at every chord-shaped keystroke typed there is noise, not feedback.
+- `TasksSidebarView` ANDs `!hasBlockingSheet` into the four `FocusedAction`
+  enablements, so the Tasks menu greys out and the refusal is visible rather
+  than mysterious.
+
+**Deliberately narrowed twice.** (a) Only the `.tasks` branches of the shared
+nav arms are gated; the Worktrees behaviour is pre-existing and pinned by A35,
+and widening it is not Phase 6 scope. (b) `AppFeature`'s own two modals (`alert`,
+`deeplinkInputConfirmation`) are invisible from this reducer and are **not**
+covered — both present over the detail pane rather than the sidebar, so the
+chords the Tasks panel owns stay legitimate underneath them. **Still open:** ⌘N
+over an open creation prompt presenting a second one (`WorktreeCommands.swift`)
+is the original §4.6 bug and is untouched — it lives in the worktree menu's
+`.disabled`, not in any task arm.
+
+The original recommendation, for the record:
 
 ⌘N with the task-creation sheet already open presents a **second** prompt: the
 menu item's `.disabled` (`WorktreeCommands.swift:71`) only consults
@@ -429,7 +510,12 @@ Sibling suites to keep green: `RepositoriesFeatureAgentKeyboardNavTests.swift`
 - Nothing asserts hint-pill/target agreement for **any** panel. The Tasks
   implementation should add the assertion that
   `slotByTaskID[visibleTaskIDs[n]] == n` for all n.
-- Nothing asserts the sheet-open gating in §4.6 (because it does not exist).
+- ~~Nothing asserts the sheet-open gating in §4.6 (because it does not exist).~~
+  Shipped and covered: `everyTaskChordIsInertWhileACreationPromptIsUp` /
+  `theChordsComeBackWhenThePromptIsDismissed`
+  (`RepositoriesFeatureTaskKeyboardTests.swift`), both driving the sheet through
+  `.presentCreationPrompt` — the arm that actually raises it — rather than
+  assigning the presentation state by hand.
 - No test exercises `SidebarRightArrowMonitor`; it is an `NSEvent` monitor. The →
   escape hatch will be QA-verified via `devtools`-equivalent manual steps, not a
   unit test. Say so rather than pretending.
