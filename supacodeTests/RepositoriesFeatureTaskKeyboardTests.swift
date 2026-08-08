@@ -49,6 +49,11 @@ struct RepositoriesFeatureTaskKeyboardTests {
       $0.date.now = Self.now
       $0.continuousClock = TestClock()
     }
+    // Non-exhaustive: this suite asserts what a chord ends up doing, not the
+    // exact chain of arms it forwards through. Every test still drains the
+    // queued actions with `skipReceivedActions` before asserting — `finish()`
+    // waits for the *effects*, and the actions they emitted are only folded
+    // into the state when something asks for them.
     store.exhaustivity = .off
     return store
   }
@@ -123,6 +128,7 @@ struct RepositoriesFeatureTaskKeyboardTests {
       let visible = visibleIDs(store)
 
       await store.send(.selectWorktreeAtHotkeySlot(1))
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       #expect(store.state.selection == .task(visible[1]))
@@ -141,6 +147,7 @@ struct RepositoriesFeatureTaskKeyboardTests {
       let store = makeStore(inbox.state, sandbox: sandbox)
 
       await store.send(.selectWorktreeAtHotkeySlot(5))
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       #expect(store.state.selection == .task(inbox.records[0].id))
@@ -163,6 +170,7 @@ struct RepositoriesFeatureTaskKeyboardTests {
       #expect(visibleIDs(store) == [inbox.records[0].id, inbox.records[2].id])
 
       await store.send(.selectWorktreeAtHotkeySlot(1))
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       #expect(store.state.selection == .task(inbox.records[2].id))
@@ -178,6 +186,7 @@ struct RepositoriesFeatureTaskKeyboardTests {
       let store = makeStore(inbox.state, sandbox: sandbox)
 
       await store.send(.selectNextWorktree)
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       #expect(store.state.selection == .task(inbox.records[1].id))
@@ -193,6 +202,7 @@ struct RepositoriesFeatureTaskKeyboardTests {
       let store = makeStore(inbox.state, sandbox: sandbox)
 
       await store.send(.selectNextWorktree)
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       #expect(store.state.selection == .task(inbox.records[0].id))
@@ -206,6 +216,7 @@ struct RepositoriesFeatureTaskKeyboardTests {
       let store = makeStore(inbox.state, sandbox: sandbox)
 
       await store.send(.selectPreviousWorktree)
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       #expect(store.state.selection == .task(inbox.records[2].id))
@@ -220,11 +231,13 @@ struct RepositoriesFeatureTaskKeyboardTests {
     try await withTasksTab {
       let next = makeStore(inbox.state, sandbox: sandbox)
       await next.send(.selectNextWorktree)
+      await next.skipReceivedActions(strict: false)
       await next.finish()
       #expect(next.state.selection == .task(inbox.records[0].id))
 
       let previous = makeStore(inbox.state, sandbox: sandbox)
       await previous.send(.selectPreviousWorktree)
+      await previous.skipReceivedActions(strict: false)
       await previous.finish()
       #expect(previous.state.selection == .task(inbox.records[2].id))
     }
@@ -238,6 +251,7 @@ struct RepositoriesFeatureTaskKeyboardTests {
 
       await store.send(.selectNextWorktree)
       await store.send(.selectWorktreeAtHotkeySlot(0))
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       #expect(store.state.selection == nil)
@@ -270,12 +284,14 @@ struct RepositoriesFeatureTaskKeyboardTests {
           )
         )
       )
+      await store.skipReceivedActions(strict: false)
       await store.finish()
       // The two readings agree before the jump is asked for anything.
       #expect(store.state.taskLeaves[id: inbox.records[1].id]?.needsHuman == false)
       #expect(store.state.taskLeaves[id: inbox.records[2].id]?.needsHuman == true)
 
       await store.send(.tasks(.jumpToNextNeedingAttention))
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       #expect(store.state.selection == .task(inbox.records[2].id))
@@ -297,6 +313,7 @@ struct RepositoriesFeatureTaskKeyboardTests {
         )
       )
       await store.send(.tasks(.jumpToNextNeedingAttention))
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       #expect(store.state.selection == .task(inbox.records[0].id))
@@ -312,6 +329,7 @@ struct RepositoriesFeatureTaskKeyboardTests {
       let store = makeStore(inbox.state, sandbox: sandbox)
 
       await store.send(.tasks(.jumpToNextNeedingAttention))
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       #expect(store.state.selection == .task(inbox.records[1].id))
@@ -339,6 +357,7 @@ struct RepositoriesFeatureTaskKeyboardTests {
         )
       )
       await store.send(.tasks(.jumpToNextNeedingAttention))
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       #expect(store.state.selection == .task(inbox.records[0].id))
@@ -355,6 +374,7 @@ struct RepositoriesFeatureTaskKeyboardTests {
 
       await store.send(.tasks(.settleSelected))
       await store.send(.tasks(.stopTimers))
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       #expect(store.state.taskRecords[id: inbox.records[0].id]?.settledAt == Self.now)
@@ -372,11 +392,13 @@ struct RepositoriesFeatureTaskKeyboardTests {
       let store = makeStore(inbox.state, sandbox: sandbox)
 
       await store.send(.tasks(.settleSelected))
+      await store.skipReceivedActions(strict: false)
       await store.finish()
       #expect(store.state.tasksSidebarStructure.openTaskCommands?.isSettled == true)
 
       await store.send(.tasks(.settleSelected))
       await store.send(.tasks(.stopTimers))
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       #expect(store.state.taskRecords[id: inbox.records[0].id]?.settledAt == nil)
@@ -402,6 +424,7 @@ struct RepositoriesFeatureTaskKeyboardTests {
       )
       await store.send(.tasks(.settleSelected))
       await store.send(.tasks(.stopTimers))
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       #expect(store.state.tasksSidebarStructure.openTaskCommands?.canSettle == false)
@@ -421,6 +444,7 @@ struct RepositoriesFeatureTaskKeyboardTests {
 
       await store.send(.tasks(.snoozeSelected))
       await store.send(.tasks(.stopTimers))
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       let parked = try #require(store.state.taskRecords[id: inbox.records[1].id])
@@ -446,6 +470,7 @@ struct RepositoriesFeatureTaskKeyboardTests {
       )
       await store.send(.tasks(.snoozeSelected))
       await store.send(.tasks(.stopTimers))
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       #expect(store.state.taskRecords[id: inbox.records[0].id]?.snoozedUntil == nil)
@@ -459,6 +484,7 @@ struct RepositoriesFeatureTaskKeyboardTests {
       let store = makeStore(inbox.state, sandbox: sandbox)
 
       await store.send(.tasks(.togglePinSelected))
+      await store.skipReceivedActions(strict: false)
       await store.finish()
       #expect(store.state.taskRecords[id: inbox.records[1].id]?.pinnedAt == Self.now)
       // Slots follow render order, so the pin moves the row to ⌃1.
@@ -466,6 +492,7 @@ struct RepositoriesFeatureTaskKeyboardTests {
 
       await store.send(.tasks(.togglePinSelected))
       await store.send(.tasks(.stopTimers))
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       #expect(store.state.taskRecords[id: inbox.records[1].id]?.pinnedAt == nil)
@@ -484,6 +511,7 @@ struct RepositoriesFeatureTaskKeyboardTests {
       await store.send(.tasks(.snoozeSelected))
       await store.send(.tasks(.togglePinSelected))
       await store.send(.tasks(.stopTimers))
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       #expect(store.state.taskRecords.allSatisfy { $0.settledAt == nil })
@@ -519,6 +547,7 @@ struct RepositoriesFeatureTaskKeyboardTests {
 
       await store.send(.tasks(.focusSelectedSurface))
       await store.receive(\.delegate.focusTaskSurface)
+      await store.skipReceivedActions(strict: false)
       await store.finish()
 
       #expect(store.state.taskRecords[id: record.id]?.lastVisitedAt == nil)

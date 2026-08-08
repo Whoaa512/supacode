@@ -1,3 +1,4 @@
+import AppKit
 import ComposableArchitecture
 import Foundation
 import IdentifiedCollections
@@ -58,6 +59,27 @@ extension RepositoriesFeature {
     case unsnooze(TaskID)
     case pin(TaskID)
     case unpin(TaskID)
+    /// ⌃⌘J: open the next visible row that is asking for a person (A33).
+    /// Tab-gated like every other chord that *moves the selection*, so it can
+    /// never reach across from a panel the user isn't looking at.
+    case jumpToNextNeedingAttention
+    /// The three mouseless lifecycle chords (A34). They resolve the focused
+    /// task here rather than carrying an id, so the menu item, the chord and
+    /// the reducer can only ever act on the row the panel says is open — and
+    /// the settle/pin direction is read from the same cached structure the menu
+    /// item's title is, which is what stops the label and the effect diverging.
+    ///
+    /// Not tab-gated, unlike the jump: these act on the focused task by id and
+    /// their menu items are already inert off the Tasks panel, because only
+    /// `TasksSidebarView` publishes the focused values that enable them.
+    case settleSelected
+    case snoozeSelected
+    case togglePinSelected
+    /// The bare-→ escape hatch: move focus off the row and into the task's
+    /// terminal. Deliberately not `.select`: leaving the sidebar is not a fresh
+    /// visit, and re-stamping `lastVisitedAt` here would clear a Done pill the
+    /// user never read.
+    case focusSelectedSurface
     /// The explicit "stop auto-settling this" pin the Phase 5 cascade reads (A15).
     case keepActive(TaskID)
     case setSettledTailExpanded(Bool)
@@ -364,6 +386,44 @@ extension RepositoriesFeature {
         guard let record = state.taskRecords[id: id], record.pinnedAt != nil else { return .none }
         state.taskRecords[id: id]?.pinnedAt = nil
         return Self.persistTasksEffect(state: state)
+
+      case .tasks(.jumpToNextNeedingAttention):
+        guard state.activeSidebarTab == .tasks else { return .run { _ in NSSound.beep() } }
+        guard let target = state.nextTaskNeedingAttention() else {
+          // Nothing is owed a person, or the only row that is, is already open.
+          // Beep rather than re-select: a chord that silently re-opens what you
+          // are looking at reads as broken.
+          return .run { _ in NSSound.beep() }
+        }
+        return .send(.tasks(.select(target)))
+
+      case .tasks(.settleSelected):
+        guard let commands = state.tasksSidebarStructure.openTaskCommands else { return .none }
+        // One key, both directions, matching the row's own context menu — and
+        // the direction comes from the structure the menu item titled itself
+        // from, so "Unsettle" can never fire a settle.
+        return .send(.tasks(commands.isSettled ? .unsettle(commands.id) : .settle(commands.id)))
+
+      case .tasks(.snoozeSelected):
+        guard let commands = state.tasksSidebarStructure.openTaskCommands else { return .none }
+        // A chord cannot express a duration and cannot open a submenu, so it
+        // takes the cheapest, most reversible preset. Wake Now is one context
+        // menu away, which is what makes picking for the user acceptable here.
+        guard
+          let preset = TaskSnooze.resolveSnoozePresets(now: now, calendar: .autoupdatingCurrent)
+            .first(where: { $0.preset == .oneHour })
+        else { return .none }
+        return .send(.tasks(.snooze(commands.id, until: preset.wakeAt)))
+
+      case .tasks(.togglePinSelected):
+        guard let commands = state.tasksSidebarStructure.openTaskCommands else { return .none }
+        return .send(.tasks(commands.isPinned ? .unpin(commands.id) : .pin(commands.id)))
+
+      case .tasks(.focusSelectedSurface):
+        guard let id = state.selection?.taskID, let focus = state.taskFocusDelegate(for: id) else {
+          return .run { _ in NSSound.beep() }
+        }
+        return .send(.delegate(focus))
 
       case .tasks(.keepActive(let id)):
         guard let record = state.taskRecords[id: id] else { return .none }
@@ -1411,6 +1471,46 @@ extension RepositoriesFeature.State {
   /// The focus request for opening a task, or `nil` when there is nothing to
   /// focus. A settled task is deliberately excluded: focusing wakes a dormant
   /// tab, which would undo the settle just by browsing the tail.
+  /// ⌃1–9 on the Tasks panel: the nth row of the visible order. The analogue of
+  /// `agentDashboardEntryID(atSlot:)`, reading the same list the hint pills are
+  /// numbered from, so a badge and what it opens cannot disagree (A32).
+  func taskID(atSlot index: Int) -> TaskID? {
+    let ids = tasksSidebarStructure.visibleTaskIDs
+    guard ids.indices.contains(index) else { return nil }
+    return ids[index]
+  }
+
+  /// ⌃⌘↓ / ⌃⌘↑ on the Tasks panel: cycle the visible list with a modulo wrap,
+  /// the direct analogue of `worktreeID(byOffset:)` and
+  /// `agentDashboardEntryID(byOffset:)`.
+  ///
+  /// Deliberately *not* `TaskForwardNavigation`: that one answers "what should I
+  /// look at now that this task is gone", which is a different question with a
+  /// different answer (it prefers active rows over the tail). Merging them would
+  /// make ⌃⌘↓ skip rows the user can plainly see.
+  func taskID(byOffset offset: Int) -> TaskID? {
+    let ids = tasksSidebarStructure.visibleTaskIDs
+    guard !ids.isEmpty else { return nil }
+    guard let current = selection?.taskID, let index = ids.firstIndex(of: current) else {
+      // No task open yet (or one that just settled out of view): enter the list
+      // from the end the user is travelling towards.
+      return offset < 0 ? ids[ids.count - 1] : ids[0]
+    }
+    return ids[(index + offset + ids.count) % ids.count]
+  }
+
+  /// ⌃⌘J: the next visible row asking for a person (A33).
+  ///
+  /// The predicate is the leaf's own `needsHuman` — the same one the row's fade
+  /// reads — so the jump can never land on a row that looks quiet, or skip one
+  /// that looks urgent.
+  func nextTaskNeedingAttention() -> TaskID? {
+    TaskAttention.nextNeedingHuman(
+      in: tasksSidebarStructure.visibleTaskIDs,
+      after: selection?.taskID
+    ) { taskLeaves[id: $0]?.needsHuman == true }
+  }
+
   func taskFocusDelegate(for id: TaskID) -> RepositoriesFeature.Delegate? {
     guard let record = taskRecords[id: id] else { return nil }
     guard !TasksSidebarStructure.isSettled(record) else { return nil }
@@ -1876,6 +1976,8 @@ extension RepositoriesFeature.TaskInboxAction {
     // Everything else moves stamps, placement or presentation — never a claim.
     case .load, .seedIfNeeded, .select, .settle, .unsettle,
       .snooze, .unsnooze, .pin, .unpin, .keepActive,
+      .jumpToNextNeedingAttention, .settleSelected, .snoozeSelected, .togglePinSelected,
+      .focusSelectedSurface,
       .setSettledTailExpanded, .setSnoozedShelfExpanded, .expandSettledTail,
       .classificationTick, .wakeBoundaryReached, .agentSnapshotChanged,
       .autoSettleSettingsChanged, .stopTimers,
@@ -1892,6 +1994,12 @@ extension RepositoriesFeature.TaskInboxAction {
     switch self {
     // Effect launchers: they mutate nothing the caches project.
     case .load, .seedIfNeeded:
+      return []
+    // Keyboard entry points. Each one resolves a target and forwards to the arm
+    // that does the work, which is where the invalidation is declared; declaring
+    // it here too would stamp `taskNow` twice for one keystroke.
+    case .jumpToNextNeedingAttention, .settleSelected, .snoozeSelected,
+      .togglePinSelected, .focusSelectedSurface:
       return []
     // Presentation only: the prompts are state no cache projects.
     case .presentCreationPrompt, .setConflictRemember, .cancelDirectoryConflict:

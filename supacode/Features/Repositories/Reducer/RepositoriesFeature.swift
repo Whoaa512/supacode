@@ -3666,9 +3666,12 @@ struct RepositoriesFeature {
           }
           return .send(.activateAgentDashboardEntry(entryID))
         case .tasks:
-          // The Tasks panel has no slot nav yet; beep rather than moving the
-          // worktree selection out from under a panel the user isn't looking at.
-          return .run { _ in NSSound.beep() }
+          // Same chord, third panel (A32). Out of range still beeps rather than
+          // clamping: ⌃9 in a three-task inbox meant a row that is not there.
+          guard let taskID = state.taskID(atSlot: index) else {
+            return .run { _ in NSSound.beep() }
+          }
+          return .send(.tasks(.select(taskID)))
         case .worktrees:
           break
         }
@@ -3686,7 +3689,10 @@ struct RepositoriesFeature {
           }
           return .send(.activateAgentDashboardEntry(entryID))
         case .tasks:
-          return .run { _ in NSSound.beep() }
+          guard let taskID = state.taskID(byOffset: 1) else {
+            return .run { _ in NSSound.beep() }
+          }
+          return .send(.tasks(.select(taskID)))
         case .worktrees:
           break
         }
@@ -3703,7 +3709,10 @@ struct RepositoriesFeature {
           }
           return .send(.activateAgentDashboardEntry(entryID))
         case .tasks:
-          return .run { _ in NSSound.beep() }
+          guard let taskID = state.taskID(byOffset: -1) else {
+            return .run { _ in NSSound.beep() }
+          }
+          return .send(.tasks(.select(taskID)))
         case .worktrees:
           break
         }
