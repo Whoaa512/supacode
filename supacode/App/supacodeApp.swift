@@ -710,7 +710,11 @@ struct SupacodeApp: App {
     .environment(commandKeyObserver)
     .environment(openActionIcons)
     .commands {
-      WorktreeCommands(store: store)
+      // Grouped because `commands` builders cap at ten children.
+      Group {
+        WorktreeCommands(store: store)
+        TaskCommands()
+      }
       SidebarCommands()
       Group {
         TerminalCommands(ghosttyShortcuts: ghosttyShortcuts)

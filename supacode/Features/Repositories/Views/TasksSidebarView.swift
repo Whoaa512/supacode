@@ -15,17 +15,44 @@ import SwiftUI
 /// observation-track every task and fan every tick out to the whole List.
 struct TasksSidebarView: View {
   @Bindable var store: StoreOf<RepositoriesFeature>
+  /// The Tasks panel's own sidebar-nav focus, the thing §1c of the keyboard map
+  /// says it never had. Only the bare-→ escape hatch reads it, and only to make
+  /// sure the key is consumed while this list — not a terminal — owns the
+  /// keyboard.
+  @FocusState private var isTasksSidebarFocused: Bool
+  @Environment(CommandKeyObserver.self) private var commandKeyObserver
   /// Read here only to *notice* a change: the reducer re-reads app storage when
   /// it recomputes, so these are change detectors, not the source of truth.
   @Shared(.taskAutoSettleEnabled) private var isAutoSettleEnabled
   @Shared(.taskAutoSettleOnFinishedPullRequest) private var settlesOnFinishedPullRequest
   @Shared(.taskInactivityWindowDays) private var inactivityWindowDays
+  /// The hint join needs the user's overrides, and a hint has to reach every
+  /// row, so this read is inherently panel-wide — exactly as it is in the
+  /// Worktrees and Agents panels. `TasksNewTaskBar` still keeps its own copy of
+  /// the ⌘N lookup: that one is not worth an extra reason to rebuild the List.
+  @Shared(.settingsFile) private var settingsFile
 
   var body: some View {
     let structure = store.tasksSidebarStructure
     let selectedTaskID = store.selection?.taskID
     let isSettledTailExpanded = store.isSettledTailExpanded
     let isSnoozedShelfExpanded = store.isSnoozedShelfExpanded
+    let commands = structure.openTaskCommands
+
+    // The only legal view-side computation, identical to the other two panels:
+    // a join from the reducer-derived `slotByTaskID` against the ⌘-held state
+    // and the user's overrides. Rows past the ninth resolve to nil and drop
+    // out, so only the first nine carry a hint — and because both the badge and
+    // `.selectWorktreeAtHotkeySlot` read this one map, they cannot disagree.
+    let shortcutHintByID: [TaskID: String]
+    if commandKeyObserver.isPressed {
+      let overrides = settingsFile.global.shortcutOverrides
+      shortcutHintByID = structure.slotByTaskID.compactMapValues { index in
+        AppShortcuts.worktreeSelectionShortcutDisplay(atSlot: index, overrides: overrides)
+      }
+    } else {
+      shortcutHintByID = [:]
+    }
 
     return VStack(spacing: 0) {
       TasksNewTaskBar(store: store)
@@ -34,8 +61,32 @@ struct TasksSidebarView: View {
         structure: structure,
         selectedTaskID: selectedTaskID,
         isSettledTailExpanded: isSettledTailExpanded,
-        isSnoozedShelfExpanded: isSnoozedShelfExpanded
+        isSnoozedShelfExpanded: isSnoozedShelfExpanded,
+        shortcutHintByID: shortcutHintByID
       )
+    }
+    // Published from here, so the whole Tasks menu is inert on the other two
+    // panels: when this view is off screen there is no focused value at all
+    // (M6). Tokens stay nil because each closure captures only the store — the
+    // reducer resolves the focused task and the direction — while the two
+    // titles that flip follow `openTaskCommands`, which republishes on its own.
+    .focusedSceneValue(\.openTaskCommands, commands)
+    .focusedSceneAction(\.jumpToNextTaskNeedingAttentionAction, enabled: true) {
+      store.send(.tasks(.jumpToNextNeedingAttention))
+    }
+    .focusedSceneAction(
+      \.settleTaskAction,
+      // A18b: a task whose agent is asking a question cannot be filed away, and
+      // the item greys out rather than offering an action the reducer refuses.
+      enabled: commands.map { $0.isSettled || $0.canSettle } ?? false
+    ) {
+      store.send(.tasks(.settleSelected))
+    }
+    .focusedSceneAction(\.snoozeTaskAction, enabled: commands?.canSnooze ?? false) {
+      store.send(.tasks(.snoozeSelected))
+    }
+    .focusedSceneAction(\.pinTaskAction, enabled: commands != nil) {
+      store.send(.tasks(.togglePinSelected))
     }
   }
 
@@ -43,7 +94,8 @@ struct TasksSidebarView: View {
     structure: TasksSidebarStructure,
     selectedTaskID: TaskID?,
     isSettledTailExpanded: Bool,
-    isSnoozedShelfExpanded: Bool
+    isSnoozedShelfExpanded: Bool,
+    shortcutHintByID: [TaskID: String]
   ) -> some View {
     List(selection: selectionBinding(current: selectedTaskID)) {
       if structure.visibleTaskIDs.isEmpty, structure.settledTotalCount == 0,
@@ -62,7 +114,8 @@ struct TasksSidebarView: View {
               isSettled: false,
               isPinned: structure.pinnedTaskIDs.contains(taskID),
               isWoke: structure.wokeTaskIDs.contains(taskID),
-              isSnoozed: structure.snoozedTaskIDs.contains(taskID)
+              isSnoozed: structure.snoozedTaskIDs.contains(taskID),
+              shortcutHint: shortcutHintByID[taskID]
             )
           }
         } header: {
@@ -82,6 +135,7 @@ struct TasksSidebarView: View {
               isPinned: structure.pinnedTaskIDs.contains(entry.id),
               isWoke: false,
               isSnoozed: true,
+              shortcutHint: shortcutHintByID[entry.id],
               wakeAt: entry.wakeAt
             )
           }
@@ -100,7 +154,8 @@ struct TasksSidebarView: View {
               isSettled: true,
               isPinned: false,
               isWoke: false,
-              isSnoozed: structure.snoozedTaskIDs.contains(entry.id)
+              isSnoozed: structure.snoozedTaskIDs.contains(entry.id),
+              shortcutHint: shortcutHintByID[entry.id]
             )
           }
           if structure.hiddenSettledCount > 0 {
@@ -112,7 +167,19 @@ struct TasksSidebarView: View {
       }
     }
     .listStyle(.sidebar)
+    .focused($isTasksSidebarFocused)
     .frame(minWidth: 220)
+    .background(
+      // The → escape hatch, reusing the Worktrees panel's monitor verbatim:
+      // NSOutlineView eats arrow keys before SwiftUI's `onKeyPress` runs. Only
+      // fires with zero modifiers while this list holds focus, so it can never
+      // be somebody's typing (A34).
+      SidebarRightArrowMonitor(isSidebarFocused: isTasksSidebarFocused) {
+        guard store.selection?.taskID != nil else { return false }
+        store.send(.tasks(.focusSelectedSurface))
+        return true
+      }
+    )
     // Mirrors `SidebarListView`'s grouping-toggle dispatch: the settle policy
     // lives in app storage, so flipping it in the settings window has to tell
     // this reducer to re-partition. Waiting for the 60s classification tick
@@ -255,6 +322,9 @@ private struct TaskSidebarRowView: View {
   /// shelf: a raised hand (A25) puts a still-snoozed row back in Active, and
   /// that row needs Wake Now, not a Snooze menu it is already inside of.
   let isSnoozed: Bool
+  /// The ⌃n badge to show while the modifier is held, already resolved by the
+  /// panel from `slotByTaskID` (A32). `nil` shows the accessories instead.
+  let shortcutHint: String?
   /// Set only for rows on the snoozed shelf, for the countdown.
   var wakeAt: Date?
 
@@ -289,6 +359,7 @@ private struct TaskSidebarRowView: View {
         isSettled: isSettled,
         isPinned: isPinned,
         isWoke: isWoke,
+        shortcutHint: shortcutHint,
         wakeAt: wakeAt
       )
     }
@@ -501,6 +572,8 @@ private struct TaskSidebarRowContentView: View {
   let isSettled: Bool
   let isPinned: Bool
   let isWoke: Bool
+  /// The ⌃n badge, or nil to draw the accessories.
+  let shortcutHint: String?
   /// Wake instant for a parked row — the same value the shelf sorted by (A17's
   /// rule applied to snooze), so the countdown can't disagree with the order.
   let wakeAt: Date?
@@ -571,13 +644,28 @@ private struct TaskSidebarRowContentView: View {
         .foregroundStyle(.secondary)
       }
       Spacer(minLength: 0)
-      // Phase 6 design pass: the trailing run below can reach six elements at
-      // once (settled date, wake countdown, elapsed timer, bell, PR, sleep,
-      // status) in a sidebar that is often narrow. They are individually
-      // correct and collectively a wall. The budget — which of these collapse
-      // into one another, which move to the secondary line, which only appear on
-      // hover or on the open row — is a layout decision, not a projection one,
-      // so it is deliberately not being guessed at here.
+      SidebarShortcutHintCrossfade(hint: shortcutHint) {
+        accessories
+      }
+    }
+    .foregroundStyle(isSettled ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+    // A28: the fade is a *sibling* of the settled treatment, not a replacement
+    // — a settled row is history and a receded one is merely quiet, and a row
+    // that is both should read as further back than either alone.
+    .opacity(isReceded ? 0.7 : 1)
+    .accessibilityElement(children: .combine)
+  }
+
+  /// Phase 6 design pass: this run can reach six elements at once (settled
+  /// date, wake countdown, elapsed timer, bell, PR, sleep, status) in a sidebar
+  /// that is often narrow. They are individually correct and collectively a
+  /// wall. The budget — which of these collapse into one another, which move to
+  /// the secondary line, which only appear on hover or on the open row — is a
+  /// layout decision, not a projection one, so it is deliberately not being
+  /// guessed at here.
+  @ViewBuilder
+  private var accessories: some View {
+    HStack(spacing: 8) {
       if let settledTimestamp {
         Text(settledTimestamp, format: .relative(presentation: .named))
           .font(.caption)
@@ -620,12 +708,6 @@ private struct TaskSidebarRowContentView: View {
           .help(status.help)
       }
     }
-    .foregroundStyle(isSettled ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-    // A28: the fade is a *sibling* of the settled treatment, not a replacement
-    // — a settled row is history and a receded one is merely quiet, and a row
-    // that is both should read as further back than either alone.
-    .opacity(isReceded ? 0.7 : 1)
-    .accessibilityElement(children: .combine)
   }
 
   /// A countdown that actually counts down. A bare relative `Text` renders once
