@@ -69,6 +69,13 @@ struct AgentPresenceFeature {
     /// Cleared by focus, exactly like `isDoneUnseen`, so a finished turn the
     /// user already looked at stops holding a row out of the snoozed shelf.
     var completedTurnAt: Date?
+    /// The OLDEST start instant among the working records on these surfaces, so
+    /// a row's elapsed timer reads "continuously working since", not "since the
+    /// most recent agent joined in". `nil` while nothing is working, and also
+    /// when the working agent's hook sent no `ts` — a fabricated 0s would read
+    /// as a turn that just began every time the app relaunched (Resolved #5).
+    /// Not badge-gated: the shimmer isn't, and neither is its clock.
+    var workingSince: Date?
   }
 
   // `nonisolated` so `stageRestore` (off-main at launch) can use Hashable.
@@ -93,6 +100,13 @@ struct AgentPresenceFeature {
     /// Same reasoning as `erroredAt`: the completion instant must not slide
     /// forward on unrelated traffic. Cleared wherever `isDoneUnseen` clears.
     var turnCompletedAt: Date?
+    /// When the *current* working stretch began, stamped from the hook's own
+    /// `ts` on the flip INTO working and cleared on the flip out. Deliberately
+    /// not `lastEventAt`: that slides forward on every tool call, so a timer
+    /// built on it would reset mid-turn. Preserved across busy↔compacting,
+    /// because compaction happens inside a running turn rather than starting a
+    /// new one (Resolved #5).
+    var workingSince: Date?
     /// Local pids attributed to this record. Empty means the OSC presence was
     /// emitted without a local pid (SSH attach); `pids.isEmpty` is the
     /// discriminator for the pid-less lifecycle branches below. Every event
@@ -417,6 +431,9 @@ struct AgentPresenceFeature {
     guard record.activity == .error || record.activity == .compacting else { return changed }
     record.activity = .idle
     record.erroredAt = nil
+    // A restart ends whatever stretch of work was running, so its start instant
+    // goes with it — an idle record must never claim an ever-growing turn.
+    record.workingSince = nil
     return true
   }
 
@@ -472,13 +489,23 @@ struct AgentPresenceFeature {
         record.turnCompletedAt = nil
       }
       record.erroredAt = activity == .error ? event.timestamp : nil
+      // Stamped on the flip INTO work and cleared on the flip out; a turn that
+      // is merely compacting is still the same turn, so its start is preserved.
+      if !activity.isWorking {
+        record.workingSince = nil
+      } else if !record.activity.isWorking {
+        record.workingSince = event.timestamp
+      }
       record.activity = activity
       state.records[key] = record
       return true
     }
     guard event.pid == nil, activity != .idle else { return false }
     state.records[key] = PresenceRecord(
-      activity: activity, erroredAt: activity == .error ? event.timestamp : nil, pids: [])
+      activity: activity,
+      erroredAt: activity == .error ? event.timestamp : nil,
+      workingSince: activity.isWorking ? event.timestamp : nil,
+      pids: [])
     rebuildPresence(forSurface: event.surfaceID, in: &state)
     return true
   }
@@ -846,8 +873,12 @@ extension AgentPresenceFeature.State {
     var hasError = false
     var errorAt: Date?
     var completedTurnAt: Date?
+    var workingSince: Date?
     for (key, record) in records where surfaceSet.contains(key.surfaceID) {
-      if record.activity.isWorking { isWorking = true }
+      if record.activity.isWorking {
+        isWorking = true
+        workingSince = Self.oldest(workingSince, record.workingSince)
+      }
       if record.activity == .error, badgesEnabled { hasError = true }
       if record.activity == .error {
         errorAt = Self.newest(errorAt, record.erroredAt)
@@ -861,7 +892,8 @@ extension AgentPresenceFeature.State {
       isWorking: isWorking,
       hasError: hasError,
       errorAt: errorAt,
-      completedTurnAt: completedTurnAt
+      completedTurnAt: completedTurnAt,
+      workingSince: workingSince
     )
   }
 
@@ -869,6 +901,12 @@ extension AgentPresenceFeature.State {
   /// non-finite `ts` from the wire is dropped rather than winning every max.
   private static func newest(_ lhs: Date?, _ rhs: Date?) -> Date? {
     TaskTimestamps.latestValid([lhs, rhs])
+  }
+
+  /// Oldest of two hook-reported instants, screened the same way: the row has
+  /// been working since its longest-running turn began.
+  private static func oldest(_ lhs: Date?, _ rhs: Date?) -> Date? {
+    [lhs, rhs].compactMap { TaskTimestamps.read($0).date }.min()
   }
 
   /// Any agent on the listed surfaces is working (`busy`, or compacting inside a
