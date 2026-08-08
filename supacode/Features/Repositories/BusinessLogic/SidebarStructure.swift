@@ -429,6 +429,10 @@ extension SidebarItemFeature.Action {
     // answer from "no PR" and has to reach the leaf as one (A29).
     case .pullRequestQueryStarted:
       return .sidebarStructure
+    // Same reason, terminal end: a query that failed is the leaf's `.failed`,
+    // and until it lands the row still reads as loading.
+    case .pullRequestQueryFailed:
+      return .sidebarStructure
     case .diffStatsChanged,
       .dragSessionChanged,
       .focusTerminalRequested, .focusTerminalConsumed:
@@ -611,6 +615,9 @@ extension RepositoriesFeature.Action {
       .refreshGithubIntegrationAvailability,
       .githubIntegrationAvailabilityUpdated,
       .repositoryPullRequestRefreshCompleted,
+      // The parent arm only fans out to rows; the leaf work rides the child
+      // action's own invalidation.
+      .repositoryPullRequestRefreshFailed,
       .setGithubIntegrationEnabled,
       .setMergedWorktreeAction,
       .setAutoDeleteArchivedWorktreesAfterDays,

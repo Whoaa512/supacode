@@ -661,16 +661,19 @@ extension TaskStatusModel.Status {
 
 /// How the row draws what it knows about the pull request (A29).
 ///
-/// Only the three *known* states draw: `loading` and `failed` are readings of
-/// our own pipeline, and a glyph for "we have not asked yet" is a glyph that
-/// says nothing while looking like it says something.
+/// The three known states draw what they are, and `failed` draws that we could
+/// not find out — otherwise a repository whose `gh` is broken looks exactly like
+/// one with no pull requests, and the auto-settle rules quietly stop firing with
+/// nothing on screen to explain why. `loading` and `none` still draw nothing: a
+/// glyph for "we have not asked yet" says nothing while looking like it does.
 extension TaskPullRequestState {
   fileprivate var systemImage: String? {
     switch self {
     case .open: "arrow.triangle.pull"
     case .merged: "arrow.triangle.merge"
     case .closed: "xmark.circle"
-    case .none, .loading, .failed, .unknown: nil
+    case .failed: "exclamationmark.triangle"
+    case .none, .loading, .unknown: nil
     }
   }
 
@@ -678,9 +681,10 @@ extension TaskPullRequestState {
     switch self {
     case .open: AnyShapeStyle(.green)
     case .merged: AnyShapeStyle(.purple)
+    case .failed: AnyShapeStyle(.orange)
     // Exhaustive, like the two switches around it: a new state has to pick a
     // colour rather than inherit secondary by falling through a `default`.
-    case .closed, .none, .loading, .failed, .unknown: AnyShapeStyle(.secondary)
+    case .closed, .none, .loading, .unknown: AnyShapeStyle(.secondary)
     }
   }
 
@@ -689,7 +693,8 @@ extension TaskPullRequestState {
     case .open: "This task has an open pull request"
     case .merged: "This task's pull request was merged"
     case .closed: "This task's pull request was closed without merging"
-    case .none, .loading, .failed, .unknown: ""
+    case .failed: "Supacode couldn't check this task's pull request — check that `gh` is installed and authenticated"
+    case .none, .loading, .unknown: ""
     }
   }
 }

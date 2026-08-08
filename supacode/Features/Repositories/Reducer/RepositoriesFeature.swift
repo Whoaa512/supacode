@@ -611,6 +611,11 @@ struct RepositoriesFeature {
     case refreshGithubIntegrationAvailability
     case githubIntegrationAvailabilityUpdated(Bool)
     case repositoryPullRequestRefreshCompleted(Repository.ID)
+    /// The batch query threw, or the remote could not be resolved. Separate from
+    /// `…Completed` because completion alone leaves every queried row's
+    /// watermark armed, which is what made `TaskPullRequestState.loading` a sink
+    /// with no way out (A29).
+    case repositoryPullRequestRefreshFailed(Repository.ID)
     case repositoryPullRequestsLoaded(
       repositoryID: Repository.ID,
       pullRequestsByWorktreeID: [Worktree.ID: GithubPullRequest?]
@@ -2380,6 +2385,20 @@ struct RepositoriesFeature {
             }
           )
         )
+
+      case .repositoryPullRequestRefreshFailed(let repositoryID):
+        // Only the rows that are actually waiting: an armed watermark *is* the
+        // "asking" state, so an outage can never badge work that never queried.
+        // Read off the rows rather than the in-flight snapshot, because the
+        // snapshot is bookkeeping the row arms itself — and the row is the thing
+        // whose state would otherwise be stranded.
+        var effects: [Effect<Action>] = (state.repositories[id: repositoryID]?.worktrees ?? [])
+          .map(\.id)
+          .filter { state.sidebarItems[id: $0]?.pullRequestBranchAtQueryTime != nil }
+          .sorted { $0.rawValue < $1.rawValue }
+          .map { .send(.sidebarItems(.element(id: $0, action: .pullRequestQueryFailed))) }
+        effects.append(.send(.repositoryPullRequestRefreshCompleted(repositoryID)))
+        return .concatenate(effects)
 
       case .repositoryPullRequestRefreshCompleted(let repositoryID):
         state.inFlightPullRequestRefreshRepositoryIDs.remove(repositoryID)
@@ -4411,7 +4430,8 @@ struct RepositoriesFeature {
         return .none
 
       case .refreshGithubIntegrationAvailability, .githubIntegrationAvailabilityUpdated,
-        .repositoryPullRequestRefreshCompleted, .worktreeBranchNameLoaded, .worktreeLineChangesLoaded,
+        .repositoryPullRequestRefreshCompleted, .repositoryPullRequestRefreshFailed,
+        .worktreeBranchNameLoaded, .worktreeLineChangesLoaded,
         .repositoryPullRequestsLoaded, .pullRequestAction, .setGithubIntegrationEnabled, .setMergedWorktreeAction,
         .setAutoDeleteArchivedWorktreesAfterDays, .autoDeleteExpiredArchivedWorktrees, .setMoveNotifiedWorktreeToTop,
         .setInstalledOpenActions, .openActionSettingsChanged, .resolveOpenActions, .openActionsResolved:
@@ -4642,7 +4662,9 @@ struct RepositoriesFeature {
           gitClient: gitClient
         )
       else {
-        await send(.repositoryPullRequestRefreshCompleted(repositoryID))
+        // No remote is not "no PR": we could not ask, and the rows waiting on
+        // this refresh have to be told rather than left spinning.
+        await send(.repositoryPullRequestRefreshFailed(repositoryID))
         return
       }
       do {
@@ -4663,7 +4685,9 @@ struct RepositoriesFeature {
           )
         )
       } catch {
-        await send(.repositoryPullRequestRefreshCompleted(repositoryID))
+        repositoriesLogger.error(
+          "Pull request refresh failed for \(repositoryID.rawValue): \(error.localizedDescription)")
+        await send(.repositoryPullRequestRefreshFailed(repositoryID))
         return
       }
       await send(.repositoryPullRequestRefreshCompleted(repositoryID))

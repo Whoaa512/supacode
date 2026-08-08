@@ -98,6 +98,11 @@ struct SidebarItemFeature {
     /// Branch name at PR-query start; on result land, mismatched results are dropped.
     /// Invariant: non-nil iff a PR query is in flight; cleared by reconcile on branch rename.
     var pullRequestBranchAtQueryTime: String?
+    /// The last query for this row came back unusable (`gh` threw, or the
+    /// remote could not be resolved). Distinct from "no PR": we do not know, and
+    /// a row that cannot say so is a row that spins on `.loading` forever.
+    /// Cleared by the next query that starts and by any result that lands.
+    var pullRequestQueryDidFail = false
 
     var runningScripts: IdentifiedArrayOf<RunningScript> = []
 
@@ -149,6 +154,9 @@ struct SidebarItemFeature {
     case diffStatsChanged(added: Int?, removed: Int?)
     case pullRequestQueryStarted(branch: String)
     case pullRequestChanged(GithubPullRequest?, branchAtQueryTime: String)
+    /// The refresh this row was waiting on failed. Only meaningful while a query
+    /// is in flight — see the arm.
+    case pullRequestQueryFailed
     case agentSnapshotChanged(AgentPresenceFeature.RowSnapshot)
     case terminalProjectionChanged(WorktreeRowProjection)
     case dragSessionChanged(isDragging: Bool)
@@ -171,13 +179,29 @@ struct SidebarItemFeature {
         return .none
 
       case .pullRequestQueryStarted(let branch):
+        // Cleared even when the watermark is unchanged: a retry for the same
+        // branch is exactly the case where the previous failure has to stop
+        // being reported.
+        state.pullRequestQueryDidFail = false
         guard state.pullRequestBranchAtQueryTime != branch else { return .none }
         state.pullRequestBranchAtQueryTime = branch
+        return .none
+
+      case .pullRequestQueryFailed:
+        // A row with nothing in flight was not asking, so it has no bad news to
+        // report — and marking it would turn an unrelated repository's outage
+        // into a badge on work that never queried.
+        guard state.pullRequestBranchAtQueryTime != nil else { return .none }
+        state.pullRequestBranchAtQueryTime = nil
+        state.pullRequestQueryDidFail = true
         return .none
 
       case .pullRequestChanged(let pullRequest, let branchAtQueryTime):
         // Drop late results for a branch the row no longer represents.
         guard branchAtQueryTime == state.branchName else { return .none }
+        // Any usable result supersedes the previous failure, including one
+        // identical to what we already had.
+        state.pullRequestQueryDidFail = false
         guard state.pullRequest != pullRequest else {
           if state.pullRequestBranchAtQueryTime != nil {
             state.pullRequestBranchAtQueryTime = nil

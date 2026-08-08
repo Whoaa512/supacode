@@ -1990,12 +1990,13 @@ extension RepositoriesFeature.State {
   /// branch. "No PR" and "we have not asked yet" are different answers, and
   /// neither may be mistaken for a finished one.
   ///
-  /// `.failed` has no producer yet: nothing in the PR pipeline records a query
-  /// that came back unavailable, so claiming it here would be inventing one.
-  /// The state exists because the settle cascade must refuse it (Phase 7 wires
-  /// the producer).
+  /// `.failed` outranks a stale `pullRequest` on purpose: once the query has
+  /// started failing, the last value we hold is a claim we can no longer stand
+  /// behind, and settling on it (A29's finished-PR path) would file a task away
+  /// on evidence we know is unverified.
   private static func taskPullRequestState(row: SidebarItemFeature.State?) -> TaskPullRequestState {
     guard let row else { return .none }
+    if row.pullRequestQueryDidFail { return .failed }
     guard let pullRequest = row.pullRequest else {
       return row.pullRequestBranchAtQueryTime != nil ? .loading : .none
     }
