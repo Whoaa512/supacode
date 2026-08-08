@@ -301,8 +301,9 @@ private struct AgentDashboardSpaceRowView: View {
   }
 }
 
-/// Shared tinting for the state glyph so agent rows and Spaces rows can't drift.
-private enum AgentDashboardStateStyle {
+/// Shared tinting for the state glyph so agent rows, Spaces rows and the Tasks
+/// panel's child agent rows can't drift.
+enum AgentDashboardStateStyle {
   static func style(for state: AgentDashboardState, hasError: Bool) -> AnyShapeStyle {
     if hasError { return AnyShapeStyle(.red) }
     return switch state {

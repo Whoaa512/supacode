@@ -187,6 +187,7 @@ private struct TaskSidebarRowView: View {
         isLowConfidenceSeed: (record?.seedEvidence).map { $0.confidence != .high } ?? false,
         hasUnseenNotifications: leaf?.hasUnseenNotifications == true,
         activity: TaskRowActivity(leaf: leaf),
+        childAgents: leaf?.childAgents ?? [],
         settledTimestamp: settledTimestamp,
         isSettled: isSettled
       )
@@ -286,10 +287,26 @@ private struct TaskSidebarRowContentView: View {
   let isLowConfidenceSeed: Bool
   let hasUnseenNotifications: Bool
   let activity: TaskRowActivity
+  /// Hook-reported agents on this task's surfaces (A22). Empty is the common
+  /// case and renders nothing.
+  let childAgents: [TaskLeafState.ChildAgent]
   let settledTimestamp: Date?
   let isSettled: Bool
 
   var body: some View {
+    VStack(alignment: .leading, spacing: 2) {
+      summary
+      // Inside the task's row rather than as sibling List rows: a child row's
+      // drill-in *is* the task's surface tabs (A22), so the whole thing is one
+      // click target and one selectable row.
+      ForEach(childAgents) { child in
+        TaskChildAgentRowView(child: child)
+      }
+    }
+    .contentShape(.rect)
+  }
+
+  private var summary: some View {
     HStack(spacing: 8) {
       VStack(alignment: .leading, spacing: 1) {
         Text(title)
@@ -337,8 +354,31 @@ private struct TaskSidebarRowContentView: View {
       }
     }
     .foregroundStyle(isSettled ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-    .contentShape(.rect)
     .accessibilityElement(children: .combine)
+  }
+
+  /// One agent reporting on the task's surfaces: the state glyph the Agents tab
+  /// uses, and the name the user addresses it by. Indented under the task and
+  /// deliberately not clickable on its own — the row it sits in already opens
+  /// the task's surfaces, which is where a child drills in to (A22).
+  private struct TaskChildAgentRowView: View {
+    let child: TaskLeafState.ChildAgent
+
+    var body: some View {
+      HStack(spacing: 4) {
+        Image(systemName: child.state.systemImage)
+          .foregroundStyle(AgentDashboardStateStyle.style(for: child.state, hasError: false))
+          .accessibilityLabel(child.state.title)
+        Text(child.displayName)
+          .lineLimit(1)
+          .truncationMode(.middle)
+          .foregroundStyle(.secondary)
+      }
+      .font(.caption)
+      .padding(.leading, 14)
+      .help("\(child.displayName) on this task — \(child.state.help)")
+      .accessibilityElement(children: .combine)
+    }
   }
 
   /// Directory leaf, plus the branch when there is one. An empty string means
