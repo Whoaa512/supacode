@@ -15,6 +15,10 @@ public nonisolated struct RepositorySettings: Codable, Equatable, Sendable {
   public var copyIgnoredOnWorktreeCreate: Bool?
   public var copyUntrackedOnWorktreeCreate: Bool?
   public var pullRequestMergeStrategy: PullRequestMergeStrategy?
+  /// The remembered answer to Resolved #11's conflict question. `nil` means the
+  /// repository has never been asked, which is what makes the sheet appear
+  /// exactly once rather than never or every time.
+  public var taskDirectoryIsolation: TaskDirectoryIsolation?
 
   private enum CodingKeys: String, CodingKey {
     case setupScript
@@ -28,6 +32,7 @@ public nonisolated struct RepositorySettings: Codable, Equatable, Sendable {
     case copyIgnoredOnWorktreeCreate
     case copyUntrackedOnWorktreeCreate
     case pullRequestMergeStrategy
+    case taskDirectoryIsolation
   }
 
   public static let `default` = RepositorySettings(
@@ -42,6 +47,7 @@ public nonisolated struct RepositorySettings: Codable, Equatable, Sendable {
     copyIgnoredOnWorktreeCreate: nil,
     copyUntrackedOnWorktreeCreate: nil,
     pullRequestMergeStrategy: nil,
+    taskDirectoryIsolation: nil,
   )
 
   public init(
@@ -55,7 +61,8 @@ public nonisolated struct RepositorySettings: Codable, Equatable, Sendable {
     worktreeBaseDirectoryPath: String? = nil,
     copyIgnoredOnWorktreeCreate: Bool? = nil,
     copyUntrackedOnWorktreeCreate: Bool? = nil,
-    pullRequestMergeStrategy: PullRequestMergeStrategy? = nil
+    pullRequestMergeStrategy: PullRequestMergeStrategy? = nil,
+    taskDirectoryIsolation: TaskDirectoryIsolation? = nil
   ) {
     self.setupScript = setupScript
     self.archiveScript = archiveScript
@@ -68,6 +75,7 @@ public nonisolated struct RepositorySettings: Codable, Equatable, Sendable {
     self.copyIgnoredOnWorktreeCreate = copyIgnoredOnWorktreeCreate
     self.copyUntrackedOnWorktreeCreate = copyUntrackedOnWorktreeCreate
     self.pullRequestMergeStrategy = pullRequestMergeStrategy
+    self.taskDirectoryIsolation = taskDirectoryIsolation
   }
 
   public init(from decoder: Decoder) throws {
@@ -109,6 +117,9 @@ public nonisolated struct RepositorySettings: Codable, Equatable, Sendable {
     pullRequestMergeStrategy =
       try container.decodeIfPresent(PullRequestMergeStrategy.self, forKey: .pullRequestMergeStrategy)
       ?? Self.default.pullRequestMergeStrategy
+    taskDirectoryIsolation =
+      try container.decodeIfPresent(TaskDirectoryIsolation.self, forKey: .taskDirectoryIsolation)
+      ?? Self.default.taskDirectoryIsolation
   }
 
   public func encode(to encoder: Encoder) throws {
@@ -130,5 +141,6 @@ public nonisolated struct RepositorySettings: Codable, Equatable, Sendable {
     try container.encodeIfPresent(copyIgnoredOnWorktreeCreate, forKey: .copyIgnoredOnWorktreeCreate)
     try container.encodeIfPresent(copyUntrackedOnWorktreeCreate, forKey: .copyUntrackedOnWorktreeCreate)
     try container.encodeIfPresent(pullRequestMergeStrategy, forKey: .pullRequestMergeStrategy)
+    try container.encodeIfPresent(taskDirectoryIsolation, forKey: .taskDirectoryIsolation)
   }
 }
