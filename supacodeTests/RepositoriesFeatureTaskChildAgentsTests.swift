@@ -131,6 +131,46 @@ struct RepositoriesFeatureTaskChildAgentsTests {
     #expect(children.map(\.state) == [.working])
   }
 
+  /// The other side of the same seam, and the one nothing else covers: a task
+  /// that owns *every* surface its row has, before `AppFeature` has projected
+  /// anything for it. The row's union over its surfaces IS this task's
+  /// projection then, so the leaf borrows it — that is what stops a fresh launch
+  /// showing an empty task row until the next hook event happens to fire.
+  ///
+  /// Driven from the row action on purpose. The per-task arm would bypass the
+  /// fallback entirely, and the fallback is the part that silently stops
+  /// working if its exact-ownership condition is ever loosened or dropped.
+  @Test func aTaskOwningEveryRowSurfaceBorrowsTheRowsSnapshotUntilItIsProjected() async throws {
+    let sandbox = try makeSandbox()
+    let directory = try sandbox.makeDirectory("work", activityAt: TaskInboxFixture.freshDate)
+    let owned = UUID()
+    var state = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [directory],
+      surfacesPerRow: [directory: [owned]]
+    )
+    let record = TaskInboxFixture.makeRecord(directory: directory, surfaceIDs: [owned])
+    state.taskRecords = [record]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(
+      .sidebarItems(
+        .element(
+          id: WorktreeID(directory.path(percentEncoded: false)),
+          action: .agentSnapshotChanged(
+            .init(agents: [.init(agent: .codex, activity: .busy)], isWorking: true)
+          )
+        )
+      )
+    )
+    await store.finish()
+
+    let leaf = try #require(store.state.taskLeaves[id: record.id])
+    #expect(leaf.childAgents.map(\.agent) == [.codex])
+    #expect(leaf.status == .working)
+  }
+
   /// Phase 5 closes the Phase-3 blur this test used to document. The leaf's
   /// presence no longer comes from the whole-row snapshot (which carries no
   /// surface id, so it could only ever be the union of every agent in the

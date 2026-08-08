@@ -453,7 +453,9 @@ extension TaskPullRequestState {
     switch self {
     case .open: AnyShapeStyle(.green)
     case .merged: AnyShapeStyle(.purple)
-    default: AnyShapeStyle(.secondary)
+    // Exhaustive, like the two switches around it: a new state has to pick a
+    // colour rather than inherit secondary by falling through a `default`.
+    case .closed, .none, .loading, .failed, .unknown: AnyShapeStyle(.secondary)
     }
   }
 
@@ -569,6 +571,13 @@ private struct TaskSidebarRowContentView: View {
         .foregroundStyle(.secondary)
       }
       Spacer(minLength: 0)
+      // Phase 6 design pass: the trailing run below can reach six elements at
+      // once (settled date, wake countdown, elapsed timer, bell, PR, sleep,
+      // status) in a sidebar that is often narrow. They are individually
+      // correct and collectively a wall. The budget — which of these collapse
+      // into one another, which move to the secondary line, which only appear on
+      // hover or on the open row — is a layout decision, not a projection one,
+      // so it is deliberately not being guessed at here.
       if let settledTimestamp {
         Text(settledTimestamp, format: .relative(presentation: .named))
           .font(.caption)
@@ -641,19 +650,30 @@ private struct TaskSidebarRowContentView: View {
   /// How long the current turn has been running, counted from the hook's own
   /// start instant (Resolved #5).
   ///
+  /// A *duration*, not a relative date: `.relative` renders "4 minutes ago",
+  /// which reads as when something happened rather than how long it has been
+  /// going, and is the wrong sentence for a running turn.
+  ///
+  /// Minute granularity, so the schedule ticks once a minute instead of sixty
+  /// times: a turn's elapsed time is a sense of scale, and a seconds counter on
+  /// every working row in the list buys nothing for the redraws it costs.
+  ///
   /// Leaf-local `TimelineView`, for exactly the reason the wake countdown is
   /// one: only rows that are actually working carry a schedule, and the redraw
   /// is one `Text` — not the row, the section, or the List. Anchored on
   /// `workingSince` rather than on a duration, so the count survives every
   /// redraw between ticks.
   private static func workingElapsed(_ workingSince: Date) -> some View {
-    TimelineView(.periodic(from: .now, by: 1)) { _ in
-      Text(workingSince, format: .relative(presentation: .numeric))
-        .font(.caption)
-        .monospaced()
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
-        .help("How long this task's current turn has been running")
+    TimelineView(.periodic(from: .now, by: 60)) { context in
+      Text(
+        Duration.seconds(max(0, context.date.timeIntervalSince(workingSince)))
+          .formatted(.units(allowed: [.hours, .minutes], width: .narrow))
+      )
+      .font(.caption)
+      .monospaced()
+      .foregroundStyle(.secondary)
+      .lineLimit(1)
+      .help("How long this task's current turn has been running")
     }
   }
 
