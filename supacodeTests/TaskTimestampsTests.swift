@@ -263,6 +263,7 @@ struct TaskTimestampsTests {
   /// exempt list — and the exempt list is the diff a reviewer will notice.
   private static let pureLogicFiles: Set<String> = [
     "TaskActivitySeeder.swift",
+    "TaskAttention.swift",
     "TaskAutoWorktreeNaming.swift",
     "TaskDirectoryConflictPolicy.swift",
     "TaskForwardNavigation.swift",
