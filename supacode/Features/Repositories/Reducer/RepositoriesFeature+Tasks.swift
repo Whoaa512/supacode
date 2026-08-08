@@ -236,7 +236,14 @@ extension RepositoriesFeature {
         // it answers `.share` today, so creation lands in the directory the user
         // picked and a busy directory just gets a second task with zero surfaces
         // (A3) rather than a worktree decision in the user's face (A19).
-        if TaskDirectoryConflictPolicy.resolve(directoryPath: directoryPath) == .isolate {
+        //
+        // Switched rather than compared so 3c cannot make `.isolate` reachable
+        // without this arm failing to compile — a silent fall-through would ship
+        // an isolation policy that quietly shares.
+        switch TaskDirectoryConflictPolicy.resolve(directoryPath: directoryPath) {
+        case .share:
+          break
+        case .isolate:
           tasksLogger.error(
             """
             TaskDirectoryConflictPolicy asked to isolate \(directoryPath), which Phase 3b \
@@ -272,7 +279,9 @@ extension RepositoriesFeature {
         // the terminal request has to leave with the new task already open (A4),
         // and a `.select` round-trip would land the selection one hop *after* the
         // delegate the parent acts on. `reduceSelectionChangedEffect` is the same
-        // code `.selectionChanged` runs, so the stamp and the persist are identical.
+        // code `.selectionChanged` runs, so the stamp and the persist are identical
+        // — which is also the only write this arm makes: the new record reaches
+        // `tasks.json` on the back of that selection stamp, not a separate save.
         var effects: [Effect<Action>] = [
           state.reduceSelectionChangedEffect(selections: [.task(record.id)], focusTerminal: false)
         ]

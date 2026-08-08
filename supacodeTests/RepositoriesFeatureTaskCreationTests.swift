@@ -102,6 +102,48 @@ struct RepositoriesFeatureTaskCreationTests {
     #expect(store.state.alert != nil)
   }
 
+  /// The positive half of A9, so the assertion above is not passing merely
+  /// because ⌘N errored out: with a repository present, the Worktrees tab still
+  /// reaches the *worktree* prompt and never the capture one.
+  @Test(.sidebarTab(.worktrees))
+  func newShortcutOnWorktreesTabOpensTheWorktreePrompt() async throws {
+    let sandbox = try makeSandbox()
+    let existing = try sandbox.makeDirectory("existing", activityAt: Self.freshDate)
+    var state = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [existing],
+      hasLoadedTasks: true
+    )
+    state.selection = .worktree(WorktreeID(existing.path(percentEncoded: false)))
+    state.applyPostReduceCacheRecomputes(.all)
+    // Scoped to the sandbox's storage: that is the `@Shared(.settingsFile)`
+    // instance the reducer under test reads.
+    withDependencies {
+      $0.settingsFileStorage = sandbox.storage
+    } operation: {
+      @Shared(.settingsFile) var settingsFile
+      $settingsFile.withLock { $0.global.promptForWorktreeCreation = true }
+    }
+    let store = TestStore(initialState: state) {
+      RepositoriesFeature()
+    } withDependencies: {
+      $0.settingsFileStorage = sandbox.storage
+      $0.date.now = Self.now
+      $0.gitClient.automaticWorktreeBaseRef = { _ in "origin/main" }
+      $0.gitClient.remoteNames = { _ in ["origin"] }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.createRandomWorktree)
+    await store.receive(\.createRandomWorktreeInRepository)
+    await store.receive(\.promptedWorktreeCreationDataLoaded)
+    await store.finish()
+
+    #expect(store.state.taskCreationPrompt == nil)
+    #expect(store.state.worktreeCreationPrompt != nil)
+    #expect(store.state.alert == nil)
+  }
+
   /// A prompt with nothing to pick still opens: registration UX is P7, and an
   /// alert here would make ⌘N feel broken on a fresh install.
   @Test(.sidebarTab(.tasks))
@@ -231,12 +273,6 @@ struct RepositoriesFeatureTaskCreationTests {
   }
 
   // MARK: - A20 (3b slice): a busy directory shares, it never asks
-
-  /// Phase 3b hardcodes the conflict policy to `.share`. The seam exists so 3c
-  /// can swap in the per-repo isolation policy without touching the arm.
-  @Test func conflictPolicyIsShareInPhase3b() {
-    #expect(TaskDirectoryConflictPolicy.resolve(directoryPath: "/repos/acme/alpha") == .share)
-  }
 
   /// A directory another *active* task owns still creates: A3 allows two tasks
   /// over one directory as long as they share zero surfaces, and A19 forbids

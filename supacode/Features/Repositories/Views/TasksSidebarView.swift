@@ -15,7 +15,6 @@ import SwiftUI
 /// observation-track every task and fan every tick out to the whole List.
 struct TasksSidebarView: View {
   @Bindable var store: StoreOf<RepositoriesFeature>
-  @Shared(.settingsFile) private var settingsFile
 
   var body: some View {
     let structure = store.tasksSidebarStructure
@@ -23,27 +22,10 @@ struct TasksSidebarView: View {
     let isSettledTailExpanded = store.isSettledTailExpanded
 
     return VStack(spacing: 0) {
-      newTaskBar
+      TasksNewTaskBar(store: store)
       Divider()
       taskList(structure: structure, selectedTaskID: selectedTaskID, isSettledTailExpanded: isSettledTailExpanded)
     }
-  }
-
-  /// The discoverable half of ⌘N: the shortcut is the fast path, this is how
-  /// someone finds out it exists.
-  private var newTaskBar: some View {
-    let shortcut = AppShortcuts.newWorktree.effective(from: settingsFile.global.shortcutOverrides)
-    return Button {
-      store.send(.tasks(.presentCreationPrompt))
-    } label: {
-      Label("New Task", systemImage: "plus")
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(.rect)
-    }
-    .buttonStyle(.plain)
-    .padding(.horizontal, 12)
-    .padding(.vertical, 6)
-    .help("Capture a new task — name it and pick where it runs (\(shortcut?.display ?? "none"))")
   }
 
   private func taskList(
@@ -142,6 +124,32 @@ struct TasksSidebarView: View {
     }
     .buttonStyle(.plain)
     .help("Load the next page of settled tasks (\(hiddenCount) still hidden)")
+  }
+}
+
+/// The discoverable half of ⌘N: the shortcut is the fast path, this is how
+/// someone finds out it exists.
+///
+/// Its own view so the `@Shared(.settingsFile)` read stays here. On the panel
+/// itself, every settings write — any shortcut override, any unrelated global —
+/// would invalidate the whole List along with the bar (A10).
+private struct TasksNewTaskBar: View {
+  let store: StoreOf<RepositoriesFeature>
+  @Shared(.settingsFile) private var settingsFile
+
+  var body: some View {
+    let shortcut = AppShortcuts.newWorktree.effective(from: settingsFile.global.shortcutOverrides)
+    return Button {
+      store.send(.tasks(.presentCreationPrompt))
+    } label: {
+      Label("New Task", systemImage: "plus")
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(.rect)
+    }
+    .buttonStyle(.plain)
+    .padding(.horizontal, 12)
+    .padding(.vertical, 6)
+    .help("Capture a new task — name it and pick where it runs (\(shortcut?.display ?? "none"))")
   }
 }
 
