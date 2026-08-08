@@ -455,8 +455,8 @@ struct AppShortcutsTests {
 
   // MARK: - Task inbox shortcuts.
 
-  /// ⌃⌘, not ⌘⇧: the ⌘⇧ space is already dense (A T E B P R C O K U ⌫), and
-  /// ⌘⇧S/Z/K would read as Save/Undo relatives. The ⌃⌘ row is nearly empty —
+  /// ⌘⌃, not ⌘⇧: the ⌘⇧ space is already dense (A T E B P R C O K U ⌫), and
+  /// ⌘⇧S/Z/K would read as Save/Undo relatives. The ⌘⌃ row is nearly empty —
   /// only the arrows, brackets, G and A are spoken for.
   @Test func taskShortcutsUseControlCommandChords() {
     expectNoDifference(
@@ -466,7 +466,7 @@ struct AppShortcutsTests {
         AppShortcuts.snoozeTask.display,
         AppShortcuts.pinTask.display,
       ],
-      ["⌃⌘J", "⌃⌘S", "⌃⌘Z", "⌃⌘K"]
+      ["⌘⌃J", "⌘⌃S", "⌘⌃Z", "⌘⌃K"]
     )
     for shortcut in AppShortcuts.tasks {
       #expect(shortcut.modifiers == [.command, .control])

@@ -12,6 +12,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
   case newWorktree, refreshWorktrees, archivedWorktrees, archiveWorktree
   case deleteWorktree, confirmWorktreeAction
   case selectNextWorktree, selectPreviousWorktree
+  case jumpToNextTaskNeedingAttention, settleTask, snoozeTask, pinTask
   case worktreeHistoryBack, worktreeHistoryForward
   case selectWorktree(Int)
   case selectTab(Int)
@@ -60,6 +61,10 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     case .confirmWorktreeAction: "confirmWorktreeAction"
     case .selectNextWorktree: "selectNextWorktree"
     case .selectPreviousWorktree: "selectPreviousWorktree"
+    case .jumpToNextTaskNeedingAttention: "jumpToNextTaskNeedingAttention"
+    case .settleTask: "settleTask"
+    case .snoozeTask: "snoozeTask"
+    case .pinTask: "pinTask"
     case .worktreeHistoryBack: "worktreeHistoryBack"
     case .worktreeHistoryForward: "worktreeHistoryForward"
     case .selectWorktree(let index): "selectWorktree\(index)"
@@ -101,6 +106,10 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     "confirmWorktreeAction": .confirmWorktreeAction,
     "selectNextWorktree": .selectNextWorktree,
     "selectPreviousWorktree": .selectPreviousWorktree,
+    "jumpToNextTaskNeedingAttention": .jumpToNextTaskNeedingAttention,
+    "settleTask": .settleTask,
+    "snoozeTask": .snoozeTask,
+    "pinTask": .pinTask,
     "worktreeHistoryBack": .worktreeHistoryBack,
     "worktreeHistoryForward": .worktreeHistoryForward,
     "openWorktree": .openWorktree,
@@ -159,6 +168,10 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     case .confirmWorktreeAction: "Confirm Worktree Action"
     case .selectNextWorktree: "Select Next Worktree"
     case .selectPreviousWorktree: "Select Previous Worktree"
+    case .jumpToNextTaskNeedingAttention: "Jump to Next Task Needing You"
+    case .settleTask: "Settle Task"
+    case .snoozeTask: "Snooze Task"
+    case .pinTask: "Pin Task"
     case .worktreeHistoryBack: "Back in Worktree History"
     case .worktreeHistoryForward: "Forward in Worktree History"
     case .selectWorktree(let index): "Select Worktree \(index == 0 ? 10 : index)"
@@ -339,6 +352,7 @@ public enum AppShortcutCategory: String, CaseIterable, Sendable {
   case general
   case sidebar
   case worktrees
+  case tasks
   case worktreeSelection
   case tabSelection
   case actions
@@ -348,6 +362,7 @@ public enum AppShortcutCategory: String, CaseIterable, Sendable {
     case .general: "General"
     case .sidebar: "Sidebar"
     case .worktrees: "Worktrees"
+    case .tasks: "Tasks"
     case .worktreeSelection: "Worktree Selection"
     case .tabSelection: "Tab Selection"
     case .actions: "Actions"
@@ -432,6 +447,21 @@ public enum AppShortcuts {
     keyEquivalent: .rightArrow, ghosttyKeyName: "arrow_right", modifiers: [.command, .control]
   )
 
+  // The inbox's own chords. ⌃⌘ rather than ⌘⇧ because the ⌘⇧ row is already
+  // dense (A T E B P R C O K U ⌫), and ⌘⇧S/Z/K would read as Save/Undo
+  // relatives. Every one carries ⌘, which is what keeps them out of anybody's
+  // typing (A34): a chord with ⌘ is unbound in ghostty like every other app
+  // shortcut, so it survives a focused terminal without ever competing with a
+  // printable key.
+  public static let jumpToNextTaskNeedingAttention = AppShortcut(
+    id: .jumpToNextTaskNeedingAttention, key: "j", modifiers: [.command, .control]
+  )
+  public static let settleTask = AppShortcut(id: .settleTask, key: "s", modifiers: [.command, .control])
+  public static let snoozeTask = AppShortcut(id: .snoozeTask, key: "z", modifiers: [.command, .control])
+  // "Keep". ⌃⌘P was free and obvious, but ⌘P and ⌘⇧P are both palette-ish
+  // already and a third P is a footgun.
+  public static let pinTask = AppShortcut(id: .pinTask, key: "k", modifiers: [.command, .control])
+
   public static let selectWorktree1 = AppShortcut(id: .selectWorktree(1), key: "1", modifiers: [.control])
   public static let selectWorktree2 = AppShortcut(id: .selectWorktree(2), key: "2", modifiers: [.control])
   public static let selectWorktree3 = AppShortcut(id: .selectWorktree(3), key: "3", modifiers: [.control])
@@ -477,6 +507,10 @@ public enum AppShortcuts {
   public static let terminalGridOverview = AppShortcut(
     id: .terminalGridOverview, key: "o", modifiers: [.command, .option]
   )
+
+  public static let tasks: [AppShortcut] = [
+    jumpToNextTaskNeedingAttention, settleTask, snoozeTask, pinTask,
+  ]
 
   public static let worktreeSelection: [AppShortcut] = [
     selectWorktree1, selectWorktree2, selectWorktree3, selectWorktree4, selectWorktree5,
@@ -536,6 +570,7 @@ public enum AppShortcuts {
         worktreeHistoryBack, worktreeHistoryForward,
       ]
     ),
+    AppShortcutGroup(category: .tasks, shortcuts: tasks),
     AppShortcutGroup(category: .worktreeSelection, shortcuts: worktreeSelection),
     AppShortcutGroup(category: .tabSelection, shortcuts: tabSelection),
     AppShortcutGroup(
