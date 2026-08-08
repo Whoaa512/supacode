@@ -98,6 +98,20 @@ public struct RepositorySettingsView: View {
           Text("Used when merging PRs from the command palette.")
         }
       }
+      Section("Tasks") {
+        Picker(selection: settings.taskDirectoryIsolation) {
+          // Absent is a third answer, not a synonym for either: it is what makes
+          // the conflict sheet appear exactly once per repository, so it has to
+          // be pickable again rather than only reachable by deleting the key.
+          Text("Ask the first time").tag(TaskDirectoryIsolation?.none)
+          ForEach(TaskDirectoryIsolation.allCases) { isolation in
+            Text(isolation.title).tag(TaskDirectoryIsolation?.some(isolation))
+          }
+        } label: {
+          Text("New task in a busy directory")
+          Text("What a capture does when another task is already working there.")
+        }
+      }
       Section("Environment Variables") {
         ScriptEnvironmentRow(
           name: "SUPACODE_WORKTREE_PATH",
