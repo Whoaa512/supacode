@@ -15,6 +15,11 @@ import SwiftUI
 /// observation-track every task and fan every tick out to the whole List.
 struct TasksSidebarView: View {
   @Bindable var store: StoreOf<RepositoriesFeature>
+  /// Read here only to *notice* a change: the reducer re-reads app storage when
+  /// it recomputes, so these are change detectors, not the source of truth.
+  @Shared(.taskAutoSettleEnabled) private var isAutoSettleEnabled
+  @Shared(.taskAutoSettleOnFinishedPullRequest) private var settlesOnFinishedPullRequest
+  @Shared(.taskInactivityWindowDays) private var inactivityWindowDays
 
   var body: some View {
     let structure = store.tasksSidebarStructure
@@ -108,6 +113,20 @@ struct TasksSidebarView: View {
     }
     .listStyle(.sidebar)
     .frame(minWidth: 220)
+    // Mirrors `SidebarListView`'s grouping-toggle dispatch: the settle policy
+    // lives in app storage, so flipping it in the settings window has to tell
+    // this reducer to re-partition. Waiting for the 60s classification tick
+    // would leave the list disagreeing with the switch the user just flipped
+    // (A30).
+    .onChange(of: isAutoSettleEnabled, initial: false) { _, _ in
+      store.send(.tasks(.autoSettleSettingsChanged))
+    }
+    .onChange(of: settlesOnFinishedPullRequest, initial: false) { _, _ in
+      store.send(.tasks(.autoSettleSettingsChanged))
+    }
+    .onChange(of: inactivityWindowDays, initial: false) { _, _ in
+      store.send(.tasks(.autoSettleSettingsChanged))
+    }
   }
 
   /// Native list highlight, with clicks and keyboard both routed through
@@ -255,7 +274,16 @@ private struct TaskSidebarRowView: View {
         branch: record?.branch,
         isLowConfidenceSeed: (record?.seedEvidence).map { $0.confidence != .high } ?? false,
         hasUnseenNotifications: leaf?.hasUnseenNotifications == true,
-        activity: TaskRowActivity(leaf: leaf),
+        status: leaf?.status ?? .ready,
+        isDormant: leaf?.allSurfacesDormant == true,
+        // A28: the row fades only when the leaf says nothing is owed. The two
+        // statuses parked on a person can never reach this as `true`, which is
+        // the whole reason the predicate lives in `TaskAttention` rather than
+        // being re-spelled here.
+        isReceded: leaf?.isReceded ?? false,
+        isDoneUnread: leaf?.isDoneUnread == true,
+        workingSince: leaf?.workingSince,
+        pullRequest: leaf?.pullRequest ?? .none,
         childAgents: leaf?.childAgents ?? [],
         settledTimestamp: settledTimestamp,
         isSettled: isSettled,
@@ -368,54 +396,73 @@ private struct TaskSidebarRowView: View {
   }
 }
 
-/// What a row shows about activity. A tiny value rather than the leaf itself so
-/// the presentational view can't reach for anything else, and so the dot's
-/// precedence (error beats working) lives in one place.
-private enum TaskRowActivity: Equatable {
-  case error
-  case working
-  case dormant
-  case none
-
-  init(leaf: TaskLeafState?) {
-    guard let leaf else {
-      self = .none
-      return
-    }
-    if leaf.agentSnapshot.hasError {
-      self = .error
-    } else if leaf.agentSnapshot.isWorking {
-      self = .working
-    } else if leaf.allSurfacesDormant {
-      self = .dormant
-    } else {
-      self = .none
-    }
-  }
-
-  var systemImage: String? {
+/// How the row draws the one status it reports (A27).
+///
+/// A presentation extension on the model rather than a parallel enum: a second
+/// vocabulary would eventually gain a sixth case the classification rules do
+/// not have, and "exactly one status per task" would stop being true of what
+/// the user actually sees.
+extension TaskStatusModel.Status {
+  /// `nil` for `ready`, which is the absence of news and draws nothing.
+  fileprivate var systemImage: String? {
     switch self {
-    case .error: "exclamationmark.circle.fill"
+    case .approval: "hand.raised.fill"
+    case .input: "questionmark.bubble.fill"
     case .working: "circle.fill"
-    case .dormant: "moon.zzz"
-    case .none: nil
+    case .failed: "exclamationmark.circle.fill"
+    case .ready: nil
     }
   }
 
-  var style: AnyShapeStyle {
+  fileprivate var style: AnyShapeStyle {
     switch self {
-    case .error: AnyShapeStyle(.red)
+    case .approval, .input: AnyShapeStyle(.orange)
     case .working: AnyShapeStyle(.tint)
-    case .dormant, .none: AnyShapeStyle(.secondary)
+    case .failed: AnyShapeStyle(.red)
+    case .ready: AnyShapeStyle(.secondary)
     }
   }
 
-  var help: String {
+  fileprivate var help: String {
     switch self {
-    case .error: "An agent on this task reported an error"
+    case .approval: "An agent on this task is waiting for you to approve something"
+    case .input: "An agent on this task is waiting on you"
     case .working: "An agent is working on this task"
-    case .dormant: "Every session for this task is hibernated"
-    case .none: "No agent activity reported"
+    case .failed: "An agent on this task reported an error"
+    case .ready: "No agent activity reported"
+    }
+  }
+}
+
+/// How the row draws what it knows about the pull request (A29).
+///
+/// Only the three *known* states draw: `loading` and `failed` are readings of
+/// our own pipeline, and a glyph for "we have not asked yet" is a glyph that
+/// says nothing while looking like it says something.
+extension TaskPullRequestState {
+  fileprivate var systemImage: String? {
+    switch self {
+    case .open: "arrow.triangle.pull"
+    case .merged: "arrow.triangle.merge"
+    case .closed: "xmark.circle"
+    case .none, .loading, .failed, .unknown: nil
+    }
+  }
+
+  fileprivate var style: AnyShapeStyle {
+    switch self {
+    case .open: AnyShapeStyle(.green)
+    case .merged: AnyShapeStyle(.purple)
+    default: AnyShapeStyle(.secondary)
+    }
+  }
+
+  fileprivate var help: String {
+    switch self {
+    case .open: "This task has an open pull request"
+    case .merged: "This task's pull request was merged"
+    case .closed: "This task's pull request was closed without merging"
+    case .none, .loading, .failed, .unknown: ""
     }
   }
 }
@@ -430,7 +477,21 @@ private struct TaskSidebarRowContentView: View {
   let branch: String?
   let isLowConfidenceSeed: Bool
   let hasUnseenNotifications: Bool
-  let activity: TaskRowActivity
+  /// The one status this task reports (A27).
+  let status: TaskStatusModel.Status
+  /// Every owned session is hibernated. Orthogonal to `status`: a sleeping task
+  /// is still `ready`, it just has nothing awake to be ready with.
+  let isDormant: Bool
+  /// Nothing on this row is owed a person, so it may fade (A28). Resolved by
+  /// the leaf, never re-derived here — the row's contrast and the keyboard's
+  /// jump target have to agree, and two spellings eventually would not.
+  let isReceded: Bool
+  /// A turn finished after the user's last visit. The Done pill's whole signal.
+  let isDoneUnread: Bool
+  /// When the current turn started, for the elapsed timer. `nil` renders no
+  /// timer at all rather than a fabricated 0s (Resolved #5).
+  let workingSince: Date?
+  let pullRequest: TaskPullRequestState
   /// Hook-reported agents on this task's surfaces (A22). Empty is the common
   /// case and renders nothing.
   let childAgents: [TaskLeafState.ChildAgent]
@@ -467,8 +528,20 @@ private struct TaskSidebarRowContentView: View {
           }
           Text(title)
             .font(isSettled ? .callout : .body)
+            // A28's soft half: a quiet row steps back in weight as well as in
+            // contrast, so the rows that still want something read as the
+            // foreground of the list rather than as merely un-dimmed.
+            .fontWeight(isReceded ? .light : .regular)
             .lineLimit(1)
             .truncationMode(.middle)
+          if isDoneUnread {
+            Text("Done")
+              .font(.caption2)
+              .padding(.horizontal, 5)
+              .padding(.vertical, 1)
+              .background(.green.opacity(0.2), in: .capsule)
+              .help("An agent finished a turn on this task while you weren't looking")
+          }
           if isWoke {
             Text("Woke")
               .font(.caption2)
@@ -506,6 +579,9 @@ private struct TaskSidebarRowContentView: View {
       if let wakeAt {
         Self.wakeCountdown(wakeAt)
       }
+      if let workingSince {
+        Self.workingElapsed(workingSince)
+      }
       if hasUnseenNotifications {
         Image(systemName: "bell.badge.fill")
           .font(.caption)
@@ -513,15 +589,33 @@ private struct TaskSidebarRowContentView: View {
           .accessibilityLabel("Unread terminal notification")
           .help("A terminal on this task posted a notification you haven't seen")
       }
-      if let systemImage = activity.systemImage {
+      if let systemImage = pullRequest.systemImage {
         Image(systemName: systemImage)
           .font(.caption)
-          .foregroundStyle(activity.style)
-          .accessibilityLabel(activity.help)
-          .help(activity.help)
+          .foregroundStyle(pullRequest.style)
+          .accessibilityLabel(pullRequest.help)
+          .help(pullRequest.help)
+      }
+      if isDormant {
+        Image(systemName: "moon.zzz")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .accessibilityLabel("Hibernated")
+          .help("Every session for this task is hibernated")
+      }
+      if let systemImage = status.systemImage {
+        Image(systemName: systemImage)
+          .font(.caption)
+          .foregroundStyle(status.style)
+          .accessibilityLabel(status.help)
+          .help(status.help)
       }
     }
     .foregroundStyle(isSettled ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+    // A28: the fade is a *sibling* of the settled treatment, not a replacement
+    // — a settled row is history and a receded one is merely quiet, and a row
+    // that is both should read as further back than either alone.
+    .opacity(isReceded ? 0.7 : 1)
     .accessibilityElement(children: .combine)
   }
 
@@ -541,6 +635,25 @@ private struct TaskSidebarRowContentView: View {
         .foregroundStyle(.secondary)
         .lineLimit(1)
         .help("When this task comes back on its own")
+    }
+  }
+
+  /// How long the current turn has been running, counted from the hook's own
+  /// start instant (Resolved #5).
+  ///
+  /// Leaf-local `TimelineView`, for exactly the reason the wake countdown is
+  /// one: only rows that are actually working carry a schedule, and the redraw
+  /// is one `Text` — not the row, the section, or the List. Anchored on
+  /// `workingSince` rather than on a duration, so the count survives every
+  /// redraw between ticks.
+  private static func workingElapsed(_ workingSince: Date) -> some View {
+    TimelineView(.periodic(from: .now, by: 1)) { _ in
+      Text(workingSince, format: .relative(presentation: .numeric))
+        .font(.caption)
+        .monospaced()
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .help("How long this task's current turn has been running")
     }
   }
 
