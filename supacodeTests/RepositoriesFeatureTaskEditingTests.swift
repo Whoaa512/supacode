@@ -61,9 +61,10 @@ struct RepositoriesFeatureTaskEditingTests {
     let rowID = WorktreeID(directory.path(percentEncoded: false))
 
     await store.send(.tasks(.openTerminal(stranded.id)))
-    await store.receive(\.tasks.select)
-    await store.receive(\.selectionChanged)
     await store.receive(\.delegate.openTaskTerminal)
+    // The selection hop rides along; drained rather than ordered because the
+    // merge order between the two is not part of the contract.
+    await store.skipReceivedActions(strict: false)
     await store.finish()
 
     // The request names the older, surface-less task — `AppFeatureTaskTerminalTests`
@@ -118,6 +119,80 @@ struct RepositoriesFeatureTaskEditingTests {
     await store.finish()
 
     #expect(store.state.selection?.taskID == nil)
+  }
+
+  // MARK: - Delete
+
+  /// A26, applied to delete: the open row leaving takes the selection forward to
+  /// the next visible task rather than dropping the user on nothing.
+  @Test func deletingTheOpenTaskForwardsTheSelectionAndPersists() async throws {
+    let sandbox = try makeSandbox()
+    let directory = try sandbox.makeDirectory("fresh", activityAt: TaskInboxFixture.freshDate)
+    var state = TaskInboxFixture.makeState(sandbox: sandbox, directories: [directory], hasLoadedTasks: true)
+    let doomed = TaskInboxFixture.makeRecord(directory: directory, createdAt: TaskInboxFixture.freshDate)
+    let survivor = TaskInboxFixture.makeRecord(
+      directory: directory,
+      createdAt: TaskInboxFixture.freshDate.addingTimeInterval(-600)
+    )
+    state.taskRecords = [doomed, survivor]
+    state.selection = .task(doomed.id)
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(.tasks(.requestDelete(doomed.id)))
+    #expect(store.state.alert != nil)
+
+    await store.send(.alert(.presented(.confirmDeleteTask(doomed.id))))
+    await store.receive(\.tasks.select)
+    await store.receive(\.selectionChanged)
+    await store.finish()
+
+    #expect(store.state.alert == nil)
+    #expect(store.state.taskRecords.map(\.id) == [survivor.id])
+    #expect(store.state.selection?.taskID == survivor.id)
+    // The leaf goes with the record; a leaf for a task that is gone is a leak
+    // nothing else prunes.
+    #expect(store.state.taskLeaves[id: doomed.id] == nil)
+    let persisted = try #require(sandbox.loadFile())
+    #expect(persisted.tasks.map(\.id) == [survivor.id])
+  }
+
+  /// The last row leaving clears the selection rather than leaving it pointing
+  /// at a record that no longer exists.
+  @Test func deletingTheLastTaskClearsTheSelection() async throws {
+    let sandbox = try makeSandbox()
+    let directory = try sandbox.makeDirectory("fresh", activityAt: TaskInboxFixture.freshDate)
+    var state = TaskInboxFixture.makeState(sandbox: sandbox, directories: [directory], hasLoadedTasks: true)
+    let record = TaskInboxFixture.makeRecord(directory: directory)
+    state.taskRecords = [record]
+    state.selection = .task(record.id)
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(.alert(.presented(.confirmDeleteTask(record.id))))
+    await store.finish()
+
+    #expect(store.state.taskRecords.isEmpty)
+    #expect(store.state.selection == nil)
+  }
+
+  /// Resolved #9: the auto-managed delete is only ever authorized by a settle,
+  /// with its preconditions re-checked. Forgetting the record orphans that
+  /// worktree by design, so the confirmation has to say so up front.
+  @Test func deleteConfirmationNamesAnOrphanedAutoManagedWorktree() throws {
+    let sandbox = try makeSandbox()
+    let directory = try sandbox.makeDirectory("fresh", activityAt: TaskInboxFixture.freshDate)
+    var record = TaskInboxFixture.makeRecord(directory: directory)
+    let plain = RepositoriesFeature.taskDeletionAlert(for: record)
+    record.autoManagedWorktree = TaskRecord.AutoManagedWorktree(
+      path: TaskDirectoryPath.canonical(directory),
+      branch: "task/fresh",
+      createdAt: Self.now
+    )
+    let orphaning = RepositoriesFeature.taskDeletionAlert(for: record)
+
+    #expect(!String(state: plain.message ?? TextState("")).contains("auto-created worktree"))
+    #expect(String(state: orphaning.message ?? TextState("")).contains("auto-created worktree"))
   }
 
   // MARK: - Rename

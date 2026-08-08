@@ -580,6 +580,10 @@ extension RepositoriesFeature.Action {
     // The remaining alert arms only clear `state.alert` and forward an action;
     // the forwarded action declares its own invalidations. Listed one by one so a
     // new alert that mutates a row cannot default into this bucket.
+    // Drops a task record, which rewrites the Tasks render plan and can move the
+    // selection off the row that is leaving.
+    case .alert(.presented(.confirmDeleteTask)):
+      return [.sidebarStructure, .selectedWorktreeSlice, .sidebarSelectionSlice]
     case .alert(.presented(.confirmArchiveWorktree)),
       .alert(.presented(.confirmArchiveWorktrees)),
       .alert(.presented(.confirmRemoveFailedRepository)),

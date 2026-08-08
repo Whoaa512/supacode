@@ -535,6 +535,8 @@ private struct TaskSidebarRowView: View {
       openTerminalMenuItem(hasDirectoryRow: leaf?.hasDirectoryRow ?? false)
       Button("Rename Task…") { store.send(.tasks(.presentRenamePrompt(taskID))) }
         .help("Retitle this task. The title is what the sidebar and the filter show.")
+      Button("Delete Task…", role: .destructive) { store.send(.tasks(.requestDelete(taskID))) }
+        .help("Forget this task. Its sessions, files and directory are left exactly as they are.")
     }
   }
 

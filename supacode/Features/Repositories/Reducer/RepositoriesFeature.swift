@@ -699,6 +699,10 @@ struct RepositoriesFeature {
     case confirmArchiveWorktrees([ArchiveWorktreeTarget])
     case confirmDeleteSidebarItems([DeleteWorktreeTarget], disposition: DeleteDisposition)
     case confirmDeleteRepository(Repository.ID)
+    /// Forget one task record. Nothing on disk and no session is touched — the
+    /// confirmation says so, because "delete" next to a worktree-shaped row
+    /// reads like it removes the directory.
+    case confirmDeleteTask(TaskID)
     case confirmRemoveFailedRepository(Repository.ID)
     case viewTerminalTab(Worktree.ID, tabId: TerminalTabID)
   }

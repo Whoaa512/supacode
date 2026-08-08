@@ -137,6 +137,9 @@ extension RepositoriesFeature {
     /// it but leads nowhere. A settled task is unsettled on the way, because
     /// asking for its terminal is saying it is not finished after all.
     case openTerminal(TaskID)
+    /// Ask before forgetting a task. The confirmation is not ceremony: the row
+    /// looks like a worktree, so "Delete" has to say what it does *not* touch.
+    case requestDelete(TaskID)
     /// Open the rename question for a task row.
     case presentRenamePrompt(TaskID)
     case cancelRenamePrompt
@@ -618,10 +621,47 @@ extension RepositoriesFeature {
           state.taskRecords[id: id]?.settledAt = nil
           state.taskRecords[id: id]?.settledOverride = nil
         }
-        return .merge(
+        // `.concatenate`, not `.merge`, for the reason creation applies its
+        // selection inline (A4): the terminal request has to leave with the task
+        // already open, or the tab arrives behind a row the user is not on.
+        return .concatenate(
           .send(.tasks(.select(id))),
           .send(.delegate(terminal))
         )
+
+      case .tasks(.requestDelete(let id)):
+        guard let record = state.taskRecords[id: id] else { return .none }
+        state.alert = Self.taskDeletionAlert(for: record)
+        return .none
+
+      case .alert(.presented(.confirmDeleteTask(let id))):
+        guard let record = state.taskRecords[id: id] else {
+          state.alert = nil
+          return .none
+        }
+        state.alert = nil
+        // Computed before the removal, over the order the user could see — the
+        // same rule a settle follows (A26), so a delete leaves the selection on
+        // the row below rather than on nothing.
+        let forwardTarget = state.taskForwardNavigationTarget(leaving: id)
+        let wasOpen = state.selection?.taskID == id
+        // The record is all that goes. Its worktree, its sessions and its
+        // scrollback are somebody else's property — an auto-managed worktree
+        // included, which is why the alert says the directory is left behind
+        // rather than quietly deleting it on the way out (Resolved #9 only ever
+        // authorizes that delete on a *settle*, where the preconditions are
+        // re-checked).
+        state.taskRecords.remove(id: id)
+        var effects: [Effect<Action>] = [Self.persistTasksEffect(state: state)]
+        if let forwardTarget {
+          effects.append(.send(.tasks(.select(forwardTarget))))
+        } else if wasOpen {
+          // Nowhere to go: the inbox is empty, or the deleted row was the last
+          // one. A selection left pointing at a record that is gone renders a
+          // detail pane for nothing.
+          state.selection = nil
+        }
+        return .merge(effects)
 
       case .tasks(.presentRenamePrompt(let id)):
         guard let record = state.taskRecords[id: id] else { return .none }
@@ -1149,6 +1189,35 @@ extension RepositoriesFeature {
       return false
     }
     return true
+  }
+
+  /// The confirmation for forgetting a task.
+  ///
+  /// The message spends its words on what is *not* removed: a task row looks
+  /// like a worktree row, and "Delete" beside one reads as a directory delete
+  /// until it says otherwise. An auto-managed worktree is named explicitly —
+  /// deleting the record orphans that directory by design (nothing else will
+  /// ever authorize removing it), and the user deserves to hear that before
+  /// rather than to find it later.
+  static func taskDeletionAlert(for record: TaskRecord) -> AlertState<Alert> {
+    let orphaned =
+      record.autoManagedWorktree != nil
+      ? " Its auto-created worktree will be left in place." : ""
+    return AlertState {
+      TextState("Delete “\(record.title)”?")
+    } actions: {
+      ButtonState(role: .destructive, action: .confirmDeleteTask(record.id)) {
+        TextState("Delete Task")
+      }
+      ButtonState(role: .cancel) {
+        TextState("Cancel")
+      }
+    } message: {
+      TextState(
+        "Removes this task from the inbox. Its terminal sessions, files and directory stay "
+          + "exactly as they are.\(orphaned)"
+      )
+    }
   }
 
   // MARK: - Wake clocks
@@ -2134,7 +2203,7 @@ extension RepositoriesFeature.TaskInboxAction {
       .classificationTick, .wakeBoundaryReached, .agentSnapshotChanged,
       .autoSettleSettingsChanged, .stopTimers,
       .presentCreationPrompt, .setConflictRemember, .cancelDirectoryConflict,
-      .presentRenamePrompt, .cancelRenamePrompt, .renameTask, .openTerminal,
+      .presentRenamePrompt, .cancelRenamePrompt, .renameTask, .openTerminal, .requestDelete,
       .autoManagedWorktreeCreationFailed, .cleanupAutoManagedWorktree,
       .autoManagedWorktreeCleanupFinished:
       return false
@@ -2160,7 +2229,10 @@ extension RepositoriesFeature.TaskInboxAction {
       return []
     // Presentation only: the prompts are state no cache projects.
     case .presentCreationPrompt, .setConflictRemember, .cancelDirectoryConflict,
-      .presentRenamePrompt, .cancelRenamePrompt:
+      .presentRenamePrompt, .cancelRenamePrompt,
+      // Opens the confirmation and nothing else; the removal itself rides the
+      // alert action, which declares its own bits.
+      .requestDelete:
       return []
     // Effect launcher: it touches neither a record nor the roster.
     case .cleanupAutoManagedWorktree:
@@ -2218,7 +2290,7 @@ extension RepositoriesFeature.TaskInboxAction {
     // Presentation only: these change what the user is looking at, never when
     // it happened.
     case .setSearchQuery, .setSettledTailExpanded, .expandSettledTail,
-      .setSnoozedShelfExpanded, .setConflictRemember,
+      .setSnoozedShelfExpanded, .setConflictRemember, .requestDelete,
       // A rename writes no stamp and moves no row: re-timing the inbox because
       // someone retitled a task would age every other row for free.
       .presentRenamePrompt, .cancelRenamePrompt, .renameTask:
