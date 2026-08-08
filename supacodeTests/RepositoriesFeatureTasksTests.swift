@@ -420,7 +420,7 @@ struct RepositoriesFeatureTasksTests {
   }
 
   /// Search is presentation, not lifecycle: it must never write a record or
-  /// touch `tasks.json`. The sandbox's storage records an issue if a save runs.
+  /// touch `tasks.json`. The sandbox's save spy is what proves the second half.
   @Test func searchDoesNotSelectOrPersistAnything() async throws {
     let sandbox = try makeSandbox()
     let mine = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
@@ -438,6 +438,7 @@ struct RepositoriesFeatureTasksTests {
     #expect(store.state.tasksSidebarStructure.visibleTaskIDs.isEmpty)
     #expect(store.state.taskRecords[id: record.id] == record)
     #expect(store.state.selection == priorSelection)
+    #expect(sandbox.didWriteTasksFile == false)
   }
 
   /// Search rebuilds the structure but must not re-time it: `taskNow` is the
