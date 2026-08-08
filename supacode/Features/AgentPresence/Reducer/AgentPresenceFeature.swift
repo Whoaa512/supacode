@@ -59,13 +59,13 @@ struct AgentPresenceFeature {
     var agents: [AgentInstance] = []
     var isWorking = false
     var hasError = false
-    /// When the newest errored record on these surfaces last reported. The
+    /// When the newest errored record on these surfaces *entered* `.error`. The
     /// task inbox needs the *instant* of the failure, not just the fact of it:
     /// only an error newer than a snooze re-surfaces a parked row (A25).
     /// Deliberately not gated by the badge toggle — a display preference must
     /// not silently disable a wake signal.
     var errorAt: Date?
-    /// When the newest turn that ended unseen on these surfaces reported.
+    /// When the newest turn that ended unseen on these surfaces *ended*.
     /// Cleared by focus, exactly like `isDoneUnseen`, so a finished turn the
     /// user already looked at stops holding a row out of the snoozed shelf.
     var completedTurnAt: Date?
@@ -82,6 +82,17 @@ struct AgentPresenceFeature {
     /// Set when a working turn ends on an unfocused surface; cleared by focus
     /// (`clearAttention`) or by the next turn (`busy` / `sessionStart`).
     var isDoneUnseen = false
+    /// The instant of the transition *into* `.error`, not the last time this
+    /// record heard anything. Every hook event refreshes `lastEventAt` — a
+    /// `Notification` on a dead session does it without changing state at all —
+    /// so reading the failure instant off `lastEventAt` makes an error look
+    /// perpetually fresh and re-wakes a snoozed task forever. Cleared when the
+    /// record leaves `.error`.
+    var erroredAt: Date?
+    /// The instant the working turn ended, stamped where `isDoneUnseen` latches.
+    /// Same reasoning as `erroredAt`: the completion instant must not slide
+    /// forward on unrelated traffic. Cleared wherever `isDoneUnseen` clears.
+    var turnCompletedAt: Date?
     /// Local pids attributed to this record. Empty means the OSC presence was
     /// emitted without a local pid (SSH attach); `pids.isEmpty` is the
     /// discriminator for the pid-less lifecycle branches below. Every event
@@ -400,10 +411,12 @@ struct AgentPresenceFeature {
     var changed = false
     if record.isDoneUnseen {
       record.isDoneUnseen = false
+      record.turnCompletedAt = nil
       changed = true
     }
     guard record.activity == .error || record.activity == .compacting else { return changed }
     record.activity = .idle
+    record.erroredAt = nil
     return true
   }
 
@@ -419,8 +432,12 @@ struct AgentPresenceFeature {
     var changed: Set<UUID> = []
     for (key, record) in state.records where surfaces.contains(key.surfaceID) {
       var updated = record
-      if record.activity.isAttention { updated.activity = .idle }
+      if record.activity.isAttention {
+        updated.activity = .idle
+        updated.erroredAt = nil
+      }
       updated.isDoneUnseen = false
+      updated.turnCompletedAt = nil
       guard updated != record else { continue }
       state.records[key] = updated
       changed.insert(key.surfaceID)
@@ -449,15 +466,19 @@ struct AgentPresenceFeature {
       // user isn't looking at that surface; a new turn clears it.
       if record.activity.isWorking, activity == .idle {
         record.isDoneUnseen = !state.focusedSurfaceIDs.contains(key.surfaceID)
+        record.turnCompletedAt = record.isDoneUnseen ? event.timestamp : nil
       } else if activity == .busy {
         record.isDoneUnseen = false
+        record.turnCompletedAt = nil
       }
+      record.erroredAt = activity == .error ? event.timestamp : nil
       record.activity = activity
       state.records[key] = record
       return true
     }
     guard event.pid == nil, activity != .idle else { return false }
-    state.records[key] = PresenceRecord(activity: activity, pids: [])
+    state.records[key] = PresenceRecord(
+      activity: activity, erroredAt: activity == .error ? event.timestamp : nil, pids: [])
     rebuildPresence(forSurface: event.surfaceID, in: &state)
     return true
   }
@@ -829,10 +850,10 @@ extension AgentPresenceFeature.State {
       if record.activity.isWorking { isWorking = true }
       if record.activity == .error, badgesEnabled { hasError = true }
       if record.activity == .error {
-        errorAt = Self.newest(errorAt, record.lastEventAt)
+        errorAt = Self.newest(errorAt, record.erroredAt)
       }
       if record.isDoneUnseen {
-        completedTurnAt = Self.newest(completedTurnAt, record.lastEventAt)
+        completedTurnAt = Self.newest(completedTurnAt, record.turnCompletedAt)
       }
     }
     return AgentPresenceFeature.RowSnapshot(

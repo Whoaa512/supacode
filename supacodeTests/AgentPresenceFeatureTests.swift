@@ -178,6 +178,104 @@ struct AgentPresenceFeatureTests {
     #expect(!harness.state.rowSnapshot(across: [surfaceID], badgesEnabled: false).hasError)
   }
 
+  @Test func errorInstantSurvivesLaterUnrelatedEvents() {
+    // The task inbox only re-wakes a snoozed row for a failure NEWER than the
+    // snooze (A25). Reading the instant off the record's last-event timestamp
+    // made every error look like it just happened: Claude's 60s-idle
+    // `Notification` — and an `awaiting_input` the dead-turn guard rejects —
+    // both refresh that field without changing state, so a parked task would
+    // pop back every minute forever.
+    var harness = Harness()
+    let surfaceID = UUID()
+    let pid = getpid()
+    let failedAt = Date(timeIntervalSince1970: 1_000)
+
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(
+      .hookEventReceived(makeEvent(.error, agent: .claude, surfaceID: surfaceID, pid: pid, at: failedAt)))
+    #expect(harness.state.rowSnapshot(across: [surfaceID], badgesEnabled: true).errorAt == failedAt)
+
+    let later = failedAt.addingTimeInterval(60)
+    harness.send(
+      .hookEventReceived(
+        makeEvent(rawEventName: "notification", agent: .claude, surfaceID: surfaceID, pid: pid, at: later)))
+    harness.send(
+      .hookEventReceived(
+        makeEvent(.awaitingInput, agent: .claude, surfaceID: surfaceID, pid: pid, at: later)))
+
+    let snapshot = harness.state.rowSnapshot(across: [surfaceID], badgesEnabled: true)
+    #expect(snapshot.hasError)
+    #expect(snapshot.errorAt == failedAt)
+  }
+
+  @Test func completedTurnInstantSurvivesLaterUnrelatedEvents() {
+    // Same failure mode on the done-unseen side: the turn ended once, and the
+    // pill's age must count from that instant, not from whatever the session
+    // said last. `awaiting_input` after an unseen completion leaves
+    // `isDoneUnseen` latched, so the stamp has to hold.
+    var harness = Harness()
+    let surfaceID = UUID()
+    let pid = getpid()
+    let finishedAt = Date(timeIntervalSince1970: 2_000)
+
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(
+      .hookEventReceived(makeEvent(.idle, agent: .claude, surfaceID: surfaceID, pid: pid, at: finishedAt)))
+    #expect(harness.state.rowSnapshot(across: [surfaceID], badgesEnabled: true).completedTurnAt == finishedAt)
+
+    let later = finishedAt.addingTimeInterval(60)
+    harness.send(
+      .hookEventReceived(
+        makeEvent(rawEventName: "notification", agent: .claude, surfaceID: surfaceID, pid: pid, at: later)))
+    harness.send(
+      .hookEventReceived(
+        makeEvent(.awaitingInput, agent: .claude, surfaceID: surfaceID, pid: pid, at: later)))
+
+    #expect(harness.state.rowSnapshot(across: [surfaceID], badgesEnabled: true).completedTurnAt == finishedAt)
+  }
+
+  @Test func focusClearsBothStampedInstants() {
+    // Focus answers the error and marks the completion seen, so the instants
+    // that hold a row out of the snoozed shelf must go with them.
+    var harness = Harness()
+    let surfaceID = UUID()
+    let pid = getpid()
+
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(
+      .hookEventReceived(
+        makeEvent(.error, agent: .claude, surfaceID: surfaceID, pid: pid, at: Date(timeIntervalSince1970: 10))))
+
+    harness.send(.clearAttention(surfaces: [surfaceID]))
+
+    let snapshot = harness.state.rowSnapshot(across: [surfaceID], badgesEnabled: true)
+    #expect(!snapshot.hasError)
+    #expect(snapshot.errorAt == nil)
+    #expect(snapshot.completedTurnAt == nil)
+  }
+
+  @Test func newTurnClearsTheCompletedTurnInstant() {
+    // A `busy` is a new turn: the previous completion is no longer pending, so
+    // its stamp must not linger and keep the row out of the snoozed shelf.
+    var harness = Harness()
+    let surfaceID = UUID()
+    let pid = getpid()
+
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(
+      .hookEventReceived(
+        makeEvent(.idle, agent: .claude, surfaceID: surfaceID, pid: pid, at: Date(timeIntervalSince1970: 20))))
+    harness.send(
+      .hookEventReceived(
+        makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: pid, at: Date(timeIntervalSince1970: 30))))
+
+    #expect(harness.state.rowSnapshot(across: [surfaceID], badgesEnabled: true).completedTurnAt == nil)
+  }
+
   @Test func awaitingInputWithoutPidLazilyCreatesAwaitingRecord() {
     // A remote agent's awaiting-input OSC arrives with no pid and possibly no
     // prior session_start; it must still light the badge.
@@ -1524,6 +1622,23 @@ struct AgentPresenceFeatureTests {
     activity: String = "idle"
   ) -> TerminalLayoutSnapshot.SurfaceAgentRecord {
     TerminalLayoutSnapshot.SurfaceAgentRecord(agent: agent.rawValue, pids: pids, activity: activity)
+  }
+
+  /// Same wire event, but carrying the hook's `ts`. The stamped-instant tests
+  /// need to distinguish "when this happened" from "when we last heard anything".
+  private func makeEvent(
+    rawEventName: String, agent: SkillAgent, surfaceID: UUID, pid: pid_t? = nil, at timestamp: Date
+  ) -> AgentHookEvent {
+    AgentHookEvent(
+      agent: agent.rawValue, event: rawEventName, surfaceID: surfaceID, pid: pid,
+      timestamp: timestamp)
+  }
+
+  private func makeEvent(
+    _ name: AgentHookEvent.EventName, agent: SkillAgent, surfaceID: UUID, pid: pid_t? = nil,
+    at timestamp: Date
+  ) -> AgentHookEvent {
+    makeEvent(rawEventName: name.rawValue, agent: agent, surfaceID: surfaceID, pid: pid, at: timestamp)
   }
 
   private func makeEvent(
