@@ -716,21 +716,26 @@ struct AppFeature {
       case .repositories(
         .delegate(.hibernateTaskSurfaces(let worktreeID, let surfaceIDs, let protectedSurfaceIDs))):
         guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
-        return .run { _ in
-          var targets: Set<TerminalTabID> = []
-          for surfaceID in surfaceIDs {
-            guard let tabID = await terminalClient.tabID(worktree.id, surfaceID) else { continue }
-            targets.insert(tabID)
-          }
-          // The A7 guarantee, in one line: a tab holding any other task's surface
-          // drops out of the target set before anything hibernates.
-          for surfaceID in protectedSurfaceIDs {
-            guard let tabID = await terminalClient.tabID(worktree.id, surfaceID) else { continue }
-            targets.remove(tabID)
-          }
-          guard !targets.isEmpty else { return }
-          await terminalClient.send(.hibernateTabs(worktree, tabIDs: targets))
+        // Synchronous, not `.run`: the settle concatenates its auto-managed
+        // cleanup behind this delegate, and that cleanup refuses to delete while
+        // an awake tab is standing in the directory. Hibernating from an effect
+        // would land after the cleanup's check and the delete would refuse every
+        // time. Terminal state is main-actor and every call here is synchronous,
+        // so the hop bought nothing.
+        var targets: Set<TerminalTabID> = []
+        for surfaceID in surfaceIDs {
+          guard let tabID = terminalClient.tabID(worktree.id, surfaceID) else { continue }
+          targets.insert(tabID)
         }
+        // The A7 guarantee, in one line: a tab holding any other task's surface
+        // drops out of the target set before anything hibernates.
+        for surfaceID in protectedSurfaceIDs {
+          guard let tabID = terminalClient.tabID(worktree.id, surfaceID) else { continue }
+          targets.remove(tabID)
+        }
+        guard !targets.isEmpty else { return .none }
+        terminalClient.send(.hibernateTabs(worktree, tabIDs: targets))
+        return .none
 
       case .repositories(.delegate(.focusTaskSurface(let worktreeID, let surfaceID))):
         guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }

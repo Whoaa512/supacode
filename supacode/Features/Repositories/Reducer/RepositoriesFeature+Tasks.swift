@@ -187,10 +187,11 @@ extension RepositoriesFeature {
         // shared directory is nobody's to delete (A6), which is the same reason
         // it is nobody's to hibernate.
         //
-        // Ordering the dispatch is not ordering the *teardown* — hibernation
-        // finishes inside the parent's effect, well after this one returns — so
-        // the delete re-checks the tab count itself and refuses while any tab is
-        // still standing. The remaining race can only leak a directory.
+        // Ordering the dispatch only orders the teardown because the parent
+        // hibernates synchronously in its delegate arm (main-actor terminal
+        // state, no effect hop), so by the time the cleanup action lands the
+        // tabs are already dormant. The delete still re-checks for itself and
+        // refuses while any *awake* tab is standing in the directory.
         var settleSteps: [Effect<Action>] = []
         if let hibernation {
           settleSteps.append(.send(.delegate(hibernation)))
@@ -451,18 +452,23 @@ extension RepositoriesFeature {
           return .none
         }
         @Dependency(\.terminalClient) var terminalClient
-        // The precondition no git read can answer: a tab still open on this
-        // worktree means a session is still standing in the directory, and
-        // deleting it out from under one is exactly the data loss Resolved #9
-        // refuses. Dormant tabs count — they are one click from awake.
+        // The precondition no git read can answer: an awake tab on this worktree
+        // means a live session is standing in the directory, and deleting it out
+        // from under one is exactly the data loss Resolved #9 refuses. The bias
+        // is unchanged — leak a directory rather than destroy work — but dormant
+        // tabs are exempt: hibernation already tore their surfaces down, so
+        // nothing holds the directory, and counting them would mean every task
+        // that ever opened a terminal refuses cleanup forever (A20 asks for
+        // exactly the opposite: clean up on settle, *after* safe hibernation).
         //
         // Read here rather than in the effect because the terminal is main-actor
-        // state, and read *last* so a settle that hibernates first has already
-        // had its chance to bring the count down.
-        let tabCount = terminalClient.tabCount(worktree.id)
-        guard tabCount == 0 else {
+        // state, and read *last* so the settle's hibernation — which runs
+        // synchronously in the parent's delegate arm, ahead of this action — has
+        // already brought the count down.
+        let awakeTabCount = terminalClient.awakeTabCount(worktree.id)
+        guard awakeTabCount == 0 else {
           tasksLogger.debug(
-            "Auto-managed cleanup refused: \(marker.path) still has \(tabCount) open tab(s)."
+            "Auto-managed cleanup refused: \(marker.path) still has \(awakeTabCount) awake tab(s)."
           )
           return .none
         }

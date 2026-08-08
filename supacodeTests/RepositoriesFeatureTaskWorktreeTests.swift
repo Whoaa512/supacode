@@ -70,12 +70,13 @@ struct RepositoriesFeatureTaskWorktreeTests {
     return state
   }
 
-  /// `tabCount` defaults to the only state a delete is allowed in: no tabs left
-  /// standing in the directory. Tests that exercise the refusal raise it.
+  /// `awakeTabCount` defaults to the only state a delete is allowed in: nothing
+  /// awake in the directory (no tabs at all, or every tab hibernated by the
+  /// settle). Tests that exercise the refusal raise it.
   private func makeStore(
     _ state: RepositoriesFeature.State,
     sandbox: Sandbox,
-    tabCount: Int = 0,
+    awakeTabCount: Int = 0,
     configureGit: (inout GitClientDependency) -> Void = { _ in }
   ) -> TestStoreOf<RepositoriesFeature> {
     let store = TestStore(initialState: state) {
@@ -83,7 +84,7 @@ struct RepositoriesFeatureTaskWorktreeTests {
     } withDependencies: {
       $0.settingsFileStorage = sandbox.storage
       $0.date.now = Self.now
-      $0.terminalClient.tabCount = { _ in tabCount }
+      $0.terminalClient.awakeTabCount = { _ in awakeTabCount }
       $0.gitClient.automaticWorktreeBaseRef = { _ in "origin/main" }
       $0.gitClient.remoteNames = { _ in ["origin"] }
       $0.gitClient.ignoredFileCount = { _ in 0 }
@@ -804,17 +805,17 @@ struct RepositoriesFeatureTaskWorktreeTests {
     #expect(store.state.taskRecords[id: record.id]?.autoManagedWorktree != nil)
   }
 
-  /// The precondition no git read can answer: a tab still standing in the
-  /// worktree means a session is still standing in the directory. Hibernation is
-  /// dispatched before the cleanup but finishes long after it, so the delete has
-  /// to check for itself — and it refuses without reading a single byte of git
-  /// state, because none of it could make an open session safe to delete under.
-  @Test func anOpenTabRefusesToDeleteBeforeAnyGitStateIsRead() async throws {
+  /// The precondition no git read can answer: an awake tab in the worktree means
+  /// a live session is standing in the directory. A tab that refused to
+  /// hibernate (or one another task woke) survives the settle, so the delete
+  /// checks for itself — and it refuses without reading a single byte of git
+  /// state, because none of it could make a live session safe to delete under.
+  @Test func anAwakeTabRefusesToDeleteBeforeAnyGitStateIsRead() async throws {
     let sandbox = try makeSandbox()
     let auto = try sandbox.makeDirectory("auto", activityAt: Self.freshDate)
     let (state, record) = makeSettleableState(sandbox: sandbox, worktreeDirectory: auto)
     let reads = LockIsolated<[String]>([])
-    let store = makeStore(state, sandbox: sandbox, tabCount: 1) {
+    let store = makeStore(state, sandbox: sandbox, awakeTabCount: 1) {
       $0.rootDirectoryExists = { _ in
         reads.withValue { $0.append("exists") }
         return true
@@ -838,6 +839,39 @@ struct RepositoriesFeatureTaskWorktreeTests {
     // on it while somebody may be standing in it.
     #expect(store.state.taskRecords[id: record.id]?.autoManagedWorktree != nil)
     #expect(store.state.taskRecords[id: record.id]?.settledAt == Self.now)
+  }
+
+  /// The twin of the refusal, and the case the whole settle path exists for: the
+  /// task's tabs are still registered on the worktree, but the settle hibernated
+  /// them, so nothing awake is left in the directory. A gate that counted
+  /// dormant tabs would refuse here forever — every task that ever opened a
+  /// terminal would keep its worktree for good.
+  @Test func aWorktreeWithOnlyDormantTabsIsCleanedUp() async throws {
+    let sandbox = try makeSandbox()
+    let auto = try sandbox.makeDirectory("auto", activityAt: Self.freshDate)
+    let (state, record) = makeSettleableState(sandbox: sandbox, worktreeDirectory: auto)
+    let removed = LockIsolated(false)
+    // Tabs exist on this worktree; the settle put every one of them to sleep, so
+    // the awake count — the only count the gate reads — is zero.
+    let store = makeStore(state, sandbox: sandbox, awakeTabCount: 0) {
+      $0.rootDirectoryExists = { _ in true }
+      $0.branchName = { _ in "task/ship-the-inbox-abcdef01" }
+      $0.lineChanges = { _ in (added: 0, removed: 0) }
+      $0.removeWorktree = { worktree, _ in
+        removed.withValue { $0 = true }
+        return worktree.workingDirectory
+      }
+      $0.worktrees = { _ in [] }
+    }
+
+    await store.send(.tasks(.settle(record.id)))
+    await store.receive(\.delegate.hibernateTaskSurfaces)
+    await store.receive(\.tasks.cleanupAutoManagedWorktree)
+    await store.receive(\.tasks.autoManagedWorktreeCleanupFinished)
+    await store.finish()
+
+    #expect(removed.value)
+    #expect(store.state.taskRecords[id: record.id]?.autoManagedWorktree == nil)
   }
 
   /// The case `lineChanges` alone cannot see: a worktree holding nothing but a
