@@ -276,6 +276,111 @@ struct AgentPresenceFeatureTests {
     #expect(harness.state.rowSnapshot(across: [surfaceID], badgesEnabled: true).completedTurnAt == nil)
   }
 
+  // MARK: - Resolved #5: when the turn started.
+
+  /// The working row's elapsed timer needs a start instant, and nothing in the
+  /// app recorded one: `lastEventAt` slides forward on every tool call, so a
+  /// timer built on it would reset mid-turn. Stamped from the hook's own `ts`,
+  /// exactly like `erroredAt`.
+  @Test func busyStampsTheInstantTheTurnStarted() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    let pid = getpid()
+    let startedAt = Date(timeIntervalSince1970: 5_000)
+
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(
+      .hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: pid, at: startedAt)))
+
+    let key = AgentPresenceFeature.PresenceKey(agent: .claude, surfaceID: surfaceID)
+    #expect(harness.state.records[key]?.workingSince == startedAt)
+    #expect(harness.state.rowSnapshot(across: [surfaceID], badgesEnabled: true).workingSince == startedAt)
+  }
+
+  /// Compaction happens *inside* a running turn — that is why it counts as
+  /// working — so the elapsed clock must keep counting from the turn's start
+  /// rather than restarting every time the context is packed.
+  @Test func compactingDoesNotRestartTheWorkingClock() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    let pid = getpid()
+    let startedAt = Date(timeIntervalSince1970: 5_000)
+
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(
+      .hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: pid, at: startedAt)))
+    harness.send(
+      .hookEventReceived(
+        makeEvent(
+          .compacting, agent: .claude, surfaceID: surfaceID, pid: pid,
+          at: startedAt.addingTimeInterval(60))))
+
+    #expect(harness.state.rowSnapshot(across: [surfaceID], badgesEnabled: true).workingSince == startedAt)
+  }
+
+  /// The flip out of work clears it: a row that is not working renders no
+  /// timer, and a stale start instant would make an idle row claim an
+  /// ever-growing turn.
+  @Test(arguments: [AgentHookEvent.EventName.idle, .error, .awaitingInput])
+  func leavingWorkClearsTheWorkingClock(endEvent: AgentHookEvent.EventName) {
+    var harness = Harness()
+    let surfaceID = UUID()
+    let pid = getpid()
+    let startedAt = Date(timeIntervalSince1970: 5_000)
+
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(
+      .hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: pid, at: startedAt)))
+    harness.send(
+      .hookEventReceived(
+        makeEvent(
+          endEvent, agent: .claude, surfaceID: surfaceID, pid: pid,
+          at: startedAt.addingTimeInterval(120))))
+
+    let key = AgentPresenceFeature.PresenceKey(agent: .claude, surfaceID: surfaceID)
+    #expect(harness.state.records[key]?.workingSince == nil)
+    #expect(harness.state.rowSnapshot(across: [surfaceID], badgesEnabled: true).workingSince == nil)
+  }
+
+  /// Resolved #5's explicit refusal: an agent whose hook sends no `ts` gets no
+  /// start instant, and the row renders no timer. A fabricated "0s" would read
+  /// as a turn that just began every time the app relaunched.
+  @Test func busyWithoutATimestampReportsNoStartInstant() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    let pid = getpid()
+
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: pid)))
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: pid)))
+
+    let snapshot = harness.state.rowSnapshot(across: [surfaceID], badgesEnabled: true)
+    #expect(snapshot.isWorking)
+    #expect(snapshot.workingSince == nil)
+  }
+
+  /// Across surfaces the row reports the OLDEST start, not the newest: the row
+  /// has been continuously working since its longest-running turn began, and
+  /// showing the newest would reset the visible elapsed time every time a
+  /// second agent picked up work.
+  @Test func aRowReportsTheOldestStartAcrossItsSurfaces() {
+    var harness = Harness()
+    let first = UUID()
+    let second = UUID()
+    let pid = getpid()
+    let older = Date(timeIntervalSince1970: 5_000)
+    let newer = Date(timeIntervalSince1970: 9_000)
+
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: first, pid: pid)))
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: first, pid: pid, at: older)))
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .codex, surfaceID: second, pid: pid)))
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .codex, surfaceID: second, pid: pid, at: newer)))
+
+    #expect(harness.state.rowSnapshot(across: [first, second], badgesEnabled: true).workingSince == older)
+    // Scoped, like every other aggregate: asking about one surface answers
+    // about that surface's turn only.
+    #expect(harness.state.rowSnapshot(across: [second], badgesEnabled: true).workingSince == newer)
+  }
+
   @Test func awaitingInputWithoutPidLazilyCreatesAwaitingRecord() {
     // A remote agent's awaiting-input OSC arrives with no pid and possibly no
     // prior session_start; it must still light the badge.

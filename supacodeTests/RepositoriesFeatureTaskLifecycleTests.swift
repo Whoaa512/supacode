@@ -860,15 +860,12 @@ struct RepositoriesFeatureTaskLifecycleTests {
     let store = makeStore(state, sandbox: sandbox)
     #expect(store.state.tasksSidebarStructure.snoozedTotalCount == 1)
 
-    let rowID = WorktreeID(directory.path(percentEncoded: false))
     await store.send(
-      .sidebarItems(
-        .element(
-          id: rowID,
-          action: .agentSnapshotChanged(
-            AgentPresenceFeature.RowSnapshot(
-              agents: [AgentPresenceFeature.AgentInstance(agent: .claude, activity: .awaitingInput)]
-            )
+      .tasks(
+        .agentSnapshotChanged(
+          taskID: parked.id,
+          snapshot: AgentPresenceFeature.RowSnapshot(
+            agents: [AgentPresenceFeature.AgentInstance(agent: .claude, activity: .awaitingInput)]
           )
         )
       )

@@ -30,6 +30,34 @@ struct TasksSidebarStructureTests {
     )
   }
 
+  private static let week: TimeInterval = 7 * 24 * 60 * 60
+
+  /// Everything the settings own, on: the shape Phase 5's reducer builds from
+  /// `@Shared(.taskAutoSettleEnabled)` and friends.
+  private static let autoPolicy = TaskSettlement.Policy(
+    inactivityWindow: week,
+    isAutoSettleEnabled: true,
+    settlesOnFinishedPullRequest: true
+  )
+
+  /// The finished-PR path alone, so a PR assertion can't be satisfied by the
+  /// inactivity window firing underneath it.
+  private static let finishedPullRequestOnlyPolicy = TaskSettlement.Policy(
+    inactivityWindow: nil,
+    isAutoSettleEnabled: true,
+    settlesOnFinishedPullRequest: true
+  )
+
+  private static func signals(
+    pullRequest: TaskPullRequestState = .none,
+    lastActivityAt: TimeInterval? = nil
+  ) -> TasksSidebarStructure.Signals {
+    var signals = TasksSidebarStructure.Signals()
+    signals.pullRequest = pullRequest
+    signals.lastActivityAt = lastActivityAt.map(reference.addingTimeInterval)
+    return signals
+  }
+
   /// The common wiring: the initial page window with the shelf expanded.
   /// `compute` itself takes both explicitly so a caller can't forget to thread
   /// its real paging state through.
@@ -40,7 +68,8 @@ struct TasksSidebarStructureTests {
     openTaskID: TaskID? = nil,
     settledVisibleCount: Int = TasksSidebarStructure.settledTailInitialCount,
     isSettledTailExpanded: Bool = true,
-    isSnoozedShelfExpanded: Bool = true
+    isSnoozedShelfExpanded: Bool = true,
+    policy: TaskSettlement.Policy = .manualOnly
   ) -> TasksSidebarStructure {
     TasksSidebarStructure.compute(
       tasks: tasks,
@@ -49,7 +78,8 @@ struct TasksSidebarStructureTests {
       openTaskID: openTaskID,
       settledVisibleCount: settledVisibleCount,
       isSettledTailExpanded: isSettledTailExpanded,
-      isSnoozedShelfExpanded: isSnoozedShelfExpanded
+      isSnoozedShelfExpanded: isSnoozedShelfExpanded,
+      policy: policy
     )
   }
 
@@ -645,5 +675,77 @@ struct TasksSidebarStructureTests {
       signals: [TaskID("ghost"): .init(activity: .init(isAwaitingInput: true))]
     )
     #expect(structure.snoozedTotalCount == 1)
+  }
+
+  // MARK: - Phase 5, A15/A30: the settle cascade replaces the record-only predicate
+
+  /// Phase 1 partitioned on the record alone. Phase 5 hands `compute` the
+  /// policy the settings own, so the same records land in different sections
+  /// depending on what the user turned on — and the structure still takes a
+  /// decision, never the evidence: `TaskSettlement.effectiveSettled` is the one
+  /// place the cascade lives.
+  @Test func aStaleTaskSettlesOnTheInactivityWindow() {
+    let stale = Self.task("stale", createdAt: -Self.week * 2)
+    let structure = Self.compute(
+      [stale],
+      signals: [stale.id: Self.signals(lastActivityAt: -Self.week * 2)],
+      policy: Self.autoPolicy
+    )
+    #expect(structure.visibleSettledTail.map(\.id.rawValue) == ["stale"])
+    #expect(structure.activeTaskIDs.isEmpty)
+  }
+
+  /// A30's off-switch: the same records, the same clock, and the row stays
+  /// active. The explicit paths are untouched — an `.settled` override still
+  /// lands in the tail — because a setting may never overrule what the user
+  /// said out loud.
+  @Test func theGlobalOffSwitchKillsTheAutoPathsAndLeavesTheExplicitOneAlone() {
+    let stale = Self.task("stale", createdAt: -Self.week * 2)
+    let explicit = Self.task("explicit", createdAt: -60, override: .settled)
+    let structure = Self.compute(
+      [stale, explicit],
+      signals: [stale.id: Self.signals(lastActivityAt: -Self.week * 2)],
+      policy: .manualOnly
+    )
+    #expect(structure.activeTaskIDs.map(\.rawValue) == ["stale"])
+    #expect(structure.visibleSettledTail.map(\.id.rawValue) == ["explicit"])
+  }
+
+  /// A29 at the placement layer: an open PR is live review work, so the
+  /// inactivity path must not quietly file it away.
+  @Test func anOpenPullRequestBlocksTheInactivityPath() {
+    let stale = Self.task("stale", createdAt: -Self.week * 2)
+    let structure = Self.compute(
+      [stale],
+      signals: [stale.id: Self.signals(pullRequest: .open, lastActivityAt: -Self.week * 2)],
+      policy: Self.autoPolicy
+    )
+    #expect(structure.activeTaskIDs.map(\.rawValue) == ["stale"])
+  }
+
+  /// Resolved #4's other half: `closed` is a real, distinct state now that the
+  /// query asks for it, and it settles exactly like `merged`. Anything the
+  /// projection could not resolve (`unknown`, `loading`, `failed`) must not.
+  @Test(arguments: [
+    (TaskPullRequestState.merged, true),
+    (.closed, true),
+    (.unknown, false),
+    (.loading, false),
+    (.failed, false),
+    (.none, false),
+  ])
+  func onlyAFinishedPullRequestSettlesItsTask(
+    pullRequest: TaskPullRequestState,
+    expectedSettled: Bool
+  ) {
+    let task = Self.task("pr", createdAt: -Self.week)
+    let structure = Self.compute(
+      [task],
+      // Older than `finishedPullRequestIdleWindow`, but far newer than the
+      // inactivity window, so the finished-PR path is the only one that can fire.
+      signals: [task.id: Self.signals(pullRequest: pullRequest, lastActivityAt: -Self.week)],
+      policy: Self.finishedPullRequestOnlyPolicy
+    )
+    #expect(structure.visibleSettledTail.isEmpty != expectedSettled)
   }
 }

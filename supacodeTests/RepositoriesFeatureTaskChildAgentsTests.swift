@@ -116,12 +116,11 @@ struct RepositoriesFeatureTaskChildAgentsTests {
     let store = makeStore(state, sandbox: sandbox)
 
     await store.send(
-      .sidebarItems(
-        .element(
-          id: WorktreeID(directory.path(percentEncoded: false)),
-          action: .agentSnapshotChanged(
-            .init(agents: [.init(agent: .claude, activity: .busy, name: "Fixer")], isWorking: true)
-          )
+      .tasks(
+        .agentSnapshotChanged(
+          taskID: record.id,
+          snapshot: .init(
+            agents: [.init(agent: .claude, activity: .busy, name: "Fixer")], isWorking: true)
         )
       )
     )
@@ -132,13 +131,16 @@ struct RepositoriesFeatureTaskChildAgentsTests {
     #expect(children.map(\.state) == [.working])
   }
 
-  /// The known blur, locked so it can't change silently: `RowSnapshot` carries no
-  /// surface id, so a task that owns only *part* of its directory's surfaces
-  /// still inherits every agent on that row. Honest today because the leaf's only
-  /// source of presence is the whole-row snapshot the parent fans down; the fix
-  /// is a per-surface projection (tracked separately) and it belongs upstream in
-  /// `AppFeature`, which is where per-surface presence records actually live.
-  @Test func aTaskOwningPartOfARowStillInheritsEveryAgentOnThatRow() async throws {
+  /// Phase 5 closes the Phase-3 blur this test used to document. The leaf's
+  /// presence no longer comes from the whole-row snapshot (which carries no
+  /// surface id, so it could only ever be the union of every agent in the
+  /// directory) — it comes from the per-task snapshot `AppFeature` projects
+  /// across the surfaces the record actually owns. A row-wide tick therefore
+  /// reaches the row and stops there.
+  ///
+  /// The producer half — a real hook event on an unowned surface, scoped away
+  /// before it ever reaches this reducer — is in `AppFeatureTaskPresenceTests`.
+  @Test func aRowWideTickNoLongerLeaksEveryAgentIntoAPartialOwnersLeaf() async throws {
     let sandbox = try makeSandbox()
     let directory = try sandbox.makeDirectory("work", activityAt: TaskInboxFixture.freshDate)
     let owned = UUID()
@@ -165,7 +167,21 @@ struct RepositoriesFeatureTaskChildAgentsTests {
     )
     await store.finish()
 
-    #expect(store.state.taskLeaves[id: record.id]?.childAgents.map(\.agent) == [.codex])
+    #expect(store.state.taskLeaves[id: record.id]?.childAgents.isEmpty == true)
+
+    // The per-task arm is the one that moves the leaf, and it carries only what
+    // was projected across the owned surface.
+    await store.send(
+      .tasks(
+        .agentSnapshotChanged(
+          taskID: record.id,
+          snapshot: .init(agents: [.init(agent: .claude, activity: .busy)], isWorking: true)
+        )
+      )
+    )
+    await store.finish()
+
+    #expect(store.state.taskLeaves[id: record.id]?.childAgents.map(\.agent) == [.claude])
   }
 
   /// A10 for the child rows: they are read from the leaf one level down, inside
@@ -192,10 +208,10 @@ struct RepositoriesFeatureTaskChildAgentsTests {
     let otherLeafBefore = store.state.taskLeaves[id: otherRecord.id]
 
     await store.send(
-      .sidebarItems(
-        .element(
-          id: WorktreeID(mine.path(percentEncoded: false)),
-          action: .agentSnapshotChanged(.init(agents: [.init(agent: .claude, activity: .busy)], isWorking: true))
+      .tasks(
+        .agentSnapshotChanged(
+          taskID: mineRecord.id,
+          snapshot: .init(agents: [.init(agent: .claude, activity: .busy)], isWorking: true)
         )
       )
     )

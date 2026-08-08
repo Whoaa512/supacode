@@ -45,6 +45,7 @@ struct TaskSettlementTests {
     now: Date = TaskSettlementTests.now,
     activity: TaskSettlement.ActivitySnapshot = .idle,
     settledOverride: TaskRecord.SettledOverride? = nil,
+    settledAt: Date? = nil,
     pullRequest: TaskPullRequestState = .none,
     lastActivityAt: Date? = nil,
     inactivityWindow: TimeInterval? = TaskSettlementTests.inactivityWindow,
@@ -55,6 +56,7 @@ struct TaskSettlementTests {
       now: now,
       activity: activity,
       settledOverride: settledOverride,
+      settledAt: settledAt,
       pullRequest: pullRequest,
       lastActivityAt: lastActivityAt,
       inactivityWindow: inactivityWindow,
@@ -596,6 +598,46 @@ struct TaskSettlementTests {
 
   @Test func canSnoozeAllowsAPlainActiveTask() {
     #expect(TaskSettlement.canSnooze(Self.input(lastActivityAt: Self.freshActivity)) == true)
+  }
+
+  // MARK: - Phase 5: the settle stamp is explicit intent
+
+  /// The settle arm stamps `settledAt` and deliberately does *not* write a
+  /// `.settled` override (`RepositoriesFeature+Tasks.swift`, the settle case),
+  /// so the cascade that replaces the record-only `isSettled` predicate has to
+  /// read the stamp as the explicit intent it is. Without this the off-switch
+  /// would un-settle every row the user settled by hand — A30 says the global
+  /// switch kills the *auto* paths only.
+  @Test func anExplicitSettleStampSettlesEvenWithEveryAutoPathOff() {
+    #expect(
+      TaskSettlement.effectiveSettled(
+        Self.input(
+          settledAt: Self.now.addingTimeInterval(-Self.hour),
+          inactivityWindow: nil,
+          isAutoSettleEnabled: false,
+          settlesOnFinishedPullRequest: false
+        )
+      )
+    )
+  }
+
+  /// The other direction, unchanged from the Phase-1 predicate: an explicit
+  /// "no, this is still active" beats a stale stamp, so un-settling is not
+  /// silently undone by the timestamp the settle left behind.
+  @Test func anActiveOverrideBeatsASettleStamp() {
+    #expect(
+      !TaskSettlement.effectiveSettled(
+        Self.input(settledOverride: .active, settledAt: Self.now.addingTimeInterval(-Self.hour))
+      )
+    )
+  }
+
+  /// A15/A30 spelled as the policy value the reducer threads from settings: the
+  /// off-switch is one value, not three booleans every call site re-derives.
+  @Test func theManualOnlyPolicyDisablesBothAutoPaths() {
+    #expect(TaskSettlement.Policy.manualOnly.isAutoSettleEnabled == false)
+    #expect(TaskSettlement.Policy.manualOnly.inactivityWindow == nil)
+    #expect(TaskSettlement.Policy.manualOnly.settlesOnFinishedPullRequest == false)
   }
 
   // MARK: - The one non-port only a grep can hold

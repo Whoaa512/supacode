@@ -981,6 +981,37 @@ struct GithubCLIClientTests {
       Issue.record("Unexpected error type: \(error.localizedDescription)")
     }
   }
+
+  /// Resolved #4: the batch query asked for `[OPEN, MERGED]`, so a closed PR was
+  /// indistinguishable from a repository that never had one — the task inbox
+  /// cannot settle on "the PR is finished" while half of finished is invisible.
+  /// The task-side auto-settle rule ships with this change or not at all.
+  @Test func batchPullRequestsAsksForClosedPullRequestsToo() async throws {
+    let queries = LockIsolated<[String]>([])
+    let shell = ShellClient(
+      run: { executableURL, _, _ in
+        guard executableURL.lastPathComponent == "which" else {
+          return ShellOutput(stdout: "", stderr: "", exitCode: 0)
+        }
+        return ShellOutput(stdout: "/usr/bin/gh", stderr: "", exitCode: 0)
+      },
+      runLoginImpl: { executableURL, arguments, _, _ in
+        guard executableURL.lastPathComponent == "gh" else {
+          return ShellOutput(stdout: "", stderr: "", exitCode: 0)
+        }
+        if let queryArgument = arguments.first(where: { $0.hasPrefix("query=") }) {
+          queries.withValue { $0.append(String(queryArgument.dropFirst("query=".count))) }
+        }
+        return ShellOutput(stdout: graphQLResponse(for: arguments), stderr: "", exitCode: 0)
+      }
+    )
+    let client = GithubCLIClient.live(shell: shell)
+
+    _ = try await client.batchPullRequests("github.com", "khoi", "repo", ["feature"])
+
+    let query = try #require(queries.value.first)
+    #expect(query.contains("states: [OPEN, MERGED, CLOSED]"))
+  }
 }
 
 nonisolated private func graphQLResponse(for arguments: [String]) -> String {

@@ -543,11 +543,10 @@ struct RepositoriesFeatureTasksTests {
     state.applyPostReduceCacheRecomputes(.all)
     let store = makeStore(state, sandbox: sandbox)
     let structureBefore = store.state.tasksSidebarStructure
-    let rowID = WorktreeID(directory.path(percentEncoded: false))
     let instance = AgentPresenceFeature.AgentInstance(agent: .claude, activity: .busy)
 
     await store.send(
-      .sidebarItems(.element(id: rowID, action: .agentSnapshotChanged(.init(agents: [instance], isWorking: true))))
+      .tasks(.agentSnapshotChanged(taskID: record.id, snapshot: .init(agents: [instance], isWorking: true)))
     )
     await store.finish()
 
@@ -590,12 +589,7 @@ struct RepositoriesFeatureTasksTests {
     let otherLeafBefore = store.state.taskLeaves[id: otherRecord.id]
 
     await store.send(
-      .sidebarItems(
-        .element(
-          id: WorktreeID(mine.path(percentEncoded: false)),
-          action: .agentSnapshotChanged(.init(agents: [], isWorking: true))
-        )
-      )
+      .tasks(.agentSnapshotChanged(taskID: mineRecord.id, snapshot: .init(agents: [], isWorking: true)))
     )
     await store.finish()
 

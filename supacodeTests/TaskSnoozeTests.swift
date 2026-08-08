@@ -57,7 +57,8 @@ struct TaskSnoozeTests {
     activity: TaskSettlement.ActivitySnapshot = .idle,
     errorAt: Date? = nil,
     completedTurnAt: Date? = nil,
-    notifiedAt: Date? = nil
+    notifiedAt: Date? = nil,
+    pullRequestChangedAt: Date? = nil
   ) -> TaskSnooze.Input {
     TaskSnooze.Input(
       now: now,
@@ -66,7 +67,8 @@ struct TaskSnoozeTests {
       activity: activity,
       errorAt: errorAt,
       completedTurnAt: completedTurnAt,
-      notifiedAt: notifiedAt
+      notifiedAt: notifiedAt,
+      pullRequestChangedAt: pullRequestChangedAt
     )
   }
 
@@ -848,6 +850,93 @@ struct TaskSnoozeTests {
   @Test func settledIsTheLastClassificationBeforeActive() {
     #expect(TaskSnooze.placement(isSnoozed: false, isPinned: false, isSettled: true) == .settled)
     #expect(TaskSnooze.placement(isSnoozed: false, isPinned: false, isSettled: false) == .active)
+  }
+
+  // MARK: - A29b: a PR state change raises the hand
+
+  /// Deferred out of A25 to Phase 5, because until the PR projection exists
+  /// there is nothing to observe changing. It is an *event*, like an error or a
+  /// completed turn: only a change strictly newer than the snooze is news, so
+  /// parking a task whose PR merged an hour ago keeps it parked.
+  @Test func aPullRequestChangeAfterTheSnoozeRaisesTheHand() {
+    let snoozedAt = Self.date(2026, 6, 1, 9)
+    let input = Self.input(
+      snoozedUntil: Self.date(2026, 6, 2, 9),
+      snoozedAt: snoozedAt,
+      pullRequestChangedAt: snoozedAt.addingTimeInterval(Self.hour)
+    )
+
+    #expect(TaskSnooze.raisedHandWhileSnoozed(input))
+    #expect(!TaskSnooze.effectiveSnoozed(input))
+    // The record is untouched (A25): the hand only overrides placement, so the
+    // wake instant the user wrote is still the one the shelf sorts by.
+    #expect(TaskSnooze.timerIsLive(input))
+  }
+
+  @Test func aPullRequestChangeOlderThanTheSnoozeDoesNotRaiseTheHand() {
+    let snoozedAt = Self.date(2026, 6, 1, 9)
+    let input = Self.input(
+      snoozedUntil: Self.date(2026, 6, 2, 9),
+      snoozedAt: snoozedAt,
+      pullRequestChangedAt: snoozedAt.addingTimeInterval(-Self.hour)
+    )
+
+    #expect(!TaskSnooze.raisedHandWhileSnoozed(input))
+    #expect(TaskSnooze.effectiveSnoozed(input))
+  }
+
+  /// The Woke pill dates from the raise, so the row it announces is the row the
+  /// user has not looked at since the PR moved.
+  @Test func theWokeInstantOfAPullRequestRaiseIsTheChangeItself() {
+    let snoozedAt = Self.date(2026, 6, 1, 9)
+    let changedAt = snoozedAt.addingTimeInterval(Self.hour)
+
+    #expect(
+      TaskSnooze.wokeAt(
+        Self.input(
+          snoozedUntil: Self.date(2026, 6, 2, 9),
+          snoozedAt: snoozedAt,
+          pullRequestChangedAt: changedAt
+        )
+      ) == changedAt
+    )
+  }
+
+  // MARK: - A24/A28: one woke rule, two callers
+
+  /// The Woke-pill question, extracted so the cached structure and the per-task
+  /// leaf ask it the same way. They both need the answer — the structure to
+  /// place the pill, the leaf to hold the row out of recession (A28) — and two
+  /// spellings of "woke" would eventually disagree about the same row.
+  @Test func aWakeTheUserHasNotVisitedSinceReadsAsWoke() {
+    let input = Self.input(
+      now: Self.date(2026, 6, 2, 12),
+      snoozedUntil: Self.date(2026, 6, 2, 9),
+      snoozedAt: Self.date(2026, 6, 1, 9)
+    )
+
+    #expect(TaskSnooze.isWoke(input, lastVisitedAt: nil))
+    #expect(TaskSnooze.isWoke(input, lastVisitedAt: Self.date(2026, 6, 1, 10)))
+  }
+
+  @Test func aVisitAfterTheWakeClearsTheWokeReading() {
+    let input = Self.input(
+      now: Self.date(2026, 6, 2, 12),
+      snoozedUntil: Self.date(2026, 6, 2, 9),
+      snoozedAt: Self.date(2026, 6, 1, 9)
+    )
+
+    #expect(!TaskSnooze.isWoke(input, lastVisitedAt: Self.date(2026, 6, 2, 11)))
+  }
+
+  @Test func aStillParkedTaskIsNotWoke() {
+    let input = Self.input(
+      now: Self.date(2026, 6, 1, 12),
+      snoozedUntil: Self.date(2026, 6, 2, 9),
+      snoozedAt: Self.date(2026, 6, 1, 9)
+    )
+
+    #expect(!TaskSnooze.isWoke(input, lastVisitedAt: nil))
   }
 
   @Test func everyPlacementCombinationResolvesToExactlyOneSection() {
