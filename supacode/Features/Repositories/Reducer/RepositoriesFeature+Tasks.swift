@@ -8,10 +8,10 @@ import SupacodeSettingsShared
 /// ~6,300 lines) so the whole lifecycle reads in one place.
 ///
 /// Phase 1 lifecycle, per `plans/task-inbox-sidebar-plan.md`: load, day-one
-/// seed, select, explicit settle (sole-owner hibernate / shared-directory
-/// defer), unsettle as the recovery path, settled-tail paging, and surface-
-/// ownership reconciliation. Snooze, pin, auto-settle and the classification
-/// cascade are Phase 2/4.
+/// seed, select, explicit settle (surface-scoped hibernate since Phase 7),
+/// unsettle as the recovery path, settled-tail paging, and surface-ownership
+/// reconciliation. Snooze, pin, auto-settle and the classification cascade are
+/// Phase 2/4.
 private nonisolated let tasksLogger = SupaLogger("Tasks")
 
 private enum TaskCancelID {
@@ -290,8 +290,9 @@ extension RepositoriesFeature {
         // `.concatenate`, not `.merge`: deleting a directory that still has live
         // sessions in it is how a settle turns into data loss, and the two are
         // otherwise dispatched in whatever order the merge happens to pick. A
-        // shared directory is nobody's to delete (A6), which is the same reason
-        // it is nobody's to hibernate.
+        // shared directory is still nobody's to *delete* — that is what the
+        // sole-owner guard below is for — even though hibernation is now
+        // surface-scoped and happily runs there (A6 full form).
         //
         // Ordering the dispatch only orders the teardown because the parent
         // hibernates synchronously in its delegate arm (main-actor terminal
@@ -1405,9 +1406,11 @@ extension RepositoriesFeature.State {
   }
 
   /// Whether no *other* live (non-settled) task points at the same directory.
-  /// Terminal hibernation is worktree/tab-keyed in Phase 1, so a shared
-  /// directory defers hibernation entirely (A6) rather than risking another
-  /// task's sessions.
+  ///
+  /// Hibernation no longer asks this — it is surface-scoped now (A6 full form).
+  /// What still does is the auto-managed *delete*: removing a directory another
+  /// live task is standing in is data loss, and unlike a hibernation it cannot
+  /// be undone by waking a tab back up.
   func isSoleActiveTaskOwner(of record: TaskRecord) -> Bool {
     let directory = TaskDirectoryPath.normalized(record.directoryPath)
     return !taskRecords.contains { other in
@@ -1426,13 +1429,21 @@ extension RepositoriesFeature.State {
     }
   }
 
-  /// The hibernation request for an explicit settle, or `nil` when Phase 1
-  /// refuses to hibernate: no owned surfaces, no live worktree for the
-  /// directory, or the directory is shared with another live task.
+  /// The hibernation request for an explicit settle, or `nil` when there is
+  /// nothing to put to sleep: no owned surfaces, or no live worktree row for the
+  /// directory to name them in.
+  ///
+  /// A shared directory is *not* a refusal any more (A6 full form). The request
+  /// is keyed by the surfaces this task owns, and claims are tab-granular — a
+  /// claim takes a whole tab and takes it away from whoever held it — so the
+  /// tabs behind `record.surfaceIDs` belong to this task alone. The co-tenants'
+  /// surfaces still ride along as `protectedSurfaceIDs` so the parent can drop
+  /// any tab they somehow share before it hibernates anything (A7): that is
+  /// defence in depth against a split the claim rules did not anticipate, not a
+  /// case we expect to hit.
   func taskHibernationDelegate(for record: TaskRecord) -> RepositoriesFeature.Delegate? {
     guard !record.surfaceIDs.isEmpty else { return nil }
     guard let row = sidebarItemForTaskDirectory(record.directoryPath) else { return nil }
-    guard isSoleActiveTaskOwner(of: record) else { return nil }
     return .hibernateTaskSurfaces(
       worktreeID: row.id,
       surfaceIDs: record.surfaceIDs,
