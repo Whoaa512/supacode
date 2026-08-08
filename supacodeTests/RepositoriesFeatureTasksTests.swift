@@ -261,28 +261,97 @@ struct RepositoriesFeatureTasksTests {
     #expect(surfaceIDs.isDisjoint(with: protectedSurfaceIDs))
   }
 
-  /// A6, shared-directory half: two live tasks on one directory → the lifecycle
-  /// moves but no hibernation is requested, because hibernation is still
-  /// worktree/tab-keyed and would take the other task's sessions with it.
-  @Test func settlingASharedDirectoryDefersHibernation() async throws {
+  /// A6 in full form: a shared directory no longer defers. Settling hibernates
+  /// exactly the settling task's own surfaces and names the co-tenant's as
+  /// protected, so the parent — which resolves surfaces to tabs — drops any tab
+  /// the two share before it puts anything to sleep (A7).
+  @Test func settlingASharedDirectoryHibernatesOnlyItsOwnSurfaces() async throws {
     let sandbox = try makeSandbox()
     let shared = try sandbox.makeDirectory("shared", activityAt: Self.freshDate)
-    let surfaceID = UUID()
-    var state = makeState(sandbox: sandbox, directories: [shared], surfacesPerRow: [shared: [surfaceID]])
-    let first = makeRecord(directory: shared, surfaceIDs: [surfaceID])
-    let second = makeRecord(directory: shared)
+    let mySurface = UUID()
+    let theirSurface = UUID()
+    var state = makeState(
+      sandbox: sandbox,
+      directories: [shared],
+      surfacesPerRow: [shared: [mySurface, theirSurface]]
+    )
+    let first = makeRecord(directory: shared, surfaceIDs: [mySurface])
+    let second = makeRecord(directory: shared, surfaceIDs: [theirSurface])
     state.taskRecords = [first, second]
     state.applyPostReduceCacheRecomputes(.all)
     let store = makeStore(state, sandbox: sandbox)
 
     await store.send(.tasks(.settle(first.id)))
+    await store.receive(\.delegate.hibernateTaskSurfaces)
     await store.finish()
 
     #expect(store.state.taskRecords[id: first.id]?.settledAt == Self.now)
-    #expect(store.state.taskHibernationDelegate(for: first) == nil)
     // Both tasks keep every surface they owned.
-    #expect(store.state.taskRecords[id: first.id]?.surfaceIDs == [surfaceID])
+    #expect(store.state.taskRecords[id: first.id]?.surfaceIDs == [mySurface])
     #expect(store.state.taskRecords[id: second.id] == second)
+
+    let delegate = try #require(store.state.taskHibernationDelegate(for: first))
+    guard case .hibernateTaskSurfaces(_, let surfaceIDs, let protectedSurfaceIDs) = delegate else {
+      Issue.record("Expected a hibernation delegate, got \(delegate).")
+      return
+    }
+    #expect(surfaceIDs == [mySurface])
+    #expect(protectedSurfaceIDs == [theirSurface])
+  }
+
+  /// The A7 invariant restated for the case that used to be waived: settling one
+  /// task on a shared directory leaves the co-tenant's claim, lifecycle and
+  /// placement untouched, and never names its surfaces as a hibernation target.
+  @Test func settlingASharedDirectoryNeverTargetsTheCoTenantsSurfaces() async throws {
+    let sandbox = try makeSandbox()
+    let shared = try sandbox.makeDirectory("shared", activityAt: Self.freshDate)
+    let mySurfaces: Set<UUID> = [UUID(), UUID()]
+    let theirSurfaces: Set<UUID> = [UUID()]
+    var state = makeState(
+      sandbox: sandbox,
+      directories: [shared],
+      surfacesPerRow: [shared: mySurfaces.union(theirSurfaces)]
+    )
+    let first = makeRecord(directory: shared, surfaceIDs: mySurfaces)
+    let second = makeRecord(directory: shared, surfaceIDs: theirSurfaces)
+    state.taskRecords = [first, second]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(.tasks(.settle(first.id)))
+    await store.receive(\.delegate.hibernateTaskSurfaces)
+    await store.finish()
+
+    #expect(store.state.taskRecords[id: second.id] == second)
+    #expect(store.state.tasksSidebarStructure.activeTaskIDs == [second.id])
+
+    let delegate = try #require(store.state.taskHibernationDelegate(for: first))
+    guard case .hibernateTaskSurfaces(_, let surfaceIDs, let protectedSurfaceIDs) = delegate else {
+      Issue.record("Expected a hibernation delegate, got \(delegate).")
+      return
+    }
+    #expect(surfaceIDs.isDisjoint(with: theirSurfaces))
+    #expect(protectedSurfaceIDs == theirSurfaces)
+  }
+
+  /// The one thing a shared directory still defers: nobody may delete a
+  /// directory another live task is standing in, so the auto-managed cleanup
+  /// keeps the sole-owner guard the hibernation path just retired.
+  @Test func settlingASharedDirectoryStillDefersAutoManagedCleanup() async throws {
+    let sandbox = try makeSandbox()
+    let shared = try sandbox.makeDirectory("shared", activityAt: Self.freshDate)
+    var state = makeState(sandbox: sandbox, directories: [shared])
+    var first = makeRecord(directory: shared)
+    first.autoManagedWorktree = TaskRecord.AutoManagedWorktree(
+      path: shared.path(percentEncoded: false),
+      branch: "task/shared",
+      createdAt: Self.now
+    )
+    let second = makeRecord(directory: shared)
+    state.taskRecords = [first, second]
+    state.applyPostReduceCacheRecomputes(.all)
+
+    #expect(state.isSoleActiveTaskOwner(of: first) == false)
   }
 
   /// Settling the *last* live task on a shared directory may hibernate again:
