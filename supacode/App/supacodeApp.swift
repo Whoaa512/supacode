@@ -270,10 +270,10 @@ struct SupacodeApp: App {
         tabSurfaceIDs: { worktreeID, tabID in
           Set(terminalManager.stateIfExists(for: worktreeID)?.surfaceIDs(inTab: tabID) ?? [])
         },
-        tabCount: { worktreeID in
+        awakeTabCount: { worktreeID in
           // `stateIfExists`: asking how many tabs a worktree has must not
           // materialize a terminal state for one that has none.
-          terminalManager.stateIfExists(for: worktreeID)?.tabManager.tabs.count ?? 0
+          terminalManager.stateIfExists(for: worktreeID)?.awakeTabCount ?? 0
         },
         selectedSurfaceID: { worktreeID in
           guard let state = terminalManager.stateIfExists(for: worktreeID),

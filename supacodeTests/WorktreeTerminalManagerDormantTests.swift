@@ -397,6 +397,27 @@ struct DormantTerminalTests {
     #expect(dormant?.hasTerminalActivity == false)
   }
 
+  /// The count auto-managed worktree cleanup deletes on. Hibernating a tab has
+  /// to bring it down, or a settle — which hibernates before it cleans up —
+  /// could never delete the directory it just put to sleep.
+  @Test func awakeTabCountExcludesHibernatedTabs() {
+    let state = makeState()
+    #expect(state.awakeTabCount == 0)
+
+    let liveTab = state.createTab(focusing: false)!
+    let dormantTab = state.createTab(focusing: false)!
+    _ = firstSurfaceID(state, tab: dormantTab)
+    #expect(state.awakeTabCount == 2)
+
+    state.hibernateTabForTesting(dormantTab)
+    #expect(state.awakeTabCount == 1)
+
+    // Every tab asleep: the rows survive, but nothing is standing in the
+    // directory any more, so cleanup is free to take it.
+    state.hibernateTabForTesting(liveTab)
+    #expect(state.awakeTabCount == 0)
+  }
+
   @Test func allTabsDormantOnlyWhenEveryTabHibernated() {
     let state = makeState()
     #expect(!state.allTabsDormant)

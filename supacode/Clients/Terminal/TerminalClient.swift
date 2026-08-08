@@ -16,15 +16,18 @@ struct TerminalClient {
   /// address a tab's panes without going through the persisted layout snapshot,
   /// which lags every split and every tab created since the last save.
   var tabSurfaceIDs: @MainActor @Sendable (Worktree.ID, TerminalTabID) -> Set<UUID>
-  /// How many tabs the worktree currently holds — `0` when it has no terminal
-  /// state at all (never opened this launch, or pruned since).
+  /// How many *awake* tabs the worktree currently holds — `0` when it has no
+  /// terminal state at all (never opened this launch, or pruned since) and `0`
+  /// when every tab it has is hibernated.
   ///
-  /// Dormant tabs are counted. They still own a zmx session whose working
-  /// directory is that worktree, so a delete would destroy something the user
-  /// can wake with one click. The one caller is the auto-managed worktree
-  /// cleanup, whose whole rule is to leak a directory rather than destroy work,
-  /// so it wants the count that over-reports rather than the one that under-does.
-  var tabCount: @MainActor @Sendable (Worktree.ID) -> Int
+  /// Dormant tabs are excluded on purpose. Hibernation has already torn their
+  /// surfaces down, so nothing has the directory open as a working directory;
+  /// what survives is a detached zmx session and a frozen layout, neither of
+  /// which is inside the directory. Counting them would be the same as never
+  /// cleaning up, because the settle that authorizes the delete is the settle
+  /// that hibernates. The caller's bias (leak a directory rather than destroy
+  /// work) still holds: an awake tab, of any kind, refuses.
+  var awakeTabCount: @MainActor @Sendable (Worktree.ID) -> Int
   /// Active surface in the selected tab. Lets the reducer capture the target
   /// synchronously before an async dispatch races against AppKit focus reshuffle
   /// (e.g. when a palette dismisses and the leftmost pane reclaims first responder).
@@ -172,7 +175,7 @@ extension TerminalClient: DependencyKey {
     tabID: { _, _ in fatalError("TerminalClient.tabID not configured") },
     selectedTabID: { _ in fatalError("TerminalClient.selectedTabID not configured") },
     tabSurfaceIDs: { _, _ in fatalError("TerminalClient.tabSurfaceIDs not configured") },
-    tabCount: { _ in fatalError("TerminalClient.tabCount not configured") },
+    awakeTabCount: { _ in fatalError("TerminalClient.awakeTabCount not configured") },
     selectedSurfaceID: { _ in fatalError("TerminalClient.selectedSurfaceID not configured") },
     sendTextToSurface: { _, _, _ in fatalError("TerminalClient.sendTextToSurface not configured") },
     surfaceScreenText: { _, _ in fatalError("TerminalClient.surfaceScreenText not configured") },
@@ -201,7 +204,7 @@ extension TerminalClient: DependencyKey {
     tabSurfaceIDs: unimplemented("TerminalClient.tabSurfaceIDs", placeholder: []),
     // Placeholder `1`, not `0`: an unstubbed count must refuse a delete, never
     // authorize one.
-    tabCount: unimplemented("TerminalClient.tabCount", placeholder: 1),
+    awakeTabCount: unimplemented("TerminalClient.awakeTabCount", placeholder: 1),
     selectedSurfaceID: unimplemented("TerminalClient.selectedSurfaceID", placeholder: nil),
     sendTextToSurface: unimplemented("TerminalClient.sendTextToSurface", placeholder: false),
     surfaceScreenText: unimplemented("TerminalClient.surfaceScreenText", placeholder: nil),

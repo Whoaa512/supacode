@@ -828,6 +828,14 @@ final class WorktreeTerminalState {
     return tabManager.tabs.allSatisfy { dormantTabLayouts[$0.id] != nil }
   }
 
+  /// Tabs that still hold live surfaces. A dormant tab is excluded: hibernation
+  /// tore its surfaces down, so it has no PTY whose working directory is this
+  /// worktree. Auto-managed cleanup deletes only at zero — an awake tab means
+  /// somebody is standing in the directory it is about to remove.
+  var awakeTabCount: Int {
+    tabManager.tabs.count { dormantTabLayouts[$0.id] == nil }
+  }
+
   /// Whether a surface lives in this tab, live or frozen in its dormant leaves,
   /// so validation accepts a dormant pane before the wake-first command runs.
   func hasSurface(_ surfaceID: UUID, in tabId: TerminalTabID) -> Bool {
