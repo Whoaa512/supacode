@@ -132,6 +132,8 @@ private struct SettingsSidebarView: View {
         .tag(SettingsSection.notifications)
       Label("Worktrees", systemImage: "list.dash")
         .tag(SettingsSection.worktree)
+      Label("Tasks", systemImage: "checklist")
+        .tag(SettingsSection.tasks)
       Label("Developer", systemImage: "hammer")
         .tag(SettingsSection.developer)
       Label("GitHub", image: "github-mark")
@@ -194,6 +196,8 @@ private struct SettingsDetailView: View {
       NotificationsSettingsView(store: settingsStore)
     case .worktree:
       WorktreeSettingsView(store: settingsStore)
+    case .tasks:
+      TasksSettingsView()
     case .developer:
       DeveloperSettingsView(store: settingsStore)
     case .shortcuts:

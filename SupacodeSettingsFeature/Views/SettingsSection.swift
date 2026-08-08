@@ -4,6 +4,7 @@ public enum SettingsSection: Hashable {
   case general
   case notifications
   case worktree
+  case tasks
   case developer
   case shortcuts
   case updates
