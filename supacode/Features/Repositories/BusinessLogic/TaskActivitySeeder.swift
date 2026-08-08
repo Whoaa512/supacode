@@ -142,12 +142,14 @@ nonisolated enum TaskActivitySeeder {
       createdAt: activityAt,
       // The evidence timestamp doubles as `settledAt` so the settled tail's sort
       // key and its displayed label are the same resolved date (A17).
-      //
-      // Coupling to name explicitly: a stale seed sets `settledAt` with *no*
-      // settled override, so Phase 2's `effectiveSettled` must read
-      // `settledAt != nil` as settled whenever there is no override. If that
-      // rule flips, every stale seed silently becomes active.
       settledAt: isStale ? activityAt : nil,
+      // Stated, not derived. A stale seed is a decision — "this directory has
+      // been dead for a fortnight, it starts in the tail" — and writing it as an
+      // explicit override means A30's off-switch cannot resurrect a wall of dead
+      // worktrees into Active, and the intent is readable in `tasks.json` rather
+      // than inferred from a bare timestamp. Unsettling clears the override, so
+      // the recovery path is untouched.
+      settledOverride: isStale ? .settled : nil,
       seedEvidence: evidence(branch: branch, timestampSource: activity.source)
     )
   }

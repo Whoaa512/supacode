@@ -129,6 +129,12 @@ struct TaskActivitySeederTests {
     if testCase.isStale {
       // Same resolved timestamp drives the settled sort key and its label (A17).
       #expect(task?.settledAt == evidenceDate)
+      // And the intent is *stated*, not inferred from the stamp: A30's global
+      // off-switch kills the auto paths, and a seed that leaned on the stamp
+      // alone would resurrect a fortnight of dead worktrees into Active.
+      #expect(task?.settledOverride == .settled)
+    } else {
+      #expect(task?.settledOverride == nil)
     }
   }
 
