@@ -2398,7 +2398,10 @@ struct RepositoriesFeature {
           .sorted { $0.rawValue < $1.rawValue }
           .map { .send(.sidebarItems(.element(id: $0, action: .pullRequestQueryFailed))) }
         effects.append(.send(.repositoryPullRequestRefreshCompleted(repositoryID)))
-        return .concatenate(effects)
+        // Merged, not concatenated: each row's failure arm is independent of the
+        // others and of the bookkeeping cleanup, so serializing them buys
+        // nothing and makes an outage's badge order the reducer's business.
+        return .merge(effects)
 
       case .repositoryPullRequestRefreshCompleted(let repositoryID):
         state.inFlightPullRequestRefreshRepositoryIDs.remove(repositoryID)
