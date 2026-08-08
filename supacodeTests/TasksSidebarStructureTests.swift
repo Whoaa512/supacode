@@ -517,6 +517,21 @@ struct TasksSidebarStructureTests {
     #expect(structure.activeTaskIDs.map(\.rawValue) == ["parked"])
     #expect(structure.snoozedTotalCount == 0)
     #expect(structure.wokeTaskIDs == [parked.id])
+    // The row renders in Active, but the user's "not now" is still standing, so
+    // its menu has to offer Wake Now rather than a Snooze it is already inside
+    // of — `snoozedTotalCount` is placement, `snoozedTaskIDs` is the record.
+    #expect(structure.snoozedTaskIDs == [parked.id])
+  }
+
+  /// `snoozedTaskIDs` tracks the live timer, not the shelf: an expired snooze
+  /// and a never-snoozed task both read as not snoozed, so a woken row's menu
+  /// offers Snooze again instead of a Wake Now that would do nothing.
+  @Test func onlyTasksWithALiveSnoozeTimerAreReportedAsSnoozed() {
+    let parked = Self.task("parked", snoozedUntil: 3600, snoozedAt: 0)
+    let expired = Self.task("expired", snoozedUntil: -3600, snoozedAt: -7200)
+    let plain = Self.task("plain")
+
+    #expect(Self.compute([parked, expired, plain]).snoozedTaskIDs == [parked.id])
   }
 
   @Test func pendingApprovalUnsnoozes() {

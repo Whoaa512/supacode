@@ -69,6 +69,12 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
   var pinnedTaskIDs: Set<TaskID> = []
   /// How many tasks are parked in total, for the collapsed shelf header.
   var snoozedTotalCount: Int = 0
+  /// Every task carrying a live `snoozedUntil`, regardless of where it ended up
+  /// rendering. A raised hand (A25) pulls a parked row back into Active without
+  /// touching the record, so placement alone can't answer "is this snoozed" —
+  /// and a row whose menu offers "Snooze" while the task is already snoozed
+  /// leaves the user no way to take the snooze back.
+  var snoozedTaskIDs: Set<TaskID> = []
   /// The snoozed rows the view renders, soonest-wake-first: the shelf reads as a
   /// ramp of what comes back next, not as a second inbox. Empty while the shelf
   /// is collapsed — except the open task, which is still pulled in (A8).
@@ -132,10 +138,12 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
     var snoozed: [SnoozedEntry] = []
     var pinnedTaskIDs: Set<TaskID> = []
     var wokeTaskIDs: Set<TaskID> = []
+    var snoozedTaskIDs: Set<TaskID> = []
 
     for task in tasks {
       let input = snoozeInput(for: task, now: now, signals: signals[task.id] ?? Signals())
       let isSnoozed = TaskSnooze.effectiveSnoozed(input)
+      if TaskSnooze.timerIsLive(input) { snoozedTaskIDs.insert(task.id) }
       let isPinned = task.pinnedAt != nil
       if isPinned { pinnedTaskIDs.insert(task.id) }
       if !isSnoozed, let wokeAt = TaskSnooze.wokeAt(input),
@@ -177,6 +185,7 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
       activeTaskIDs: activeTaskIDs,
       pinnedTaskIDs: pinnedTaskIDs,
       snoozedTotalCount: snoozedShelf.count,
+      snoozedTaskIDs: snoozedTaskIDs,
       visibleSnoozedEntries: visibleSnoozedEntries,
       wokeTaskIDs: wokeTaskIDs,
       settledTotalCount: settledTail.count,

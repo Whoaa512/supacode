@@ -481,20 +481,85 @@ struct TaskSnoozeTests {
   }
 
   /// An unconditional trigger has no timestamp of its own — pending input is a
-  /// *state*, not an event — so the wake instant is `now`. Fabricating an
-  /// earlier one would backdate the pill past a visit that already happened.
-  @Test func anUnconditionalRaiseWakesNow() {
+  /// *state*, not an event — so the wake instant is the snooze itself. It must
+  /// be a *fixed* instant: the pill clears when the user's last visit is newer
+  /// than `wokeAt`, and a `now` that re-samples on every recompute is newer than
+  /// every visit that will ever happen, leaving a pill nobody can dismiss.
+  @Test func anUnconditionalRaiseWakesAtTheSnoozeInstant() {
+    let now = Self.date(2026, 6, 1, 12)
+    let snoozedAt = now.addingTimeInterval(-Self.hour)
+    #expect(
+      TaskSnooze.wokeAt(
+        Self.input(
+          now: now,
+          snoozedUntil: now.addingTimeInterval(24 * Self.hour),
+          snoozedAt: snoozedAt,
+          activity: TaskSettlement.ActivitySnapshot(isAwaitingInput: true)
+        )
+      ) == snoozedAt
+    )
+  }
+
+  /// The instant must not move as the clock does, or the Woke pill outruns
+  /// every visit that could clear it.
+  @Test func anUnconditionalRaiseReportsTheSameInstantAsTimePasses() {
+    let snoozedAt = Self.date(2026, 6, 1, 12)
+    let input = { (now: Date) in
+      Self.input(
+        now: now,
+        snoozedUntil: snoozedAt.addingTimeInterval(24 * Self.hour),
+        snoozedAt: snoozedAt,
+        activity: TaskSettlement.ActivitySnapshot(isAwaitingInput: true)
+      )
+    }
+    #expect(
+      TaskSnooze.wokeAt(input(snoozedAt.addingTimeInterval(Self.hour)))
+        == TaskSnooze.wokeAt(input(snoozedAt.addingTimeInterval(5 * Self.hour)))
+    )
+  }
+
+  /// No readable snooze stamp leaves nothing fixed to date the pill from, so it
+  /// falls back to `now` rather than reporting no wake at all — a raised hand
+  /// with no pill is a row the user has no reason to look at.
+  @Test func anUnconditionalRaiseWithoutASnoozeStampFallsBackToNow() {
     let now = Self.date(2026, 6, 1, 12)
     #expect(
       TaskSnooze.wokeAt(
         Self.input(
           now: now,
           snoozedUntil: now.addingTimeInterval(24 * Self.hour),
-          snoozedAt: now.addingTimeInterval(-Self.hour),
+          snoozedAt: nil,
           activity: TaskSettlement.ActivitySnapshot(isAwaitingInput: true)
         )
       ) == now
     )
+  }
+
+  // MARK: - timerIsLive (the menu's "is this snoozed" question)
+
+  /// The row's menu asks a different question than its placement does: a raised
+  /// hand renders the row in Active while the user's "not now" still stands, and
+  /// that row needs Wake Now rather than a Snooze menu it is already inside of.
+  @Test func aRaisedHandLeavesTheSnoozeTimerLive() {
+    let snoozedAt = Self.date(2026, 6, 1, 12)
+    let input = Self.input(
+      now: snoozedAt.addingTimeInterval(Self.hour),
+      snoozedUntil: snoozedAt.addingTimeInterval(24 * Self.hour),
+      snoozedAt: snoozedAt,
+      activity: TaskSettlement.ActivitySnapshot(isAwaitingInput: true)
+    )
+    #expect(!TaskSnooze.effectiveSnoozed(input))
+    #expect(TaskSnooze.timerIsLive(input))
+  }
+
+  @Test func anExpiredOrAbsentSnoozeTimerIsNotLive() {
+    let wake = Self.date(2026, 6, 1, 12)
+    #expect(
+      !TaskSnooze.timerIsLive(
+        Self.input(now: wake, snoozedUntil: wake, snoozedAt: wake.addingTimeInterval(-Self.hour))
+      )
+    )
+    #expect(!TaskSnooze.timerIsLive(Self.input()))
   }
 
   /// When both happened, the timer got there first: the row has been visible

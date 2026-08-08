@@ -94,12 +94,21 @@ nonisolated enum TaskSnooze {
   /// worse bug than a row that reappears early (A17's direction applied to
   /// snooze).
   static func effectiveSnoozed(_ input: Input) -> Bool {
+    guard timerIsLive(input) else { return false }
+    return !raisedHandWhileSnoozed(input)
+  }
+
+  /// The user's "not now" is still standing — their wake instant is in the
+  /// future — regardless of whether a raised hand is currently overriding the
+  /// placement. This is the question the row's menu asks: a raised-hand row
+  /// renders in Active but is still snoozed, and offering it "Snooze" instead
+  /// of "Wake Now" leaves no way to take the snooze back.
+  static func timerIsLive(_ input: Input) -> Bool {
     guard
       let now = TaskTimestamps.read(input.now).date,
-      let until = TaskTimestamps.read(input.snoozedUntil).date,
-      now < until
+      let until = TaskTimestamps.read(input.snoozedUntil).date
     else { return false }
-    return !raisedHandWhileSnoozed(input)
+    return now < until
   }
 
   /// Two classes of trigger. Pending input and a pending approval are *states*
@@ -128,7 +137,12 @@ nonisolated enum TaskSnooze {
     else { return nil }
     if now >= until { return until }
     guard raisedHandWhileSnoozed(input) else { return nil }
-    return newestConditionalTrigger(input) ?? now
+    // `snoozedAt`, emphatically not `now`: the pill clears when the user's last
+    // visit is newer than `wokeAt`, and an instant that re-samples the clock on
+    // every recompute is newer than every visit that will ever happen. A pill
+    // nobody can dismiss is worse than one that clears a beat early, and
+    // `snoozedAt` is the earliest instant the raised state could have stood.
+    return newestConditionalTrigger(input) ?? TaskTimestamps.read(input.snoozedAt).date ?? now
   }
 
   private static func newestConditionalTrigger(_ input: Input) -> Date? {
