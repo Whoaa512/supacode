@@ -74,4 +74,91 @@ struct TaskAttentionTests {
   @Test func workingOutranksAnUnreadCompletionForRecession() {
     #expect(!TaskAttention.isReceded(Self.input(.working, isDoneUnread: true)))
   }
+
+  // MARK: - A33: jump to the next row needing a human
+
+  /// The scan itself, stated over plain strings: A33's target is "the next row
+  /// in the order the user can see whose `needsHuman` is true", so the walk has
+  /// to be a pure function of an order plus that one predicate. Anything richer
+  /// would give the jump a second opinion about a row the fade already ruled on.
+  private static func next(
+    _ order: [String],
+    after current: String?,
+    needing needsHuman: Set<String>
+  ) -> String? {
+    TaskAttention.nextNeedingHuman(in: order, after: current) { needsHuman.contains($0) }
+  }
+
+  @Test func theJumpStartsAfterTheCurrentRow() {
+    #expect(Self.next(["a", "b", "c"], after: "a", needing: ["b", "c"]) == "b")
+  }
+
+  /// Quiet rows are stepped over rather than landed on: the whole value of the
+  /// chord is that it never stops somewhere with nothing to do.
+  @Test func theJumpSkipsRowsThatNeedNobody() {
+    #expect(Self.next(["a", "b", "c", "d"], after: "a", needing: ["d"]) == "d")
+  }
+
+  /// One list, one lap. Wrapping is what makes the chord a triage loop instead
+  /// of a walk that dead-ends at the bottom of the inbox.
+  @Test func theJumpWrapsPastTheEndOfTheList() {
+    #expect(Self.next(["a", "b", "c"], after: "c", needing: ["a"]) == "a")
+  }
+
+  /// No selection means the user has not entered the list yet, so the lap
+  /// starts at the top rather than at an arbitrary anchor.
+  @Test func theJumpWithoutASelectionStartsAtTheTop() {
+    #expect(Self.next(["a", "b", "c"], after: nil, needing: ["b", "c"]) == "b")
+    #expect(Self.next(["a", "b", "c"], after: nil, needing: ["a"]) == "a")
+  }
+
+  /// A selection whose row is gone (settled away, snoozed out of view) is the
+  /// same situation as no selection at all.
+  @Test func theJumpFromARowThatIsNoLongerVisibleStartsAtTheTop() {
+    #expect(Self.next(["a", "b"], after: "gone", needing: ["a"]) == "a")
+  }
+
+  /// The current row is never its own target: re-selecting what is already open
+  /// looks to the user exactly like a chord that did nothing, and it would
+  /// re-stamp the visit. `nil` lets the reducer beep instead, which at least
+  /// says something.
+  @Test func theJumpNeverLandsBackOnTheCurrentRow() {
+    #expect(Self.next(["a", "b", "c"], after: "a", needing: ["a"]) == nil)
+  }
+
+  @Test func theJumpFindsNothingInAQuietInbox() {
+    #expect(Self.next(["a", "b"], after: "a", needing: []) == nil)
+    #expect(Self.next([], after: nil, needing: ["a"]) == nil)
+  }
+
+  /// The predicate the jump is *actually* wired to, asserted through the same
+  /// `Input` the row's fade reads: working and receded rows are skipped, and
+  /// each of A33's three disjuncts is a landing site. Driving it from
+  /// `needsHuman` rather than from a hand-written set is the point — a second
+  /// spelling here is exactly the drift `TaskAttention` exists to prevent.
+  @Test func theJumpSkipsWorkingAndRecededRowsAndLandsOnEveryDisjunct() {
+    let rows: [String: TaskAttention.Input] = [
+      "working": Self.input(.working),
+      "quiet": Self.input(.ready),
+      "approval": Self.input(.approval),
+      "input": Self.input(.input),
+      "failed": Self.input(.failed),
+      "done": Self.input(.ready, isDoneUnread: true),
+      "woke": Self.input(.ready, isWoke: true),
+    ]
+    let order = ["anchor", "working", "quiet", "approval", "input", "failed", "done", "woke"]
+    func next(after current: String) -> String? {
+      TaskAttention.nextNeedingHuman(in: order, after: current) { id in
+        rows[id].map(TaskAttention.needsHuman) ?? false
+      }
+    }
+
+    #expect(next(after: "anchor") == "approval")
+    #expect(next(after: "approval") == "input")
+    #expect(next(after: "input") == "failed")
+    #expect(next(after: "failed") == "done")
+    #expect(next(after: "done") == "woke")
+    // Wraps past the quiet head of the list back to the first raised hand.
+    #expect(next(after: "woke") == "approval")
+  }
 }

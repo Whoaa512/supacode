@@ -393,7 +393,7 @@ struct AppShortcutsTests {
   @Test func categoryDisplayNames() {
     expectNoDifference(
       AppShortcutCategory.allCases.map(\.displayName),
-      ["General", "Sidebar", "Worktrees", "Worktree Selection", "Tab Selection", "Actions"]
+      ["General", "Sidebar", "Worktrees", "Tasks", "Worktree Selection", "Tab Selection", "Actions"]
     )
   }
 
@@ -451,5 +451,65 @@ struct AppShortcutsTests {
     let arguments = AppShortcuts.ghosttyCLIKeybindArguments
     #expect(arguments.contains("--keybind=alt+super+g=unbind"))
     #expect(arguments.contains("--keybind=alt+super+n=unbind"))
+  }
+
+  // MARK: - Task inbox shortcuts.
+
+  /// ⌃⌘, not ⌘⇧: the ⌘⇧ space is already dense (A T E B P R C O K U ⌫), and
+  /// ⌘⇧S/Z/K would read as Save/Undo relatives. The ⌃⌘ row is nearly empty —
+  /// only the arrows, brackets, G and A are spoken for.
+  @Test func taskShortcutsUseControlCommandChords() {
+    expectNoDifference(
+      [
+        AppShortcuts.jumpToNextTaskNeedingAttention.display,
+        AppShortcuts.settleTask.display,
+        AppShortcuts.snoozeTask.display,
+        AppShortcuts.pinTask.display,
+      ],
+      ["⌃⌘J", "⌃⌘S", "⌃⌘Z", "⌃⌘K"]
+    )
+    for shortcut in AppShortcuts.tasks {
+      #expect(shortcut.modifiers == [.command, .control])
+    }
+  }
+
+  /// A34's hard rule, checked mechanically: every task chord carries ⌘, so none
+  /// of them can ever be someone's typing in a terminal or a text field.
+  @Test func everyTaskShortcutCarriesCommand() {
+    for shortcut in AppShortcuts.tasks {
+      #expect(shortcut.modifiers.contains(.command))
+    }
+  }
+
+  @Test func taskShortcutsHaveNoDefaultConflict() {
+    let warnings = AppShortcuts.conflictWarnings(from: [:])
+    for shortcut in AppShortcuts.tasks {
+      #expect(warnings[shortcut.id] == nil)
+    }
+  }
+
+  /// Without a `stableKey` round-trip a rebind persists and then silently
+  /// disappears on the next launch.
+  @Test func taskShortcutIDsRoundTrip() {
+    for shortcut in AppShortcuts.tasks {
+      let decoded = AppShortcutID(codingKey: PlainCodingKey(shortcut.id.codingKey.stringValue))
+      #expect(decoded == shortcut.id)
+    }
+  }
+
+  /// M1: an app chord only survives a focused terminal because ghostty is told
+  /// to unbind it. Every entry in `all` gets one for free, so this is the
+  /// assertion that the new group actually reached `all`.
+  @Test func taskShortcutsUnbindInGhostty() {
+    let arguments = AppShortcuts.ghosttyCLIKeybindArguments
+    for shortcut in AppShortcuts.tasks {
+      #expect(arguments.contains(shortcut.ghosttyUnbindArgument))
+    }
+  }
+
+  @Test func taskShortcutsAreNamedInSettings() {
+    for shortcut in AppShortcuts.tasks {
+      #expect(!shortcut.displayName.isEmpty)
+    }
   }
 }

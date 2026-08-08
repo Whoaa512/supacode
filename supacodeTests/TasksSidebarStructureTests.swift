@@ -748,4 +748,128 @@ struct TasksSidebarStructureTests {
     )
     #expect(structure.visibleSettledTail.isEmpty != expectedSettled)
   }
+
+  // MARK: - A32: hotkey slots
+
+  /// The whole of A32's "the hint and the target always agree", asserted as the
+  /// property rather than as a sample: the slot map is the inverse of the one
+  /// list the panel renders, so a row's ⌃n badge and what ⌃n opens are the same
+  /// lookup read twice. A second ordering here is the only way they could ever
+  /// disagree, and there isn't one.
+  @Test func slotsAreTheInverseOfTheVisibleOrder() {
+    let structure = Self.compute([
+      Self.task("a", createdAt: 300),
+      Self.task("b", createdAt: 200),
+      Self.task("c", createdAt: 100, pinnedAt: 0),
+    ])
+
+    #expect(structure.slotByTaskID.count == structure.visibleTaskIDs.count)
+    for (index, id) in structure.visibleTaskIDs.enumerated() {
+      #expect(structure.slotByTaskID[id] == index)
+    }
+  }
+
+  /// Slots follow render order, not creation order: the pinned block is drawn
+  /// first, so it holds ⌃1.
+  @Test func thePinnedBlockHoldsTheFirstSlots() {
+    let structure = Self.compute([
+      Self.task("newest", createdAt: 300),
+      Self.task("pinned", createdAt: 100, pinnedAt: 0),
+    ])
+
+    #expect(structure.slotByTaskID[TaskID("pinned")] == 0)
+    #expect(structure.slotByTaskID[TaskID("newest")] == 1)
+  }
+
+  /// A32's second clause. A row the user cannot see must not eat a number the
+  /// row below it would otherwise carry — a slot map that counted hidden rows
+  /// would make every badge below a collapsed shelf point one row off.
+  @Test func rowsBehindACollapsedShelfConsumeNoSlots() {
+    let structure = Self.compute(
+      [
+        Self.task("live", createdAt: 300),
+        Self.task("parked", snoozedUntil: 3600, snoozedAt: 0),
+        Self.task("also-live", createdAt: 100),
+      ],
+      isSnoozedShelfExpanded: false
+    )
+
+    #expect(structure.slotByTaskID[TaskID("parked")] == nil)
+    #expect(structure.slotByTaskID[TaskID("live")] == 0)
+    #expect(structure.slotByTaskID[TaskID("also-live")] == 1)
+  }
+
+  /// Same rule for the settled tail's page window: what "Show more" is still
+  /// hiding is unaddressable.
+  @Test func pagedOutSettledRowsConsumeNoSlots() {
+    let settled = Self.settledTasks(count: 4)
+    let structure = Self.compute(settled, settledVisibleCount: 2)
+
+    #expect(structure.slotByTaskID.count == 2)
+    #expect(structure.visibleTaskIDs.allSatisfy { structure.slotByTaskID[$0] != nil })
+    #expect(structure.slotByTaskID[settled[3].id] == nil)
+  }
+
+  // MARK: - A34: what the focused row's chords may do
+
+  /// The lifecycle chords act on the open row, and the menu items that carry
+  /// them have to say which way they point *before* they fire — "Settle" vs
+  /// "Unsettle", enabled vs greyed. Resolving that here, next to the placement
+  /// that already decided all of it, is what keeps the menu from re-deriving
+  /// settled-ness from a second source and disagreeing with the list.
+  @Test func theOpenRowReportsItsLifecycleAffordances() {
+    let structure = Self.compute(
+      [
+        Self.task("open", createdAt: 300, pinnedAt: 0),
+        Self.task("other", createdAt: 100),
+      ],
+      openTaskID: TaskID("open")
+    )
+
+    let commands = structure.openTaskCommands
+    #expect(commands?.id == TaskID("open"))
+    #expect(commands?.isPinned == true)
+    #expect(commands?.isSettled == false)
+    #expect(commands?.isSnoozed == false)
+    #expect(commands?.canSettle == true)
+    #expect(commands?.canSnooze == true)
+  }
+
+  @Test func aSettledOpenRowReportsItself() {
+    let structure = Self.compute(
+      [Self.task("open", settledAt: -60)],
+      openTaskID: TaskID("open")
+    )
+
+    #expect(structure.openTaskCommands?.isSettled == true)
+  }
+
+  @Test func aParkedOpenRowReportsItsSnooze() {
+    let structure = Self.compute(
+      [Self.task("open", snoozedUntil: 3600, snoozedAt: 0)],
+      openTaskID: TaskID("open")
+    )
+
+    #expect(structure.openTaskCommands?.isSnoozed == true)
+  }
+
+  /// A18b at the source: a task whose agent is asking a question can neither be
+  /// settled nor parked, and the menu item has to be able to grey itself out
+  /// rather than offer an action the reducer will refuse.
+  @Test func anOpenRowAwaitingAPersonRefusesSettleAndSnooze() {
+    var signals = TasksSidebarStructure.Signals()
+    signals.activity = TaskSettlement.ActivitySnapshot(isAwaitingInput: true)
+    let structure = Self.compute(
+      [Self.task("open")],
+      signals: [TaskID("open"): signals],
+      openTaskID: TaskID("open")
+    )
+
+    #expect(structure.openTaskCommands?.canSettle == false)
+    #expect(structure.openTaskCommands?.canSnooze == false)
+  }
+
+  @Test func nothingOpenMeansNoLifecycleAffordances() {
+    #expect(Self.compute([Self.task("a")]).openTaskCommands == nil)
+  }
 }
