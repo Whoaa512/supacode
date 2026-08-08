@@ -8,6 +8,7 @@ struct TasksSidebarStructureTests {
 
   private static func task(
     _ id: String,
+    title: String? = nil,
     createdAt offset: TimeInterval = 0,
     settledAt: TimeInterval? = nil,
     lastVisitedAt: TimeInterval? = nil,
@@ -18,7 +19,7 @@ struct TasksSidebarStructureTests {
   ) -> TaskRecord {
     TaskRecord(
       id: TaskID(id),
-      title: id,
+      title: title ?? id,
       directoryPath: "/tmp/\(id)",
       createdAt: reference.addingTimeInterval(offset),
       settledAt: settledAt.map(reference.addingTimeInterval),
@@ -69,7 +70,8 @@ struct TasksSidebarStructureTests {
     settledVisibleCount: Int = TasksSidebarStructure.settledTailInitialCount,
     isSettledTailExpanded: Bool = true,
     isSnoozedShelfExpanded: Bool = true,
-    policy: TaskSettlement.Policy = .manualOnly
+    policy: TaskSettlement.Policy = .manualOnly,
+    searchQuery: String = ""
   ) -> TasksSidebarStructure {
     TasksSidebarStructure.compute(
       tasks: tasks,
@@ -79,7 +81,8 @@ struct TasksSidebarStructureTests {
       settledVisibleCount: settledVisibleCount,
       isSettledTailExpanded: isSettledTailExpanded,
       isSnoozedShelfExpanded: isSnoozedShelfExpanded,
-      policy: policy
+      policy: policy,
+      searchQuery: searchQuery
     )
   }
 
@@ -871,5 +874,128 @@ struct TasksSidebarStructureTests {
 
   @Test func nothingOpenMeansNoLifecycleAffordances() {
     #expect(Self.compute([Self.task("a")]).openTaskCommands == nil)
+  }
+
+  // MARK: - A37: title search
+
+  @Test func anEmptyQueryIsIndistinguishableFromNoSearch() {
+    let tasks = [Self.task("a"), Self.task("b", settledAt: -1)]
+
+    #expect(Self.compute(tasks, searchQuery: "") == Self.compute(tasks))
+    // Whitespace is not a query either: a stray space must not empty the inbox.
+    #expect(Self.compute(tasks, searchQuery: "   ") == Self.compute(tasks))
+    #expect(Self.compute(tasks).isSearching == false)
+  }
+
+  @Test func searchMatchesTitleSubstringsCaseInsensitively() {
+    let tasks = [
+      Self.task("a", title: "Fix the Login Flow"),
+      Self.task("b", title: "rename the sidebar"),
+    ]
+
+    let structure = Self.compute(tasks, searchQuery: "LOGIN")
+
+    #expect(structure.visibleTaskIDs == [TaskID("a")])
+    #expect(structure.isSearching)
+  }
+
+  /// The directory is not the title. A37 is title-*only* search, and matching
+  /// the path would quietly make it a directory filter nobody asked for.
+  @Test func searchIgnoresEverythingButTheTitle() {
+    let structure = Self.compute([Self.task("a", title: "unrelated")], searchQuery: "tmp")
+
+    #expect(structure.visibleTaskIDs.isEmpty)
+    #expect(structure.isSearching)
+  }
+
+  /// The heart of A37: a query never reorders anything. It removes rows from
+  /// the sections they were already in, and what survives keeps its order.
+  @Test func searchNeverChangesLifecycleOrder() {
+    let tasks = [
+      Self.task("a", title: "alpha ship", createdAt: 3),
+      Self.task("noise", title: "unrelated", createdAt: 2),
+      Self.task("b", title: "beta ship", createdAt: 1),
+      Self.task("c", title: "gamma ship", createdAt: 0, pinnedAt: 5),
+    ]
+
+    let all = Self.compute(tasks)
+    let searched = Self.compute(tasks, searchQuery: "ship")
+
+    #expect(all.activeTaskIDs == [TaskID("c"), TaskID("a"), TaskID("noise"), TaskID("b")])
+    #expect(searched.activeTaskIDs == [TaskID("c"), TaskID("a"), TaskID("b")])
+    #expect(searched.pinnedTaskIDs == [TaskID("c")])
+  }
+
+  /// A37: a settled match surfaces while the query is live, even from behind a
+  /// collapsed tail — the same pull-in rule the open task gets (A8), applied to
+  /// every match, because a search that cannot see history is not a search.
+  @Test func searchPullsSettledMatchesOutOfACollapsedTail() {
+    let tasks = [
+      Self.task("live", title: "unrelated"),
+      Self.task("old", title: "deploy script", settledAt: -1),
+    ]
+
+    let collapsed = Self.compute(tasks, isSettledTailExpanded: false)
+    let searched = Self.compute(tasks, isSettledTailExpanded: false, searchQuery: "deploy")
+
+    #expect(collapsed.visibleSettledTail.isEmpty)
+    #expect(searched.visibleSettledTail.map(\.id) == [TaskID("old")])
+    #expect(searched.visibleTaskIDs == [TaskID("old")])
+    // The count still describes the whole tail, and nothing hides behind
+    // "Show more" while a query is narrowing the list for you.
+    #expect(searched.settledTotalCount == 1)
+    #expect(searched.hiddenSettledCount == 0)
+  }
+
+  /// The paged half of the same rule: a match past the page window is reachable
+  /// by typing, without the user having to click "Show more" first.
+  @Test func searchReachesPastTheSettledPageWindow() {
+    var tasks = Self.settledTasks(count: TasksSidebarStructure.settledTailInitialCount + 5)
+    tasks.append(Self.task("deep", title: "needle", settledAt: -1000))
+
+    let searched = Self.compute(tasks, searchQuery: "needle")
+
+    #expect(searched.visibleSettledTail.map(\.id) == [TaskID("deep")])
+  }
+
+  @Test func searchPullsSnoozedMatchesOutOfACollapsedShelf() {
+    let tasks = [
+      Self.task("live", title: "unrelated"),
+      Self.task("parked", title: "review the migration", snoozedUntil: 60, snoozedAt: -1),
+    ]
+
+    let searched = Self.compute(tasks, isSnoozedShelfExpanded: false, searchQuery: "migration")
+
+    #expect(searched.visibleSnoozedEntries.map(\.id) == [TaskID("parked")])
+    #expect(searched.snoozedTaskIDs == [TaskID("parked")])
+    #expect(searched.snoozedTotalCount == 1)
+  }
+
+  /// A8 outranks the filter. The row you are looking at cannot vanish because
+  /// you typed something it does not match — the selection has to survive the
+  /// query so clearing it can put you back where you were.
+  @Test func theOpenTaskSurvivesAQueryItDoesNotMatch() {
+    let tasks = [Self.task("open", title: "unrelated"), Self.task("hit", title: "needle")]
+
+    let searched = Self.compute(tasks, openTaskID: TaskID("open"), searchQuery: "needle")
+
+    #expect(searched.visibleTaskIDs.contains(TaskID("open")))
+    #expect(searched.openTaskCommands?.id == TaskID("open"))
+  }
+
+  /// The slot map is still the strict inverse of the visible order (A32), so
+  /// the ⌃n badges renumber to what search left on screen instead of pointing
+  /// at rows that are no longer there.
+  @Test func searchRenumbersTheHotkeySlots() {
+    let tasks = [
+      Self.task("a", title: "alpha ship", createdAt: 2),
+      Self.task("noise", title: "unrelated", createdAt: 1),
+      Self.task("b", title: "beta ship", createdAt: 0),
+    ]
+
+    let searched = Self.compute(tasks, searchQuery: "ship")
+
+    #expect(searched.visibleTaskIDs == [TaskID("a"), TaskID("b")])
+    #expect(searched.slotByTaskID == [TaskID("a"): 0, TaskID("b"): 1])
   }
 }

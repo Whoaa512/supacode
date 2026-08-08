@@ -389,6 +389,81 @@ struct RepositoriesFeatureTasksTests {
     #expect(sandbox.loadFile()?.tasks.first?.settledAt == nil)
   }
 
+  // MARK: - A37: title search
+
+  /// The wiring half of A37: the query lands in state, the cached structure
+  /// narrows, and clearing it puts the whole list back — no reload, no reorder.
+  @Test func searchNarrowsTheCachedStructureAndClearingRestoresIt() async throws {
+    let sandbox = try makeSandbox()
+    let mine = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
+    let theirs = try sandbox.makeDirectory("theirs", activityAt: Self.freshDate)
+    var state = makeState(sandbox: sandbox, directories: [mine, theirs])
+    var hit = makeRecord(directory: mine)
+    hit.title = "Ship the inbox"
+    var miss = makeRecord(directory: theirs)
+    miss.title = "Unrelated errand"
+    state.taskRecords = [hit, miss]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+    let unfiltered = store.state.tasksSidebarStructure
+
+    await store.send(.tasks(.setSearchQuery("inbox")))
+    #expect(store.state.taskSearchQuery == "inbox")
+    #expect(store.state.tasksSidebarStructure.visibleTaskIDs == [hit.id])
+    #expect(store.state.tasksSidebarStructure.isSearching)
+
+    await store.send(.tasks(.setSearchQuery("")))
+    await store.finish()
+
+    #expect(store.state.tasksSidebarStructure == unfiltered)
+    #expect(store.state.tasksSidebarStructure.isSearching == false)
+  }
+
+  /// Search is presentation, not lifecycle: it must never write a record or
+  /// touch `tasks.json`. The sandbox's storage records an issue if a save runs.
+  @Test func searchDoesNotSelectOrPersistAnything() async throws {
+    let sandbox = try makeSandbox()
+    let mine = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
+    var state = makeState(sandbox: sandbox, directories: [mine])
+    var record = makeRecord(directory: mine)
+    record.title = "Ship the inbox"
+    state.taskRecords = [record]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+    let priorSelection = store.state.selection
+
+    await store.send(.tasks(.setSearchQuery("nothing matches this")))
+    await store.finish()
+
+    #expect(store.state.tasksSidebarStructure.visibleTaskIDs.isEmpty)
+    #expect(store.state.taskRecords[id: record.id] == record)
+    #expect(store.state.selection == priorSelection)
+  }
+
+  /// The selection survives a query it does not match (A8), so clearing the
+  /// field leaves the user standing exactly where they started.
+  @Test func searchKeepsTheOpenTaskVisibleAndSelected() async throws {
+    let sandbox = try makeSandbox()
+    let mine = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
+    let theirs = try sandbox.makeDirectory("theirs", activityAt: Self.freshDate)
+    var state = makeState(sandbox: sandbox, directories: [mine, theirs])
+    var open = makeRecord(directory: mine)
+    open.title = "Unrelated errand"
+    var other = makeRecord(directory: theirs)
+    other.title = "Ship the inbox"
+    state.taskRecords = [open, other]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(.tasks(.select(open.id)))
+    await store.send(.tasks(.setSearchQuery("inbox")))
+    await store.send(.tasks(.stopTimers))
+    await store.finish()
+
+    #expect(store.state.selection?.taskID == open.id)
+    #expect(store.state.tasksSidebarStructure.visibleTaskIDs.contains(open.id))
+  }
+
   // MARK: - A5 / A11: selection
 
   @Test func selectingATaskStampsLastVisitedAndFocusesAnOwnedSurface() async throws {
