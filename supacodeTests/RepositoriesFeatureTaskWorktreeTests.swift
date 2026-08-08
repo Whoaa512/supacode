@@ -88,6 +88,7 @@ struct RepositoriesFeatureTaskWorktreeTests {
       $0.gitClient.remoteNames = { _ in ["origin"] }
       $0.gitClient.ignoredFileCount = { _ in 0 }
       $0.gitClient.untrackedFileCount = { _ in 0 }
+      $0.gitClient.localBranchNames = { _ in [] }
       configureGit(&$0.gitClient)
     }
     store.exhaustivity = .off
@@ -272,6 +273,64 @@ struct RepositoriesFeatureTaskWorktreeTests {
     await store.finish()
 
     #expect(store.state.sidebarItems[id: createdWorktree.id]?.lifecycle == .pending)
+  }
+
+  /// A name git would refuse fails both attempts identically, so it is checked
+  /// before either runs — and "refuse" is not just "a branch of that name
+  /// exists". Git stores branches as paths, so a repository with a branch
+  /// literally called `task` conflicts with every `task/...` name the inbox can
+  /// derive, id tail and suffixes included.
+  ///
+  /// This is also the one failure that must NOT roll anything back: nothing was
+  /// created, so the only thing at the derived name is the branch that caused
+  /// the collision — somebody else's work.
+  @Test func aNameGitWouldRefuseFailsBeforeCreatingAndRemovesNothing() async throws {
+    let sandbox = try makeSandbox()
+    let busy = try sandbox.makeDirectory("busy", activityAt: Self.freshDate)
+    let attempts = LockIsolated<[CreateAttempt]>([])
+    let removeCount = LockIsolated(0)
+    let store = makeStore(makeIsolatingState(sandbox: sandbox, busy: busy), sandbox: sandbox) {
+      $0.createWorktreeStream = Self.createWorktreeStreamSpy(attempts: attempts, worktree: nil)
+      $0.localBranchNames = { _ in ["task"] }
+      $0.removeWorktree = { worktree, _ in
+        removeCount.withValue { $0 += 1 }
+        return worktree.workingDirectory
+      }
+      $0.worktrees = { _ in [] }
+    }
+
+    await store.send(.tasks(.createTask(title: "Ship the inbox", directoryURL: busy)))
+    await store.receive(\.tasks.autoManagedWorktreeCreationFailed)
+    await store.finish()
+
+    #expect(attempts.value.isEmpty)
+    #expect(removeCount.value == 0)
+    #expect(store.state.taskRecords.count == 1)
+    #expect(store.state.alert != nil)
+  }
+
+  /// An unreadable branch list must not block the capture (A20): creation runs,
+  /// and creation is then the check.
+  @Test func anUnreadableBranchListStillLetsTheCaptureThrough() async throws {
+    let sandbox = try makeSandbox()
+    let busy = try sandbox.makeDirectory("busy", activityAt: Self.freshDate)
+    let created = try sandbox.makeDirectory("created", activityAt: Self.freshDate)
+    let createdWorktree = TaskInboxFixture.makeWorktree(created, rootURL: sandbox.rootURL)
+    let attempts = LockIsolated<[CreateAttempt]>([])
+    let store = makeStore(makeIsolatingState(sandbox: sandbox, busy: busy), sandbox: sandbox) {
+      $0.createWorktreeStream = Self.createWorktreeStreamSpy(attempts: attempts, worktree: createdWorktree)
+      $0.localBranchNames = { _ in
+        throw GitClientError.commandFailed(command: "git branch", message: "boom")
+      }
+      $0.worktrees = { _ in [] }
+    }
+
+    await store.send(.tasks(.createTask(title: "Ship the inbox", directoryURL: busy)))
+    await store.receive(\.tasks.autoManagedWorktreeCreated)
+    await store.finish()
+
+    #expect(attempts.value.count == 1)
+    #expect(store.state.alert == nil)
   }
 
   // MARK: - A20b: a failed creation rolls back completely

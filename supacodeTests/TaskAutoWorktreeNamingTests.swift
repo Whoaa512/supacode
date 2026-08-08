@@ -83,4 +83,50 @@ struct TaskAutoWorktreeNamingTests {
     let id = TaskID("aabbccdd-0000-0000-0000-000000000000")
     #expect(Self.branch("x", id: id) == "task/x-aabbccdd")
   }
+
+  // MARK: - Stepping past a name git would refuse
+
+  @Test func aFreeNameIsUsedAsIs() {
+    #expect(TaskAutoWorktreeNaming.availableBranchName("task/ship-abcdef01", existing: []) == "task/ship-abcdef01")
+    #expect(
+      TaskAutoWorktreeNaming.availableBranchName("task/ship-abcdef01", existing: ["task/other", "main"])
+        == "task/ship-abcdef01"
+    )
+  }
+
+  @Test func aTakenNameStepsToTheNextSuffix() {
+    #expect(
+      TaskAutoWorktreeNaming.availableBranchName("task/ship-abcdef01", existing: ["task/ship-abcdef01"])
+        == "task/ship-abcdef01-2"
+    )
+    #expect(
+      TaskAutoWorktreeNaming.availableBranchName(
+        "task/ship-abcdef01",
+        existing: ["task/ship-abcdef01", "task/ship-abcdef01-2"]
+      ) == "task/ship-abcdef01-3"
+    )
+  }
+
+  /// Git stores branches as paths, so `task/ship` cannot exist while
+  /// `task/ship/rebase` does — in either direction. An equality-only check would
+  /// hand back a name `git worktree add` refuses, and the capture would fail
+  /// with a message about a branch the user never saw.
+  @Test func aDirectoryFileConflictCountsAsTakenInBothDirections() {
+    #expect(
+      TaskAutoWorktreeNaming.availableBranchName("task/ship-abcdef01", existing: ["task/ship-abcdef01/rebase"])
+        == "task/ship-abcdef01-2"
+    )
+    // A branch literally called `task` blocks every name the scheme can derive.
+    #expect(TaskAutoWorktreeNaming.availableBranchName("task/ship-abcdef01", existing: ["task"]) == nil)
+  }
+
+  /// Bounded: a capture that cannot find a free spelling in a handful of tries
+  /// fails honestly rather than counting forever.
+  @Test func everySpellingTakenGivesUp() {
+    var taken: Set<String> = ["task/ship-abcdef01"]
+    for suffix in 2...TaskAutoWorktreeNaming.collisionSuffixLimit {
+      taken.insert("task/ship-abcdef01-\(suffix)")
+    }
+    #expect(TaskAutoWorktreeNaming.availableBranchName("task/ship-abcdef01", existing: taken) == nil)
+  }
 }

@@ -19,6 +19,34 @@ nonisolated enum TaskAutoWorktreeNaming {
   /// names only ever have to be unique inside one repository.
   static let shortIDCharacterLimit = 8
 
+  /// How many suffixed spellings a capture will try before giving up. The id
+  /// tail already makes a genuine collision vanishingly unlikely, so this is
+  /// there for the case that is *not* random — a leftover branch from an earlier
+  /// attempt at the same task, or a directory/file conflict — and a handful of
+  /// tries is either enough or a sign that something else is wrong.
+  static let collisionSuffixLimit = 5
+
+  /// The first spelling of `name` that no existing branch conflicts with, or
+  /// `nil` when every one of them does.
+  ///
+  /// Conflict is not just equality: git stores branches as paths, so `task/ship`
+  /// cannot exist while `task/ship/rebase` does, in either direction. Checking
+  /// only for an exact match would hand back a name `git worktree add` refuses,
+  /// and the capture would fail with a message about nothing the user can see.
+  static func availableBranchName(_ name: String, existing: Set<String>) -> String? {
+    for attempt in 1...collisionSuffixLimit {
+      let candidate = attempt == 1 ? name : "\(name)-\(attempt)"
+      guard conflicts(candidate, with: existing) else { return candidate }
+    }
+    return nil
+  }
+
+  private static func conflicts(_ candidate: String, with existing: Set<String>) -> Bool {
+    existing.contains { name in
+      name == candidate || name.hasPrefix("\(candidate)/") || candidate.hasPrefix("\(name)/")
+    }
+  }
+
   static func branchName(title: String, taskID: TaskID) -> String {
     let shortID = String(
       taskID.rawValue.lowercased().replacing("-", with: "").prefix(shortIDCharacterLimit)

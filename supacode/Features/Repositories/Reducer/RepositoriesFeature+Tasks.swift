@@ -79,12 +79,16 @@ extension RepositoriesFeature {
     /// undo — but a failed `wt sw` can still leave a directory and a branch
     /// behind, so this carries what it takes to remove them (A20b: the capture
     /// leaves *nothing*, not just no record).
+    ///
+    /// `orphanedBranch` names the attempt whose leftovers must be removed, and
+    /// is `nil` when nothing was ever attempted — a rollback then would delete a
+    /// branch somebody else owns.
     case autoManagedWorktreeCreationFailed(
       title: String,
       directoryPath: String,
       message: String,
       repositoryID: Repository.ID,
-      branch: String,
+      orphanedBranch: String?,
       baseDirectory: URL
     )
     /// Re-check Resolved #9's preconditions and, if they all hold, delete the
@@ -406,7 +410,8 @@ extension RepositoriesFeature {
 
       case .tasks(
         .autoManagedWorktreeCreationFailed(
-          let title, let directoryPath, let message, let repositoryID, let branch, let baseDirectory
+          let title, let directoryPath, let message, let repositoryID, let orphanedBranch,
+          let baseDirectory
         )
       ):
         tasksLogger.error(
@@ -420,7 +425,7 @@ extension RepositoriesFeature {
         // the attempt that just failed, so its branch can carry no commits.
         let cleanup = state.cleanupFailedWorktree(
           repositoryID: repositoryID,
-          name: branch,
+          name: orphanedBranch,
           baseDirectory: baseDirectory
         )
         state.alert = messageAlert(title: "Unable to create worktree", message: message)
@@ -548,7 +553,7 @@ extension RepositoriesFeature {
     // the record's marker authorizing a directory that was never created.
     let taskID = TaskID()
     let resolvedTitle = state.resolvedTaskTitle(title: title, directoryPath: directoryPath)
-    let branch = TaskAutoWorktreeNaming.branchName(title: resolvedTitle, taskID: taskID)
+    let requestedBranch = TaskAutoWorktreeNaming.branchName(title: resolvedTitle, taskID: taskID)
     @Shared(.settingsFile) var settingsFile
     @Shared(.repositorySettings(repository.rootURL, host: repository.host)) var repositorySettings
     let baseDirectory = SupacodePaths.worktreeBaseDirectory(
@@ -565,6 +570,31 @@ extension RepositoriesFeature {
       var baseRef = configuredBaseRef
       if baseRef.isEmpty {
         baseRef = await client.automaticWorktreeBaseRef(repository.rootURL) ?? ""
+      }
+      // Checked up front rather than discovered by failing: a name git refuses
+      // fails *both* attempts identically, so the cold retry is spent on a
+      // certainty and the user gets an alert about a branch they never named.
+      // An unreadable branch list is not a reason to block (A20) — the creation
+      // itself is then the check.
+      let existingBranches = (try? await client.localBranchNames(repository.rootURL)) ?? []
+      guard let branch = TaskAutoWorktreeNaming.availableBranchName(requestedBranch, existing: existingBranches)
+      else {
+        await send(
+          .tasks(
+            .autoManagedWorktreeCreationFailed(
+              title: resolvedTitle,
+              directoryPath: directoryPath,
+              message: "A branch named \(requestedBranch) already exists.",
+              repositoryID: repository.id,
+              // Nothing was attempted, so there is nothing to roll back — and a
+              // rollback here would remove the *existing* branch that caused
+              // this, which is somebody's work.
+              orphanedBranch: nil,
+              baseDirectory: baseDirectory
+            )
+          )
+        )
+        return
       }
       var lastError: (any Error)?
       let attempts = [(warm: true, copyUntracked: copyUntracked), (warm: false, copyUntracked: false)]
@@ -631,7 +661,7 @@ extension RepositoriesFeature {
             directoryPath: directoryPath,
             message: lastError?.localizedDescription ?? "Worktree creation failed.",
             repositoryID: repository.id,
-            branch: branch,
+            orphanedBranch: branch,
             baseDirectory: baseDirectory
           )
         )
