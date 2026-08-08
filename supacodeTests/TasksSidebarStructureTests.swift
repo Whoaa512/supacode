@@ -981,6 +981,26 @@ struct TasksSidebarStructureTests {
 
     #expect(searched.visibleTaskIDs.contains(TaskID("open")))
     #expect(searched.openTaskCommands?.id == TaskID("open"))
+    #expect(searched.hasSearchMatches)
+  }
+
+  /// The pull-in is not a result. With the open row the only thing left on
+  /// screen, the panel still has to say "nothing matched" — otherwise the row
+  /// riding along under A8 reads as the answer to what the user typed.
+  @Test func aPulledInOpenRowIsNotAMatch() {
+    let tasks = [Self.task("open", title: "unrelated"), Self.task("other", title: "also unrelated")]
+
+    let searched = Self.compute(tasks, openTaskID: TaskID("open"), searchQuery: "needle")
+
+    #expect(searched.visibleTaskIDs == [TaskID("open")])
+    #expect(searched.isSearching)
+    #expect(searched.hasSearchMatches == false)
+  }
+
+  /// And the flag is off whenever there is no query, so the message cannot
+  /// appear over an inbox nobody is searching.
+  @Test func nothingIsAMatchWithoutAQuery() {
+    #expect(Self.compute([Self.task("a", title: "needle")]).hasSearchMatches == false)
   }
 
   /// The slot map is still the strict inverse of the visible order (A32), so

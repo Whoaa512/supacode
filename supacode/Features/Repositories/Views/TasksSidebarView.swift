@@ -142,7 +142,10 @@ struct TasksSidebarView: View {
       // Tasks" is how a still-loading inbox reads as an empty one.
       if !store.hasLoadedTasks {
         loadingRow
-      } else if structure.visibleTaskIDs.isEmpty, structure.isSearching {
+      } else if structure.isSearching, !structure.hasSearchMatches {
+        // Not keyed on an empty list: the open task rides along whatever you
+        // type (A8), so a query nobody matched still renders that one row, and
+        // without the message above it the row reads as the search result.
         noSearchResultsRow
       } else if structure.visibleTaskIDs.isEmpty, structure.settledTotalCount == 0,
         structure.snoozedTotalCount == 0

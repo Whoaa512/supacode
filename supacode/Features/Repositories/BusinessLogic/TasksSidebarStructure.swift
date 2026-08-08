@@ -134,6 +134,11 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
   /// tell "your inbox is empty" from "nothing matched what you typed" — two very
   /// different things to say to someone staring at a blank list.
   var isSearching: Bool = false
+  /// Whether anything actually matched the live query. Not the same as "the list
+  /// is non-empty": the open task rides along whatever you type (A8), so a query
+  /// nobody matched can still render one row — and without this the panel would
+  /// present that row as the search result it is not.
+  var hasSearchMatches: Bool = false
 
   /// The open row's lifecycle affordances. Purely a projection of the placement
   /// this same compute already decided, plus the two activity questions A18b
@@ -197,9 +202,11 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
     // is A37's "without changing lifecycle order" as a structural property
     // rather than a promise. The open task rides along regardless (A8): the row
     // you are looking at cannot vanish because you typed.
+    let matchesQuery = { (task: TaskRecord) in task.title.lowercased().contains(query) }
+    let hasSearchMatches = isSearching && tasks.contains(where: matchesQuery)
     let tasks =
       isSearching
-      ? tasks.filter { $0.id == openTaskID || $0.title.lowercased().contains(query) }
+      ? tasks.filter { $0.id == openTaskID || matchesQuery($0) }
       : tasks
     // A live query is its own "show everything you found": a match hiding
     // behind a collapsed shelf or past the page window would make search useless
@@ -293,7 +300,8 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
       // the same lookup (A32).
       slotByTaskID: Self.slots(for: visibleTaskIDs),
       openTaskCommands: openTaskCommands,
-      isSearching: isSearching
+      isSearching: isSearching,
+      hasSearchMatches: hasSearchMatches
     )
   }
 
