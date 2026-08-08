@@ -673,4 +673,97 @@ struct RepositoriesFeatureTasksPromoteTests {
 
     #expect(action.cacheInvalidations == .sidebarStructure)
   }
+
+  // MARK: - Named claim target
+
+  /// The two-quick-captures race. A and B are captured back to back in one
+  /// directory; each gets a tab minted for it, and the tabs land in whatever
+  /// order the terminal materializes them. Resolving by "newest active task in
+  /// the directory" hands B both tabs and leaves A with none — so each claim
+  /// names the record it was minted for.
+  @Test(.dependencies) func eachCaptureClaimsOnlyTheTabMintedForIt() async throws {
+    let sandbox = try makeSandbox()
+    let directory = try sandbox.makeDirectory("mine")
+    let rowID = WorktreeID(directory.path(percentEncoded: false))
+    let tabA = (id: TerminalTabID(), surfaceIDs: [UUID()])
+    let tabB = (id: TerminalTabID(), surfaceIDs: [UUID()])
+    try sandbox.seedLayout(worktreeID: rowID, tabs: [tabA, tabB])
+    var state = makeState(
+      sandbox: sandbox,
+      directories: [directory],
+      surfacesPerRow: [directory: Set(tabA.surfaceIDs + tabB.surfaceIDs)]
+    )
+    let taskA = makeRecord(directory: directory, createdAt: Self.earlier)
+    let taskB = makeRecord(directory: directory, createdAt: Self.freshDate)
+    state.taskRecords = [taskA, taskB]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox, liveTabs: liveTabs(tabA, tabB))
+
+    // B's tab lands first, then A's — the order the newest-active fallback
+    // cannot survive.
+    await store.send(.tasks(.promoteTab(worktreeID: rowID, tabID: tabB.id, taskID: taskB.id)))
+    await store.send(.tasks(.promoteTab(worktreeID: rowID, tabID: tabA.id, taskID: taskA.id)))
+    await store.finish()
+
+    #expect(store.state.taskRecords.count == 2)
+    #expect(store.state.taskRecords[id: taskA.id]?.surfaceIDs == Set(tabA.surfaceIDs))
+    #expect(store.state.taskRecords[id: taskB.id]?.surfaceIDs == Set(tabB.surfaceIDs))
+  }
+
+  /// A named target is honored even after it settles: the caller is naming a
+  /// record it just created, and the tab was minted for that record. Sending the
+  /// claim somewhere else because the user settled the task in the meantime
+  /// would put the surfaces on a task that never asked for them.
+  @Test(.dependencies) func aNamedTargetIsHonoredEvenWhenItHasAlreadySettled() async throws {
+    let sandbox = try makeSandbox()
+    let directory = try sandbox.makeDirectory("mine")
+    let rowID = WorktreeID(directory.path(percentEncoded: false))
+    let tab = (id: TerminalTabID(), surfaceIDs: [UUID()])
+    try sandbox.seedLayout(worktreeID: rowID, tabs: [tab])
+    var state = makeState(
+      sandbox: sandbox,
+      directories: [directory],
+      surfacesPerRow: [directory: Set(tab.surfaceIDs)]
+    )
+    let settled = makeRecord(directory: directory, settledAt: Self.now)
+    let bystander = makeRecord(directory: directory, createdAt: Self.freshDate)
+    state.taskRecords = [settled, bystander]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox, liveTabs: liveTabs(tab))
+
+    await store.send(.tasks(.promoteTab(worktreeID: rowID, tabID: tab.id, taskID: settled.id)))
+    await store.finish()
+
+    #expect(store.state.taskRecords[id: settled.id]?.surfaceIDs == Set(tab.surfaceIDs))
+    #expect(store.state.taskRecords[id: bystander.id]?.surfaceIDs.isEmpty == true)
+    // The claim does not resurrect it — settling is the user's call, not the
+    // terminal's.
+    #expect(store.state.taskRecords[id: settled.id]?.settledAt == Self.now)
+  }
+
+  /// The record was deleted while its tab materialized. The tab is real either
+  /// way, so the claim falls back to the directory's live task rather than
+  /// evaporating.
+  @Test(.dependencies) func aNamedTargetThatVanishedFallsBackToTheNewestActiveTask() async throws {
+    let sandbox = try makeSandbox()
+    let directory = try sandbox.makeDirectory("mine")
+    let rowID = WorktreeID(directory.path(percentEncoded: false))
+    let tab = (id: TerminalTabID(), surfaceIDs: [UUID()])
+    try sandbox.seedLayout(worktreeID: rowID, tabs: [tab])
+    var state = makeState(
+      sandbox: sandbox,
+      directories: [directory],
+      surfacesPerRow: [directory: Set(tab.surfaceIDs)]
+    )
+    let survivor = makeRecord(directory: directory, createdAt: Self.freshDate)
+    state.taskRecords = [survivor]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox, liveTabs: liveTabs(tab))
+
+    await store.send(.tasks(.promoteTab(worktreeID: rowID, tabID: tab.id, taskID: TaskID())))
+    await store.finish()
+
+    #expect(store.state.taskRecords.count == 1)
+    #expect(store.state.taskRecords[id: survivor.id]?.surfaceIDs == Set(tab.surfaceIDs))
+  }
 }

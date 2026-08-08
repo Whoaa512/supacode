@@ -46,7 +46,13 @@ extension RepositoriesFeature {
     /// Claim a tab for the directory's task, creating one when there is none.
     /// `tabID == nil` means the tab the worktree currently has selected, which
     /// is what a menu command with no explicit target means.
-    case promoteTab(worktreeID: Worktree.ID, tabID: TerminalTabID?)
+    ///
+    /// `taskID` names the task the claim belongs to. The menu path leaves it
+    /// nil — "this tab belongs to whatever task is live here" — but a creation
+    /// flow knows exactly which record it just minted, and two quick captures in
+    /// one directory would otherwise both resolve to the newest one and hand it
+    /// both tabs.
+    case promoteTab(worktreeID: Worktree.ID, tabID: TerminalTabID?, taskID: TaskID? = nil)
     /// ⌘N on the Tasks tab: open the capture prompt over the live roster.
     case presentCreationPrompt
     /// Create a task in `directoryURL`. `title == nil` hands naming to the
@@ -172,7 +178,7 @@ extension RepositoriesFeature {
         guard state.reconcileTaskSurfaceOwnership() else { return .none }
         return Self.persistTasksEffect(state: state)
 
-      case .tasks(.promoteTab(let worktreeID, let requestedTabID)):
+      case .tasks(.promoteTab(let worktreeID, let requestedTabID, let requestedTaskID)):
         // An unreadable tasks.json disables the inbox for the launch: a claim
         // written on top of records we failed to read would erase them.
         guard !state.isTaskPersistenceDisabled else {
@@ -193,6 +199,7 @@ extension RepositoriesFeature {
           let taskID = state.promoteTab(
             worktreeID: worktreeID,
             tabID: tabID,
+            taskID: requestedTaskID,
             liveSurfaceIDs: liveSurfaceIDs,
             now: now
           )
@@ -615,10 +622,19 @@ extension RepositoriesFeature.State {
   /// Surfaces are stripped from every other record rather than shared: explicit
   /// user intent beats stale ownership (A3), and a stripped record is never
   /// deleted — losing a claim is not the end of a task (A10b).
+  ///
+  /// `taskID` is the claim's target when the caller knows it. Creation does: the
+  /// tab was minted *for* that record, and resolving by "newest active task in
+  /// the directory" instead would let a second capture that lands mid-flight
+  /// take the first one's tab. A named target is honored even when the record is
+  /// already settled — the caller is naming a record it just acted on, and
+  /// second-guessing that would silently claim for someone else. `nil` (the menu
+  /// path, which only means "this tab") falls back to the newest active task.
   @MainActor
   mutating func promoteTab(
     worktreeID: Worktree.ID,
     tabID: TerminalTabID,
+    taskID: TaskID? = nil,
     liveSurfaceIDs: Set<UUID>,
     now: Date
   ) -> TaskID? {
@@ -630,7 +646,10 @@ extension RepositoriesFeature.State {
     guard !surfaceIDs.isEmpty else { return nil }
 
     let directoryPath = TaskDirectoryPath.canonical(row.workingDirectory)
-    let target = newestActiveTask(inDirectory: directoryPath)
+    // A named target that no longer exists (the record was deleted while the tab
+    // was materializing) falls back rather than dropping the claim: the tab is
+    // real either way, and the directory's live task is the honest owner.
+    let target = taskID.flatMap { taskRecords[id: $0] } ?? newestActiveTask(inDirectory: directoryPath)
     guard target?.surfaceIDs.isSuperset(of: surfaceIDs) != true else { return nil }
 
     for record in taskRecords where !record.surfaceIDs.isDisjoint(with: surfaceIDs) {
