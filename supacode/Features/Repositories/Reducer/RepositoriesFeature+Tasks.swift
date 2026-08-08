@@ -1854,6 +1854,38 @@ extension RepositoriesFeature.State {
 }
 
 extension RepositoriesFeature.TaskInboxAction {
+  /// Whether this arm can move a surface between tasks (or into or out of one).
+  ///
+  /// A task's agent snapshot is projected across the surfaces the record owns,
+  /// and that projection lives in `AppFeature` because only it holds the
+  /// per-`(agent, surfaceID)` presence records. The surface-keyed fan-out cannot
+  /// see an ownership move at all: the surfaces did not change, the *claim* did.
+  /// Without a re-projection, a promoted tab keeps whatever the task knew before
+  /// it owned the tab — a subset promote of an already-awaiting agent shows
+  /// nothing until the next hook event, and a task that just lost its last
+  /// surface keeps reporting work it no longer owns.
+  ///
+  /// Exhaustive (no `default`) for the same reason `cacheInvalidations` is: a new
+  /// arm that claims surfaces has to say so rather than silently skip the seam.
+  var movesTaskSurfaceOwnership: Bool {
+    switch self {
+    case .promoteTab, .reconcileSurfaceOwnership,
+      .createTask, .resolveDirectoryConflict, .autoManagedWorktreeCreated,
+      .loaded, .seeded:
+      return true
+    // Everything else moves stamps, placement or presentation — never a claim.
+    case .load, .seedIfNeeded, .select, .settle, .unsettle,
+      .snooze, .unsnooze, .pin, .unpin, .keepActive,
+      .setSettledTailExpanded, .setSnoozedShelfExpanded, .expandSettledTail,
+      .classificationTick, .wakeBoundaryReached, .agentSnapshotChanged,
+      .autoSettleSettingsChanged, .stopTimers,
+      .presentCreationPrompt, .setConflictRemember, .cancelDirectoryConflict,
+      .autoManagedWorktreeCreationFailed, .cleanupAutoManagedWorktree,
+      .autoManagedWorktreeCleanupFinished:
+      return false
+    }
+  }
+
   /// Which post-reduce caches each task arm touches. Exhaustive (no `default`)
   /// so a new arm has to declare it.
   var cacheInvalidations: CacheInvalidations {

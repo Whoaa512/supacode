@@ -53,6 +53,35 @@ struct AppFeatureTaskPresenceTests {
     return store
   }
 
+  /// A store that can answer the promote arm's two live-terminal questions.
+  /// Promotion resolves its target through `TerminalClient`, never through the
+  /// persisted layout, so a fixture that skipped these would claim nothing.
+  private func makeStore(
+    _ repositories: RepositoriesFeature.State,
+    sandbox: Sandbox,
+    liveTabs: [TerminalTabID: Set<UUID>],
+    selectedTabID: TerminalTabID? = nil
+  ) -> TestStoreOf<AppFeature> {
+    let store = TestStore(
+      initialState: AppFeature.State(repositories: repositories, settings: SettingsFeature.State())
+    ) {
+      AppFeature()
+    } withDependencies: {
+      $0.settingsFileStorage = sandbox.storage
+      $0.date.now = Self.now
+      $0.continuousClock = TestClock()
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+      $0.terminalClient.send = { _ in }
+      $0.terminalClient.selectedTabID = { _ in selectedTabID }
+      $0.terminalClient.tabSurfaceIDs = { _, tabID in liveTabs[tabID] ?? [] }
+      $0.terminalClient.tabID = { _, surfaceID in
+        liveTabs.first { $0.value.contains(surfaceID) }?.key
+      }
+    }
+    store.exhaustivity = .off
+    return store
+  }
+
   private func hookEvent(
     _ event: AgentHookEvent.EventName,
     surfaceID: UUID,
@@ -192,6 +221,181 @@ struct AppFeatureTaskPresenceTests {
       // A25 keeps working too: the instant is what re-surfaces a snoozed row.
       #expect(leaf.errorAt == Self.now.addingTimeInterval(30))
     }
+  }
+
+  /// The badge toggle re-broadcasts every *row's* snapshot so cached state
+  /// drains without waiting for a hook event. Task leaves hold their own
+  /// snapshot, projected across the surfaces the record owns, so leaving them
+  /// out left a task wearing the badge list it had when the switch flipped —
+  /// until the next hook event happened to touch one of its surfaces, which for
+  /// a quiet task is never.
+  @Test func flippingTheBadgeToggleReDrainsTaskLeavesToo() async throws {
+    let sandbox = try Sandbox(name: "AppFeatureTaskPresenceTests-badgeFanOut")
+    let directory = try sandbox.makeDirectory("work", activityAt: TaskInboxFixture.freshDate)
+    let surfaceID = UUID()
+    var repositories = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [directory],
+      surfacesPerRow: [directory: [surfaceID]]
+    )
+    let record = TaskInboxFixture.makeRecord(directory: directory, surfaceIDs: [surfaceID])
+    repositories.taskRecords = [record]
+    repositories.taskNow = Self.now
+    repositories.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(repositories, sandbox: sandbox)
+
+    await send(hookEvent(.sessionStart, surfaceID: surfaceID), to: store)
+    await send(hookEvent(.busy, surfaceID: surfaceID, at: Self.now), to: store)
+    #expect(store.state.repositories.taskLeaves[id: record.id]?.childAgents.count == 1)
+
+    var settings = GlobalSettings.default
+    settings.agentPresenceBadgesEnabled = false
+    await store.send(.settings(.delegate(.settingsChanged(settings))))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    let leaf = try #require(store.state.repositories.taskLeaves[id: record.id])
+    #expect(leaf.childAgents.isEmpty)
+    // The shimmer is not a badge, so the toggle must not take the work with it.
+    #expect(leaf.status == .working)
+  }
+
+  // MARK: - Ownership moves are a projection change the surface fan-out cannot see
+
+  /// The producer seam for a claim. The surface-keyed fan-out fires on presence
+  /// deltas, and a promote is not one: the surfaces did not change, the *claim*
+  /// did. An agent that was already parked on the user before the tab was
+  /// promoted must therefore reach the task without a new hook event — otherwise
+  /// the row reads `ready` until the agent happens to say something again, which
+  /// for an agent waiting on you is never.
+  @Test func promotingATabProjectsAnAlreadyWaitingAgentOntoTheTask() async throws {
+    let sandbox = try Sandbox(name: "AppFeatureTaskPresenceTests-promote")
+    let directory = try sandbox.makeDirectory("work", activityAt: TaskInboxFixture.freshDate)
+    let owned = UUID()
+    let claimed = UUID()
+    // A third surface nobody claims, and the reason this is a producer-seam
+    // test: the leaf's fallback only borrows the worktree row's snapshot when
+    // the task owns *every* surface the row has. Leave that true and the promote
+    // would pass on the fallback alone, proving nothing about the re-projection.
+    let unowned = UUID()
+    let claimedTab = TerminalTabID()
+    var repositories = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [directory],
+      surfacesPerRow: [directory: [owned, claimed, unowned]],
+      hasLoadedTasks: true
+    )
+    let record = TaskInboxFixture.makeRecord(directory: directory, surfaceIDs: [owned])
+    repositories.taskRecords = [record]
+    repositories.taskNow = Self.now
+    repositories.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(
+      repositories, sandbox: sandbox, liveTabs: [claimedTab: [claimed]], selectedTabID: claimedTab)
+
+    // The agent parks on the user *before* the task owns its surface.
+    await send(hookEvent(.sessionStart, surfaceID: claimed), to: store)
+    await send(hookEvent(.awaitingInput, surfaceID: claimed, at: Self.now), to: store)
+    #expect(store.state.repositories.taskLeaves[id: record.id]?.status == .ready)
+
+    await store.send(
+      .repositories(
+        .tasks(
+          .promoteTab(
+            worktreeID: WorktreeID(directory.path(percentEncoded: false)), tabID: claimedTab)
+        )
+      )
+    )
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    let leaf = try #require(store.state.repositories.taskLeaves[id: record.id])
+    #expect(leaf.status == .input)
+    #expect(leaf.needsHuman)
+  }
+
+  /// The other end of the same seam, and the reason the snapshot prune is safe:
+  /// a task that loses its last surface must stop reporting the work that ran on
+  /// it. Ownership reconciliation drops the dead surface from the record, and the
+  /// same re-projection re-takes the snapshot across what is left — so the order
+  /// the surface-close fan-out and the reconcile happen to arrive in cannot
+  /// decide whether the row still shimmers.
+  @Test func closingATasksLastSurfaceClearsItsWorkingLeaf() async throws {
+    let sandbox = try Sandbox(name: "AppFeatureTaskPresenceTests-surfaceClose")
+    let directory = try sandbox.makeDirectory("work", activityAt: TaskInboxFixture.freshDate)
+    let surfaceID = UUID()
+    var repositories = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [directory],
+      surfacesPerRow: [directory: [surfaceID]],
+      hasLoadedTasks: true
+    )
+    let record = TaskInboxFixture.makeRecord(directory: directory, surfaceIDs: [surfaceID])
+    repositories.taskRecords = [record]
+    repositories.taskNow = Self.now
+    repositories.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(repositories, sandbox: sandbox)
+
+    await send(hookEvent(.sessionStart, surfaceID: surfaceID), to: store)
+    await send(hookEvent(.busy, surfaceID: surfaceID, at: Self.now), to: store)
+    #expect(store.state.repositories.taskLeaves[id: record.id]?.status == .working)
+
+    // The row loses the surface through its real writer, then ownership
+    // reconciles against the emptied projection.
+    await store.send(
+      .repositories(
+        .sidebarItems(
+          .element(
+            id: WorktreeID(directory.path(percentEncoded: false)),
+            action: .terminalProjectionChanged(
+              WorktreeRowProjection(
+                surfaceIDs: [],
+                isProgressBusy: false,
+                hasUnseenNotifications: false,
+                notifications: []
+              )
+            )
+          )
+        )
+      )
+    )
+    await store.send(.repositories(.tasks(.reconcileSurfaceOwnership)))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(store.state.repositories.taskRecords[id: record.id]?.surfaceIDs.isEmpty == true)
+    let leaf = try #require(store.state.repositories.taskLeaves[id: record.id])
+    #expect(leaf.status == .ready)
+    #expect(leaf.workingSince == nil)
+    #expect(leaf.agentSnapshot == .init())
+  }
+
+  /// The fan-out is diffed against what the reducer already holds. Both
+  /// whole-roster callers walk every task in the app, and an action that
+  /// resolves to the state a task is already in still costs a full reduce plus a
+  /// post-reduce cache pass per task.
+  @Test func aReProjectionThatChangesNothingSendsNothing() async throws {
+    let sandbox = try Sandbox(name: "AppFeatureTaskPresenceTests-dedupe")
+    let directory = try sandbox.makeDirectory("work", activityAt: TaskInboxFixture.freshDate)
+    let surfaceID = UUID()
+    var repositories = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [directory],
+      surfacesPerRow: [directory: [surfaceID]],
+      hasLoadedTasks: true
+    )
+    let record = TaskInboxFixture.makeRecord(directory: directory, surfaceIDs: [surfaceID])
+    repositories.taskRecords = [record]
+    repositories.taskNow = Self.now
+    // What an idle projection resolves to, already on record.
+    repositories.taskAgentSnapshots[record.id] = .init()
+    repositories.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(repositories, sandbox: sandbox)
+    // Exhaustive on purpose: an unexpected received action is the failure this
+    // test is looking for, and only exhaustivity can see one.
+    store.exhaustivity = .on
+
+    await store.send(.repositories(.tasks(.reconcileSurfaceOwnership)))
+    await store.finish()
   }
 
   // MARK: - Resolved #5: the working-elapsed start instant reaches the leaf

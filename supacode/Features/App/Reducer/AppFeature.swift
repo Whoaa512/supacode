@@ -1982,6 +1982,19 @@ struct AppFeature {
     .ifLet(\.$deeplinkInputConfirmation, action: \.deeplinkInputConfirmation) {
       DeeplinkInputConfirmationFeature()
     }
+    // After the scopes, deliberately: the claim this re-projects against is
+    // written by `RepositoriesFeature`, so reading it in `core` would project
+    // across the surfaces the task owned *before* the action.
+    Reduce { state, action in
+      guard case .repositories(.tasks(let taskAction)) = action,
+        taskAction.movesTaskSurfaceOwnership
+      else { return .none }
+      @Shared(.settingsFile) var settingsFile: SettingsFile
+      return allTaskAgentSnapshotEffects(
+        state: state,
+        badgesEnabled: settingsFile.global.agentPresenceBadgesEnabled
+      )
+    }
     Reduce { state, action in
       // Cold-path gate. Without this, an agent storm fires
       // `recomputeWorktreeMenuSnapshotIfChanged` hundreds of times per second
@@ -2037,23 +2050,44 @@ struct AppFeature {
     state: State,
     badgesEnabled: Bool
   ) -> Effect<Action> {
+    taskAgentSnapshotEffects(
+      records: state.repositories.taskRecords.filter { !$0.surfaceIDs.isDisjoint(with: surfaces) },
+      state: state,
+      badgesEnabled: badgesEnabled
+    )
+  }
+
+  /// Every task, for the two changes that are not scoped to a surface set: the
+  /// badge toggle (which changes what a snapshot *contains*) and an ownership
+  /// move (which changes which surfaces a snapshot is taken *across*).
+  private func allTaskAgentSnapshotEffects(state: State, badgesEnabled: Bool) -> Effect<Action> {
+    taskAgentSnapshotEffects(
+      records: Array(state.repositories.taskRecords),
+      state: state,
+      badgesEnabled: badgesEnabled
+    )
+  }
+
+  /// Diffed against what the reducer already holds, so a fan-out that resolves
+  /// to the state a task is already in sends nothing. The reducer arm guards the
+  /// same way, but an action still costs a full reduce and a post-reduce cache
+  /// pass per task — and the two whole-roster callers above would otherwise pay
+  /// that for every task in the app on every toggle.
+  private func taskAgentSnapshotEffects(
+    records: some Collection<TaskRecord>,
+    state: State,
+    badgesEnabled: Bool
+  ) -> Effect<Action> {
     let presence = state.agentPresence
     return .merge(
-      state.repositories.taskRecords
-        .filter { !$0.surfaceIDs.isDisjoint(with: surfaces) }
-        .map { record in
-          .send(
-            .repositories(
-              .tasks(
-                .agentSnapshotChanged(
-                  taskID: record.id,
-                  snapshot: presence.rowSnapshot(
-                    across: record.surfaceIDs, badgesEnabled: badgesEnabled)
-                )
-              )
-            )
-          )
-        }
+      records.compactMap { record -> Effect<Action>? in
+        let snapshot = presence.rowSnapshot(
+          across: record.surfaceIDs, badgesEnabled: badgesEnabled)
+        guard state.repositories.taskAgentSnapshots[record.id] != snapshot else { return nil }
+        return .send(
+          .repositories(.tasks(.agentSnapshotChanged(taskID: record.id, snapshot: snapshot)))
+        )
+      }
     )
   }
 
@@ -2116,11 +2150,18 @@ struct AppFeature {
       rowIDs.insert(row.id)
       tabSurfaceIDs.formUnion(row.surfaceIDs)
     }
-    return agentSnapshotEffects(
-      for: rowIDs,
-      tabSurfaceIDs: tabSurfaceIDs,
-      state: state,
-      badgesEnabled: badgesEnabled
+    return .merge(
+      agentSnapshotEffects(
+        for: rowIDs,
+        tabSurfaceIDs: tabSurfaceIDs,
+        state: state,
+        badgesEnabled: badgesEnabled
+      ),
+      // Task leaves carry their own snapshot, projected across the surfaces the
+      // record owns rather than the row's. Left out, a task kept the badge list
+      // it had when the toggle flipped until the next hook event happened to
+      // touch one of its surfaces — which for a quiet task is never.
+      allTaskAgentSnapshotEffects(state: state, badgesEnabled: badgesEnabled)
     )
   }
 
