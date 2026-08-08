@@ -9,17 +9,18 @@ import Testing
 @testable import SupacodeSettingsShared
 @testable import supacode
 
-/// Phase-3b parent contract for prompt-first task creation: assertion A19 of
+/// Parent contract for prompt-first task creation: assertion A19 of
 /// `plans/task-inbox-sidebar-plan.md` (⌘N → optional prompt → fuzzy directory
 /// pick → a task exists with a terminal opening, never a worktree decision),
 /// plus the A20b half that a cancelled creation leaves nothing behind.
 ///
-/// Scope note: the full Resolved #11 conflict cascade (per-repo isolation
-/// policy, warm auto-managed worktrees) is Phase 3c. 3b ships creation into a
-/// free directory and a *documented seam* for the busy case — the parent
-/// consults `TaskDirectoryConflictPolicy`, which 3b hardcodes to `.share`, so
-/// a busy directory produces a second task with zero surfaces rather than a
-/// worktree decision in the user's face.
+/// Phase 3c adds the Resolved #11 cascade around it: a *free* directory still
+/// costs two interactions and never mentions worktrees, and a *busy* one runs
+/// the per-repository isolation policy — remembered answer honored silently,
+/// unanswered repository asked exactly once. The auto-managed worktree the
+/// `.isolate` answer mints (creation, rollback, settle cleanup) is asserted in
+/// `RepositoriesFeatureTaskWorktreeTests`; this file owns the decision, not the
+/// git work.
 @MainActor
 struct RepositoriesFeatureTaskCreationTests {
   private typealias Sandbox = TaskInboxSandbox
@@ -272,12 +273,13 @@ struct RepositoriesFeatureTaskCreationTests {
     #expect(taskID == record.id)
   }
 
-  // MARK: - A20 (3b slice): a busy directory shares, it never asks
+  // MARK: - A20 (3c): a busy directory runs the Resolved #11 cascade
 
-  /// A directory another *active* task owns still creates: A3 allows two tasks
-  /// over one directory as long as they share zero surfaces, and A19 forbids
-  /// putting a worktree decision in front of the user at capture time.
-  @Test func busyDirectoryCreatesASharedTaskWithZeroSurfaces() async throws {
+  /// Step 2 of the cascade, with the answer already remembered: the repository
+  /// says share, so creation lands in the same directory and A3's zero-surface
+  /// rule does the rest. No sheet, because the repository has answered once
+  /// already — the decision is per repository, not per capture.
+  @Test func busyDirectoryWithARememberedShareCreatesASharedTaskWithZeroSurfaces() async throws {
     let sandbox = try makeSandbox()
     let shared = try sandbox.makeDirectory("shared", activityAt: Self.freshDate)
     let surfaceID = UUID()
@@ -290,11 +292,13 @@ struct RepositoriesFeatureTaskCreationTests {
     let incumbent = TaskInboxFixture.makeRecord(directory: shared, surfaceIDs: [surfaceID])
     state.taskRecords = [incumbent]
     state.applyPostReduceCacheRecomputes(.all)
+    Self.rememberIsolation(.share, sandbox: sandbox)
     let store = makeStore(state, sandbox: sandbox)
 
     await store.send(.tasks(.createTask(title: "Second pass", directoryURL: shared)))
     await store.finish()
 
+    #expect(store.state.taskDirectoryConflict == nil)
     #expect(store.state.taskRecords.count == 2)
     // The incumbent is untouched: no surface is transferred, no lifecycle stamp
     // moves, and it keeps its place in the active list.
@@ -302,11 +306,209 @@ struct RepositoriesFeatureTaskCreationTests {
     let created = try #require(store.state.taskRecords.first { $0.id != incumbent.id })
     #expect(created.directoryPath == incumbent.directoryPath)
     #expect(created.surfaceIDs.isEmpty)
-    // No worktree decision reached the user, and no auto-managed worktree was
-    // minted (that is 3c's cascade, not 3b's).
+    // Sharing mints nothing: no worktree, and therefore no delete authority to
+    // clean up later (Resolved #9).
     #expect(store.state.alert == nil)
     #expect(created.autoManagedWorktree == nil)
     #expect(store.state.tasksSidebarStructure.activeTaskIDs.first == created.id)
+  }
+
+  // MARK: - A20: the conflict sheet, once per repository
+
+  /// The first busy capture in a repository is the only interaction A19's
+  /// budget spends on isolation. It must arrive with enough context to answer
+  /// it — which directory, and who is already in there — and it must leave the
+  /// inbox untouched until the user answers.
+  @Test func busyDirectoryWithNothingRememberedPresentsTheConflictSheet() async throws {
+    let sandbox = try makeSandbox()
+    let busy = try sandbox.makeDirectory("busy", activityAt: Self.freshDate)
+    var state = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [busy],
+      hasLoadedTasks: true
+    )
+    var incumbent = TaskInboxFixture.makeRecord(directory: busy)
+    incumbent.title = "Incumbent work"
+    state.taskRecords = [incumbent]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(.tasks(.createTask(title: "Second pass", directoryURL: busy)))
+    await store.finish()
+
+    let conflict = try #require(store.state.taskDirectoryConflict)
+    #expect(conflict.title == "Second pass")
+    #expect(conflict.directoryPath == TaskDirectoryPath.canonical(busy))
+    #expect(conflict.directoryURL == busy)
+    #expect(conflict.repositoryID == RepositoryID(sandbox.rootURL.path(percentEncoded: false)))
+    #expect(conflict.incumbentTitle == "Incumbent work")
+    // Remembering is opt-in: an unchecked box answers this capture only.
+    #expect(conflict.shouldRemember == false)
+    // Nothing is committed while the question is open (A20b's rule, one step
+    // earlier): no record, no selection move, no write.
+    #expect(store.state.taskRecords.map(\.id) == [incumbent.id])
+    #expect(store.state.selection == nil)
+    #expect(!sandbox.didWriteTasksFile)
+    #expect(store.state.alert == nil)
+  }
+
+  /// Answering without remembering resolves this capture and nothing else —
+  /// the next busy capture in the same repository asks again.
+  @Test func answeringWithoutRememberingLeavesTheRepositoryUnanswered() async throws {
+    let sandbox = try makeSandbox()
+    let busy = try sandbox.makeDirectory("busy", activityAt: Self.freshDate)
+    var state = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [busy],
+      hasLoadedTasks: true
+    )
+    state.taskRecords = [TaskInboxFixture.makeRecord(directory: busy)]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(.tasks(.createTask(title: "Second pass", directoryURL: busy)))
+    await store.send(.tasks(.resolveDirectoryConflict(.share)))
+    await store.finish()
+
+    #expect(store.state.taskDirectoryConflict == nil)
+    #expect(store.state.taskRecords.count == 2)
+    #expect(Self.rememberedIsolation(sandbox: sandbox) == nil)
+
+    // …so the next one asks again.
+    await store.send(.tasks(.createTask(title: "Third pass", directoryURL: busy)))
+    await store.finish()
+    #expect(store.state.taskDirectoryConflict != nil)
+    #expect(store.state.taskRecords.count == 2)
+  }
+
+  /// The remember toggle is what keeps A19's budget intact past the first
+  /// conflict: it writes the per-repository policy into `supacode.json`, and
+  /// every later busy capture resolves without a sheet.
+  @Test func rememberingPersistsThePerRepositoryPolicyAndSkipsTheSheetAfterwards() async throws {
+    let sandbox = try makeSandbox()
+    let busy = try sandbox.makeDirectory("busy", activityAt: Self.freshDate)
+    var state = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [busy],
+      hasLoadedTasks: true
+    )
+    state.taskRecords = [TaskInboxFixture.makeRecord(directory: busy)]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(.tasks(.createTask(title: "Second pass", directoryURL: busy)))
+    await store.send(.tasks(.setConflictRemember(true)))
+    #expect(store.state.taskDirectoryConflict?.shouldRemember == true)
+    await store.send(.tasks(.resolveDirectoryConflict(.share)))
+    await store.finish()
+
+    #expect(store.state.taskDirectoryConflict == nil)
+    #expect(store.state.taskRecords.count == 2)
+    #expect(Self.rememberedIsolation(sandbox: sandbox) == .share)
+
+    await store.send(.tasks(.createTask(title: "Third pass", directoryURL: busy)))
+    await store.finish()
+
+    #expect(store.state.taskDirectoryConflict == nil)
+    #expect(store.state.taskRecords.count == 3)
+  }
+
+  /// A20b, one step before creation: dismissing the question is a cancel, not a
+  /// silent default. No record, no worktree, no write.
+  @Test func cancellingTheConflictSheetLeavesNothingBehind() async throws {
+    let sandbox = try makeSandbox()
+    let busy = try sandbox.makeDirectory("busy", activityAt: Self.freshDate)
+    var state = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [busy],
+      hasLoadedTasks: true
+    )
+    let incumbent = TaskInboxFixture.makeRecord(directory: busy)
+    state.taskRecords = [incumbent]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(.tasks(.createTask(title: "Second pass", directoryURL: busy)))
+    await store.send(.tasks(.cancelDirectoryConflict))
+    await store.finish()
+
+    #expect(store.state.taskDirectoryConflict == nil)
+    #expect(store.state.taskRecords.map(\.id) == [incumbent.id])
+    #expect(store.state.selection == nil)
+    #expect(!sandbox.didWriteTasksFile)
+    #expect(Self.rememberedIsolation(sandbox: sandbox) == nil)
+  }
+
+  /// A settled task is not an owner: the directory it used is free, so a
+  /// capture there takes step 1 and never sees the sheet.
+  @Test func aDirectoryOwnedOnlyByASettledTaskIsFree() async throws {
+    let sandbox = try makeSandbox()
+    let free = try sandbox.makeDirectory("free", activityAt: Self.freshDate)
+    var state = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [free],
+      hasLoadedTasks: true
+    )
+    state.taskRecords = [TaskInboxFixture.makeRecord(directory: free, settledAt: Self.freshDate)]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(.tasks(.createTask(title: "Fresh", directoryURL: free)))
+    await store.finish()
+
+    #expect(store.state.taskDirectoryConflict == nil)
+    let created = try #require(store.state.taskRecords.first { $0.settledAt == nil })
+    #expect(created.directoryPath == TaskDirectoryPath.canonical(free))
+    #expect(created.autoManagedWorktree == nil)
+  }
+
+  /// A directory outside every registered repository has nothing to branch
+  /// from, so the cascade cannot reach step 3 there. Sharing is the honest
+  /// fallback — A20 forbids blocking creation, whatever the policy says.
+  @Test func busyDirectoryWithNoRepositorySharesRatherThanBlocking() async throws {
+    let sandbox = try makeSandbox()
+    let registered = try sandbox.makeDirectory("registered", activityAt: Self.freshDate)
+    let orphan = try sandbox.makeDirectory("orphan", activityAt: Self.freshDate)
+    var state = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [registered],
+      hasLoadedTasks: true
+    )
+    state.taskRecords = [TaskInboxFixture.makeRecord(directory: orphan)]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(.tasks(.createTask(title: "Orphan second", directoryURL: orphan)))
+    await store.finish()
+
+    #expect(store.state.taskDirectoryConflict == nil)
+    #expect(store.state.taskRecords.count == 2)
+    let created = try #require(store.state.taskRecords.first { $0.title == "Orphan second" })
+    #expect(created.directoryPath == TaskDirectoryPath.canonical(orphan))
+    #expect(created.autoManagedWorktree == nil)
+    #expect(store.state.alert == nil)
+  }
+
+  // MARK: - Per-repository policy helpers
+
+  /// Reads through `RepositorySettingsKey` rather than a cached `@Shared`
+  /// reference: the reducer writes the whole struct back, and a cached
+  /// reference can be a disk read stale.
+  private static func rememberedIsolation(sandbox: Sandbox) -> TaskDirectoryIsolation? {
+    withDependencies {
+      $0.settingsFileStorage = sandbox.storage
+    } operation: {
+      RepositorySettingsKey(rootURL: sandbox.rootURL).currentSettings().taskDirectoryIsolation
+    }
+  }
+
+  private static func rememberIsolation(_ isolation: TaskDirectoryIsolation, sandbox: Sandbox) {
+    withDependencies {
+      $0.settingsFileStorage = sandbox.storage
+    } operation: {
+      @Shared(.repositorySettings(sandbox.rootURL)) var settings
+      $settings.withLock { $0.taskDirectoryIsolation = isolation }
+    }
   }
 
   /// The prompt surfaces the busy directory as busy so 3c has somewhere to hang
