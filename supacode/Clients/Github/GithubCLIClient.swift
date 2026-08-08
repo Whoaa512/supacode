@@ -824,8 +824,11 @@ nonisolated private func makeBatchPullRequestsQuery(
     aliasMap[alias] = branch
     let escapedBranch = escapeGraphQLString(branch)
     let orderBy = "orderBy: {field: UPDATED_AT, direction: DESC}"
+    // Ten, not five: CLOSED now consumes slots alongside OPEN and MERGED, and a
+    // branch name gets reused — `feature/login` on its fifth pass through the
+    // pool can bury the PR that is actually current behind stale closed ones.
     let selection = """
-      \(alias): pullRequests(first: 5, states: [OPEN, MERGED, CLOSED], headRefName: \"\(escapedBranch)\", \(orderBy)) {
+      \(alias): pullRequests(first: 10, states: [OPEN, MERGED, CLOSED], headRefName: \"\(escapedBranch)\", \(orderBy)) {
         nodes {
           number
           title
