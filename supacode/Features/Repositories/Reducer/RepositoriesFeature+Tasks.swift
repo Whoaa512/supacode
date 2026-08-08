@@ -514,9 +514,17 @@ extension RepositoriesFeature {
 
   /// Every Resolved #9 precondition, re-checked immediately before the delete
   /// and in a locked order: the directory still exists, it still resolves to the
-  /// branch the marker named, and it holds no uncommitted work. Any mismatch —
-  /// including one we cannot *prove* either way — refuses, leaking a directory
-  /// rather than destroying work git cannot give back.
+  /// branch the marker named, it holds no files git has never seen, and it holds
+  /// no uncommitted changes to the ones it has. Any mismatch — including one we
+  /// cannot *prove* either way — refuses, leaking a directory rather than
+  /// destroying work git cannot give back.
+  ///
+  /// Untracked files are checked *separately* from `lineChanges`, and before it:
+  /// `lineChanges` diffs tracked content only, so a worktree holding nothing but
+  /// a brand-new file — a scratch script, an uncommitted first draft, a `.env` —
+  /// reports `(0, 0)` and would otherwise pass the dirty check on its way to an
+  /// unrecoverable `rm -rf`. A count we cannot read at all refuses for the same
+  /// reason an unprovable branch does.
   ///
   /// The branch is kept in every case: it may carry commits, and dropping it is
   /// the one part of the delete that is not recoverable.
@@ -532,6 +540,12 @@ extension RepositoriesFeature {
     }
     guard let branch = await gitClient.branchName(directory), branch == marker.branch else {
       tasksLogger.debug("Auto-managed cleanup refused: \(marker.path) is not on \(marker.branch).")
+      return false
+    }
+    guard let untracked = try? await gitClient.untrackedFileCount(directory), untracked == 0 else {
+      tasksLogger.debug(
+        "Auto-managed cleanup refused: \(marker.path) holds untracked files, or the count is unreadable."
+      )
       return false
     }
     guard let changes = await gitClient.lineChanges(directory),

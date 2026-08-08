@@ -557,6 +557,131 @@ struct RepositoriesFeatureTaskWorktreeTests {
     #expect(store.state.taskRecords[id: record.id]?.autoManagedWorktree != nil)
   }
 
+  /// The case `lineChanges` alone cannot see: a worktree holding nothing but a
+  /// file git has never been told about. `git diff` reports `(0, 0)` for it, so
+  /// without its own check the delete would take an uncommitted first draft — a
+  /// scratch script, a `.env` — with it, and git could not give it back.
+  @Test func anUntrackedFileRefusesToDeleteEvenWithACleanDiff() async throws {
+    let sandbox = try makeSandbox()
+    let auto = try sandbox.makeDirectory("auto", activityAt: Self.freshDate)
+    let (state, record) = makeSettleableState(sandbox: sandbox, worktreeDirectory: auto)
+    let removed = LockIsolated(false)
+    let store = makeStore(state, sandbox: sandbox) {
+      $0.rootDirectoryExists = { _ in true }
+      $0.branchName = { _ in "task/ship-the-inbox-abcdef01" }
+      $0.untrackedFileCount = { _ in 1 }
+      $0.lineChanges = { _ in (added: 0, removed: 0) }
+      $0.removeWorktree = { worktree, _ in
+        removed.withValue { $0 = true }
+        return worktree.workingDirectory
+      }
+      $0.worktrees = { _ in [] }
+    }
+
+    await store.send(.tasks(.settle(record.id)))
+    await store.receive(\.tasks.autoManagedWorktreeCleanupFinished)
+    await store.finish()
+
+    #expect(removed.value == false)
+    #expect(store.state.taskRecords[id: record.id]?.autoManagedWorktree != nil)
+  }
+
+  /// A count that cannot be read is not a count of zero. Same rule as the
+  /// unprovable branch: "unknown" is never good enough to delete on.
+  @Test func anUnreadableUntrackedCountRefusesToDelete() async throws {
+    let sandbox = try makeSandbox()
+    let auto = try sandbox.makeDirectory("auto", activityAt: Self.freshDate)
+    let (state, record) = makeSettleableState(sandbox: sandbox, worktreeDirectory: auto)
+    let removed = LockIsolated(false)
+    let store = makeStore(state, sandbox: sandbox) {
+      $0.rootDirectoryExists = { _ in true }
+      $0.branchName = { _ in "task/ship-the-inbox-abcdef01" }
+      $0.untrackedFileCount = { _ in
+        throw GitClientError.commandFailed(command: "git status", message: "boom")
+      }
+      $0.lineChanges = { _ in (added: 0, removed: 0) }
+      $0.removeWorktree = { worktree, _ in
+        removed.withValue { $0 = true }
+        return worktree.workingDirectory
+      }
+      $0.worktrees = { _ in [] }
+    }
+
+    await store.send(.tasks(.settle(record.id)))
+    await store.receive(\.tasks.autoManagedWorktreeCleanupFinished)
+    await store.finish()
+
+    #expect(removed.value == false)
+    #expect(store.state.taskRecords[id: record.id]?.autoManagedWorktree != nil)
+  }
+
+  /// `lineChanges` is optional, and its `nil` means "could not diff", not
+  /// "clean". Deleting on it would be deleting on a failed read.
+  @Test func anUnprovableDiffRefusesToDelete() async throws {
+    let sandbox = try makeSandbox()
+    let auto = try sandbox.makeDirectory("auto", activityAt: Self.freshDate)
+    let (state, record) = makeSettleableState(sandbox: sandbox, worktreeDirectory: auto)
+    let removed = LockIsolated(false)
+    let store = makeStore(state, sandbox: sandbox) {
+      $0.rootDirectoryExists = { _ in true }
+      $0.branchName = { _ in "task/ship-the-inbox-abcdef01" }
+      $0.lineChanges = { _ in nil }
+      $0.removeWorktree = { worktree, _ in
+        removed.withValue { $0 = true }
+        return worktree.workingDirectory
+      }
+      $0.worktrees = { _ in [] }
+    }
+
+    await store.send(.tasks(.settle(record.id)))
+    await store.receive(\.tasks.autoManagedWorktreeCleanupFinished)
+    await store.finish()
+
+    #expect(removed.value == false)
+    #expect(store.state.taskRecords[id: record.id]?.autoManagedWorktree != nil)
+  }
+
+  /// The preconditions are a *chain*, not a set: each one is only meaningful
+  /// once the cheaper one before it held. Reading the diff of a directory that
+  /// no longer exists, or of one checked out onto a branch we never created, is
+  /// how a refusal turns into a stale answer that passes. Pinned by call order
+  /// so a reordering refactor fails here rather than in production.
+  @Test func preconditionsAreReadInTheirLockedOrder() async throws {
+    let sandbox = try makeSandbox()
+    let auto = try sandbox.makeDirectory("auto", activityAt: Self.freshDate)
+    let (state, record) = makeSettleableState(sandbox: sandbox, worktreeDirectory: auto)
+    let reads = LockIsolated<[String]>([])
+    let store = makeStore(state, sandbox: sandbox) {
+      $0.rootDirectoryExists = { _ in
+        reads.withValue { $0.append("exists") }
+        return true
+      }
+      $0.branchName = { _ in
+        reads.withValue { $0.append("branch") }
+        return "task/ship-the-inbox-abcdef01"
+      }
+      $0.untrackedFileCount = { _ in
+        reads.withValue { $0.append("untracked") }
+        return 0
+      }
+      $0.lineChanges = { _ in
+        reads.withValue { $0.append("lineChanges") }
+        return (added: 0, removed: 0)
+      }
+      $0.removeWorktree = { worktree, _ in
+        reads.withValue { $0.append("remove") }
+        return worktree.workingDirectory
+      }
+      $0.worktrees = { _ in [] }
+    }
+
+    await store.send(.tasks(.settle(record.id)))
+    await store.receive(\.tasks.autoManagedWorktreeCleanupFinished)
+    await store.finish()
+
+    #expect(reads.value == ["exists", "branch", "untracked", "lineChanges", "remove"])
+  }
+
   /// Settle is idempotent (a second one is a no-op), so the cleanup that rides
   /// on it must be too — otherwise a double-click re-runs a delete against a
   /// path something else may have taken over.
