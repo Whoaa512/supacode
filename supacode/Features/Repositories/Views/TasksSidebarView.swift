@@ -67,6 +67,10 @@ struct TasksSidebarView: View {
 
     return VStack(spacing: 0) {
       TasksNewTaskBar(store: store)
+      TasksSearchField(store: store)
+      if store.isTaskPersistenceDisabled {
+        TasksPersistenceBanner()
+      }
       Divider()
       // Mirrors `SidebarListView`: the reveal needs a proxy, and the proxy has
       // to wrap the List rather than live inside it.
@@ -126,7 +130,15 @@ struct TasksSidebarView: View {
     shortcutHintByID: [TaskID: String]
   ) -> some View {
     List(selection: selectionBinding(current: selectedTaskID)) {
-      if structure.visibleTaskIDs.isEmpty, structure.settledTotalCount == 0,
+      // Three different blanks that mean three different things, in the order
+      // that keeps them honest: the file has not been read yet, the query found
+      // nothing, or there is genuinely no work. Collapsing them into one "No
+      // Tasks" is how a still-loading inbox reads as an empty one.
+      if !store.hasLoadedTasks {
+        loadingRow
+      } else if structure.visibleTaskIDs.isEmpty, structure.isSearching {
+        noSearchResultsRow
+      } else if structure.visibleTaskIDs.isEmpty, structure.settledTotalCount == 0,
         structure.snoozedTotalCount == 0
       {
         emptyRow
@@ -279,6 +291,21 @@ struct TasksSidebarView: View {
     .listRowSeparator(.hidden)
   }
 
+  /// Before `tasks.json` has been read. Distinct from "No Tasks" on purpose: an
+  /// inbox that has not loaded yet must never claim there is nothing in it.
+  private var loadingRow: some View {
+    HStack(spacing: 8) {
+      ProgressView().controlSize(.small)
+      Text("Loading tasks…").foregroundStyle(.secondary)
+    }
+    .listRowSeparator(.hidden)
+  }
+
+  private var noSearchResultsRow: some View {
+    ContentUnavailableView.search
+      .listRowSeparator(.hidden)
+  }
+
   private func settledHeader(structure: TasksSidebarStructure, isExpanded: Bool) -> some View {
     Button {
       store.send(.tasks(.setSettledTailExpanded(!isExpanded)))
@@ -329,6 +356,67 @@ struct TasksSidebarView: View {
     }
     .buttonStyle(.plain)
     .help("Load the next page of settled tasks (\(hiddenCount) still hidden)")
+  }
+}
+
+/// A37's title filter. Its own view so the text binding's per-keystroke
+/// invalidation stops here instead of rebuilding the List's other headers with
+/// it — the List still rebuilds, because the query genuinely changes which rows
+/// it renders, but nothing else in the panel does.
+private struct TasksSearchField: View {
+  @Bindable var store: StoreOf<RepositoriesFeature>
+
+  var body: some View {
+    HStack(spacing: 6) {
+      Image(systemName: "magnifyingglass")
+        .foregroundStyle(.secondary)
+        .accessibilityHidden(true)
+      TextField(
+        "Filter by title",
+        text: $store.taskSearchQuery.sending(\.tasks.setSearchQuery)
+      )
+      .textFieldStyle(.plain)
+      if !store.taskSearchQuery.isEmpty {
+        Button {
+          store.send(.tasks(.setSearchQuery("")))
+        } label: {
+          Image(systemName: "xmark.circle.fill")
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Clear filter")
+        }
+        .buttonStyle(.plain)
+        .help("Clear the filter and show every task again")
+      }
+    }
+    .padding(.horizontal, 8)
+    .padding(.bottom, 6)
+    .help("Filter tasks by title — settled and snoozed matches surface too")
+  }
+}
+
+/// `tasks.json` is present but unreadable, so nothing the user does in the inbox
+/// will survive a relaunch. Silence here would be the worst outcome: the panel
+/// keeps working, the writes keep being dropped, and the loss only shows up
+/// after a restart.
+private struct TasksPersistenceBanner: View {
+  var body: some View {
+    HStack(alignment: .firstTextBaseline, spacing: 6) {
+      Image(systemName: "exclamationmark.triangle.fill")
+        .foregroundStyle(.orange)
+        .accessibilityHidden(true)
+      Text(
+        """
+        Tasks can't be saved — ~/.supacode/tasks.json is unreadable. \
+        Fix its permissions, or move it aside, then reopen Supacode.
+        """
+      )
+      .font(.caption)
+      .foregroundStyle(.secondary)
+      .fixedSize(horizontal: false, vertical: true)
+    }
+    .padding(.horizontal, 8)
+    .padding(.bottom, 6)
+    .help("Changes you make here are kept in memory only until the file can be read")
   }
 }
 

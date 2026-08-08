@@ -130,6 +130,10 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
   ///
   /// `nil` when nothing is open, which is what disables all three items.
   var openTaskCommands: OpenTaskCommands?
+  /// Whether a live title query narrowed this plan (A37). The panel needs it to
+  /// tell "your inbox is empty" from "nothing matched what you typed" — two very
+  /// different things to say to someone staring at a blank list.
+  var isSearching: Bool = false
 
   /// The open row's lifecycle affordances. Purely a projection of the placement
   /// this same compute already decided, plus the two activity questions A18b
@@ -172,6 +176,8 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
   ///     defaults to `.manualOnly` in the one safe direction: a caller that
   ///     forgets to thread it through files nothing away by itself, rather than
   ///     shipping an auto-settle policy nobody wrote.
+  ///   - searchQuery: a live title filter (A37). Empty or all-whitespace is not
+  ///     a search and produces exactly the unfiltered plan.
   static func compute(
     tasks: [TaskRecord],
     now: Date,
@@ -180,8 +186,28 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
     settledVisibleCount: Int,
     isSettledTailExpanded: Bool,
     isSnoozedShelfExpanded: Bool,
-    policy: TaskSettlement.Policy = .manualOnly
+    policy: TaskSettlement.Policy = .manualOnly,
+    searchQuery: String = ""
   ) -> TasksSidebarStructure {
+    let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let isSearching = !query.isEmpty
+    // Filtering happens *before* placement, never after: every section rule
+    // below — the pin split, the wake derivation, the page window — then runs
+    // over the narrowed set and produces the same order it always would, which
+    // is A37's "without changing lifecycle order" as a structural property
+    // rather than a promise. The open task rides along regardless (A8): the row
+    // you are looking at cannot vanish because you typed.
+    let tasks =
+      isSearching
+      ? tasks.filter { $0.id == openTaskID || $0.title.lowercased().contains(query) }
+      : tasks
+    // A live query is its own "show everything you found": a match hiding
+    // behind a collapsed shelf or past the page window would make search useless
+    // for exactly the history it exists to reach.
+    let settledVisibleCount = isSearching ? Int.max : settledVisibleCount
+    let isSettledTailExpanded = isSearching || isSettledTailExpanded
+    let isSnoozedShelfExpanded = isSearching || isSnoozedShelfExpanded
+
     var pinned: [TaskRecord] = []
     var active: [TaskRecord] = []
     var settled: [TaskRecord] = []
@@ -230,7 +256,8 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
       }
     }
 
-    let settledTail = settled
+    let settledTail =
+      settled
       .map { SettledEntry(id: $0.id, settledTimestamp: resolvedSettledTimestamp(for: $0)) }
       .sorted(by: settledOrdersBefore)
     let visibleSettledTail = visibleSettled(
@@ -265,7 +292,8 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
       // sections a second time: that is what makes the hint badge and the chord
       // the same lookup (A32).
       slotByTaskID: Self.slots(for: visibleTaskIDs),
-      openTaskCommands: openTaskCommands
+      openTaskCommands: openTaskCommands,
+      isSearching: isSearching
     )
   }
 

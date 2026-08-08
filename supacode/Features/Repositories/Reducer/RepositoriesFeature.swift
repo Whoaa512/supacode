@@ -343,6 +343,10 @@ struct RepositoriesFeature {
     /// Collapsed by default, exactly like the settled tail: the snoozed shelf is
     /// where things went to be quiet, so it must not cost rows on screen.
     var isSnoozedShelfExpanded = false
+    /// The live title filter (A37). Deliberately *not* persisted: a query is a
+    /// question you are asking right now, and finding the inbox still filtered
+    /// after a relaunch reads as an inbox that lost its tasks.
+    var taskSearchQuery = ""
     /// The clock sample every task classification is made against.
     ///
     /// Stored rather than read from `\.date.now` inside the recompute, because

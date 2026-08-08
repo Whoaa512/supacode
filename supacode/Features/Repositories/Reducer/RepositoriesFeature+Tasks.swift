@@ -89,6 +89,10 @@ extension RepositoriesFeature {
     case consumeSidebarReveal(Int)
     /// The explicit "stop auto-settling this" pin the Phase 5 cascade reads (A15).
     case keepActive(TaskID)
+    /// The panel's title filter (A37). Presentation only: it narrows the cached
+    /// render plan and touches no record, so clearing it restores the list the
+    /// user had — including the selection, which the filter never drops (A8).
+    case setSearchQuery(String)
     case setSettledTailExpanded(Bool)
     case setSnoozedShelfExpanded(Bool)
     case expandSettledTail
@@ -506,6 +510,11 @@ extension RepositoriesFeature {
           .cancel(id: TaskCancelID.classificationTick),
           .cancel(id: TaskCancelID.wakeBoundary)
         )
+
+      case .tasks(.setSearchQuery(let query)):
+        guard state.taskSearchQuery != query else { return .none }
+        state.taskSearchQuery = query
+        return .none
 
       case .tasks(.setSettledTailExpanded(let isExpanded)):
         guard state.isSettledTailExpanded != isExpanded else { return .none }
@@ -1691,7 +1700,8 @@ extension RepositoriesFeature.State {
   /// newest-created is the order the Tasks tab already puts at the top (A4).
   func newestActiveTask(inDirectory path: String) -> TaskRecord? {
     let target = TaskDirectoryPath.normalized(path)
-    return taskRecords
+    return
+      taskRecords
       .filter { !TasksSidebarStructure.isSettled($0) }
       .filter { TaskDirectoryPath.normalized($0.directoryPath) == target }
       .max { ($0.createdAt, $0.id.rawValue) < ($1.createdAt, $1.id.rawValue) }
@@ -1810,7 +1820,8 @@ extension RepositoriesFeature.State {
     guard let next, let now = TaskTimestamps.read(taskNow).date else {
       return .cancel(id: TaskCancelID.wakeBoundary)
     }
-    let delay = Duration.seconds(max(0, next.timeIntervalSince(now)))
+    let delay =
+      Duration.seconds(max(0, next.timeIntervalSince(now)))
       + RepositoriesFeature.taskWakeBoundaryOvershoot
     @Dependency(\.continuousClock) var clock
     return .run { send in
@@ -1839,7 +1850,8 @@ extension RepositoriesFeature.State {
       settledVisibleCount: settledTailVisibleCount,
       isSettledTailExpanded: isSettledTailExpanded,
       isSnoozedShelfExpanded: isSnoozedShelfExpanded,
-      policy: taskSettlementPolicy
+      policy: taskSettlementPolicy,
+      searchQuery: taskSearchQuery
     )
     if new != tasksSidebarStructure {
       tasksSidebarStructure = new
@@ -2032,7 +2044,7 @@ extension RepositoriesFeature.TaskInboxAction {
       .snooze, .unsnooze, .pin, .unpin, .keepActive,
       .jumpToNextNeedingAttention, .settleSelected, .snoozeSelected, .togglePinSelected,
       .focusSelectedSurface, .revealSelectedInSidebar, .consumeSidebarReveal,
-      .setSettledTailExpanded, .setSnoozedShelfExpanded, .expandSettledTail,
+      .setSearchQuery, .setSettledTailExpanded, .setSnoozedShelfExpanded, .expandSettledTail,
       .classificationTick, .wakeBoundaryReached, .agentSnapshotChanged,
       .autoSettleSettingsChanged, .stopTimers,
       .presentCreationPrompt, .setConflictRemember, .cancelDirectoryConflict,
@@ -2082,7 +2094,7 @@ extension RepositoriesFeature.TaskInboxAction {
     // or the clock sample the placement rules are evaluated against.
     case .loaded, .seeded, .select, .settle, .unsettle,
       .snooze, .unsnooze, .pin, .unpin, .keepActive,
-      .setSettledTailExpanded, .setSnoozedShelfExpanded, .expandSettledTail,
+      .setSearchQuery, .setSettledTailExpanded, .setSnoozedShelfExpanded, .expandSettledTail,
       .classificationTick, .wakeBoundaryReached, .agentSnapshotChanged, .autoSettleSettingsChanged,
       .reconcileSurfaceOwnership, .promoteTab:
       return .sidebarStructure

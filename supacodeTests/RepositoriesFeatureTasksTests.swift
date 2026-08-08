@@ -337,7 +337,7 @@ struct RepositoriesFeatureTasksTests {
   /// The one thing a shared directory still defers: nobody may delete a
   /// directory another live task is standing in, so the auto-managed cleanup
   /// keeps the sole-owner guard the hibernation path just retired.
-  @Test func settlingASharedDirectoryStillDefersAutoManagedCleanup() async throws {
+  @Test func settlingASharedDirectoryStillDefersAutoManagedCleanup() throws {
     let sandbox = try makeSandbox()
     let shared = try sandbox.makeDirectory("shared", activityAt: Self.freshDate)
     var state = makeState(sandbox: sandbox, directories: [shared])
