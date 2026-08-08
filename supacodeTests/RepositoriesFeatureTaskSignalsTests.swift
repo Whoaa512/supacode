@@ -227,6 +227,63 @@ struct RepositoriesFeatureTaskSignalsTests {
     #expect(store.state.taskLeaves[id: fixture.record.id]?.pullRequest == .loading)
   }
 
+  /// The producer Phase 5 could not write: `.loading` used to be a sink, because
+  /// a `gh` batch that threw only ever sent the generic completion, leaving the
+  /// row's watermark armed forever. A task then claimed to be waiting on a query
+  /// nobody was running any more.
+  @Test func aFailedRefreshEndsTheLoadingStateInsteadOfStrandingIt() async throws {
+    let fixture = try makeFixture()
+    let store = makeStore(fixture.state, sandbox: fixture.sandbox)
+
+    await store.send(
+      .sidebarItems(.element(id: fixture.rowID, action: .pullRequestQueryStarted(branch: fixture.branch)))
+    )
+    await store.finish()
+    #expect(store.state.taskLeaves[id: fixture.record.id]?.pullRequest == .loading)
+
+    await store.send(.repositoryPullRequestRefreshFailed(fixture.repositoryID))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(store.state.taskLeaves[id: fixture.record.id]?.pullRequest == .failed)
+    // The watermark is spent: a failure is an answer, so the row is no longer
+    // claiming a query is in flight.
+    #expect(store.state.sidebarItems[id: fixture.rowID]?.pullRequestBranchAtQueryTime == nil)
+  }
+
+  /// A failure is not sticky. The next query that starts clears it, so a repo
+  /// that recovers stops reporting a problem it no longer has.
+  @Test func aRetryClearsTheFailedState() async throws {
+    let fixture = try makeFixture()
+    let store = makeStore(fixture.state, sandbox: fixture.sandbox)
+
+    await store.send(
+      .sidebarItems(.element(id: fixture.rowID, action: .pullRequestQueryStarted(branch: fixture.branch)))
+    )
+    await store.send(.repositoryPullRequestRefreshFailed(fixture.repositoryID))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+    #expect(store.state.taskLeaves[id: fixture.record.id]?.pullRequest == .failed)
+
+    await deliverPullRequest(
+      Self.pullRequest(state: "OPEN", headRefName: fixture.branch), to: fixture, store: store)
+
+    #expect(store.state.taskLeaves[id: fixture.record.id]?.pullRequest == .open)
+  }
+
+  /// A failure with nothing in flight is not a failure to report: the row was
+  /// never asking, so it has no bad news to give the task.
+  @Test func aFailureWithNoQueryInFlightChangesNothing() async throws {
+    let fixture = try makeFixture()
+    let store = makeStore(fixture.state, sandbox: fixture.sandbox)
+
+    await store.send(.repositoryPullRequestRefreshFailed(fixture.repositoryID))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(store.state.taskLeaves[id: fixture.record.id]?.pullRequest == TaskPullRequestState.none)
+  }
+
   /// A29's last clause, driven through the guard that actually enforces it: the
   /// row drops a result for a branch it no longer represents, so the task can
   /// never inherit a PR belonging to work that moved on.
