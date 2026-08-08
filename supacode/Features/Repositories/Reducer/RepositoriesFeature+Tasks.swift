@@ -160,21 +160,28 @@ extension RepositoriesFeature {
         if record.settledOverride == .active {
           state.taskRecords[id: id]?.settledOverride = nil
         }
-        var effects: [Effect<Action>] = [Self.persistTasksEffect(state: state)]
+        // Cleanup rides on the settle, always *after* the hibernation request —
+        // `.concatenate`, not `.merge`: deleting a directory that still has live
+        // sessions in it is how a settle turns into data loss, and the two are
+        // otherwise dispatched in whatever order the merge happens to pick. A
+        // shared directory is nobody's to delete (A6), which is the same reason
+        // it is nobody's to hibernate.
+        //
+        // Ordering the dispatch is not ordering the *teardown* — hibernation
+        // finishes inside the parent's effect, well after this one returns — so
+        // the delete re-checks the tab count itself and refuses while any tab is
+        // still standing. The remaining race can only leak a directory.
+        var settleSteps: [Effect<Action>] = []
         if let hibernation {
-          effects.append(.send(.delegate(hibernation)))
+          settleSteps.append(.send(.delegate(hibernation)))
         }
-        // Cleanup rides on the settle, always *after* the hibernation request:
-        // deleting a directory that still has live sessions in it is how a
-        // settle turns into data loss. A shared directory is nobody's to delete
-        // (A6), which is the same reason it is nobody's to hibernate.
         if record.autoManagedWorktree != nil,
           state.isSoleActiveTaskOwner(of: record),
           state.autoManagedCleanupWorktree(for: record) != nil
         {
-          effects.append(.send(.tasks(.cleanupAutoManagedWorktree(id))))
+          settleSteps.append(.send(.tasks(.cleanupAutoManagedWorktree(id))))
         }
-        return .merge(effects)
+        return .merge(Self.persistTasksEffect(state: state), .concatenate(settleSteps))
 
       case .tasks(.unsettle(let id)):
         guard state.taskRecords[id: id] != nil else { return .none }
@@ -356,6 +363,22 @@ extension RepositoriesFeature {
           let marker = record.autoManagedWorktree,
           let worktree = state.autoManagedCleanupWorktree(for: record)
         else {
+          return .none
+        }
+        @Dependency(\.terminalClient) var terminalClient
+        // The precondition no git read can answer: a tab still open on this
+        // worktree means a session is still standing in the directory, and
+        // deleting it out from under one is exactly the data loss Resolved #9
+        // refuses. Dormant tabs count — they are one click from awake.
+        //
+        // Read here rather than in the effect because the terminal is main-actor
+        // state, and read *last* so a settle that hibernates first has already
+        // had its chance to bring the count down.
+        let tabCount = terminalClient.tabCount(worktree.id)
+        guard tabCount == 0 else {
+          tasksLogger.debug(
+            "Auto-managed cleanup refused: \(marker.path) still has \(tabCount) open tab(s)."
+          )
           return .none
         }
         @Dependency(GitClientDependency.self) var client
