@@ -70,6 +70,13 @@ struct AgentPresenceFeature {
     /// hook that reports `.error` without a usable `ts` leaves that instant nil,
     /// and a visibly broken agent would then read as fine.
     var isErrored = false
+    /// Any agent on these surfaces is in `.awaitingInput` right now. Read off
+    /// `records` rather than off `agents`, which the badge toggle empties: the
+    /// avatar lineup is how a worktree row *displays* the blocked agent, but a
+    /// task that is waiting on the user is waiting whether or not badges draw.
+    /// Without this, badges-off resolved the leaf `.ready` and A28 receded a
+    /// task that had literally asked the user a question.
+    var isAwaitingInput = false
     /// When the newest errored record on these surfaces *entered* `.error`. The
     /// task inbox needs the *instant* of the failure, not just the fact of it:
     /// only an error newer than a snooze re-surfaces a parked row (A25).
@@ -883,6 +890,7 @@ extension AgentPresenceFeature.State {
     var isWorking = false
     var hasError = false
     var isErrored = false
+    var isAwaitingInput = false
     var errorAt: Date?
     var completedTurnAt: Date?
     var workingSince: Date?
@@ -891,6 +899,7 @@ extension AgentPresenceFeature.State {
         isWorking = true
         workingSince = Self.oldest(workingSince, record.workingSince)
       }
+      if record.activity == .awaitingInput { isAwaitingInput = true }
       if record.activity == .error, badgesEnabled { hasError = true }
       if record.activity == .error {
         isErrored = true
@@ -905,6 +914,7 @@ extension AgentPresenceFeature.State {
       isWorking: isWorking,
       hasError: hasError,
       isErrored: isErrored,
+      isAwaitingInput: isAwaitingInput,
       errorAt: errorAt,
       completedTurnAt: completedTurnAt,
       workingSince: workingSince

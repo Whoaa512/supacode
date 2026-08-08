@@ -106,7 +106,10 @@ struct TaskLeafState: Equatable, Sendable, Identifiable {
   var activitySnapshot: TaskSettlement.ActivitySnapshot {
     TaskSettlement.ActivitySnapshot(
       isWorking: agentSnapshot.isWorking,
-      isAwaitingInput: agentSnapshot.agents.contains { $0.activity == .awaitingInput },
+      // Ungated, for the same reason as `isErrored` below: `agents` is emptied
+      // by the badge toggle, so reading the block off it let a display
+      // preference resolve a question-asking task as `.ready` and recede it.
+      isAwaitingInput: agentSnapshot.isAwaitingInput,
       isAwaitingApproval: nil,
       // The ungated reading, never `hasError`: the badge toggle is a display
       // preference for the worktree row's badge, and a task that reads `ready`
@@ -179,6 +182,12 @@ extension TaskLeafState {
   /// Scoped to the leaf's snapshot, which `AppFeature` projects across exactly
   /// the surfaces this task owns — so two tasks sharing a directory report
   /// their own agents rather than the directory's union.
+  ///
+  /// Deliberately still reads `agents`, and so goes empty when the user turns
+  /// agent badges off: these rows *are* the agent display, and a user who asked
+  /// not to see agents in the sidebar meant these too. The task's own status
+  /// never rides here — it reads the ungated flags — so hiding the children
+  /// hides nothing the row needed to tell the truth.
   var childAgents: [ChildAgent] {
     var worstByAgent: [SkillAgent: ChildAgent] = [:]
     for instance in agentSnapshot.agents {

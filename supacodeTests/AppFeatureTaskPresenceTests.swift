@@ -223,6 +223,57 @@ struct AppFeatureTaskPresenceTests {
     }
   }
 
+  /// The same defect one field over, and the worse half of it: a task whose
+  /// agent has literally asked the user a question read `.ready` with badges
+  /// off, because the leaf derived `isAwaitingInput` from `agents` — the avatar
+  /// lineup the toggle empties. A28 then *receded* it, so the one row demanding
+  /// a human faded into the settled shelf.
+  ///
+  /// Driven from the wire for the same reason as the error case: the gate lives
+  /// in `rowSnapshot(badgesEnabled:)`, so only a real `awaiting_input` hook
+  /// event through `AgentPresenceFeature` and the per-task fan-out can see it.
+  @Test func aTaskReportsAwaitingInputEvenWhileAgentBadgesAreOff() async throws {
+    let sandbox = try Sandbox(name: "AppFeatureTaskPresenceTests-badgesOffInput")
+    try await withDependencies {
+      $0.settingsFileStorage = sandbox.storage
+    } operation: {
+      @Shared(.settingsFile) var settingsFile: SettingsFile
+      $settingsFile.withLock { $0.global.agentPresenceBadgesEnabled = false }
+
+      let directory = try sandbox.makeDirectory("work", activityAt: TaskInboxFixture.freshDate)
+      let surfaceID = UUID()
+      var repositories = TaskInboxFixture.makeState(
+        sandbox: sandbox,
+        directories: [directory],
+        surfacesPerRow: [directory: [surfaceID]]
+      )
+      let record = TaskInboxFixture.makeRecord(directory: directory, surfaceIDs: [surfaceID])
+      repositories.taskRecords = [record]
+      repositories.taskNow = Self.now
+      repositories.applyPostReduceCacheRecomputes(.all)
+      let store = makeStore(repositories, sandbox: sandbox)
+
+      await send(hookEvent(.sessionStart, surfaceID: surfaceID), to: store)
+      await send(hookEvent(.busy, surfaceID: surfaceID, at: Self.now), to: store)
+      await send(
+        hookEvent(.awaitingInput, surfaceID: surfaceID, at: Self.now.addingTimeInterval(30)),
+        to: store
+      )
+
+      let leaf = try #require(store.state.repositories.taskLeaves[id: record.id])
+      // The preference really is off: the badge lineup this used to read is empty.
+      #expect(leaf.agentSnapshot.agents.isEmpty)
+      // The task still says it is blocked on the user.
+      #expect(leaf.agentSnapshot.isAwaitingInput)
+      #expect(leaf.status == .input)
+      #expect(leaf.needsHuman)
+      #expect(leaf.isReceded == false)
+      // And it cannot be settled or snoozed out from under the question (A18b).
+      #expect(leaf.canSettle == false)
+      #expect(leaf.canSnooze == false)
+    }
+  }
+
   /// The badge toggle re-broadcasts every *row's* snapshot so cached state
   /// drains without waiting for a hook event. Task leaves hold their own
   /// snapshot, projected across the surfaces the record owns, so leaving them

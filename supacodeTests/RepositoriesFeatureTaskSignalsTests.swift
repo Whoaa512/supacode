@@ -556,7 +556,8 @@ struct RepositoriesFeatureTaskSignalsTests {
             agents: [.init(agent: .claude, activity: activity)],
             isWorking: activity.isWorking,
             hasError: activity == .error,
-            isErrored: activity == .error
+            isErrored: activity == .error,
+            isAwaitingInput: activity == .awaitingInput
           )
         )
       )
@@ -580,7 +581,8 @@ struct RepositoriesFeatureTaskSignalsTests {
           snapshot: .init(
             agents: [.init(agent: .claude, activity: activity)],
             hasError: activity == .error,
-            isErrored: activity == .error
+            isErrored: activity == .error,
+            isAwaitingInput: activity == .awaitingInput
           )
         )
       )

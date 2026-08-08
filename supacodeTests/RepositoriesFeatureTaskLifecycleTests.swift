@@ -511,7 +511,8 @@ struct RepositoriesFeatureTaskLifecycleTests {
     state.taskNow = Self.now
     state.sidebarItems[id: WorktreeID(directory.path(percentEncoded: false))]?.agentSnapshot =
       AgentPresenceFeature.RowSnapshot(
-        agents: [AgentPresenceFeature.AgentInstance(agent: .claude, activity: .awaitingInput)]
+        agents: [AgentPresenceFeature.AgentInstance(agent: .claude, activity: .awaitingInput)],
+        isAwaitingInput: true
       )
     state.applyPostReduceCacheRecomputes(.all)
     let store = makeStore(state, sandbox: sandbox)
@@ -540,7 +541,8 @@ struct RepositoriesFeatureTaskLifecycleTests {
     state.taskNow = Self.now
     state.sidebarItems[id: WorktreeID(directory.path(percentEncoded: false))]?.agentSnapshot =
       AgentPresenceFeature.RowSnapshot(
-        agents: [AgentPresenceFeature.AgentInstance(agent: .claude, activity: .awaitingInput)]
+        agents: [AgentPresenceFeature.AgentInstance(agent: .claude, activity: .awaitingInput)],
+        isAwaitingInput: true
       )
     state.applyPostReduceCacheRecomputes(.all)
     let store = makeStore(state, sandbox: sandbox)
@@ -865,7 +867,8 @@ struct RepositoriesFeatureTaskLifecycleTests {
         .agentSnapshotChanged(
           taskID: parked.id,
           snapshot: AgentPresenceFeature.RowSnapshot(
-            agents: [AgentPresenceFeature.AgentInstance(agent: .claude, activity: .awaitingInput)]
+            agents: [AgentPresenceFeature.AgentInstance(agent: .claude, activity: .awaitingInput)],
+            isAwaitingInput: true
           )
         )
       )
@@ -1048,7 +1051,8 @@ struct RepositoriesFeatureTaskLifecycleTests {
     state.taskNow = Self.now
     state.sidebarItems[id: WorktreeID(directory.path(percentEncoded: false))]?.agentSnapshot =
       AgentPresenceFeature.RowSnapshot(
-        agents: [AgentPresenceFeature.AgentInstance(agent: .claude, activity: .awaitingInput)]
+        agents: [AgentPresenceFeature.AgentInstance(agent: .claude, activity: .awaitingInput)],
+        isAwaitingInput: true
       )
     state.applyPostReduceCacheRecomputes(.all)
 
@@ -1167,7 +1171,8 @@ struct RepositoriesFeatureTaskLifecycleTests {
     state.selection = .task(open.id)
     state.sidebarItems[id: WorktreeID(first.path(percentEncoded: false))]?.agentSnapshot =
       AgentPresenceFeature.RowSnapshot(
-        agents: [AgentPresenceFeature.AgentInstance(agent: .claude, activity: .awaitingInput)]
+        agents: [AgentPresenceFeature.AgentInstance(agent: .claude, activity: .awaitingInput)],
+        isAwaitingInput: true
       )
     state.applyPostReduceCacheRecomputes(.all)
     let store = makeStore(state, sandbox: sandbox)
