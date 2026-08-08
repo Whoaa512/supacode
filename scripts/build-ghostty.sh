@@ -42,7 +42,12 @@ print_fingerprint() {
         shasum -a 256 "${patch}" | awk '{print $1}'
       done | shasum -a 256
       shasum -a 256 "${script_dir}/sdk-overlay.sh" | awk '{print $1}'
-      find "${script_dir}/sdk-stubs" -type f -exec shasum -a 256 {} + 2>/dev/null | shasum -a 256 | awk '{print $1}'
+      # Relative paths, then sorted: `find` order is filesystem order, and the
+      # absolute prefix is wherever the checkout happens to live — both would
+      # make the same stubs fingerprint differently on another machine (or in a
+      # worktree), busting a cache that is actually warm.
+      (cd "${script_dir}" && find sdk-stubs -type f -exec shasum -a 256 {} + 2>/dev/null | LC_ALL=C sort) |
+        shasum -a 256 | awk '{print $1}'
     } | shasum -a 256 | awk '{print $1}'
   )
 }
