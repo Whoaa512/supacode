@@ -140,9 +140,10 @@ private struct TaskCreationCandidateRow: View {
     .accessibilityAddTraits(isSelected ? .isSelected : [])
   }
 
-  /// "shared" is written into the line, not left to the icon's tooltip: sharing
-  /// a directory changes what the user gets (a second task with no surfaces of
-  /// its own), and a hover-only hint is a hint nobody reads before pressing ↩.
+  /// "shared" is written into the line, not left to the icon's tooltip: picking
+  /// a busy directory changes what the user gets (a second task working in the
+  /// same tree as the first, or a question about it), and a hover-only hint is a
+  /// hint nobody reads before pressing ↩.
   private var secondary: String? {
     let parts = [candidate.repositoryName, candidate.branch, candidate.isBusy ? "shared" : nil]
       .compactMap { $0 }

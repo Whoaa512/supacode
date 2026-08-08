@@ -11,9 +11,11 @@ import Foundation
 public nonisolated enum TaskDirectoryIsolation: String, CaseIterable, Codable, Equatable, Sendable,
   Identifiable
 {
-  /// Both tasks live in the same directory; the newcomer starts with no surfaces.
+  /// Both tasks work in the same directory. The newcomer still opens a terminal
+  /// of its own there — what it shares is the working tree, not the session.
   case share
-  /// The newcomer gets a Supacode-created worktree of its own.
+  /// The newcomer gets a Supacode-created worktree of its own, and opens its
+  /// terminal in that.
   case isolate
 
   public var id: String { rawValue }
@@ -30,12 +32,16 @@ public nonisolated enum TaskDirectoryIsolation: String, CaseIterable, Codable, E
     }
   }
 
+  /// Both answers open a new terminal for the task; the only thing they decide
+  /// is *where*. Saying otherwise (an older draft claimed sharing left the task
+  /// with no terminal of its own) makes the cheaper answer read as the one that
+  /// does less, which is the opposite of true.
   public var detail: String {
     switch self {
     case .share:
-      return "Both tasks work in the same directory. The new task starts with no terminals of its own."
+      return "Opens the new task's terminal in this same directory, next to the task already here."
     case .isolate:
-      return "Supacode creates a worktree for the new task and opens a terminal there."
+      return "Copies this directory into a new worktree and opens the new task's terminal there."
     }
   }
 }

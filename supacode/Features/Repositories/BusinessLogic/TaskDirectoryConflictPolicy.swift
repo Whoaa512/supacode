@@ -18,9 +18,11 @@ nonisolated enum TaskDirectoryConflictPolicy: Equatable, Sendable {
   case useDirectly
   /// First conflict in this repository: put the question to the user, once.
   case ask
-  /// Both tasks live in the same directory; the newcomer starts with no surfaces.
+  /// Both tasks work in the same directory. The newcomer still gets a terminal
+  /// of its own there — what it shares is the working tree, not the session.
   case share
-  /// The newcomer gets a Supacode-created worktree of its own.
+  /// The newcomer gets a Supacode-created worktree of its own, and its terminal
+  /// opens in that.
   case isolate
 
   static func resolve(
