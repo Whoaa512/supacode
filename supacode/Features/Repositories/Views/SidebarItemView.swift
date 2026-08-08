@@ -512,6 +512,7 @@ private struct TrailingView: View {
       pullRequest: showsPullRequestInfo ? store.pullRequest : nil,
     )
     let prText = display.pullRequestBadgeStyle?.text
+    let showsPullRequestFailure = showsPullRequestInfo && store.pullRequestQueryDidFail
     let agents = store.agents
     let scriptColors = store.runningScripts.map(\.tint)
     let showsNotificationIndicator = store.hasUnseenNotifications
@@ -541,6 +542,13 @@ private struct TrailingView: View {
         }
         if let prText {
           PullRequestBadgeContent(text: prText)
+            .equatable()
+        }
+        // Same glyph, same words as the task panel's `.failed` badge (A29): a
+        // repository whose `gh` is broken must not read as one with no pull
+        // requests, and the two panels must not disagree about which it is.
+        if showsPullRequestFailure {
+          PullRequestFailureContent()
             .equatable()
         }
         if !agents.isEmpty {
@@ -586,6 +594,17 @@ private struct PullRequestBadgeContent: View, Equatable {
       .font(.caption)
       .foregroundStyle(.secondary)
       .transition(.blurReplace)
+  }
+}
+
+private struct PullRequestFailureContent: View, Equatable {
+  var body: some View {
+    Image(systemName: "exclamationmark.triangle")
+      .imageScale(.small)
+      .font(.subheadline)
+      .foregroundStyle(.orange)
+      .help("Supacode couldn't check this worktree's pull request — check that `gh` is installed and authenticated")
+      .accessibilityLabel("Pull request check failed")
   }
 }
 
