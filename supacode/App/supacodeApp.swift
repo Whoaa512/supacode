@@ -60,6 +60,12 @@ final class SupacodeAppDelegate: NSObject, NSApplicationDelegate {
     // session_start once per process lifetime), and a second concurrent instance
     // overwriting the file is an accepted dev-only last-writer-wins window.
     terminalManager?.cancelPendingLayoutSaves()
+    // Same reason as the layout-save debounce above: the task classification
+    // tick and the wake-boundary alarm are long-lived effects, and a timer that
+    // fires into a store the process is done with is a persist we never asked
+    // for. Sent before the snapshot so the last write is the state the user quit
+    // on, not one a re-classification moved out from under it.
+    appStore?.send(.repositories(.tasks(.stopTimers)))
     let agentsBySurface = appStore?.state.agentPresence.agentsBySurface() ?? [:]
     terminalManager?.saveAllLayoutSnapshots(agentsBySurface: agentsBySurface)
     terminalManager?.rememberSelectedWorktreeZoomOnQuit()
