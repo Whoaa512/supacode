@@ -59,6 +59,16 @@ struct AgentPresenceFeature {
     var agents: [AgentInstance] = []
     var isWorking = false
     var hasError = false
+    /// When the newest errored record on these surfaces last reported. The
+    /// task inbox needs the *instant* of the failure, not just the fact of it:
+    /// only an error newer than a snooze re-surfaces a parked row (A25).
+    /// Deliberately not gated by the badge toggle — a display preference must
+    /// not silently disable a wake signal.
+    var errorAt: Date?
+    /// When the newest turn that ended unseen on these surfaces reported.
+    /// Cleared by focus, exactly like `isDoneUnseen`, so a finished turn the
+    /// user already looked at stops holding a row out of the snoozed shelf.
+    var completedTurnAt: Date?
   }
 
   // `nonisolated` so `stageRestore` (off-main at launch) can use Hashable.
@@ -813,15 +823,31 @@ extension AgentPresenceFeature.State {
     let surfaceSet = Set(surfaceIDs)
     var isWorking = false
     var hasError = false
+    var errorAt: Date?
+    var completedTurnAt: Date?
     for (key, record) in records where surfaceSet.contains(key.surfaceID) {
       if record.activity.isWorking { isWorking = true }
       if record.activity == .error, badgesEnabled { hasError = true }
+      if record.activity == .error {
+        errorAt = Self.newest(errorAt, record.lastEventAt)
+      }
+      if record.isDoneUnseen {
+        completedTurnAt = Self.newest(completedTurnAt, record.lastEventAt)
+      }
     }
     return AgentPresenceFeature.RowSnapshot(
       agents: agents(across: surfaceSet, badgesEnabled: badgesEnabled),
       isWorking: isWorking,
-      hasError: hasError
+      hasError: hasError,
+      errorAt: errorAt,
+      completedTurnAt: completedTurnAt
     )
+  }
+
+  /// Newest of two hook-reported instants. Routed through `TaskTimestamps` so a
+  /// non-finite `ts` from the wire is dropped rather than winning every max.
+  private static func newest(_ lhs: Date?, _ rhs: Date?) -> Date? {
+    TaskTimestamps.latestValid([lhs, rhs])
   }
 
   /// Any agent on the listed surfaces is working (`busy`, or compacting inside a
