@@ -43,6 +43,11 @@ struct TaskLeafState: Equatable, Sendable, Identifiable {
   var agentSnapshot: AgentPresenceFeature.RowSnapshot = .init()
   /// Unread terminal notifications on owned surfaces.
   var hasUnseenNotifications: Bool = false
+  /// The task's directory still has a live worktree row, so there is somewhere
+  /// to open a terminal. The inbox outlives worktrees (A10b), so this goes false
+  /// for a task whose directory was deleted — and the row's "Open Terminal Here"
+  /// greys out rather than offering an action the reducer would refuse.
+  var hasDirectoryRow: Bool = false
   /// Every owned surface is hibernated, so the row shows the sleep marker.
   var allSurfacesDormant: Bool = false
   /// When an agent on an owned surface last reported an error. The snooze rules

@@ -29,6 +29,7 @@ struct AppFeatureTaskTerminalTests {
     sandbox: Sandbox,
     directory: URL,
     lifecycle: SidebarItemFeature.State.Lifecycle = .idle,
+    records: [TaskRecord] = [],
     sentCommands: LockIsolated<[TerminalClient.Command]>,
     liveTabSurfaceIDs: LockIsolated<[TerminalTabID: Set<UUID>]>
   ) -> TestStoreOf<AppFeature> {
@@ -37,6 +38,7 @@ struct AppFeatureTaskTerminalTests {
       directories: [directory],
       hasLoadedTasks: true
     )
+    repositories.taskRecords = IdentifiedArray(uniqueElements: records)
     repositories.sidebarItems[id: WorktreeID(directory.path(percentEncoded: false))]?
       .lifecycle = lifecycle
     repositories.applyPostReduceCacheRecomputes(.all)
@@ -220,6 +222,61 @@ struct AppFeatureTaskTerminalTests {
     await store.finish()
 
     #expect(Self.runSetupScriptFlags(commands.value) == [true])
+  }
+
+  /// "Open Terminal Here" on a row reuses the creation machinery with an
+  /// existing record as the claim target, so the tab has to land on the task the
+  /// user right-clicked. Two tasks share this directory and the *newer* one is
+  /// what a directory-resolved claim would pick, which is the bug this pins:
+  /// the older, surface-less row is the one that asked.
+  @Test(.dependencies) func openTerminalClaimsTheTabForTheTaskThatAskedForIt() async throws {
+    let sandbox = try makeSandbox()
+    let directory = try sandbox.makeDirectory("mine", activityAt: TaskInboxFixture.freshDate)
+    let commands = LockIsolated<[TerminalClient.Command]>([])
+    let liveTabs = LockIsolated<[TerminalTabID: Set<UUID>]>([:])
+    let stranded = TaskInboxFixture.makeRecord(
+      directory: directory,
+      createdAt: TaskInboxFixture.freshDate.addingTimeInterval(-600)
+    )
+    let newer = TaskInboxFixture.makeRecord(
+      directory: directory,
+      surfaceIDs: [UUID()],
+      createdAt: TaskInboxFixture.freshDate
+    )
+    let store = makeStore(
+      sandbox: sandbox,
+      directory: directory,
+      records: [stranded, newer],
+      sentCommands: commands,
+      liveTabSurfaceIDs: liveTabs
+    )
+    let worktreeID = WorktreeID(directory.path(percentEncoded: false))
+
+    await store.send(.repositories(.tasks(.openTerminal(stranded.id))))
+    await store.receive(\.repositories.delegate.openTaskTerminal)
+    let tabID = try createdTabID(in: commands)
+    #expect(store.state.pendingTaskTabClaims[id: tabID]?.taskID == stranded.id)
+
+    let surfaceID = UUID()
+    liveTabs.withValue { $0[tabID] = [surfaceID] }
+    await store.send(
+      .terminalEvent(
+        .tabProjectionChanged(
+          worktreeID: worktreeID,
+          WorktreeTabProjection(
+            tabID: tabID,
+            surfaceIDs: [surfaceID],
+            activeSurfaceID: surfaceID,
+            unseenNotificationCount: 0
+          )
+        )
+      )
+    )
+    await store.receive(\.repositories.tasks.promoteTab)
+    await store.finish()
+
+    #expect(store.state.repositories.taskRecords[id: stranded.id]?.surfaceIDs == [surfaceID])
+    #expect(store.state.repositories.taskRecords[id: newer.id]?.surfaceIDs.contains(surfaceID) == false)
   }
 
   private static func runSetupScriptFlags(_ commands: [TerminalClient.Command]) -> [Bool] {

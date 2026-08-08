@@ -532,6 +532,7 @@ private struct TaskSidebarRowView: View {
         pinMenuItems()
       }
       Divider()
+      openTerminalMenuItem(hasDirectoryRow: leaf?.hasDirectoryRow ?? false)
       Button("Rename Task…") { store.send(.tasks(.presentRenamePrompt(taskID))) }
         .help("Retitle this task. The title is what the sidebar and the filter show.")
     }
@@ -591,6 +592,30 @@ private struct TaskSidebarRowView: View {
       canSnooze
         ? "Park this task until later. It comes back in the same place, and an agent that needs you wakes it early."
         : "This task is waiting on you — snoozing it would surface it again immediately."
+    )
+  }
+
+  /// The way out of a row that leads nowhere: a task owning no live surface has
+  /// nothing to focus, and a settled row is deliberately un-focusable, so
+  /// selecting either one shows it and stops. The settled title says out loud
+  /// that the task comes back to Active — a terminal opened on a row still
+  /// filed away would be work happening in a place the user was told is done.
+  ///
+  /// Disabled rather than hidden when the directory is gone (A18b's rule): the
+  /// worktree was deleted out from under the task, which is something the app
+  /// knows and should say.
+  @ViewBuilder
+  private func openTerminalMenuItem(hasDirectoryRow: Bool) -> some View {
+    Button(isSettled ? "Unsettle and Open Terminal" : "Open Terminal Here") {
+      store.send(.tasks(.openTerminal(taskID)))
+    }
+    .disabled(!hasDirectoryRow)
+    .help(
+      hasDirectoryRow
+        ? (isSettled
+          ? "Move this task back to Active and open a new terminal in its directory."
+          : "Open a new terminal for this task in its directory.")
+        : "This task's directory no longer has a worktree, so there is nowhere to open a terminal."
     )
   }
 

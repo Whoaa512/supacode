@@ -35,6 +35,91 @@ struct RepositoriesFeatureTaskEditingTests {
     return store
   }
 
+  // MARK: - Open Terminal Here
+
+  /// The claim target is the task the user right-clicked, not the directory's
+  /// newest active task. Two tasks share a directory as a supported shape
+  /// (Resolved #11), so resolving by directory would hand the older one's
+  /// terminal to the newer one.
+  @Test func openTerminalRequestsATabForTheTaskItWasAskedAbout() async throws {
+    let sandbox = try makeSandbox()
+    let directory = try sandbox.makeDirectory("fresh", activityAt: TaskInboxFixture.freshDate)
+    var state = TaskInboxFixture.makeState(sandbox: sandbox, directories: [directory], hasLoadedTasks: true)
+    // Surface-less: its tab was closed, so selecting it leads nowhere.
+    let stranded = TaskInboxFixture.makeRecord(
+      directory: directory,
+      createdAt: TaskInboxFixture.freshDate.addingTimeInterval(-600)
+    )
+    let newer = TaskInboxFixture.makeRecord(
+      directory: directory,
+      surfaceIDs: [UUID()],
+      createdAt: TaskInboxFixture.freshDate
+    )
+    state.taskRecords = [stranded, newer]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+    let rowID = WorktreeID(directory.path(percentEncoded: false))
+
+    await store.send(.tasks(.openTerminal(stranded.id)))
+    await store.receive(\.tasks.select)
+    await store.receive(\.selectionChanged)
+    await store.receive(\.delegate.openTaskTerminal)
+    await store.finish()
+
+    // The request names the older, surface-less task — `AppFeatureTaskTerminalTests`
+    // carries the other half, that the claim the parent parks names it too.
+    #expect(store.state.selection?.taskID == stranded.id)
+    #expect(
+      store.state.taskTerminalRequestDelegate(for: stranded)
+        == .openTaskTerminal(worktreeID: rowID, taskID: stranded.id)
+    )
+  }
+
+  /// The settled variant is one action, not "unsettle, then find the row again":
+  /// a settled task is deliberately un-focusable, so the terminal request has to
+  /// leave in the same reduce that brought it back to Active.
+  @Test func openTerminalUnsettlesASettledTaskFirst() async throws {
+    let sandbox = try makeSandbox()
+    let directory = try sandbox.makeDirectory("fresh", activityAt: TaskInboxFixture.freshDate)
+    var state = TaskInboxFixture.makeState(sandbox: sandbox, directories: [directory], hasLoadedTasks: true)
+    let record = TaskInboxFixture.makeRecord(directory: directory, settledAt: Self.now)
+    state.taskRecords = [record]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(.tasks(.openTerminal(record.id)))
+    await store.receive(\.delegate.openTaskTerminal)
+    await store.finish()
+
+    #expect(store.state.taskRecords[id: record.id]?.settledAt == nil)
+    #expect(store.state.tasksSidebarStructure.activeTaskIDs == [record.id])
+    #expect(store.state.tasksSidebarStructure.settledTotalCount == 0)
+    // The unsettle rides the selection's persist, so it survives a relaunch.
+    let persisted = try #require(sandbox.loadFile())
+    #expect(persisted.tasks.first?.settledAt == nil)
+  }
+
+  /// A10b: the inbox outlives worktrees. A task whose directory is gone has
+  /// nowhere to open a terminal, and the leaf says so, which is what greys the
+  /// menu item out instead of offering an action the reducer refuses.
+  @Test func openTerminalIsRefusedWhenTheDirectoryHasNoRow() async throws {
+    let sandbox = try makeSandbox()
+    let live = try sandbox.makeDirectory("live", activityAt: TaskInboxFixture.freshDate)
+    let deleted = sandbox.rootURL.appending(path: "deleted", directoryHint: .isDirectory)
+    var state = TaskInboxFixture.makeState(sandbox: sandbox, directories: [live], hasLoadedTasks: true)
+    let orphan = TaskInboxFixture.makeRecord(directory: deleted)
+    state.taskRecords = [orphan]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    #expect(store.state.taskLeaves[id: orphan.id]?.hasDirectoryRow == false)
+
+    await store.send(.tasks(.openTerminal(orphan.id)))
+    await store.finish()
+
+    #expect(store.state.selection?.taskID == nil)
+  }
+
   // MARK: - Rename
 
   @Test func renamingATaskPersistsAndReachesTheRenderPlan() async throws {

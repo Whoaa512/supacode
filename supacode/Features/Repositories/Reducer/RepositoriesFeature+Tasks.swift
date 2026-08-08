@@ -130,6 +130,13 @@ extension RepositoriesFeature {
     case promoteTab(worktreeID: Worktree.ID, tabID: TerminalTabID?, taskID: TaskID? = nil)
     /// ⌘N on the Tasks tab: open the capture prompt over the live roster.
     case presentCreationPrompt
+    /// Give a task a terminal of its own in its directory. The escape hatch for
+    /// the two dead ends a row can reach: a task that owns no surface (its tab
+    /// was closed, or it was seeded for a directory nobody has opened yet), and
+    /// a settled row, which is deliberately un-focusable — selecting one shows
+    /// it but leads nowhere. A settled task is unsettled on the way, because
+    /// asking for its terminal is saying it is not finished after all.
+    case openTerminal(TaskID)
     /// Open the rename question for a task row.
     case presentRenamePrompt(TaskID)
     case cancelRenamePrompt
@@ -590,6 +597,31 @@ extension RepositoriesFeature {
           candidates: state.taskCreationCandidates()
         )
         return .none
+
+      case .tasks(.openTerminal(let id)):
+        guard let record = state.taskRecords[id: id] else { return .none }
+        // The directory has no live row, so there is nothing to open a terminal
+        // in and guessing one would be worse than refusing (A10b). The menu item
+        // is disabled for the same condition, off the leaf's `hasDirectoryRow`.
+        guard let terminal = state.taskTerminalRequestDelegate(for: record) else {
+          tasksLogger.debug("Open terminal refused: \(record.directoryPath) has no live row.")
+          return .none
+        }
+        // Unsettled inline rather than by sending `.unsettle`: the selection and
+        // the terminal request leave in the same reduce, and a settled record is
+        // deliberately un-focusable — one hop later the request would race the
+        // lifecycle it depends on. `.select` owns the persist that writes this.
+        //
+        // Gated on actually being settled, so opening a terminal for a live task
+        // never clears a `.active` override the user set with Keep Active.
+        if TasksSidebarStructure.isSettled(record) {
+          state.taskRecords[id: id]?.settledAt = nil
+          state.taskRecords[id: id]?.settledOverride = nil
+        }
+        return .merge(
+          .send(.tasks(.select(id))),
+          .send(.delegate(terminal))
+        )
 
       case .tasks(.presentRenamePrompt(let id)):
         guard let record = state.taskRecords[id: id] else { return .none }
@@ -1957,6 +1989,7 @@ extension RepositoriesFeature.State {
       var leaf = TaskLeafState(id: record.id)
       let row = rowIDsByPath[TaskDirectoryPath.normalized(record.directoryPath)]
         .flatMap { sidebarItems[id: $0] }
+      leaf.hasDirectoryRow = row != nil
       leaf.agentSnapshot = Self.taskAgentSnapshot(
         for: record, projected: taskAgentSnapshots[record.id], row: row)
       leaf.errorAt = leaf.agentSnapshot.errorAt
@@ -2101,7 +2134,7 @@ extension RepositoriesFeature.TaskInboxAction {
       .classificationTick, .wakeBoundaryReached, .agentSnapshotChanged,
       .autoSettleSettingsChanged, .stopTimers,
       .presentCreationPrompt, .setConflictRemember, .cancelDirectoryConflict,
-      .presentRenamePrompt, .cancelRenamePrompt, .renameTask,
+      .presentRenamePrompt, .cancelRenamePrompt, .renameTask, .openTerminal,
       .autoManagedWorktreeCreationFailed, .cleanupAutoManagedWorktree,
       .autoManagedWorktreeCleanupFinished:
       return false
@@ -2152,6 +2185,8 @@ extension RepositoriesFeature.TaskInboxAction {
       .setSearchQuery, .setSettledTailExpanded, .setSnoozedShelfExpanded, .expandSettledTail,
       .classificationTick, .wakeBoundaryReached, .agentSnapshotChanged, .autoSettleSettingsChanged,
       .reconcileSurfaceOwnership, .promoteTab,
+      // Can unsettle the task it opens, which moves it out of the settled tail.
+      .openTerminal,
       // A rename is a record write the title filter reads (A37), so the render
       // plan has to be rebuilt against it.
       .renameTask:
@@ -2195,7 +2230,7 @@ extension RepositoriesFeature.TaskInboxAction {
       .classificationTick, .wakeBoundaryReached, .agentSnapshotChanged,
       .autoSettleSettingsChanged, .stopTimers,
       .presentCreationPrompt, .cancelDirectoryConflict, .createTask,
-      .resolveDirectoryConflict, .promoteTab, .reconcileSurfaceOwnership,
+      .resolveDirectoryConflict, .promoteTab, .reconcileSurfaceOwnership, .openTerminal,
       .autoManagedWorktreeCreated, .autoManagedWorktreeCreationFailed,
       .cleanupAutoManagedWorktree, .autoManagedWorktreeCleanupFinished:
       return true
