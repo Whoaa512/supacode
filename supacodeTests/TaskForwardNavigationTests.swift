@@ -9,11 +9,11 @@ import Testing
 /// Provenance: t3 has no `planForwardNavigation`. Its nearest relatives are
 /// `resolveAdjacentThreadId` (`Sidebar.logic.ts:305`, plain index ±1, **no**
 /// wrap-around and no eligibility filter) and `getFallbackThreadIdAfterDelete`
-/// (`:674`, re-sorts and takes the head, with a `deletedThreadIds` set that is
-/// the direct ancestor of `coParkingTaskIDs`). What is ported is that
-/// co-parking set and the "return null, let the caller decide" shape; the
-/// wrap-around scan is supacode's, and so is the no-next answer — t3 navigates
-/// home / to a new draft, supacode stays put (A26).
+/// (`:674`, re-sorts and takes the head). What is ported is the "return null,
+/// let the caller decide" shape; the wrap-around scan is supacode's, and so is
+/// the no-next answer — t3 navigates home / to a new draft, supacode stays put
+/// (A26). t3's `deletedThreadIds` batch-exclusion set is deliberately not
+/// ported: supacode parks one task per action.
 ///
 /// Everything here is a *plan*: a value computed from an ordered snapshot taken
 /// before the mutation. The reducer applies it only if the open task is still
@@ -92,32 +92,6 @@ struct TaskForwardNavigationTests {
     #expect(
       TaskForwardNavigation.planForwardNavigation(orderedTasks: tasks, currentTaskID: Self.id("b"))
         == Self.id("d")
-    )
-  }
-
-  /// The batch case (A26): rows being parked in the same operation are leaving
-  /// too, so navigating onto one would land the user on a row that vanishes a
-  /// tick later. They are still `isSettled: false` in the pre-mutation snapshot
-  /// — that is exactly why the set is a separate input and not a flag.
-  @Test func coParkingRowsAreSkipped() {
-    #expect(
-      TaskForwardNavigation.planForwardNavigation(
-        orderedTasks: Self.row,
-        currentTaskID: Self.id("a"),
-        coParkingTaskIDs: [Self.id("b"), Self.id("c")]
-      ) == Self.id("d")
-    )
-  }
-
-  /// A whole batch settling at once: every other row is co-parking, so there is
-  /// no next task and the selection stays put.
-  @Test func aBatchThatParksEverythingHasNoNext() {
-    #expect(
-      TaskForwardNavigation.planForwardNavigation(
-        orderedTasks: Self.row,
-        currentTaskID: Self.id("a"),
-        coParkingTaskIDs: [Self.id("a"), Self.id("b"), Self.id("c"), Self.id("d")]
-      ) == nil
     )
   }
 

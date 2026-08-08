@@ -19,19 +19,18 @@ nonisolated enum TaskForwardNavigation {
   /// Scans forward from the row after `currentTaskID`, wrapping once, and answers
   /// the first eligible row.
   ///
-  /// `coParkingTaskIDs` is the batch case: rows being parked in the same operation
-  /// are leaving too, so landing on one would put the user on a row that vanishes
-  /// a tick later. They are still `isSettled: false` in the pre-mutation snapshot,
-  /// which is exactly why the set is a separate input and not a flag.
-  ///
   /// `nil` means stay put. An unknown or absent current row scans from the top
   /// instead of refusing — the user's intent was "move me forward", and there is
   /// still somewhere to go. Order in, order out: this never re-sorts, or the user
   /// would land somewhere other than the row below the one they were on.
+  ///
+  /// There is deliberately no batch/co-parking exclusion set. Every caller parks
+  /// exactly one task per action, so the pre-mutation snapshot already tells the
+  /// truth about which rows are leaving; a set that no caller can populate is a
+  /// second, untested code path pretending to be a feature.
   static func planForwardNavigation(
     orderedTasks: [Candidate],
-    currentTaskID: TaskID?,
-    coParkingTaskIDs: Set<TaskID> = []
+    currentTaskID: TaskID?
   ) -> TaskID? {
     guard !orderedTasks.isEmpty else { return nil }
 
@@ -42,7 +41,6 @@ nonisolated enum TaskForwardNavigation {
       let candidate = orderedTasks[(start + offset) % orderedTasks.count]
       guard candidate.id != currentTaskID else { continue }
       guard !candidate.isSettled, !candidate.isSnoozed else { continue }
-      guard !coParkingTaskIDs.contains(candidate.id) else { continue }
       return candidate.id
     }
     return nil

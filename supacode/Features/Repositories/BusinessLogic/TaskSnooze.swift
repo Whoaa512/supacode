@@ -71,20 +71,6 @@ nonisolated enum TaskSnooze {
     var wakeAt: Date
   }
 
-  /// Structured rather than a `String`: formatting is locale- and
-  /// settings-dependent, so the view formats the associated `Date` and this stays
-  /// free of `DateFormatter`.
-  nonisolated enum WakeLabel: Equatable, Sendable {
-    case today(Date)
-    case tomorrow(Date)
-    case weekday(Date)
-    case date(Date)
-    /// Unreadable `until` or `now`. Distinct from `.date` because there is no
-    /// honest `Date` to hand the view — rendering a malformed instant would
-    /// print "Dec 31, 1969" or worse (A17: never invent a time).
-    case unknown
-  }
-
   private static let eveningHour = 18
   private static let morningHour = 8
   /// `Calendar`'s 1-based weekday for Monday.
@@ -227,31 +213,6 @@ nonisolated enum TaskSnooze {
     let weekday = calendar.component(.weekday, from: now)
     let delta = (7 + monday - weekday) % 7
     return delta == 0 ? 7 : delta
-  }
-
-  // MARK: - Display
-
-  /// Switches on the calendar-day delta, not elapsed hours: 11 PM → 8 AM is nine
-  /// hours but two days, and "in 9 hours" is not what a person reads off the row.
-  /// Past seven days a weekday name is ambiguous ("Monday" — which one?), so the
-  /// label falls back to a full date.
-  static func snoozeWakeLabel(until: Date, now: Date, calendar: Calendar) -> WakeLabel {
-    guard
-      TaskTimestamps.read(until).date != nil,
-      TaskTimestamps.read(now).date != nil,
-      let dayDelta = calendar.dateComponents(
-        [.day],
-        from: calendar.startOfDay(for: now),
-        to: calendar.startOfDay(for: until)
-      ).day
-    else { return .unknown }
-
-    switch dayDelta {
-    case 0: return .today(until)
-    case 1: return .tomorrow(until)
-    case 2...6: return .weekday(until)
-    default: return .date(until)
-    }
   }
 
   // MARK: - Placement

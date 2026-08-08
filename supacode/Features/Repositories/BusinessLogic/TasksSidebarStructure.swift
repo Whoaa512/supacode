@@ -67,7 +67,7 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
   /// Recent history is the common lookup, so the deep tail stays behind an
   /// explicit "Show more" (t3's `SETTLED_TAIL_INITIAL_COUNT` / `_PAGE_COUNT`).
   static let settledTailInitialCount = 10
-  static let settledTailPageCount = 25
+  private static let settledTailPageCount = 25
 
   /// Active rows: the pinned block first, then the rest, each newest-created
   /// first with a deterministic ID tie-break. Pinning never introduces a second

@@ -101,7 +101,17 @@ struct TaskRecordTests {
     #expect(try Self.roundTrip(record).settledOverride == nil)
   }
 
-  @Test(arguments: TaskRecord.SeedEvidence.Source.allCases)
+  /// Listed rather than driven off `CaseIterable`, which the model no longer
+  /// declares — the conformance existed only for this line. A case added to
+  /// `Source` has to be added here too.
+  @Test(
+    arguments: [
+      TaskRecord.SeedEvidence.Source.currentBranch,
+      .reflog,
+      .scrollbackMtime,
+      .manual,
+    ]
+  )
   func seedEvidenceSourceRoundTrips(source: TaskRecord.SeedEvidence.Source) throws {
     var record = Self.makeRecord()
     record.seedEvidence = .init(source: source, confidence: .low)
