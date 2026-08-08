@@ -17,7 +17,8 @@ Requires [mise](https://mise.jdx.dev/) for zig, swiftlint, swift-format, xcbeaut
   - `supacodeTerminalTests`: `Ghostty*.swift`, `Layouts*.swift`, `SplitTree*.swift`, `WorktreeTerminalManager*.swift`, `Zmx*.swift`
   - `supacodeGitTests`: `AgentHook*.swift`, `Git*.swift`, `ShellClient*.swift`, and a few named files
   - `supacodeTests`: everything else
-- A test file created after the last `tuist generate` is not in the workspace; run `make generate-project` before testing it.
+- A test file created after the last `tuist generate` is not in the workspace; run `make generate-project` before testing it. Tuist skips the regenerate when nothing it fingerprints changed, so `touch Project.swift && make generate-project` if a new file still isn't picked up.
+- `-only-testing` takes a suite, not a function: `…/MyTests/myTest()` matches nothing and passes with 0 tests. Filter to the suite and read the failures.
 
 ## Architecture
 
