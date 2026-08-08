@@ -464,13 +464,35 @@ extension RepositoriesFeature {
       case .tasks(.autoManagedWorktreeCleanupFinished(let taskID, let didDelete)):
         // Refused: the marker survives, because the directory is still ours — we
         // just refuse to act on it right now.
-        guard didDelete, state.taskRecords[id: taskID]?.autoManagedWorktree != nil else {
+        guard didDelete, let record = state.taskRecords[id: taskID],
+          record.autoManagedWorktree != nil
+        else {
           return .none
         }
+        // Resolved before the marker is cleared: the marker is what identifies
+        // the row, and clearing it first would leave the roster holding a row
+        // for a directory that no longer exists — one the sidebar still renders
+        // and the terminal still counts as an allowed worktree.
+        let deleted = state.autoManagedCleanupWorktree(for: record)
         // Cleared once the directory is gone, so a later settle / unsettle round
         // cannot re-authorize a delete against a path something else took over.
         state.taskRecords[id: taskID]?.autoManagedWorktree = nil
-        return Self.persistTasksEffect(state: state)
+        var effects: [Effect<Action>] = [Self.persistTasksEffect(state: state)]
+        if let deleted,
+          let repositoryID = state.repositories.first(where: { $0.worktrees[id: deleted.id] != nil })?.id
+        {
+          // A settle usually runs with the *task* selected, but the worktree row
+          // can be the selection too, and a selection pointing at a deleted
+          // worktree renders a detail pane for nothing. Re-picked *after* the
+          // prune, or the row on its way out is the first one available.
+          let wasSelected = state.selection == .worktree(deleted.id)
+          state.cleanupWorktreeState(deleted.id, repositoryID: repositoryID)
+          if wasSelected {
+            state.selection = state.firstAvailableWorktreeID(in: repositoryID).map(SidebarSelection.worktree)
+          }
+          effects.append(.send(.delegate(.repositoriesChanged(state.repositories))))
+        }
+        return .merge(effects)
 
       case .taskCreationPrompt(.presented(.delegate(.cancel))):
         // A20b: cancel leaves nothing behind — no record, and no write at all.
@@ -1347,9 +1369,10 @@ extension RepositoriesFeature.TaskInboxAction {
     // declares for the same `cleanupFailedWorktree` call.
     case .autoManagedWorktreeCreationFailed:
       return [.sidebarStructure, .selectedWorktreeSlice, .sidebarSelectionSlice]
-    // Clearing a spent delete marker changes the record set, nothing else.
+    // Clears a spent delete marker and, on a delete that happened, prunes the
+    // row whose directory is now gone — which can move the selection too.
     case .autoManagedWorktreeCleanupFinished:
-      return .sidebarStructure
+      return [.sidebarStructure, .selectedWorktreeSlice, .sidebarSelectionSlice]
     // Every arm that can change the record set, its lifecycle, or the page window.
     case .loaded, .seeded, .select, .settle, .unsettle,
       .setSettledTailExpanded, .expandSettledTail, .reconcileSurfaceOwnership, .promoteTab:

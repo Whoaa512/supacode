@@ -471,6 +471,59 @@ struct RepositoriesFeatureTaskWorktreeTests {
     #expect(sandbox.loadFile()?.tasks.first?.autoManagedWorktree == nil)
   }
 
+  /// A deleted directory must not keep its row. The sidebar would go on
+  /// rendering it, and the terminal would go on treating it as a worktree it is
+  /// allowed to hold sessions for, until something unrelated forced a reload.
+  @Test func aSuccessfulCleanupPrunesTheRowAndAnnouncesTheRoster() async throws {
+    let sandbox = try makeSandbox()
+    let auto = try sandbox.makeDirectory("auto", activityAt: Self.freshDate)
+    let (state, record) = makeSettleableState(sandbox: sandbox, worktreeDirectory: auto)
+    let worktreeID = WorktreeID(auto.path(percentEncoded: false))
+    let store = makeStore(state, sandbox: sandbox) {
+      $0.rootDirectoryExists = { _ in true }
+      $0.branchName = { _ in "task/ship-the-inbox-abcdef01" }
+      $0.lineChanges = { _ in (added: 0, removed: 0) }
+      $0.removeWorktree = { worktree, _ in worktree.workingDirectory }
+      $0.worktrees = { _ in [] }
+    }
+    #expect(store.state.sidebarItems[id: worktreeID] != nil)
+
+    await store.send(.tasks(.settle(record.id)))
+    await store.receive(\.tasks.autoManagedWorktreeCleanupFinished)
+    await store.receive(\.delegate.repositoriesChanged)
+    await store.finish()
+
+    #expect(store.state.sidebarItems[id: worktreeID] == nil)
+    #expect(store.state.repositories.flatMap(\.worktrees).isEmpty)
+    // The task outlives its worktree (A10b) — only the marker is spent.
+    #expect(store.state.taskRecords[id: record.id] != nil)
+  }
+
+  /// A settle usually runs from the Tasks tab, but the worktree row can be the
+  /// selection when it happens, and a selection pointing at a directory that no
+  /// longer exists renders a detail pane for nothing.
+  @Test func aSuccessfulCleanupMovesASelectionOffTheDeletedRow() async throws {
+    let sandbox = try makeSandbox()
+    let auto = try sandbox.makeDirectory("auto", activityAt: Self.freshDate)
+    var (state, record) = makeSettleableState(sandbox: sandbox, worktreeDirectory: auto)
+    let worktreeID = WorktreeID(auto.path(percentEncoded: false))
+    state.selection = .worktree(worktreeID)
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox) {
+      $0.rootDirectoryExists = { _ in true }
+      $0.branchName = { _ in "task/ship-the-inbox-abcdef01" }
+      $0.lineChanges = { _ in (added: 0, removed: 0) }
+      $0.removeWorktree = { worktree, _ in worktree.workingDirectory }
+      $0.worktrees = { _ in [] }
+    }
+
+    await store.send(.tasks(.settle(record.id)))
+    await store.receive(\.tasks.autoManagedWorktreeCleanupFinished)
+    await store.finish()
+
+    #expect(store.state.selection != .worktree(worktreeID))
+  }
+
   /// Resolved #9's precondition, verbatim: "path still resolves to that
   /// branch". A worktree the user checked out onto something else is a
   /// worktree the user is using.
