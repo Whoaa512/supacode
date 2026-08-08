@@ -186,6 +186,11 @@ struct AppFeature {
     /// observably complete, keyed by the open client fd. A watchdog drains each
     /// on timeout so the fd never leaks.
     var pendingCommandAcks: IdentifiedArrayOf<PendingCommandAck> = []
+    /// Tabs minted for a freshly created task, waiting for their first surface
+    /// to exist. Mirrors `pendingCommandAcks`: the terminal reports a tab through
+    /// `tabProjectionChanged`, and only then does the claim have a split tree to
+    /// take. Keyed by tab id, which is minted here and therefore unique.
+    var pendingTaskTabClaims: IdentifiedArrayOf<PendingTaskTabClaim> = []
     /// Monotonic generation stamped on each pending ack so a stale watchdog can
     /// never drain a different ack that recycled the same client fd number.
     var commandAckGeneration: Int = 0
@@ -262,6 +267,17 @@ struct AppFeature {
     /// Generation stamp; the watchdog only drains when it still matches.
     let token: Int
     var match: CompletionMatch
+  }
+
+  /// A task-owned tab whose promotion is deferred until the tab reports its
+  /// first surface. `taskID` is carried so the claim lands on the record that
+  /// asked for the tab, not on whichever task happens to be newest by the time
+  /// the surface materializes.
+  struct PendingTaskTabClaim: Equatable, Sendable, Identifiable {
+    var id: TerminalTabID { tabID }
+    let tabID: TerminalTabID
+    let worktreeID: Worktree.ID
+    let taskID: TaskID
   }
 
   /// What a deferred ack is waiting for, with the key that correlates the
@@ -723,7 +739,7 @@ struct AppFeature {
           await terminalClient.send(.focusSurface(worktree, tabID: tabID, surfaceID: surfaceID))
         }
 
-      case .repositories(.delegate(.openTaskTerminal(let worktreeID, _))):
+      case .repositories(.delegate(.openTaskTerminal(let worktreeID, let taskID))):
         guard let worktree = state.repositories.worktree(for: worktreeID), !worktree.isMissing else {
           return .none
         }
@@ -731,11 +747,19 @@ struct AppFeature {
         // own. The id is minted here so the claim can name that exact tab instead
         // of racing whatever the worktree happens to have selected afterwards.
         let tabID = TerminalTabID(rawValue: uuid())
-        return .run { send in
-          await terminalClient.send(.createTab(worktree, runSetupScriptIfNew: false, id: tabID.rawValue))
-          // Promotion claims the tab for the newest active task in the
-          // directory, which is the task that just asked for it.
-          await send(.repositories(.tasks(.promoteTab(worktreeID: worktreeID, tabID: tabID))))
+        // A worktree still running its setup script gets it (same rule as
+        // ⌘T); one that has finished must not re-run it just because a task
+        // opened a tab there.
+        let shouldRunSetupScript =
+          state.repositories.sidebarItems[id: worktreeID]?.lifecycle == .pending
+        // Registered before the effect leaves, so the projection that resolves it
+        // can never arrive first. `createTab` returns before the surface exists,
+        // so claiming inline would read an empty split tree and claim nothing.
+        state.pendingTaskTabClaims[id: tabID] = PendingTaskTabClaim(
+          tabID: tabID, worktreeID: worktreeID, taskID: taskID)
+        return .run { _ in
+          await terminalClient.send(
+            .createTab(worktree, runSetupScriptIfNew: shouldRunSetupScript, id: tabID.rawValue))
         }
 
       case .settings(.delegate(.settingsChanged(let settings))):
@@ -1839,6 +1863,7 @@ struct AppFeature {
               )
             )
           ),
+          Self.resolveTaskTabClaim(worktreeID: worktreeID, projection: projection, state: &state),
           ackEffect)
 
       case .terminalEvent(.tabCreated(let worktreeID)):
@@ -1852,6 +1877,8 @@ struct AppFeature {
         }
 
       case .terminalEvent(.surfaceCreationFailed(let worktreeID, let attemptedID, let message)):
+        // The tab never materialized, so its claim has nothing left to wait for.
+        state.pendingTaskTabClaims.remove(id: TerminalTabID(rawValue: attemptedID))
         return resolveCommandAcks(ok: false, error: message, state: &state) { match in
           switch match {
           case .tabInWorktree(let ackWorktree, let tabID):
@@ -1884,6 +1911,8 @@ struct AppFeature {
         }
 
       case .terminalEvent(.worktreeStateTornDown(let worktreeID)):
+        // The worktree is gone; no tab of it will ever report a surface.
+        state.pendingTaskTabClaims.removeAll { $0.worktreeID == worktreeID }
         return .send(.terminals(.worktreeStateTornDown(worktreeID: worktreeID)))
 
       case .terminalEvent(.tabProgressDisplayChanged(_, let tabID, let display)):
@@ -3257,6 +3286,27 @@ struct AppFeature {
       default: return false
       }
     }
+  }
+
+  /// Fires the deferred promotion for a task-owned tab once that tab reports a
+  /// surface. Nothing pending, a foreign tab, or a projection with no surfaces
+  /// yet leaves the claim in place — the tab emits again as its split tree
+  /// fills, and claiming an empty tree would claim nothing at all.
+  private static func resolveTaskTabClaim(
+    worktreeID: Worktree.ID,
+    projection: WorktreeTabProjection,
+    state: inout State
+  ) -> Effect<Action> {
+    guard let claim = state.pendingTaskTabClaims[id: projection.tabID],
+      claim.worktreeID == worktreeID,
+      !projection.surfaceIDs.isEmpty
+    else {
+      return .none
+    }
+    state.pendingTaskTabClaims.remove(id: projection.tabID)
+    return .send(
+      .repositories(
+        .tasks(.promoteTab(worktreeID: worktreeID, tabID: claim.tabID, taskID: claim.taskID))))
   }
 
   /// Registers a deferred completion ack and merges in its watchdog. A `nil`
