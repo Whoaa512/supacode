@@ -5,17 +5,21 @@ import SwiftUI
 
 /// The auto-settle policy behind the Tasks tab (A15, A30).
 ///
-/// Reads `@Shared` app storage directly rather than going through
-/// `SettingsFeature`: these three values have no validation, no side effects
-/// and no file to write, so routing them through a reducer would add a binding
-/// hop and a second place for the defaults to live. The Tasks panel notices the
-/// change and re-partitions on its own.
+/// Reads `@Shared` storage directly rather than going through `SettingsFeature`:
+/// these values have no validation and no side effects, so routing them through
+/// a reducer would add a binding hop and a second place for the defaults to
+/// live. The Tasks panel notices the change and re-partitions on its own.
+///
+/// The snooze knob reads the settings *file* rather than app storage because
+/// that is where its default and its documentation already live, and the snooze
+/// arm reads it from the same place — one spelling, one default.
 public struct TasksSettingsView: View {
   @Shared(.taskAutoSettleEnabled) private var isAutoSettleEnabled
   @Shared(.taskAutoSettleOnFinishedPullRequest) private var settlesOnFinishedPullRequest
   @Shared(.taskInactivityWindowDays) private var inactivityWindowDays
   @Shared(.sidebarShowsWorktreesTab) private var showsWorktreesTab
   @Shared(.sidebarShowsAgentsTab) private var showsAgentsTab
+  @Shared(.settingsFile) private var settingsFile
 
   public init() {}
 
@@ -43,6 +47,15 @@ public struct TasksSettingsView: View {
         }
         .disabled(!isAutoSettleEnabled)
         .help("Days of no activity before a task moves to the settled tail. Set to zero to never settle on time alone.")
+      }
+      Section {
+        Toggle(isOn: Binding($settingsFile.global.snoozeHibernatesSessions)) {
+          Text("Hibernate sessions when a task is snoozed")
+          Text("Frees the machine while a task is parked, the way settling does. Waking restores the sessions.")
+        }
+        .help("Off by default so snoozing stays cheap to undo. Turn it on when parking should also stop the agents.")
+      } header: {
+        Text("Snooze")
       }
       Section {
         Toggle(isOn: Binding($showsWorktreesTab)) {
