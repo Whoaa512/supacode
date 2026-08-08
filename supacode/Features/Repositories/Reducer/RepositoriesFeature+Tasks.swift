@@ -355,15 +355,44 @@ extension RepositoriesFeature {
         )
 
       case .tasks(.autoManagedWorktreeCreated(let record, let worktree)):
-        guard !state.isTaskPersistenceDisabled else { return .none }
-        if let repositoryID = record.repositoryID {
-          // The row has to reach the roster before the terminal request leaves,
-          // or `taskTerminalRequestDelegate` has nothing to resolve and the
-          // capture that just spent a worktree opens no terminal in it.
-          state.insertWorktree(worktree, repositoryID: repositoryID)
-          Self.syncSidebar(&state)
+        guard !state.isTaskPersistenceDisabled else {
+          // Only reachable if the file turned unreadable while the worktree was
+          // being minted. Loud, because a worktree now exists that no record
+          // will ever point at — the one leak the inbox cannot see.
+          tasksLogger.error(
+            """
+            Task creation dropped after its worktree was created: persistence was disabled \
+            mid-flight. \(worktree.workingDirectory.path(percentEncoded: false)) is orphaned.
+            """
+          )
+          return .none
         }
-        return state.reduceCreatedTask(record)
+        guard let repositoryID = record.repositoryID else {
+          // Unreachable: only the isolate path sends this, and it resolves a
+          // repository before it mints anything.
+          return state.reduceCreatedTask(record)
+        }
+        // The row has to reach the roster before the terminal request leaves,
+        // or `taskTerminalRequestDelegate` has nothing to resolve and the
+        // capture that just spent a worktree opens no terminal in it.
+        state.insertWorktree(worktree, repositoryID: repositoryID)
+        Self.syncSidebar(&state)
+        // `.pending` is what makes the setup script run: `openTaskTerminal`
+        // passes `runSetupScriptIfNew` off this row's lifecycle, so a worktree
+        // minted for a task would otherwise start without the `.env` / install
+        // step every manually created one gets. Set synchronously, exactly as
+        // `.createRandomWorktreeSucceeded` does, so no body observes a brief
+        // `.idle`.
+        state.sidebarItems[id: worktree.id]?.lifecycle = .pending
+        // `.concatenate`, not `.merge`: the parent resolves `openTaskTerminal`
+        // against *its own* copy of the roster, which only this delegate
+        // updates. Arriving second, the terminal request would find no worktree
+        // and the capture would open nothing.
+        return .concatenate(
+          .send(.delegate(.repositoriesChanged(state.repositories))),
+          .send(.delegate(.worktreeCreated(worktree))),
+          state.reduceCreatedTask(record)
+        )
 
       case .tasks(
         .autoManagedWorktreeCreationFailed(

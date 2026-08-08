@@ -243,6 +243,37 @@ struct RepositoriesFeatureTaskWorktreeTests {
     #expect(store.state.alert == nil)
   }
 
+  /// A worktree minted for a task is a worktree like any other: it owes the
+  /// roster the same two delegates the manual path fires, and its row starts
+  /// `.pending` so `openTaskTerminal` runs the repository's setup script in it.
+  /// Without the lifecycle the agent lands in a worktree with no `.env` and no
+  /// installed dependencies; without the delegates the parent never learns the
+  /// worktree exists, and the terminal request it *does* get resolves to nothing.
+  @Test func anAutoManagedWorktreeIsAnnouncedAndStartsPendingSoItsSetupScriptRuns() async throws {
+    let sandbox = try makeSandbox()
+    let busy = try sandbox.makeDirectory("busy", activityAt: Self.freshDate)
+    let created = try sandbox.makeDirectory("created", activityAt: Self.freshDate)
+    let createdWorktree = TaskInboxFixture.makeWorktree(created, rootURL: sandbox.rootURL)
+    let attempts = LockIsolated<[CreateAttempt]>([])
+    let store = makeStore(makeIsolatingState(sandbox: sandbox, busy: busy), sandbox: sandbox) {
+      $0.createWorktreeStream = Self.createWorktreeStreamSpy(attempts: attempts, worktree: createdWorktree)
+      $0.worktrees = { _ in [] }
+    }
+
+    await store.send(.tasks(.createTask(title: "Ship the inbox", directoryURL: busy)))
+    await store.receive(\.tasks.autoManagedWorktreeCreated)
+    // Order is the assertion: a non-exhaustive `receive` discards what it skips,
+    // so the roster update landing after the terminal request would leave the
+    // last `receive` with nothing to take. The parent resolves the request
+    // against its own copy of the roster, which only this delegate updates.
+    await store.receive(\.delegate.repositoriesChanged)
+    await store.receive(\.delegate.worktreeCreated)
+    await store.receive(\.delegate.openTaskTerminal)
+    await store.finish()
+
+    #expect(store.state.sidebarItems[id: createdWorktree.id]?.lifecycle == .pending)
+  }
+
   // MARK: - A20b: a failed creation rolls back completely
 
   @Test func failedWorktreeCreationLeavesNoRecordNoWriteAndNoTerminal() async throws {
