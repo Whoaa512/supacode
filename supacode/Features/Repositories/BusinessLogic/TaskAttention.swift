@@ -37,4 +37,33 @@ nonisolated enum TaskAttention {
   static func isReceded(_ input: Input) -> Bool {
     !needsHuman(input) && input.status != .working
   }
+
+  /// A33's jump target: the next row in `order` whose `needsHuman` is true,
+  /// starting after `current` and wrapping exactly once.
+  ///
+  /// Generic over the id and taking the predicate as a closure so the walk
+  /// stays Foundation-only and testable without a task in sight — but the only
+  /// predicate production ever passes is `needsHuman` above, which is what
+  /// makes "skips working and receded rows" true by construction rather than by
+  /// a second list of statuses kept in step by hand.
+  ///
+  /// The current row is never its own target. Landing back on what is already
+  /// open is indistinguishable from a chord that did nothing, and it would
+  /// re-stamp the visit; `nil` lets the caller beep, which at least says
+  /// something. A `current` that is not in `order` (settled away, snoozed out
+  /// of view) reads as no selection at all: start at the top.
+  static func nextNeedingHuman<ID: Hashable>(
+    in order: [ID],
+    after current: ID?,
+    needsHuman: (ID) -> Bool
+  ) -> ID? {
+    guard !order.isEmpty else { return nil }
+    guard let current, let index = order.firstIndex(of: current) else {
+      return order.first(where: needsHuman)
+    }
+    return (1..<order.count)
+      .lazy
+      .map { order[(index + $0) % order.count] }
+      .first(where: needsHuman)
+  }
 }

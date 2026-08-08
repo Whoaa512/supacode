@@ -111,6 +111,41 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
   /// snoozed shelf, then the settled tail. Hotkey slots, keyboard navigation and
   /// forward navigation (A26) all key off this list, so it is contract.
   var visibleTaskIDs: [TaskID] = []
+  /// Visible top-down position of each row, mirroring
+  /// `AgentDashboardStructure.slotByID` / `SidebarStructure.slotByID`: the view
+  /// joins it against the ⌘-held state to render the ⌃n hint badges, and the
+  /// same index resolves `.selectWorktreeAtHotkeySlot` back to a task.
+  ///
+  /// The strict inverse of `visibleTaskIDs`, which is what makes A32's last
+  /// clause structural: the badge and the chord read one map, so they cannot
+  /// disagree, and a row nobody can see (collapsed shelf, paged-out tail) is
+  /// absent from both. Positions past the last shortcut are simply never
+  /// rendered — the display lookup returns nil.
+  var slotByTaskID: [TaskID: Int] = [:]
+  /// What the focused row's lifecycle chords may do, resolved here because the
+  /// menu items that carry them have to say which way they point *before* they
+  /// fire: "Settle" or "Unsettle", enabled or greyed (A18b). Deriving that in
+  /// the menu would give it a second opinion about settled-ness, and two
+  /// opinions eventually differ.
+  ///
+  /// `nil` when nothing is open, which is what disables all three items.
+  var openTaskCommands: OpenTaskCommands?
+
+  /// The open row's lifecycle affordances. Purely a projection of the placement
+  /// this same compute already decided, plus the two activity questions A18b
+  /// gates on.
+  nonisolated struct OpenTaskCommands: Equatable, Hashable, Sendable {
+    let id: TaskID
+    /// A18b: an agent that is working or waiting on the user blocks both.
+    let canSettle: Bool
+    let canSnooze: Bool
+    let isSettled: Bool
+    let isPinned: Bool
+    /// The user's "not now" is still standing — *not* the same as rendering on
+    /// the shelf, since a raised hand (A25) puts a still-snoozed row back into
+    /// Active.
+    let isSnoozed: Bool
+  }
 
   static let empty = TasksSidebarStructure()
 
@@ -154,12 +189,17 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
     var pinnedTaskIDs: Set<TaskID> = []
     var wokeTaskIDs: Set<TaskID> = []
     var snoozedTaskIDs: Set<TaskID> = []
+    var openTaskCommands: OpenTaskCommands?
 
     for task in tasks {
       let taskSignals = signals[task.id] ?? Signals()
       let input = snoozeInput(for: task, now: now, signals: taskSignals)
       let isSnoozed = TaskSnooze.effectiveSnoozed(input)
-      if TaskSnooze.timerIsLive(input) { snoozedTaskIDs.insert(task.id) }
+      // The record's own "not now", independent of where the row ended up: a
+      // raised hand (A25) pulls a still-parked task back into Active without
+      // touching its stamps.
+      let hasLiveSnooze = TaskSnooze.timerIsLive(input)
+      if hasLiveSnooze { snoozedTaskIDs.insert(task.id) }
       let isPinned = task.pinnedAt != nil
       if isPinned { pinnedTaskIDs.insert(task.id) }
       if TaskSnooze.isWoke(input, lastVisitedAt: task.lastVisitedAt) {
@@ -168,6 +208,16 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
       let isSettled = TaskSettlement.effectiveSettled(
         settlementInput(for: task, now: now, signals: taskSignals, policy: policy)
       )
+      if task.id == openTaskID {
+        openTaskCommands = OpenTaskCommands(
+          id: task.id,
+          canSettle: TaskSettlement.canSettle(taskSignals.activity),
+          canSnooze: TaskSettlement.canSnooze(taskSignals.activity),
+          isSettled: isSettled,
+          isPinned: isPinned,
+          isSnoozed: hasLiveSnooze
+        )
+      }
       switch TaskSnooze.placement(isSnoozed: isSnoozed, isPinned: isPinned, isSettled: isSettled) {
       case .snoozed:
         snoozed.append(SnoozedEntry(id: task.id, wakeAt: TaskTimestamps.read(task.snoozedUntil).date))
@@ -197,6 +247,8 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
     )
     let activeTaskIDs =
       pinned.sorted(by: activeOrdersBefore).map(\.id) + active.sorted(by: activeOrdersBefore).map(\.id)
+    let visibleTaskIDs =
+      activeTaskIDs + visibleSnoozedEntries.map(\.id) + visibleSettledTail.map(\.id)
 
     return TasksSidebarStructure(
       activeTaskIDs: activeTaskIDs,
@@ -208,7 +260,14 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
       settledTotalCount: settledTail.count,
       visibleSettledTail: visibleSettledTail,
       hiddenSettledCount: isSettledTailExpanded ? settledTail.count - visibleSettledTail.count : 0,
-      visibleTaskIDs: activeTaskIDs + visibleSnoozedEntries.map(\.id) + visibleSettledTail.map(\.id)
+      visibleTaskIDs: visibleTaskIDs,
+      // Inverted from the one list the panel renders, never assembled from the
+      // sections a second time: that is what makes the hint badge and the chord
+      // the same lookup (A32).
+      slotByTaskID: Dictionary(
+        uniqueKeysWithValues: visibleTaskIDs.enumerated().map { ($0.element, $0.offset) }
+      ),
+      openTaskCommands: openTaskCommands
     )
   }
 
