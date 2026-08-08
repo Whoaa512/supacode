@@ -59,10 +59,14 @@ nonisolated enum TaskSettlement {
     var settledAt: Date?
     var pullRequest: TaskPullRequestState = .none
     var lastActivityAt: Date?
-    /// `nil` disables the inactivity path entirely.
-    var inactivityWindow: TimeInterval?
-    var isAutoSettleEnabled: Bool = true
-    var settlesOnFinishedPullRequest: Bool = true
+    /// What the user's settings let the auto paths do, carried as the one value
+    /// the reducer already assembles rather than unpacked into three fields
+    /// every call site has to re-spread (and can re-spread wrongly).
+    ///
+    /// Defaults to `.manualOnly`, which is the safe direction: an input built
+    /// without a policy settles nothing on its own, instead of quietly
+    /// inheriting an auto path nobody asked for.
+    var policy: Policy = .manualOnly
   }
 
   /// A merged/closed PR settles its task only once the task has been idle this
@@ -79,7 +83,7 @@ nonisolated enum TaskSettlement {
     guard canSettle(input) else { return false }
     if let settledOverride = input.settledOverride { return settledOverride == .settled }
     if TaskTimestamps.read(input.settledAt).date != nil { return true }
-    guard input.isAutoSettleEnabled else { return false }
+    guard input.policy.isAutoSettleEnabled else { return false }
     // A malformed `now` makes every age comparison meaningless, so no auto path
     // may fire off it.
     guard TaskTimestamps.read(input.now).date != nil else { return false }
@@ -124,7 +128,9 @@ nonisolated enum TaskSettlement {
   /// activity is idle by definition, but an unreadable stamp gives the user no
   /// defensible reason the row moved (A17).
   private static func settlesOnFinishedPullRequest(_ input: Input) -> Bool {
-    guard input.settlesOnFinishedPullRequest, input.pullRequest.isFinished else { return false }
+    guard input.policy.settlesOnFinishedPullRequest, input.pullRequest.isFinished else {
+      return false
+    }
     switch TaskTimestamps.read(input.lastActivityAt) {
     case .malformed:
       return false
@@ -141,7 +147,9 @@ nonisolated enum TaskSettlement {
   /// Absent activity is not evidence of staleness, so this path refuses it —
   /// `isStrictlyOlder` already answers `false` for missing and malformed alike.
   private static func settlesOnInactivity(_ input: Input) -> Bool {
-    guard input.pullRequest != .open, let window = input.inactivityWindow else { return false }
+    guard input.pullRequest != .open, let window = input.policy.inactivityWindow else {
+      return false
+    }
     return TaskTimestamps.isStrictlyOlder(
       input.lastActivityAt,
       than: input.now.addingTimeInterval(-window)

@@ -244,9 +244,7 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
       settledAt: task.settledAt,
       pullRequest: signals.pullRequest,
       lastActivityAt: signals.lastActivityAt,
-      inactivityWindow: policy.inactivityWindow,
-      isAutoSettleEnabled: policy.isAutoSettleEnabled,
-      settlesOnFinishedPullRequest: policy.settlesOnFinishedPullRequest
+      policy: policy
     )
   }
 
@@ -262,6 +260,11 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
   /// (`isSoleActiveTaskOwner`, `newestActiveTask`, capture candidates). Those
   /// are all "is another task live in this directory" questions, and answering
   /// them from a setting would make a capture route change when a toggle flips.
+  ///
+  /// The `nil` branch covers the explicit settle arm, which stamps `settledAt`
+  /// alone. The seeder no longer relies on it: a stale seed writes the `.settled`
+  /// override too, so its intent survives A30's off-switch instead of hinging on
+  /// how a bare timestamp is read here.
   static func isSettled(_ task: TaskRecord) -> Bool {
     switch task.settledOverride {
     case .active: return false

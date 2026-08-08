@@ -59,9 +59,11 @@ struct TaskSettlementTests {
       settledAt: settledAt,
       pullRequest: pullRequest,
       lastActivityAt: lastActivityAt,
-      inactivityWindow: inactivityWindow,
-      isAutoSettleEnabled: isAutoSettleEnabled,
-      settlesOnFinishedPullRequest: settlesOnFinishedPullRequest
+      policy: TaskSettlement.Policy(
+        inactivityWindow: inactivityWindow,
+        isAutoSettleEnabled: isAutoSettleEnabled,
+        settlesOnFinishedPullRequest: settlesOnFinishedPullRequest
+      )
     )
   }
 
