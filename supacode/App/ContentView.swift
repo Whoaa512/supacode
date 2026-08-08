@@ -90,6 +90,7 @@ struct ContentView: View {
       TaskCreationPromptView(store: promptStore)
     }
     .taskDirectoryConflictSheet(store: repositoriesStore)
+    .taskRenameSheet(store: repositoriesStore)
     .sheet(
       item: $repositoriesStore.scope(
         state: \.repositoryCustomization,

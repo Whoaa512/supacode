@@ -531,6 +531,9 @@ private struct TaskSidebarRowView: View {
         Divider()
         pinMenuItems()
       }
+      Divider()
+      Button("Rename Task…") { store.send(.tasks(.presentRenamePrompt(taskID))) }
+        .help("Retitle this task. The title is what the sidebar and the filter show.")
     }
   }
 

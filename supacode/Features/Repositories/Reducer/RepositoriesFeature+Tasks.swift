@@ -130,6 +130,13 @@ extension RepositoriesFeature {
     case promoteTab(worktreeID: Worktree.ID, tabID: TerminalTabID?, taskID: TaskID? = nil)
     /// ⌘N on the Tasks tab: open the capture prompt over the live roster.
     case presentCreationPrompt
+    /// Open the rename question for a task row.
+    case presentRenamePrompt(TaskID)
+    case cancelRenamePrompt
+    /// Commit a rename. An empty (or whitespace-only) title is refused rather
+    /// than applied: the title is the only thing a row is identified by in the
+    /// panel, so clearing it would leave a task nobody can name or search for.
+    case renameTask(TaskID, title: String)
     /// Create a task in `directoryURL`. `title == nil` hands naming to the
     /// seeder's cascade, which is the fast path for an untitled capture.
     case createTask(title: String?, directoryURL: URL)
@@ -583,6 +590,28 @@ extension RepositoriesFeature {
           candidates: state.taskCreationCandidates()
         )
         return .none
+
+      case .tasks(.presentRenamePrompt(let id)):
+        guard let record = state.taskRecords[id: id] else { return .none }
+        state.taskRenamePrompt = TaskRenamePrompt(taskID: id, startingTitle: record.title)
+        return .none
+
+      case .tasks(.cancelRenamePrompt):
+        state.taskRenamePrompt = nil
+        return .none
+
+      case .tasks(.renameTask(let id, let title)):
+        guard state.taskRecords[id: id] != nil else { return .none }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Refused, and the sheet stays open with what the user typed: silently
+        // keeping the old title while dismissing would read as a rename that
+        // worked. Save is disabled for the same input, so this is the reducer
+        // half of one rule.
+        guard !trimmed.isEmpty else { return .none }
+        state.taskRenamePrompt = nil
+        guard state.taskRecords[id: id]?.title != trimmed else { return .none }
+        state.taskRecords[id: id]?.title = trimmed
+        return Self.persistTasksEffect(state: state)
 
       case .tasks(.createTask(let title, let directoryURL)):
         // An unreadable tasks.json disables the inbox for the launch: writing a
@@ -2072,6 +2101,7 @@ extension RepositoriesFeature.TaskInboxAction {
       .classificationTick, .wakeBoundaryReached, .agentSnapshotChanged,
       .autoSettleSettingsChanged, .stopTimers,
       .presentCreationPrompt, .setConflictRemember, .cancelDirectoryConflict,
+      .presentRenamePrompt, .cancelRenamePrompt, .renameTask,
       .autoManagedWorktreeCreationFailed, .cleanupAutoManagedWorktree,
       .autoManagedWorktreeCleanupFinished:
       return false
@@ -2096,7 +2126,8 @@ extension RepositoriesFeature.TaskInboxAction {
     case .revealSelectedInSidebar, .consumeSidebarReveal:
       return []
     // Presentation only: the prompts are state no cache projects.
-    case .presentCreationPrompt, .setConflictRemember, .cancelDirectoryConflict:
+    case .presentCreationPrompt, .setConflictRemember, .cancelDirectoryConflict,
+      .presentRenamePrompt, .cancelRenamePrompt:
       return []
     // Effect launcher: it touches neither a record nor the roster.
     case .cleanupAutoManagedWorktree:
@@ -2120,7 +2151,10 @@ extension RepositoriesFeature.TaskInboxAction {
       .snooze, .unsnooze, .pin, .unpin, .keepActive,
       .setSearchQuery, .setSettledTailExpanded, .setSnoozedShelfExpanded, .expandSettledTail,
       .classificationTick, .wakeBoundaryReached, .agentSnapshotChanged, .autoSettleSettingsChanged,
-      .reconcileSurfaceOwnership, .promoteTab:
+      .reconcileSurfaceOwnership, .promoteTab,
+      // A rename is a record write the title filter reads (A37), so the render
+      // plan has to be rebuilt against it.
+      .renameTask:
       return .sidebarStructure
     // Creation also moves the selection inline, so it owes the two
     // selection-derived caches on top of the record set. `autoManagedWorktreeCreated`
@@ -2149,7 +2183,10 @@ extension RepositoriesFeature.TaskInboxAction {
     // Presentation only: these change what the user is looking at, never when
     // it happened.
     case .setSearchQuery, .setSettledTailExpanded, .expandSettledTail,
-      .setSnoozedShelfExpanded, .setConflictRemember:
+      .setSnoozedShelfExpanded, .setConflictRemember,
+      // A rename writes no stamp and moves no row: re-timing the inbox because
+      // someone retitled a task would age every other row for free.
+      .presentRenamePrompt, .cancelRenamePrompt, .renameTask:
       return false
     case .load, .loaded, .seedIfNeeded, .seeded, .select, .settle, .unsettle,
       .snooze, .unsnooze, .pin, .unpin, .keepActive,

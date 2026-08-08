@@ -267,8 +267,9 @@ struct RepositoriesFeature {
     /// lifecycle chords act on a row that is no longer the one the prompt is
     /// about (§4.6 of the keyboard context map).
     ///
-    /// Exhaustive over every `@Presents` field plus `taskDirectoryConflict`,
-    /// which is a sheet without a child reducer. `AppFeature`'s own two modals
+    /// Exhaustive over every `@Presents` field plus the two task sheets that
+    /// have no child reducer (`taskDirectoryConflict`, `taskRenamePrompt`).
+    /// `AppFeature`'s own two modals
     /// (`alert`, `deeplinkInputConfirmation`) are *not* visible from here; both
     /// present over the detail pane rather than the sidebar, so the chords the
     /// Tasks panel owns stay legitimate underneath them.
@@ -276,7 +277,7 @@ struct RepositoriesFeature {
       worktreeCreationPrompt != nil || taskCreationPrompt != nil || repositoryCustomization != nil
         || worktreeCustomization != nil || agentRename != nil || renameBranchPrompt != nil
         || remoteConnectionForm != nil || cloneRepositoryForm != nil || alert != nil
-        || taskDirectoryConflict != nil
+        || taskDirectoryConflict != nil || taskRenamePrompt != nil
     }
 
     // MARK: - Sidebar items (per-row TCA collection).
@@ -337,6 +338,9 @@ struct RepositoriesFeature {
     /// than `@Presents`: the sheet has no child reducer, its two answers are
     /// task arms, and the state it carries is the parked capture itself.
     var taskDirectoryConflict: TaskDirectoryConflictPrompt?
+    /// The open rename question. Plain optional for the same reason the conflict
+    /// prompt is one: no child reducer, and its two answers are task arms.
+    var taskRenamePrompt: TaskRenamePrompt?
     /// Settled-tail page window; grows by `expandedSettledVisibleCount`.
     var settledTailVisibleCount = TasksSidebarStructure.settledTailInitialCount
     var isSettledTailExpanded = false
