@@ -56,7 +56,8 @@ struct TaskSnoozeTests {
     snoozedAt: Date? = nil,
     activity: TaskSettlement.ActivitySnapshot = .idle,
     errorAt: Date? = nil,
-    completedTurnAt: Date? = nil
+    completedTurnAt: Date? = nil,
+    notifiedAt: Date? = nil
   ) -> TaskSnooze.Input {
     TaskSnooze.Input(
       now: now,
@@ -64,7 +65,8 @@ struct TaskSnoozeTests {
       snoozedAt: snoozedAt,
       activity: activity,
       errorAt: errorAt,
-      completedTurnAt: completedTurnAt
+      completedTurnAt: completedTurnAt,
+      notifiedAt: notifiedAt
     )
   }
 
@@ -318,6 +320,75 @@ struct TaskSnoozeTests {
     #expect(
       TaskSnooze.raisedHandWhileSnoozed(
         Self.input(snoozedAt: malformed, errorAt: snoozedAt.addingTimeInterval(Self.hour))
+      ) == false
+    )
+  }
+
+  // MARK: - notifiedAt (A25's terminal-notification trigger, wired in Phase 4)
+
+  /// OSC 9/777 is the primary wake signal for a task with no agent hooks at all
+  /// — a plain `make test` that finished, a script that printed a notification.
+  /// It is an *event*, so it follows the error/completed-turn freshness rule
+  /// rather than the unconditional pending-input one: an unread notification
+  /// that predates the snooze is exactly what the user was snoozing away from.
+  @Test func aNotificationNewerThanTheSnoozeRaisesTheHand() {
+    let snoozedAt = Self.date(2026, 6, 1, 12)
+    #expect(
+      TaskSnooze.raisedHandWhileSnoozed(
+        Self.input(
+          now: snoozedAt.addingTimeInterval(Self.hour),
+          snoozedUntil: snoozedAt.addingTimeInterval(4 * Self.hour),
+          snoozedAt: snoozedAt,
+          notifiedAt: snoozedAt.addingTimeInterval(Self.hour / 2)
+        )
+      ) == true
+    )
+  }
+
+  @Test func aNotificationOlderThanTheSnoozeDoesNotRaiseTheHand() {
+    let snoozedAt = Self.date(2026, 6, 1, 12)
+    #expect(
+      TaskSnooze.raisedHandWhileSnoozed(
+        Self.input(
+          now: snoozedAt.addingTimeInterval(Self.hour),
+          snoozedUntil: snoozedAt.addingTimeInterval(4 * Self.hour),
+          snoozedAt: snoozedAt,
+          notifiedAt: snoozedAt.addingTimeInterval(-Self.hour)
+        )
+      ) == false
+    )
+  }
+
+  /// The Woke pill dates from the newest conditional trigger, so a notification
+  /// that arrived after an error is the instant the row reports.
+  @Test func theNewestConditionalTriggerDatesTheWokePill() {
+    let snoozedAt = Self.date(2026, 6, 1, 12)
+    let error = snoozedAt.addingTimeInterval(Self.hour)
+    let notification = snoozedAt.addingTimeInterval(2 * Self.hour)
+    #expect(
+      TaskSnooze.wokeAt(
+        Self.input(
+          now: snoozedAt.addingTimeInterval(3 * Self.hour),
+          snoozedUntil: snoozedAt.addingTimeInterval(8 * Self.hour),
+          snoozedAt: snoozedAt,
+          errorAt: error,
+          notifiedAt: notification
+        )
+      ) == notification
+    )
+  }
+
+  /// Same guard the other conditional triggers get: without a readable
+  /// `snoozedAt` there is nothing to measure freshness against, so it refuses
+  /// rather than guessing.
+  @Test func aNotificationWithoutAReadableSnoozeStampDoesNotRaiseTheHand() {
+    #expect(
+      TaskSnooze.raisedHandWhileSnoozed(
+        Self.input(
+          snoozedUntil: Self.date(2026, 6, 1, 18),
+          snoozedAt: nil,
+          notifiedAt: Self.date(2026, 6, 1, 13)
+        )
       ) == false
     )
   }

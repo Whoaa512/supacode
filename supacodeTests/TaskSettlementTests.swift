@@ -555,15 +555,43 @@ struct TaskSettlementTests {
     )
   }
 
-  /// A row already in the settled tail has nothing to hide from.
-  @Test func canSnoozeRefusesAnAlreadySettledTask() {
+  /// Phase 4 answers the open question this predicate carried: a settled task
+  /// IS snoozable, in both directions.
+  ///
+  /// The auto-settled case is the one that forced it — a task the inactivity
+  /// window parked reads as settled, and refusing to snooze it would deny the
+  /// user the one affordance that says "and don't bring it back at the next
+  /// keystroke". The explicitly-settled case follows from A16: snooze outranks
+  /// settled, so settled-ness is no longer a reason to refuse. The reducer's
+  /// snooze arm un-settles the record it parks, which is why this stays honest
+  /// rather than offering a menu item that does nothing.
+  @Test func canSnoozeAllowsASettledTask() {
     let settled = Self.input(settledOverride: .settled)
     #expect(Self.effectiveSettled(settled) == true)
-    #expect(TaskSettlement.canSnooze(settled) == false)
+    #expect(TaskSettlement.canSnooze(settled) == true)
 
     let autoSettled = Self.input(lastActivityAt: Self.staleActivity)
     #expect(Self.effectiveSettled(autoSettled) == true)
-    #expect(TaskSettlement.canSnooze(autoSettled) == false)
+    #expect(TaskSettlement.canSnooze(autoSettled) == true)
+  }
+
+  /// Which leaves activity as the only input `canSnooze` reads. Asserted over
+  /// the whole precedence table so no settings / PR / inactivity combination can
+  /// quietly start gating the affordance again.
+  @Test(arguments: TaskSettlementTests.precedenceTable)
+  func canSnoozeReadsOnlyTheAttentionStates(_ testCase: PrecedenceCase) {
+    let input = Self.input(
+      activity: TaskSettlement.ActivitySnapshot(
+        isWorking: testCase.isWorking,
+        isAwaitingInput: testCase.isAwaitingInput,
+        isAwaitingApproval: testCase.isAwaitingApproval
+      ),
+      settledOverride: testCase.settledOverride,
+      pullRequest: testCase.pullRequest,
+      lastActivityAt: testCase.activityAt
+    )
+    let expected = !testCase.isAwaitingInput && testCase.isAwaitingApproval != true
+    #expect(TaskSettlement.canSnooze(input) == expected, "\(testCase)")
   }
 
   @Test func canSnoozeAllowsAPlainActiveTask() {
