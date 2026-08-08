@@ -128,6 +128,12 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   /// nested search walks. Deeper finds more but visits more of the tree, so it is a
   /// user knob rather than a constant.
   public var browseSearchDepth: Int
+  /// When true, snoozing a task hibernates the terminal sessions it owns, the
+  /// same way an explicit settle does. Off by default (plan Resolved #13):
+  /// snooze is the reversible affordance, so keeping the sessions live is what
+  /// makes undoing it cost nothing. Turn it on when parking a task should
+  /// actually free the machine.
+  public var snoozeHibernatesSessions: Bool
 
   /// Sane bounds for `browseSearchDepth`: 1 is "direct children only", and past 10 the
   /// walk hits its visit cap long before the depth limit matters.
@@ -174,7 +180,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     restoreSurfacePruningEnabled: false,
     agentsSidebar: .default,
     resumeAgentsOnRestore: true,
-    browseSearchDepth: 5
+    browseSearchDepth: 5,
+    snoozeHibernatesSessions: false
   )
 
   public init(
@@ -219,7 +226,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     restoreSurfacePruningEnabled: Bool = false,
     agentsSidebar: AgentsSidebarSettings = .default,
     resumeAgentsOnRestore: Bool = true,
-    browseSearchDepth: Int = 5
+    browseSearchDepth: Int = 5,
+    snoozeHibernatesSessions: Bool = false
   ) {
     self.appearanceMode = appearanceMode
     self.defaultEditorID = defaultEditorID
@@ -263,6 +271,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.agentsSidebar = agentsSidebar
     self.resumeAgentsOnRestore = resumeAgentsOnRestore
     self.browseSearchDepth = Self.clampedBrowseSearchDepth(browseSearchDepth)
+    self.snoozeHibernatesSessions = snoozeHibernatesSessions
   }
 
   /// Keeps a hand-edited or future-version depth inside the supported range instead of
@@ -467,5 +476,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
       try container.decodeIfPresent(Int.self, forKey: .browseSearchDepth)
         ?? Self.default.browseSearchDepth
     )
+    snoozeHibernatesSessions =
+      try container.decodeIfPresent(Bool.self, forKey: .snoozeHibernatesSessions)
+      ?? Self.default.snoozeHibernatesSessions
   }
 }
