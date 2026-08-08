@@ -303,6 +303,93 @@ struct RepositoriesFeatureTaskCreationTests {
     #expect(!freeCandidate.isBusy)
   }
 
+  // MARK: - The default pick is where the user already is
+
+  /// ⌘N ↩ is the two-interaction budget (A19), so the row it lands on has to be
+  /// the one the user means. The selected worktree leads; everything else keeps
+  /// roster order.
+  @Test(.sidebarTab(.worktrees))
+  func theSelectedWorktreeLeadsTheCandidateList() throws {
+    let sandbox = try makeSandbox()
+    let first = try sandbox.makeDirectory("alpha", activityAt: Self.freshDate)
+    let selected = try sandbox.makeDirectory("omega", activityAt: Self.freshDate)
+    var state = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [first, selected],
+      hasLoadedTasks: true
+    )
+    state.selection = .worktree(WorktreeID(selected.path(percentEncoded: false)))
+    state.applyPostReduceCacheRecomputes(.all)
+
+    let candidates = state.taskCreationCandidates()
+
+    #expect(candidates.first?.id == TaskDirectoryPath.canonical(selected))
+    #expect(candidates.map(\.id).dropFirst() == [TaskDirectoryPath.canonical(first)])
+  }
+
+  /// A task selection is exclusive — it clears the worktree selection — so on the
+  /// Tasks tab, where capture actually happens, the default comes from the row
+  /// behind the open task instead.
+  @Test(.sidebarTab(.tasks))
+  func theOpenTaskDirectoryLeadsWhenNoWorktreeIsSelected() throws {
+    let sandbox = try makeSandbox()
+    let first = try sandbox.makeDirectory("alpha", activityAt: Self.freshDate)
+    let open = try sandbox.makeDirectory("omega", activityAt: Self.freshDate)
+    var state = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [first, open],
+      hasLoadedTasks: true
+    )
+    let record = TaskInboxFixture.makeRecord(directory: open)
+    state.taskRecords = [record]
+    state.selection = .task(record.id)
+    state.applyPostReduceCacheRecomputes(.all)
+
+    let candidates = state.taskCreationCandidates()
+
+    #expect(candidates.first?.id == TaskDirectoryPath.canonical(open))
+  }
+
+  /// Nothing selected: the roster's own order stands, unshuffled.
+  @Test func candidatesKeepRosterOrderWithNothingSelected() throws {
+    let sandbox = try makeSandbox()
+    let first = try sandbox.makeDirectory("alpha", activityAt: Self.freshDate)
+    let second = try sandbox.makeDirectory("omega", activityAt: Self.freshDate)
+    let state = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [first, second],
+      hasLoadedTasks: true
+    )
+
+    let candidates = state.taskCreationCandidates()
+
+    #expect(candidates.map(\.id) == [first, second].map { TaskDirectoryPath.canonical($0) })
+  }
+
+  /// A row on its way out is not a place to put new work — the directory is
+  /// about to stop existing. `.pending` is the opposite case and stays: a
+  /// worktree still running its setup script is exactly where the next piece of
+  /// work belongs.
+  @Test func candidatesDropTerminatingRowsAndKeepPendingOnes() throws {
+    let sandbox = try makeSandbox()
+    let pending = try sandbox.makeDirectory("pending", activityAt: Self.freshDate)
+    let archiving = try sandbox.makeDirectory("archiving", activityAt: Self.freshDate)
+    let deleting = try sandbox.makeDirectory("deleting", activityAt: Self.freshDate)
+    var state = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [pending, archiving, deleting],
+      hasLoadedTasks: true
+    )
+    state.sidebarItems[id: WorktreeID(pending.path(percentEncoded: false))]?.lifecycle = .pending
+    state.sidebarItems[id: WorktreeID(archiving.path(percentEncoded: false))]?.lifecycle = .archiving
+    state.sidebarItems[id: WorktreeID(deleting.path(percentEncoded: false))]?.lifecycle = .deleting
+    state.applyPostReduceCacheRecomputes(.all)
+
+    let candidates = state.taskCreationCandidates()
+
+    #expect(candidates.map(\.id) == [TaskDirectoryPath.canonical(pending)])
+  }
+
   // MARK: - A20b: cancel leaves nothing behind
 
   @Test(.sidebarTab(.tasks))

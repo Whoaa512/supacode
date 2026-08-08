@@ -6,8 +6,10 @@ import Foundation
 /// `plans/task-inbox-sidebar-plan.md` — two interactions, type and Enter).
 ///
 /// This reducer never scans disk. The parent hands it the candidate list built
-/// from the live roster, already in the recency order the Tasks tab sorts by,
-/// and the prompt only filters, ranks and picks.
+/// from the live roster — the directory the user is currently standing in
+/// first, then the rest in sidebar order — and the prompt only filters, ranks
+/// and picks. There is no recency signal in this list; the leading row is the
+/// selection, not a most-recently-used ranking.
 ///
 /// Resolved #8: a new feature rather than an extension of
 /// `WorktreeCreationPromptFeature`, which is worktree-shaped and needs a
@@ -60,7 +62,8 @@ struct TaskCreationPromptFeature {
 
   @ObservableState
   struct State: Equatable {
-    /// Parent-ordered; an empty query renders them verbatim rather than re-sorted.
+    /// Parent-ordered, best default first; an empty query renders them verbatim
+    /// rather than re-sorted, so ⌘N ↩ lands on the directory the user is in.
     var candidates: [Candidate]
     var title: String = ""
     var directoryQuery: String = ""

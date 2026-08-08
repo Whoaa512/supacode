@@ -527,11 +527,17 @@ extension RepositoriesFeature.State {
     return .openTaskTerminal(worktreeID: row.id, taskID: record.id)
   }
 
-  /// Pickable directories for the ⌘N capture prompt, straight from the live rows.
+  /// Pickable directories for the ⌘N capture prompt, straight from the live rows,
+  /// with the directory the user is standing in first — an empty query renders
+  /// the list verbatim, so ⌘N ↩ captures work where the user already is instead
+  /// of wherever the roster happens to start.
   ///
   /// Remote rows are excluded for the same reason seeding excludes them: a task
   /// is a local directory lifecycle, and reading a remote path as a local one
-  /// reads the wrong directory.
+  /// reads the wrong directory. Rows on their way out (archiving, deleting) are
+  /// excluded too: capture would aim a task at a directory about to disappear.
+  /// `.pending` stays — a worktree still running its setup script is a perfectly
+  /// good place to line up the next piece of work.
   ///
   /// Symlinks are resolved here rather than inside the prompt: the candidate's
   /// id has to be comparable with `TaskRecord.directoryPath` (canonical), and a
@@ -543,18 +549,39 @@ extension RepositoriesFeature.State {
         .filter { !TasksSidebarStructure.isSettled($0) }
         .map { TaskDirectoryPath.normalized($0.directoryPath) }
     )
-    return sidebarItems.compactMap { row in
-      guard row.host == nil, !row.isMissing else { return nil }
+    let defaultRowID = taskCaptureDefaultRowID
+    var preferred: TaskCreationPromptFeature.Candidate?
+    var rest: [TaskCreationPromptFeature.Candidate] = []
+    rest.reserveCapacity(sidebarItems.count)
+    for row in sidebarItems {
+      guard row.host == nil, !row.isMissing, !row.lifecycle.isTerminating else { continue }
       let directoryURL = row.workingDirectory.resolvingSymlinksInPath()
       let path = TaskDirectoryPath.normalized(directoryURL.path(percentEncoded: false))
-      return TaskCreationPromptFeature.Candidate(
+      let candidate = TaskCreationPromptFeature.Candidate(
         directoryURL: directoryURL,
         repositoryName: repositories[id: row.repositoryID]?.name ?? "",
         branch: row.provableBranch,
         worktreeID: row.id,
         isBusy: busyPaths.contains(path)
       )
+      if row.id == defaultRowID {
+        preferred = candidate
+      } else {
+        rest.append(candidate)
+      }
     }
+    guard let preferred else { return rest }
+    return [preferred] + rest
+  }
+
+  /// Where a capture defaults to. The selected worktree when there is one; on
+  /// the Tasks tab there never is (a task selection is exclusive and clears it),
+  /// so the row behind the open task stands in. Both answer the same question —
+  /// which directory is the user looking at right now.
+  private var taskCaptureDefaultRowID: Worktree.ID? {
+    if let selectedWorktreeID { return selectedWorktreeID }
+    guard let taskID = selection?.taskID, let record = taskRecords[id: taskID] else { return nil }
+    return sidebarItemForTaskDirectory(record.directoryPath)?.id
   }
 
   /// The focus request for opening a task, or `nil` when there is nothing to
