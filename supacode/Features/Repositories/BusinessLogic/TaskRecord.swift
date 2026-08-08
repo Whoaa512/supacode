@@ -53,7 +53,9 @@ nonisolated struct TaskRecord: Codable, Equatable, Identifiable, Sendable {
   /// or an activity timestamp, so the row can render an honest low-confidence
   /// state instead of a guess (assertion A2).
   nonisolated struct SeedEvidence: Codable, Equatable, Sendable {
-    nonisolated enum Source: String, Codable, Sendable {
+    // CaseIterable exists for the persistence round-trip test: a new case is
+    // covered automatically instead of silently escaping it.
+    nonisolated enum Source: String, Codable, Sendable, CaseIterable {
       /// Branch read from the live worktree watcher at seed time.
       case currentBranch
       /// `.git/logs/HEAD` checkout history for the directory.
