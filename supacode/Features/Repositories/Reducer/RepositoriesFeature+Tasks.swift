@@ -826,6 +826,13 @@ extension RepositoriesFeature {
       case .taskCreationPrompt(.presented(.delegate(.createTask(let title, let directoryURL)))):
         return .send(.tasks(.createTask(title: title, directoryURL: directoryURL)))
 
+      case .taskCreationPrompt(.presented(.delegate(.openRepository))):
+        // A36: adding a repository never requires the Worktrees tab. The prompt
+        // steps aside first — the browse flow wants the keyboard, and a capture
+        // prompt left over one would be ranking a roster about to change.
+        state.taskCreationPrompt = nil
+        return .send(.requestOpenRepository)
+
       // A surface set drifted (a tab closed, a worktree restored). Ownership is
       // reconciled off the same projection the rows use, and only when there is
       // a task to reconcile, so a build with an empty inbox fires nothing.

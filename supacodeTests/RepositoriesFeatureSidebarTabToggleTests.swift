@@ -2,6 +2,7 @@ import ComposableArchitecture
 import Sharing
 import Testing
 
+@testable import SupacodeSettingsShared
 @testable import supacode
 
 /// Locks the ⌘⇧A sidebar-tab toggle: `.toggleAgentsSidebarTab` jumps to the

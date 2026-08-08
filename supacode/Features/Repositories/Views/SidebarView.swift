@@ -9,14 +9,23 @@ struct SidebarView: View {
   @Shared(.settingsFile) private var settingsFile
   /// Raw string storage (AppStorage-native); mapped to `SidebarTab` for the picker.
   @Shared(.sidebarTab) private var sidebarTabRawValue: String
+  @Shared(.sidebarShowsWorktreesTab) private var showsWorktreesTab: Bool
+  @Shared(.sidebarShowsAgentsTab) private var showsAgentsTab: Bool
+
+  private var visibility: SidebarTab.Visibility {
+    SidebarTab.Visibility(showsWorktrees: showsWorktreesTab, showsAgents: showsAgentsTab)
+  }
 
   /// The setter goes through the reducer, not straight into the shared value:
   /// ⌘N's menu label and gate follow the active panel, and the menu-bar snapshot
   /// only recomputes on actions, so a view-only write would leave the menu
   /// claiming "New Worktree…" while the inbox is on screen.
+  ///
+  /// The getter resolves through `visibility` too, so hiding the panel you are
+  /// standing on lands you on the inbox instead of on a blank sidebar (A36).
   private var sidebarTab: Binding<SidebarTab> {
     Binding(
-      get: { SidebarTab.resolved(fromStoredValue: sidebarTabRawValue) },
+      get: { SidebarTab.resolved(fromStoredValue: sidebarTabRawValue, visibility: visibility) },
       set: { newTab in store.send(.setSidebarTab(newTab)) }
     )
   }
@@ -32,22 +41,29 @@ struct SidebarView: View {
     let toggleAgentsTab = AppShortcuts.toggleAgentsSidebarTab.effective(from: settingsFile.global.shortcutOverrides)
     let tabShortcut = toggleAgentsTab?.display ?? "none"
 
-    return VStack(spacing: 0) {
-      Picker("Sidebar Panel", selection: sidebarTab) {
-        ForEach(SidebarTab.allCases, id: \.self) { tab in
-          Text(tab.title)
-            .tag(tab)
-            .help("\(tab.help) (\(tabShortcut) switches between panels)")
-        }
-      }
-      .pickerStyle(.segmented)
-      .labelsHidden()
-      .controlSize(.small)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 6)
-      .help("\(sidebarTab.wrappedValue.help) (\(tabShortcut) switches between panels)")
+    let visibleTabs = SidebarTab.visibleCases(visibility)
 
-      Divider()
+    return VStack(spacing: 0) {
+      // One visible tab means no choice to offer: a single-segment picker is a
+      // control that cannot do anything, and the panel's own header already
+      // says where you are.
+      if visibleTabs.count > 1 {
+        Picker("Sidebar Panel", selection: sidebarTab) {
+          ForEach(visibleTabs, id: \.self) { tab in
+            Text(tab.title)
+              .tag(tab)
+              .help("\(tab.help) (\(tabShortcut) switches between panels)")
+          }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(.small)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .help("\(sidebarTab.wrappedValue.help) (\(tabShortcut) switches between panels)")
+
+        Divider()
+      }
 
       switch sidebarTab.wrappedValue {
       case .worktrees:

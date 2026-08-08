@@ -42,6 +42,16 @@ struct TaskCreationPromptView: View {
       }
 
       HStack {
+        // A36: the inbox has to be able to reach a new repository on its own.
+        // Offered whenever the query found nothing — with no repositories at
+        // all this is the only way forward, and with a query that missed it is
+        // the answer to "the folder I want isn't in this list".
+        if store.rankedCandidates.isEmpty {
+          Button("Open Repository…") {
+            store.send(.openRepositoryButtonTapped)
+          }
+          .help("Register a repository so its worktrees become capturable here")
+        }
         Spacer()
         Button("Cancel") {
           store.send(.cancelButtonTapped)

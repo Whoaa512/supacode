@@ -14,6 +14,8 @@ public struct TasksSettingsView: View {
   @Shared(.taskAutoSettleEnabled) private var isAutoSettleEnabled
   @Shared(.taskAutoSettleOnFinishedPullRequest) private var settlesOnFinishedPullRequest
   @Shared(.taskInactivityWindowDays) private var inactivityWindowDays
+  @Shared(.sidebarShowsWorktreesTab) private var showsWorktreesTab
+  @Shared(.sidebarShowsAgentsTab) private var showsAgentsTab
 
   public init() {}
 
@@ -41,6 +43,20 @@ public struct TasksSettingsView: View {
         }
         .disabled(!isAutoSettleEnabled)
         .help("Days of no activity before a task moves to the settled tail. Set to zero to never settle on time alone.")
+      }
+      Section {
+        Toggle(isOn: Binding($showsWorktreesTab)) {
+          Text("Show the Worktrees panel")
+        }
+        .help("Hiding a panel only removes its segment — nothing is deleted, and ⌘N still reaches every directory.")
+        Toggle(isOn: Binding($showsAgentsTab)) {
+          Text("Show the Agents panel")
+        }
+        .help("Hiding a panel only removes its segment. Its shortcut brings it back.")
+      } header: {
+        Text("Sidebar panels")
+      } footer: {
+        Text("Tasks is always shown. Hiding a panel keeps everything in it — its shortcut unhides it again.")
       }
     }
     .formStyle(.grouped)

@@ -94,6 +94,8 @@ struct TaskCreationPromptFeature {
     case binding(BindingAction<State>)
     case cancelButtonTapped
     case createButtonTapped
+    /// A36's escape hatch: nothing to capture into, so go register something.
+    case openRepositoryButtonTapped
     /// Keyboard navigation. Clamped, never wrapped.
     case moveSelection(offset: Int)
     /// Click / tap, by identity so a re-rank between render and click cannot
@@ -108,6 +110,10 @@ struct TaskCreationPromptFeature {
     /// `title` is trimmed, and `nil` (not `""`) when the field was blank — that
     /// is what tells the parent's seeder cascade to name the task.
     case createTask(title: String?, directoryURL: URL)
+    /// Hand the user to the app's open-repository flow (A36). The prompt does
+    /// not know what that flow is — it names the intent and the parent routes
+    /// it, exactly as the toolbar's "Add…" menu does.
+    case openRepository
   }
 
   var body: some Reducer<State, Action> {
@@ -145,6 +151,9 @@ struct TaskCreationPromptFeature {
 
       case .cancelButtonTapped:
         return .send(.delegate(.cancel))
+
+      case .openRepositoryButtonTapped:
+        return .send(.delegate(.openRepository))
 
       case .createButtonTapped:
         guard let candidate = state.selectedCandidate else {

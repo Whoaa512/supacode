@@ -28,6 +28,21 @@ nonisolated extension SharedReaderKey where Self == AppStorageKey<Bool>.Default 
   public static var taskAutoSettleOnFinishedPullRequest: Self {
     Self[.appStorage("taskAutoSettleOnFinishedPullRequest"), default: true]
   }
+
+  /// Whether the Worktrees panel is offered at all (A36). Hiding is never
+  /// deleting: the rows, the roster and every shortcut that reaches them keep
+  /// working, and flipping this back puts the segment straight back.
+  ///
+  /// There is deliberately no `sidebarShowsTasksTab`. The inbox is the floor
+  /// that makes "≥1 tab always reachable" true by construction rather than by a
+  /// guard every caller has to remember.
+  public static var sidebarShowsWorktreesTab: Self {
+    Self[.appStorage("sidebarShowsWorktreesTab"), default: true]
+  }
+
+  public static var sidebarShowsAgentsTab: Self {
+    Self[.appStorage("sidebarShowsAgentsTab"), default: true]
+  }
 }
 
 nonisolated extension SharedReaderKey where Self == AppStorageKey<Int>.Default {

@@ -3247,13 +3247,27 @@ struct RepositoriesFeature {
 
       case .toggleAgentsSidebarTab:
         @Shared(.sidebarTab) var sidebarTabRawValue
+        @Shared(.sidebarShowsAgentsTab) var showsAgentsTab
+        @Shared(.sidebarShowsWorktreesTab) var showsWorktreesTab
+        let visibility = SidebarTab.Visibility(
+          showsWorktrees: showsWorktreesTab,
+          showsAgents: showsAgentsTab
+        )
+        // A36: the chord asked for a panel the user has put away. Unhiding and
+        // going there beats a silent no-op — the menu item still advertises the
+        // key, so an inert press reads as a bug rather than as a setting.
+        if !showsAgentsTab {
+          $showsAgentsTab.withLock { $0 = true }
+          $sidebarTabRawValue.withLock { $0 = SidebarTab.agents.rawValue }
+          return .none
+        }
         // ⌘⇧A means "show me the agents", not "cycle panels": from Agents it
         // returns to Worktrees, from anywhere else it jumps to Agents. Exhaustive
         // so a new panel has to declare where the chord takes it instead of
         // silently inheriting the old binary flip.
         let next: SidebarTab =
           switch SidebarTab.resolved(fromStoredValue: sidebarTabRawValue) {
-          case .agents: .worktrees
+          case .agents: SidebarTab.firstVisible(of: [.worktrees], visibility: visibility)
           case .worktrees, .tasks: .agents
           }
         $sidebarTabRawValue.withLock { $0 = next.rawValue }
@@ -3261,11 +3275,19 @@ struct RepositoriesFeature {
 
       case .toggleTasksSidebarTab:
         @Shared(.sidebarTab) var sidebarTabRawValue
+        @Shared(.sidebarShowsWorktreesTab) var showsWorktreesTab
+        @Shared(.sidebarShowsAgentsTab) var showsAgentsTab
+        let visibility = SidebarTab.Visibility(
+          showsWorktrees: showsWorktreesTab,
+          showsAgents: showsAgentsTab
+        )
         // Same shape as ⌘⇧A: "show me the tasks", returning to Worktrees only
-        // when the inbox is already up.
+        // when the inbox is already up — and skipping past a hidden Worktrees
+        // to Agents rather than landing on a panel nobody can see (A36). With
+        // both put away the chord stays where it is: there is nowhere to go.
         let next: SidebarTab =
           switch SidebarTab.resolved(fromStoredValue: sidebarTabRawValue) {
-          case .tasks: .worktrees
+          case .tasks: SidebarTab.firstVisible(of: [.worktrees, .agents], visibility: visibility)
           case .worktrees, .agents: .tasks
           }
         $sidebarTabRawValue.withLock { $0 = next.rawValue }
