@@ -66,23 +66,33 @@ nonisolated enum TaskSettlement {
   /// affordance is disabled rather than invoked and failed. An open PR is a
   /// display signal, not a blocker — settling review-pending work is intentional.
   static func canSettle(_ input: Input) -> Bool {
-    let activity = input.activity
-    return !activity.isWorking && !activity.isAwaitingInput && activity.isAwaitingApproval != true
+    canSettle(input.activity)
   }
 
-  // Phase 4 open question (critic 2a-9): a task auto-settled by inactivity also
-  // reads as "already settled" here, so snooze is refused for a row the user may
-  // still want to park before it re-activates. Decide whether snooze should be
-  // offered for auto-settled (as opposed to explicitly settled) rows.
-  //
-  /// Snoozing something that is asking you a question is a no-op affordance (the
-  /// raised-hand rule resurfaces it immediately), and an already-settled row has
-  /// nothing to hide from. Working *is* snoozable — parking a long-running agent
-  /// until it needs you is the point.
+  /// Activity-only spelling, for the callers that have a projection but no
+  /// cascade input to build — a sidebar row gating its context menu reads the
+  /// leaf and nothing else, and handing it a fabricated `now` just to ask an
+  /// activity question would be a lie the compiler can't catch.
+  static func canSettle(_ activity: ActivitySnapshot) -> Bool {
+    !activity.isWorking && !activity.isAwaitingInput && activity.isAwaitingApproval != true
+  }
+
+  /// Snoozing something that is asking you a question is a no-op affordance: the
+  /// raised-hand rule resurfaces it immediately, so the menu item must be
+  /// disabled rather than lie. Working *is* snoozable — parking a long-running
+  /// agent until it needs you is the point.
+  ///
+  /// Settled-ness is deliberately *not* read. A task the inactivity window
+  /// parked reads as settled, and that is exactly the row a user most wants to
+  /// say "later, and stay quiet" about; A16 also puts snooze above settled in
+  /// placement, so settled-ness cannot be a reason to refuse. The reducer's
+  /// snooze arm un-settles the record it parks, which is what keeps this honest.
   static func canSnooze(_ input: Input) -> Bool {
-    let activity = input.activity
-    guard !activity.isAwaitingInput, activity.isAwaitingApproval != true else { return false }
-    return !effectiveSettled(input)
+    canSnooze(input.activity)
+  }
+
+  static func canSnooze(_ activity: ActivitySnapshot) -> Bool {
+    !activity.isAwaitingInput && activity.isAwaitingApproval != true
   }
 
   /// Malformed refuses where missing settles: a task that never recorded

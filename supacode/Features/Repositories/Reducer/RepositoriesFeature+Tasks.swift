@@ -21,6 +21,12 @@ private enum TaskCancelID {
   /// so the later arming supersedes an in-flight one instead of racing it into a
   /// duplicate `.seeded`.
   static let seed = "repositories.tasks.seed"
+  /// The coarse 60s re-classification loop, armed once by the load that
+  /// populates the inbox.
+  static let classificationTick = "repositories.tasks.classificationTick"
+  /// The one-shot sleep to the earliest wake instant. Re-armed (never stacked)
+  /// whenever that instant moves, so exactly one alarm is ever pending.
+  static let wakeBoundary = "repositories.tasks.wakeBoundary"
   /// Per capture, never shared: two captures in flight are two different
   /// worktrees being minted, and cancelling one because the other started would
   /// strand a half-created directory nothing is left to roll back.
@@ -45,8 +51,27 @@ extension RepositoriesFeature {
     /// Explicit settle. The only settle path in Phase 1 (no cascade yet).
     case settle(TaskID)
     case unsettle(TaskID)
+    /// Park a task until `until`. `hibernate` overrides the global default for
+    /// this one snooze: `nil` means "whatever the setting says" (Resolved #13),
+    /// which is off — a snooze you can undo for free is the common case.
+    case snooze(TaskID, until: Date, hibernate: Bool? = nil)
+    case unsnooze(TaskID)
+    case pin(TaskID)
+    case unpin(TaskID)
+    /// The explicit "stop auto-settling this" pin the Phase 5 cascade reads (A15).
+    case keepActive(TaskID)
     case setSettledTailExpanded(Bool)
+    case setSnoozedShelfExpanded(Bool)
     case expandSettledTail
+    /// The coarse safety net (A23): re-samples the clock so a wake the boundary
+    /// missed — a re-arm that raced, a machine that slept through its alarm — is
+    /// at most one tick late instead of never.
+    case classificationTick
+    /// The boundary-armed wake fired. Classification only: the record keeps the
+    /// stamps the user wrote, so a re-snooze never has to ask for the time again.
+    case wakeBoundaryReached
+    /// Tear both clocks down (scene teardown, and every test that armed one).
+    case stopTimers
     /// Drop owned surfaces that no longer exist, without deleting the task (A10b).
     case reconcileSurfaceOwnership
     /// Claim a tab for the directory's task, creating one when there is none.
@@ -100,6 +125,16 @@ extension RepositoriesFeature {
   var tasksReducer: some Reducer<State, Action> {
     Reduce { state, action in
       @Dependency(\.date.now) var now
+      // Time only moves when an action says it did (A23). Stamped for exactly
+      // the arms that declare `.sidebarStructure`, so the post-reduce hook and
+      // this sample can never disagree about whether the cache needed rebuilding
+      // — a taskNow written by an arm that declares nothing would leave a stale
+      // structure behind it.
+      if case .tasks(let taskAction) = action,
+        taskAction.cacheInvalidations.contains(.sidebarStructure)
+      {
+        state.taskNow = now
+      }
       switch action {
       case .tasks(.load):
         guard !state.hasLoadedTasks else { return .none }
@@ -122,9 +157,15 @@ extension RepositoriesFeature {
         state.taskStoreSchemaVersion = file.schemaVersion
         state.didSeedTasks = file.didSeedTasks
         state.taskRecords = IdentifiedArray(uniqueElements: file.tasks)
+        // Both clocks start here, not at the first snooze: a relaunch with
+        // parked tasks has to re-evaluate them (A23) without waiting for the
+        // user to touch anything, and a wake that passed while the app was
+        // closed has to land on this very reduce.
         return .merge(
           .send(.tasks(.reconcileSurfaceOwnership)),
-          .send(.tasks(.seedIfNeeded))
+          .send(.tasks(.seedIfNeeded)),
+          Self.taskClassificationTickEffect(),
+          state.armTaskWakeBoundaryEffect()
         )
 
       case .tasks(.seedIfNeeded):
@@ -172,6 +213,12 @@ extension RepositoriesFeature {
         // Idempotent: a second settle must not re-stamp `settledAt` and jump the
         // task back to the head of the settled tail (which sorts by that stamp).
         guard record.settledAt == nil else { return .none }
+        // A18b, reducer-side. The affordance is disabled, but a settle that
+        // arrives anyway (hotkey, menu race, script) must no-op rather than park
+        // a task that is asking the user a question.
+        guard TaskSettlement.canSettle(state.taskSettlementInput(for: id)) else { return .none }
+        // Computed before the mutation, over the order the user could see (A26).
+        let forwardTarget = state.taskForwardNavigationTarget(leaving: id)
         let hibernation = state.taskHibernationDelegate(for: record)
         // Always stamped, never derived: the settled tail sorts and labels by
         // this one timestamp (A17), and an explicit `.active` override would
@@ -180,6 +227,11 @@ extension RepositoriesFeature {
         if record.settledOverride == .active {
           state.taskRecords[id: id]?.settledOverride = nil
         }
+        // A16: an explicit settle CLEARS the pin. Pinning says "keep this in
+        // front of me" and settling says "I am done with it" — the later
+        // instruction wins, and a pinned row surviving in the settled tail would
+        // be a row nobody can get rid of.
+        state.taskRecords[id: id]?.pinnedAt = nil
         // Cleanup rides on the settle, always *after* the hibernation request —
         // `.concatenate`, not `.merge`: deleting a directory that still has live
         // sessions in it is how a settle turns into data loss, and the two are
@@ -202,7 +254,14 @@ extension RepositoriesFeature {
         {
           settleSteps.append(.send(.tasks(.cleanupAutoManagedWorktree(id))))
         }
-        return .merge(Self.persistTasksEffect(state: state), .concatenate(settleSteps))
+        var settleEffects: [Effect<Action>] = [
+          Self.persistTasksEffect(state: state),
+          .concatenate(settleSteps),
+        ]
+        if let forwardTarget {
+          settleEffects.append(.send(.tasks(.select(forwardTarget))))
+        }
+        return .merge(settleEffects)
 
       case .tasks(.unsettle(let id)):
         guard state.taskRecords[id: id] != nil else { return .none }
@@ -212,6 +271,89 @@ extension RepositoriesFeature {
         // forever. Sessions are not woken here — opening the task does that.
         state.taskRecords[id: id]?.settledOverride = nil
         return Self.persistTasksEffect(state: state)
+
+      case .tasks(.snooze(let id, let until, let hibernate)):
+        guard let record = state.taskRecords[id: id] else { return .none }
+        guard TaskSettlement.canSnooze(state.taskSettlementInput(for: id)) else { return .none }
+        // Re-snoozing to the same instant must not re-stamp `snoozedAt`: that
+        // would silently reset every raised-hand freshness comparison and
+        // un-raise a hand the user already saw go up (A25).
+        guard record.snoozedUntil != until else { return .none }
+        let forwardTarget = state.taskForwardNavigationTarget(leaving: id)
+        state.taskRecords[id: id]?.snoozedUntil = until
+        // Stamped separately and never derived from `until`: it is what every
+        // freshness rule measures against, and the two move independently.
+        state.taskRecords[id: id]?.snoozedAt = now
+        // Snooze un-settles what it parks (A16: snooze outranks settled). The
+        // user is saying "bring this back later", which is only true if it comes
+        // back to the active section rather than to the tail it was already in —
+        // and the explicit `.active` override is what stops the inactivity
+        // cascade re-settling it the moment it wakes. The pin is untouched: "not
+        // now" and "always up top" are orthogonal instructions.
+        state.taskRecords[id: id]?.settledAt = nil
+        state.taskRecords[id: id]?.settledOverride = .active
+        @Shared(.settingsFile) var settingsFile
+        var snoozeEffects: [Effect<Action>] = [Self.persistTasksEffect(state: state)]
+        // Same delegate a settle sends, so the parent has one hibernation path,
+        // not two. The claim survives it (A10b): waking has to find the surfaces
+        // it put to sleep.
+        if hibernate ?? settingsFile.global.snoozeHibernatesSessions,
+          let hibernation = state.taskHibernationDelegate(for: record)
+        {
+          snoozeEffects.append(.send(.delegate(hibernation)))
+        }
+        if let forwardTarget {
+          snoozeEffects.append(.send(.tasks(.select(forwardTarget))))
+        }
+        snoozeEffects.append(state.armTaskWakeBoundaryEffect())
+        return .merge(snoozeEffects)
+
+      case .tasks(.unsnooze(let id)):
+        guard let record = state.taskRecords[id: id] else { return .none }
+        guard record.snoozedUntil != nil || record.snoozedAt != nil else { return .none }
+        state.taskRecords[id: id]?.snoozedUntil = nil
+        state.taskRecords[id: id]?.snoozedAt = nil
+        // No Woke pill: the user did the waking, so nothing is owed a look.
+        return .merge(Self.persistTasksEffect(state: state), state.armTaskWakeBoundaryEffect())
+
+      case .tasks(.pin(let id)):
+        guard let record = state.taskRecords[id: id] else { return .none }
+        // Idempotent: a second pin must not re-stamp, or a pinned row would jump
+        // inside the pinned block every time the menu item is clicked twice.
+        guard record.pinnedAt == nil else { return .none }
+        state.taskRecords[id: id]?.pinnedAt = now
+        return Self.persistTasksEffect(state: state)
+
+      case .tasks(.unpin(let id)):
+        guard let record = state.taskRecords[id: id], record.pinnedAt != nil else { return .none }
+        state.taskRecords[id: id]?.pinnedAt = nil
+        return Self.persistTasksEffect(state: state)
+
+      case .tasks(.keepActive(let id)):
+        guard let record = state.taskRecords[id: id] else { return .none }
+        guard record.settledOverride != .active || record.settledAt != nil else { return .none }
+        state.taskRecords[id: id]?.settledOverride = .active
+        state.taskRecords[id: id]?.settledAt = nil
+        return Self.persistTasksEffect(state: state)
+
+      case .tasks(.setSnoozedShelfExpanded(let isExpanded)):
+        guard state.isSnoozedShelfExpanded != isExpanded else { return .none }
+        state.isSnoozedShelfExpanded = isExpanded
+        return .none
+
+      case .tasks(.classificationTick), .tasks(.wakeBoundaryReached):
+        // Both are pure re-classification: `taskNow` was stamped above, the
+        // post-reduce hook rebuilds the structure off it, and no record is
+        // written. All that is left is to point the alarm at whatever is still
+        // parked.
+        return state.armTaskWakeBoundaryEffect()
+
+      case .tasks(.stopTimers):
+        state.armedTaskWakeBoundary = nil
+        return .merge(
+          .cancel(id: TaskCancelID.classificationTick),
+          .cancel(id: TaskCancelID.wakeBoundary)
+        )
 
       case .tasks(.setSettledTailExpanded(let isExpanded)):
         guard state.isSettledTailExpanded != isExpanded else { return .none }
@@ -771,6 +913,25 @@ extension RepositoriesFeature {
       return false
     }
     return true
+  }
+
+  // MARK: - Wake clocks
+
+  /// How often the coarse net re-classifies everything. Deliberately blunt: it
+  /// exists to catch what the precise alarm missed, not to be the alarm.
+  nonisolated static let taskClassificationInterval: Duration = .seconds(60)
+  /// The boundary sleep overshoots its target so the effect always lands on the
+  /// wake side of an inclusive boundary rather than one tick short of it (A23).
+  static let taskWakeBoundaryOvershoot: Duration = .milliseconds(50)
+
+  static func taskClassificationTickEffect() -> Effect<Action> {
+    @Dependency(\.continuousClock) var clock
+    return .run { send in
+      for await _ in clock.timer(interval: Self.taskClassificationInterval) {
+        await send(.tasks(.classificationTick))
+      }
+    }
+    .cancellable(id: TaskCancelID.classificationTick, cancelInFlight: true)
   }
 
   // MARK: - Store I/O
@@ -1346,6 +1507,102 @@ extension RepositoriesFeature.State {
     return sidebarItemForTaskDirectory(record.directoryPath)?.id
   }
 
+  // MARK: - Lifecycle classification
+
+  /// Per-task classification inputs, straight off the leaves. Built fresh on
+  /// each recompute rather than cached: it is a projection of a projection, and
+  /// a third copy is a third thing that can disagree.
+  var taskSignals: [TaskID: TasksSidebarStructure.Signals] {
+    taskLeaves.reduce(into: [:]) { result, leaf in
+      result[leaf.id] = leaf.signals
+    }
+  }
+
+  /// The settlement question for one task.
+  ///
+  /// Phase 4 only asks it the two A18b ways (`canSettle` / `canSnooze`), which
+  /// read activity and nothing else. The auto paths are therefore left off:
+  /// Phase 5 owns the PR projection, the inactivity window and the settings that
+  /// drive them, and a fabricated window here would ship an auto-settle policy
+  /// nobody wrote.
+  func taskSettlementInput(for id: TaskID) -> TaskSettlement.Input {
+    let record = taskRecords[id: id]
+    return TaskSettlement.Input(
+      now: taskNow,
+      activity: taskLeaves[id: id]?.activitySnapshot ?? .idle,
+      settledOverride: record?.settledOverride,
+      lastActivityAt: record?.lastVisitedAt,
+      inactivityWindow: nil,
+      isAutoSettleEnabled: false,
+      settlesOnFinishedPullRequest: false
+    )
+  }
+
+  /// The soonest wake instant among the tasks that are *currently* parked, or
+  /// `nil` when nothing is. A row held out of the shelf by a raised hand is not
+  /// parked, so it never arms an alarm nobody is waiting for.
+  var earliestTaskWake: Date? {
+    let signals = taskSignals
+    return taskRecords.compactMap { record -> Date? in
+      let input = TasksSidebarStructure.snoozeInput(
+        for: record,
+        now: taskNow,
+        signals: signals[record.id] ?? TasksSidebarStructure.Signals()
+      )
+      guard TaskSnooze.effectiveSnoozed(input) else { return nil }
+      return TaskTimestamps.read(record.snoozedUntil).date
+    }
+    .min()
+  }
+
+  /// Where the selection goes when `id` leaves the active list (A26).
+  ///
+  /// Computed over the *cached* structure, which is the pre-mutation snapshot —
+  /// the reducer has not recomputed it yet — so the answer is the row the user
+  /// could actually see below the one they just cleared. `nil` means stay put:
+  /// either the mutated task is not the open one (background bookkeeping must
+  /// never yank the user off their row), or there is nowhere to go.
+  func taskForwardNavigationTarget(leaving id: TaskID) -> TaskID? {
+    guard selection?.taskID == id else { return nil }
+    let snoozedIDs = Set(tasksSidebarStructure.visibleSnoozedEntries.map(\.id))
+    let settledIDs = Set(tasksSidebarStructure.visibleSettledTail.map(\.id))
+    let ordered = tasksSidebarStructure.visibleTaskIDs.map { taskID in
+      TaskForwardNavigation.Candidate(
+        id: taskID,
+        isSettled: settledIDs.contains(taskID),
+        isSnoozed: snoozedIDs.contains(taskID)
+      )
+    }
+    return TaskForwardNavigation.planForwardNavigation(orderedTasks: ordered, currentTaskID: id)
+  }
+
+  /// Points the one-shot alarm at the earliest wake still pending, or cancels it
+  /// when nothing is parked.
+  ///
+  /// A no-op when the horizon has not moved: a *further* snooze landing behind
+  /// the current alarm must not push it out, and re-arming on every mutation
+  /// would restart a sleep that is already counting down correctly. An alarm
+  /// left on a wake time nobody is waiting for is the worse half of the same
+  /// bug — it fires a pointless recompute and, worse, leaves the real next wake
+  /// unarmed — which is why un-snoozing the earliest row re-arms too.
+  @MainActor
+  mutating func armTaskWakeBoundaryEffect() -> Effect<RepositoriesFeature.Action> {
+    let next = earliestTaskWake
+    guard next != armedTaskWakeBoundary else { return .none }
+    armedTaskWakeBoundary = next
+    guard let next, let now = TaskTimestamps.read(taskNow).date else {
+      return .cancel(id: TaskCancelID.wakeBoundary)
+    }
+    let delay = Duration.seconds(max(0, next.timeIntervalSince(now)))
+      + RepositoriesFeature.taskWakeBoundaryOvershoot
+    @Dependency(\.continuousClock) var clock
+    return .run { send in
+      try await clock.sleep(for: delay)
+      await send(.tasks(.wakeBoundaryReached))
+    }
+    .cancellable(id: TaskCancelID.wakeBoundary, cancelInFlight: true)
+  }
+
   // MARK: - Cache recomputes
 
   /// Equatable-diffs the Tasks render plan against the cache, so the panel only
@@ -1355,9 +1612,12 @@ extension RepositoriesFeature.State {
   mutating func recomputeTasksSidebarStructureIfChanged() {
     let new = TasksSidebarStructure.compute(
       tasks: Array(taskRecords),
+      now: taskNow,
+      signals: taskSignals,
       openTaskID: selection?.taskID,
       settledVisibleCount: settledTailVisibleCount,
-      isSettledTailExpanded: isSettledTailExpanded
+      isSettledTailExpanded: isSettledTailExpanded,
+      isSnoozedShelfExpanded: isSnoozedShelfExpanded
     )
     if new != tasksSidebarStructure {
       tasksSidebarStructure = new
@@ -1413,6 +1673,16 @@ extension RepositoriesFeature.State {
         leaf.agentSnapshot = row.agentSnapshot
         leaf.hasUnseenNotifications = row.hasUnseenNotifications
         leaf.allSurfacesDormant = row.allTabsDormant
+        leaf.errorAt = row.agentSnapshot.errorAt
+        leaf.completedTurnAt = row.agentSnapshot.completedTurnAt
+        // Scoped to the surfaces this task owns, unlike the row-wide fields
+        // above: a notification is the one signal that carries a surface id, so
+        // there is no reason to let a sibling task's terminal wake this row
+        // (Resolved #7).
+        let unreadOnOwnedSurfaces: [Date?] = row.notifications
+          .filter { !$0.isRead && record.surfaceIDs.contains($0.surfaceID) }
+          .map(\.createdAt)
+        leaf.notifiedAt = TaskTimestamps.latestValid(unreadOnOwnedSurfaces)
       }
       if taskLeaves[id: record.id] != leaf {
         taskLeaves[id: record.id] = leaf
@@ -1438,6 +1708,10 @@ extension RepositoriesFeature.TaskInboxAction {
     // Effect launcher: it touches neither a record nor the roster.
     case .cleanupAutoManagedWorktree:
       return []
+    // Pure teardown. Deliberately declares nothing, which is also what keeps it
+    // from stamping `taskNow` and moving a row on the way out.
+    case .stopTimers:
+      return []
     // No record was written (A20b), but the rollback prunes the roster and the
     // sidebar buckets, which is the same set `.createRandomWorktreeFailed`
     // declares for the same `cleanupFailedWorktree` call.
@@ -1447,9 +1721,13 @@ extension RepositoriesFeature.TaskInboxAction {
     // row whose directory is now gone — which can move the selection too.
     case .autoManagedWorktreeCleanupFinished:
       return [.sidebarStructure, .selectedWorktreeSlice, .sidebarSelectionSlice]
-    // Every arm that can change the record set, its lifecycle, or the page window.
+    // Every arm that can change the record set, its lifecycle, the page window,
+    // or the clock sample the placement rules are evaluated against.
     case .loaded, .seeded, .select, .settle, .unsettle,
-      .setSettledTailExpanded, .expandSettledTail, .reconcileSurfaceOwnership, .promoteTab:
+      .snooze, .unsnooze, .pin, .unpin, .keepActive,
+      .setSettledTailExpanded, .setSnoozedShelfExpanded, .expandSettledTail,
+      .classificationTick, .wakeBoundaryReached,
+      .reconcileSurfaceOwnership, .promoteTab:
       return .sidebarStructure
     // Creation also moves the selection inline, so it owes the two
     // selection-derived caches on top of the record set. `autoManagedWorktreeCreated`

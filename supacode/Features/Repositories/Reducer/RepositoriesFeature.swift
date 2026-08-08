@@ -299,6 +299,21 @@ struct RepositoriesFeature {
     /// Settled-tail page window; grows by `expandedSettledVisibleCount`.
     var settledTailVisibleCount = TasksSidebarStructure.settledTailInitialCount
     var isSettledTailExpanded = false
+    /// Collapsed by default, exactly like the settled tail: the snoozed shelf is
+    /// where things went to be quiet, so it must not cost rows on screen.
+    var isSnoozedShelfExpanded = false
+    /// The clock sample every task classification is made against.
+    ///
+    /// Stored rather than read from `\.date.now` inside the recompute, because
+    /// `applyCacheRecomputes` must stay pure: a cache that samples an ambient
+    /// clock produces a different answer every time it runs, and the post-reduce
+    /// hook runs it more than once. The task arms stamp it (see `tasksReducer`),
+    /// so time only moves when an action says it did.
+    var taskNow: Date = .distantPast
+    /// The wake instant the boundary effect is currently sleeping until, or
+    /// `nil` when nothing is parked. Mirrors the armed effect so a re-arm can
+    /// tell "the earliest wake moved" from "a further snooze landed behind it".
+    var armedTaskWakeBoundary: Date?
     /// Mirror of `TaskStoreFile.didSeedTasks`, written back on every save.
     var didSeedTasks = false
     var hasLoadedTasks = false

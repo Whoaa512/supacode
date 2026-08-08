@@ -36,6 +36,13 @@ nonisolated enum TaskSnooze {
     /// layer's last-transition timestamp for `.error`).
     var errorAt: Date?
     var completedTurnAt: Date?
+    /// Newest *unread* terminal notification (OSC 9/777) on the surfaces the
+    /// task owns. The primary wake signal for a task running no hook-reporting
+    /// agent at all — a `make test` that finished, a script that spoke up — and
+    /// an *event* like the other two, so it follows the same freshness rule: a
+    /// notification the user already scrolled past cannot hold a row out of the
+    /// shelf forever.
+    var notifiedAt: Date?
   }
 
   /// Which section of the sidebar a task sorts into.
@@ -126,7 +133,7 @@ nonisolated enum TaskSnooze {
 
   private static func newestConditionalTrigger(_ input: Input) -> Date? {
     guard let snoozedAt = TaskTimestamps.read(input.snoozedAt).date else { return nil }
-    return TaskTimestamps.latestValid([input.errorAt, input.completedTurnAt])
+    return TaskTimestamps.latestValid([input.errorAt, input.completedTurnAt, input.notifiedAt])
       .flatMap { $0 > snoozedAt ? $0 : nil }
   }
 

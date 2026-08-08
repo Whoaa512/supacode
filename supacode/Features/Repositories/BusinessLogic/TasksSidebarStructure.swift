@@ -9,10 +9,12 @@ import Foundation
 /// running script) invalidates only that leaf instead of fanning out across
 /// every sibling row.
 ///
-/// Ordering is *static* on purpose (assertion A4): the compute function takes
-/// records and the open-task selection, and nothing else. Activity is not an
-/// input, so no amount of agent or terminal churn can reorder a row — that is
-/// true by construction here, not by a runtime check.
+/// Ordering is *static* on purpose (assertion A4). Phase 4 adds `now` and
+/// `signals` to the signature, and they buy exactly one thing: a row can move
+/// *between sections* — a wake expiring (A24), a raised hand outranking the
+/// user's earlier "not now" (A25). Neither ever reorders a section, which is why
+/// `activityNeverReordersTheActiveSection` asserts the property directly rather
+/// than leaning on a signature that no longer proves it.
 ///
 /// Pure logic — Foundation only, no ComposableArchitecture, no SwiftUI, no
 /// ambient clock (A18). `nonisolated` because the target compiles with
@@ -31,13 +33,51 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
     let settledTimestamp: Date?
   }
 
+  /// One row of the snoozed shelf, carrying the wake instant it sorts by so the
+  /// row's countdown and the shelf's ordering read the same value — the settled
+  /// tail's rule (A17) applied to snooze.
+  nonisolated struct SnoozedEntry: Equatable, Sendable, Identifiable {
+    let id: TaskID
+    let wakeAt: Date?
+  }
+
+  /// The live signals a task's placement can depend on, projected from its leaf.
+  ///
+  /// Everything here is *classification input only*: a raised hand moves a row
+  /// out of the shelf without touching `snoozedUntil` / `snoozedAt`, so the
+  /// moment the hand goes down the row returns to the shelf with the wake time
+  /// the user originally wrote (A25).
+  nonisolated struct Signals: Equatable, Sendable {
+    var activity: TaskSettlement.ActivitySnapshot = .idle
+    var errorAt: Date?
+    var completedTurnAt: Date?
+    var notifiedAt: Date?
+  }
+
   /// Recent history is the common lookup, so the deep tail stays behind an
   /// explicit "Show more" (t3's `SETTLED_TAIL_INITIAL_COUNT` / `_PAGE_COUNT`).
   static let settledTailInitialCount = 10
   static let settledTailPageCount = 25
 
-  /// Active rows, newest-created-first with a deterministic ID tie-break.
+  /// Active rows: the pinned block first, then the rest, each newest-created
+  /// first with a deterministic ID tie-break. Pinning never introduces a second
+  /// sort order, it only splits the section in two.
   var activeTaskIDs: [TaskID] = []
+  /// Which of those rows carry a pin, for the glyph. A `Set` because it is a
+  /// membership question — `activeTaskIDs` already carries the order, and two
+  /// orderings would eventually disagree.
+  var pinnedTaskIDs: Set<TaskID> = []
+  /// How many tasks are parked in total, for the collapsed shelf header.
+  var snoozedTotalCount: Int = 0
+  /// The snoozed rows the view renders, soonest-wake-first: the shelf reads as a
+  /// ramp of what comes back next, not as a second inbox. Empty while the shelf
+  /// is collapsed — except the open task, which is still pulled in (A8).
+  var visibleSnoozedEntries: [SnoozedEntry] = []
+  /// Rows whose snooze has ended (timer expiry or a raised hand) and that the
+  /// user has not visited since. Derived, never stored: a relaunch re-derives
+  /// the same answer, so no acknowledgement field can drift out of sync with the
+  /// visit that cleared it (A24, A28).
+  var wokeTaskIDs: Set<TaskID> = []
   /// How many tasks are settled in total. A count, not the entries: the
   /// collapsed shelf header is the only thing that needs the whole-tail number,
   /// and carrying N entries here would double every Equatable diff.
@@ -51,8 +91,9 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
   /// zero while the shelf is collapsed — there is no "Show more" affordance
   /// then, and the collapsed header reads `settledTotalCount` instead.
   var hiddenSettledCount: Int = 0
-  /// Top-down render order of every visible row (active, then visible settled).
-  /// Hotkey slots and keyboard navigation key off this in later phases.
+  /// Top-down render order of every visible row: active (pinned first), then the
+  /// snoozed shelf, then the settled tail. Hotkey slots, keyboard navigation and
+  /// forward navigation (A26) all key off this list, so it is contract.
   var visibleTaskIDs: [TaskID] = []
 
   static let empty = TasksSidebarStructure()
@@ -66,23 +107,50 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
   ///
   /// - Parameters:
   ///   - tasks: every known task record, in any order.
+  ///   - now: the reducer's clock sample. Only ever used to expire a wake time;
+  ///     nothing about ordering reads it.
+  ///   - signals: per-task live signals. A task with no entry reads as idle,
+  ///     which is *not* the same as an agent that cannot report (Resolved #1).
   ///   - openTaskID: the currently open/selected task, which is never allowed to
   ///     be hidden (A8).
   ///   - settledVisibleCount: how many settled rows the page window shows.
-  ///   - isSettledTailExpanded: when false the shelf is collapsed and renders
+  ///   - isSettledTailExpanded: when false the tail is collapsed and renders
   ///     nothing — except the open task, which is still pulled in.
+  ///   - isSnoozedShelfExpanded: same rule for the snoozed shelf.
   static func compute(
     tasks: [TaskRecord],
+    now: Date,
+    signals: [TaskID: Signals] = [:],
     openTaskID: TaskID? = nil,
     settledVisibleCount: Int,
-    isSettledTailExpanded: Bool
+    isSettledTailExpanded: Bool,
+    isSnoozedShelfExpanded: Bool
   ) -> TasksSidebarStructure {
+    var pinned: [TaskRecord] = []
     var active: [TaskRecord] = []
     var settled: [TaskRecord] = []
+    var snoozed: [SnoozedEntry] = []
+    var pinnedTaskIDs: Set<TaskID> = []
+    var wokeTaskIDs: Set<TaskID> = []
+
     for task in tasks {
-      if isSettled(task) {
+      let input = snoozeInput(for: task, now: now, signals: signals[task.id] ?? Signals())
+      let isSnoozed = TaskSnooze.effectiveSnoozed(input)
+      let isPinned = task.pinnedAt != nil
+      if isPinned { pinnedTaskIDs.insert(task.id) }
+      if !isSnoozed, let wokeAt = TaskSnooze.wokeAt(input),
+        (TaskTimestamps.read(task.lastVisitedAt).date ?? .distantPast) < wokeAt
+      {
+        wokeTaskIDs.insert(task.id)
+      }
+      switch TaskSnooze.placement(isSnoozed: isSnoozed, isPinned: isPinned, isSettled: isSettled(task)) {
+      case .snoozed:
+        snoozed.append(SnoozedEntry(id: task.id, wakeAt: TaskTimestamps.read(task.snoozedUntil).date))
+      case .pinned:
+        pinned.append(task)
+      case .settled:
         settled.append(task)
-      } else {
+      case .active:
         active.append(task)
       }
     }
@@ -96,27 +164,52 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
       settledVisibleCount: settledVisibleCount,
       isSettledTailExpanded: isSettledTailExpanded
     )
-    let activeTaskIDs = active.sorted(by: activeOrdersBefore).map(\.id)
+    let snoozedShelf = snoozed.sorted(by: snoozedOrdersBefore)
+    let visibleSnoozedEntries = visibleSnoozed(
+      in: snoozedShelf,
+      openTaskID: openTaskID,
+      isSnoozedShelfExpanded: isSnoozedShelfExpanded
+    )
+    let activeTaskIDs =
+      pinned.sorted(by: activeOrdersBefore).map(\.id) + active.sorted(by: activeOrdersBefore).map(\.id)
 
     return TasksSidebarStructure(
       activeTaskIDs: activeTaskIDs,
+      pinnedTaskIDs: pinnedTaskIDs,
+      snoozedTotalCount: snoozedShelf.count,
+      visibleSnoozedEntries: visibleSnoozedEntries,
+      wokeTaskIDs: wokeTaskIDs,
       settledTotalCount: settledTail.count,
       visibleSettledTail: visibleSettledTail,
       hiddenSettledCount: isSettledTailExpanded ? settledTail.count - visibleSettledTail.count : 0,
-      visibleTaskIDs: activeTaskIDs + visibleSettledTail.map(\.id)
+      visibleTaskIDs: activeTaskIDs + visibleSnoozedEntries.map(\.id) + visibleSettledTail.map(\.id)
     )
   }
 
-  /// Phase-1 lifecycle split: settling is explicit only, so a stamped
-  /// `settledAt` (or an explicit `.settled` override) is the whole rule, and an
-  /// explicit `.active` override wins over a stale stamp in either direction.
-  /// Phase 2's `effectiveSettled` cascade (inactivity window, PR state, activity
-  /// blockers) replaces this predicate; the structure keeps taking a partition
-  /// decision, not the evidence behind it.
+  /// The snooze question for one record, assembled in the one place so the
+  /// structure, the reducer's wake-boundary arithmetic and the row's countdown
+  /// can never ask it three slightly different ways.
+  static func snoozeInput(for task: TaskRecord, now: Date, signals: Signals) -> TaskSnooze.Input {
+    TaskSnooze.Input(
+      now: now,
+      snoozedUntil: task.snoozedUntil,
+      snoozedAt: task.snoozedAt,
+      activity: signals.activity,
+      errorAt: signals.errorAt,
+      completedTurnAt: signals.completedTurnAt,
+      notifiedAt: signals.notifiedAt
+    )
+  }
+
+  /// Settled-ness from the record alone: a stamped `settledAt` (or an explicit
+  /// `.settled` override), with an explicit `.active` override winning over a
+  /// stale stamp in either direction. Phase 5's `effectiveSettled` cascade
+  /// (inactivity window, PR state, activity blockers) replaces this predicate;
+  /// the structure keeps taking a partition decision, not the evidence behind it.
   ///
-  /// Fields a later build writes but Phase 1 doesn't read — a `pinnedAt`, a
-  /// `snoozedUntil` — have no effect here: such a task renders as a plain active
-  /// row, which is the safe degrade (visible and unstyled beats hidden).
+  /// It is only ever *one* of three inputs to placement — `TaskSnooze.placement`
+  /// puts snooze and pin above it (A16) — so a settled row that is also parked
+  /// or pinned never reaches the tail.
   static func isSettled(_ task: TaskRecord) -> Bool {
     switch task.settledOverride {
     case .active: return false
@@ -158,6 +251,30 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
     let right = rhs.settledTimestamp ?? .distantPast
     if left != right { return left > right }
     return lhs.id.rawValue < rhs.id.rawValue
+  }
+
+  /// Soonest-wake-first, with the same opaque-ID tie-break the other two
+  /// orderings use. A row whose wake instant is unreadable sorts last rather
+  /// than jumping the queue.
+  private static func snoozedOrdersBefore(_ lhs: SnoozedEntry, _ rhs: SnoozedEntry) -> Bool {
+    let left = lhs.wakeAt ?? .distantFuture
+    let right = rhs.wakeAt ?? .distantFuture
+    if left != right { return left < right }
+    return lhs.id.rawValue < rhs.id.rawValue
+  }
+
+  /// A8 applied to snooze: parking the task you are looking at must not make it
+  /// vanish out from under you, so a collapsed shelf still renders that one row.
+  /// No page window — the shelf is bounded by how much a person is willing to
+  /// park, not by history.
+  private static func visibleSnoozed(
+    in shelf: [SnoozedEntry],
+    openTaskID: TaskID?,
+    isSnoozedShelfExpanded: Bool
+  ) -> [SnoozedEntry] {
+    guard !isSnoozedShelfExpanded else { return shelf }
+    guard let open = shelf.first(where: { $0.id == openTaskID }) else { return [] }
+    return [open]
   }
 
   /// The open task is never hidden (A8): navigating into a deep settled task

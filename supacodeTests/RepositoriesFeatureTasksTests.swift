@@ -51,6 +51,10 @@ struct RepositoriesFeatureTasksTests {
     } withDependencies: {
       $0.settingsFileStorage = sandbox.storage
       $0.date.now = Self.now
+      // `.loaded` arms the coarse re-classification loop (A23), so every test
+      // that reaches it needs a clock to arm it against and a `.stopTimers` to
+      // take it back down before `finish()`.
+      $0.continuousClock = TestClock()
     }
     // The post-reduce hook rewrites six derived caches on every task arm; this
     // suite asserts the task-owned state, and `expectCachesConverged` in the
@@ -91,6 +95,7 @@ struct RepositoriesFeatureTasksTests {
     await store.receive(\.tasks.loaded)
     await store.receive(\.tasks.seedIfNeeded)
     await store.receive(\.tasks.seeded)
+    await store.send(.tasks(.stopTimers))
     await store.finish()
 
     #expect(store.state.taskRecords.count == 2)
@@ -125,6 +130,7 @@ struct RepositoriesFeatureTasksTests {
     await store.send(.tasks(.load))
     await store.receive(\.tasks.loaded)
     await store.receive(\.tasks.seedIfNeeded)
+    await store.send(.tasks(.stopTimers))
     await store.finish()
 
     #expect(store.state.taskRecords.map(\.id) == [existing.id])
@@ -143,6 +149,7 @@ struct RepositoriesFeatureTasksTests {
     await store.send(.tasks(.load))
     await store.receive(\.tasks.loaded)
     await store.receive(\.tasks.seedIfNeeded)
+    await store.send(.tasks(.stopTimers))
     await store.finish()
 
     #expect(store.state.taskRecords.map(\.id) == [existing.id])
@@ -656,6 +663,7 @@ struct RepositoriesFeatureTasksTests {
     await store.receive(\.tasks.loaded)
     await store.receive(\.tasks.seedIfNeeded)
     await store.receive(\.tasks.seeded)
+    await store.send(.tasks(.stopTimers))
     await store.finish()
 
     #expect(store.state.taskRecords.count == 3)

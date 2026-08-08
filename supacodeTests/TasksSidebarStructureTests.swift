@@ -480,8 +480,8 @@ struct TasksSidebarStructureTests {
   /// answer instead of resurrecting a stale marker.
   @Test func wokeTaskIsMarkedUntilItIsVisited() {
     let unvisited = Self.task("unvisited", snoozedUntil: 600, snoozedAt: 0)
-    let visited = Self.task("visited", snoozedUntil: 600, snoozedAt: 0, lastVisitedAt: 900)
-    let staleVisit = Self.task("stale-visit", snoozedUntil: 600, snoozedAt: 0, lastVisitedAt: 100)
+    let visited = Self.task("visited", lastVisitedAt: 900, snoozedUntil: 600, snoozedAt: 0)
+    let staleVisit = Self.task("stale-visit", lastVisitedAt: 100, snoozedUntil: 600, snoozedAt: 0)
     let structure = Self.compute(
       [unvisited, visited, staleVisit],
       now: Self.reference.addingTimeInterval(1200)

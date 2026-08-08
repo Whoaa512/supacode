@@ -499,6 +499,9 @@ struct RepositoriesFeatureTasksPromoteTests {
     }
 
     await store.send(.tasks(.promoteTab(worktreeID: rowID, tabID: claimed.id))) {
+      // Every task arm that can move a row re-samples the clock the placement
+      // rules are evaluated against (A23).
+      $0.taskNow = Self.now
       $0.taskRecords[id: existing.id]?.surfaceIDs = [ownedSurface, claimedSurface]
       $0.applyPostReduceCacheRecomputes(.sidebarStructure)
     }

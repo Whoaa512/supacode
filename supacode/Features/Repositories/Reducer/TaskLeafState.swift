@@ -43,10 +43,50 @@ struct TaskLeafState: Equatable, Sendable, Identifiable {
   var hasUnseenNotifications: Bool = false
   /// Every owned surface is hibernated, so the row shows the sleep marker.
   var allSurfacesDormant: Bool = false
+  /// When an agent on an owned surface last reported an error. The snooze rules
+  /// need the *instant*, not the fact: only a failure newer than the snooze
+  /// re-surfaces a parked row (A25).
+  var errorAt: Date?
+  /// When a turn on an owned surface last finished unseen.
+  var completedTurnAt: Date?
+  /// Newest *unread* terminal notification on an owned surface. Scoped to the
+  /// surfaces the task owns rather than to the whole row, so a sibling task's
+  /// notification in the same directory cannot wake this one (Resolved #7).
+  var notifiedAt: Date?
 
   init(id: TaskID) {
     self.id = id
   }
+
+  /// What the settlement and snooze rules read about this task right now.
+  ///
+  /// `isAwaitingApproval` is `nil` — THIS AGENT CANNOT REPORT IT (Resolved #1) —
+  /// until the hook wire protocol grows the discriminator in Phase 5. Reading it
+  /// as `false` would be a claim we cannot back.
+  var activitySnapshot: TaskSettlement.ActivitySnapshot {
+    TaskSettlement.ActivitySnapshot(
+      isWorking: agentSnapshot.isWorking,
+      isAwaitingInput: agentSnapshot.agents.contains { $0.activity == .awaitingInput },
+      isAwaitingApproval: nil,
+      isErrored: agentSnapshot.hasError
+    )
+  }
+
+  /// The classification inputs the cached structure projects for this task.
+  var signals: TasksSidebarStructure.Signals {
+    TasksSidebarStructure.Signals(
+      activity: activitySnapshot,
+      errorAt: errorAt,
+      completedTurnAt: completedTurnAt,
+      notifiedAt: notifiedAt
+    )
+  }
+
+  /// A18b, row-side: the affordance is disabled rather than offered and refused.
+  /// Both read activity and nothing else, which is what lets a row answer them
+  /// from its own leaf without reaching for the record or the clock.
+  var canSettle: Bool { TaskSettlement.canSettle(activitySnapshot) }
+  var canSnooze: Bool { TaskSettlement.canSnooze(activitySnapshot) }
 }
 
 extension TaskLeafState {
