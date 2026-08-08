@@ -440,6 +440,39 @@ struct RepositoriesFeatureTasksTests {
     #expect(store.state.selection == priorSelection)
   }
 
+  /// Search rebuilds the structure but must not re-time it: `taskNow` is the
+  /// instant every placement rule is evaluated against (A23), so stamping it per
+  /// keystroke would age the inbox while the user types — rows receding and
+  /// countdowns ticking in response to a search field.
+  @Test func searchDoesNotMoveTheClockTheInboxIsClassifiedAgainst() async throws {
+    let sandbox = try makeSandbox()
+    let mine = try sandbox.makeDirectory("mine", activityAt: Self.freshDate)
+    var state = makeState(sandbox: sandbox, directories: [mine])
+    var record = makeRecord(directory: mine)
+    record.title = "Ship the inbox"
+    state.taskRecords = [record]
+    // Deliberately behind the store's `date.now`, so a stamp is visible.
+    let stale = Self.now.addingTimeInterval(-60 * 60)
+    state.taskNow = stale
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(.tasks(.setSearchQuery("inbox")))
+    await store.send(.tasks(.setSnoozedShelfExpanded(true)))
+    await store.send(.tasks(.setSettledTailExpanded(true)))
+    await store.finish()
+
+    #expect(store.state.taskNow == stale)
+
+    // The lifecycle arms still re-time, or a settle would classify against a
+    // clock the user's last keystroke froze.
+    await store.send(.tasks(.pin(record.id)))
+    await store.send(.tasks(.stopTimers))
+    await store.finish()
+
+    #expect(store.state.taskNow == Self.now)
+  }
+
   /// The selection survives a query it does not match (A8), so clearing the
   /// field leaves the user standing exactly where they started.
   @Test func searchKeepsTheOpenTaskVisibleAndSelected() async throws {

@@ -186,9 +186,16 @@ extension RepositoriesFeature {
       // read the clock on every sidebar mutation. The `.tasks` arms stamp
       // unconditionally, because `.loaded` and `.seeded` are what *create* the
       // inbox and run while `taskRecords` is still empty.
+      //
+      // The presentation-only arms are the other exception: they owe a rebuild
+      // (the structure they project narrowed or expanded) but not a re-timing,
+      // so `samplesClock` holds the clock still while the user types in the
+      // search field or opens a shelf.
       if action.cacheInvalidations.contains(.sidebarStructure) {
-        if case .tasks = action {
-          state.taskNow = now
+        if case .tasks(let taskAction) = action {
+          if taskAction.samplesClock {
+            state.taskNow = now
+          }
         } else if !state.taskRecords.isEmpty {
           state.taskNow = now
         }
@@ -2121,6 +2128,40 @@ extension RepositoriesFeature.TaskInboxAction {
     // `.createRandomWorktreeSucceeded` declares.
     case .createTask, .resolveDirectoryConflict, .autoManagedWorktreeCreated:
       return [.sidebarStructure, .selectedWorktreeSlice, .sidebarSelectionSlice]
+    }
+  }
+
+  /// Whether this arm may move `taskNow`, the instant every placement rule is
+  /// evaluated against (A23).
+  ///
+  /// Rebuilding the structure and *re-timing* it are two different things. A few
+  /// arms owe a rebuild for presentation reasons alone — typing in the search
+  /// field, opening a shelf — and stamping the clock for them would age the whole
+  /// inbox on every keystroke: rows would recede, "snoozed until" countdowns
+  /// would tick, and a task could cross a settle boundary because someone
+  /// searched for it.
+  ///
+  /// Exhaustive (no `default`) for the same reason `cacheInvalidations` is, and
+  /// defaulting to true: a new arm that writes a stamp has to be able to
+  /// classify against the instant it wrote.
+  var samplesClock: Bool {
+    switch self {
+    // Presentation only: these change what the user is looking at, never when
+    // it happened.
+    case .setSearchQuery, .setSettledTailExpanded, .expandSettledTail,
+      .setSnoozedShelfExpanded, .setConflictRemember:
+      return false
+    case .load, .loaded, .seedIfNeeded, .seeded, .select, .settle, .unsettle,
+      .snooze, .unsnooze, .pin, .unpin, .keepActive,
+      .jumpToNextNeedingAttention, .settleSelected, .snoozeSelected, .togglePinSelected,
+      .focusSelectedSurface, .revealSelectedInSidebar, .consumeSidebarReveal,
+      .classificationTick, .wakeBoundaryReached, .agentSnapshotChanged,
+      .autoSettleSettingsChanged, .stopTimers,
+      .presentCreationPrompt, .cancelDirectoryConflict, .createTask,
+      .resolveDirectoryConflict, .promoteTab, .reconcileSurfaceOwnership,
+      .autoManagedWorktreeCreated, .autoManagedWorktreeCreationFailed,
+      .cleanupAutoManagedWorktree, .autoManagedWorktreeCleanupFinished:
+      return true
     }
   }
 }
