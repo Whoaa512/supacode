@@ -242,9 +242,22 @@ extension RepositoriesFeature.State {
   /// The panel currently on screen. Arrow / ⌃digit nav switches over this so one
   /// chord drives whichever panel the user is looking at, and a panel that has
   /// no navigation of its own can never fall through into worktree nav.
+  ///
+  /// Resolved through visibility for the same reason `SidebarView`'s binding is
+  /// (A36): hiding the panel you were standing on leaves the stored raw value
+  /// pointing at it, and the view then renders the inbox. Reading the raw value
+  /// alone here would make ⌘N and ⌃n act on a panel nobody can see.
   var activeSidebarTab: SidebarTab {
     @Shared(.sidebarTab) var sidebarTabRawValue
-    return SidebarTab.resolved(fromStoredValue: sidebarTabRawValue)
+    @Shared(.sidebarShowsWorktreesTab) var showsWorktreesTab
+    @Shared(.sidebarShowsAgentsTab) var showsAgentsTab
+    return SidebarTab.resolved(
+      fromStoredValue: sidebarTabRawValue,
+      visibility: SidebarTab.Visibility(
+        showsWorktrees: showsWorktreesTab,
+        showsAgents: showsAgentsTab
+      )
+    )
   }
 
     /// Wrapping move through the flat visual order, matching worktree arrow nav

@@ -70,6 +70,27 @@ struct RepositoriesFeatureTaskKeyboardTests {
     }
   }
 
+  /// The same pin, plus the two A36 visibility switches, for the case where the
+  /// persisted panel is one the user has since put away.
+  private func withStoredTab<T>(
+    _ tab: SidebarTab,
+    showsWorktrees: Bool = true,
+    showsAgents: Bool = true,
+    _ body: () async throws -> T
+  ) async rethrows -> T {
+    try await withDependencies {
+      $0.defaultAppStorage = .inMemory
+    } operation: {
+      @Shared(.sidebarTab) var sidebarTabRawValue
+      @Shared(.sidebarShowsWorktreesTab) var showsWorktreesTab
+      @Shared(.sidebarShowsAgentsTab) var showsAgentsTab
+      $sidebarTabRawValue.withLock { $0 = tab.rawValue }
+      $showsWorktreesTab.withLock { $0 = showsWorktrees }
+      $showsAgentsTab.withLock { $0 = showsAgents }
+      return try await body()
+    }
+  }
+
   private struct Inbox {
     var state: RepositoriesFeature.State
     var records: [TaskRecord]
@@ -753,6 +774,62 @@ struct RepositoriesFeatureTaskKeyboardTests {
       await store.finish()
 
       #expect(store.state.pendingTaskReveal == nil)
+    }
+  }
+
+  // MARK: - A36: a persisted tab the user has since hidden
+
+  /// Hiding the panel you are standing on is the ordinary way to hide one, so
+  /// the stored raw value keeps naming a panel that is no longer on screen. The
+  /// view already lands on the inbox in that case; the reducer's
+  /// `activeSidebarTab` has to agree, or every chord that branches on it acts on
+  /// a panel nobody can see.
+  @Test func hidingTheStoredPanelMakesTheInboxTheActiveTab() async throws {
+    let sandbox = try makeSandbox()
+    let inbox = try makeInbox(sandbox: sandbox, count: 2)
+    try await withStoredTab(.worktrees, showsWorktrees: false) {
+      let store = makeStore(inbox.state, sandbox: sandbox)
+
+      #expect(store.state.activeSidebarTab == .tasks)
+    }
+  }
+
+  /// A19's routing follows the panel on screen, not the stale stored value:
+  /// with Worktrees hidden, ⌘N captures a task instead of raising the worktree
+  /// prompt.
+  @Test func theNewShortcutCapturesATaskWhenTheStoredPanelIsHidden() async throws {
+    let sandbox = try makeSandbox()
+    let inbox = try makeInbox(sandbox: sandbox, count: 2)
+    try await withStoredTab(.worktrees, showsWorktrees: false) {
+      let store = makeStore(inbox.state, sandbox: sandbox)
+
+      await store.send(.createRandomWorktree)
+      await store.skipReceivedActions(strict: false)
+      await store.send(.tasks(.stopTimers))
+      await store.skipReceivedActions(strict: false)
+      await store.finish()
+
+      #expect(store.state.taskCreationPrompt != nil)
+      #expect(store.state.worktreeCreationPrompt == nil)
+    }
+  }
+
+  /// Same for A32's slots: ⌃2 opens the second inbox row rather than falling
+  /// through into worktree navigation.
+  @Test func theSlotChordTargetsTheInboxWhenTheStoredPanelIsHidden() async throws {
+    let sandbox = try makeSandbox()
+    let inbox = try makeInbox(sandbox: sandbox, count: 3)
+    try await withStoredTab(.worktrees, showsWorktrees: false) {
+      let store = makeStore(inbox.state, sandbox: sandbox)
+      let visible = visibleIDs(store)
+
+      await store.send(.selectWorktreeAtHotkeySlot(1))
+      await store.send(.tasks(.stopTimers))
+      await store.skipReceivedActions(strict: false)
+      await store.finish()
+
+      #expect(store.state.selection == .task(visible[1]))
+      #expect(store.state.selectedWorktreeID == nil)
     }
   }
 }
