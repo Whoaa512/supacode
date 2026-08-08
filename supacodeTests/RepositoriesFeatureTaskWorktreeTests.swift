@@ -297,6 +297,8 @@ struct RepositoriesFeatureTaskWorktreeTests {
     // Cold was tried too, and only then did the capture fail.
     #expect(attempts.value.map(\.copyIgnored) == [true, false])
     // Nothing landed: no record, no orphan marker, no selection move, no write.
+    // No terminal either, though only by construction rather than by assertion —
+    // the request rides on the record, and no record was created.
     #expect(store.state.taskRecords.map(\.id) == [incumbent.id])
     #expect(store.state.taskRecords.allSatisfy { $0.autoManagedWorktree == nil })
     #expect(store.state.selection == nil)
@@ -681,10 +683,22 @@ struct RepositoriesFeatureTaskWorktreeTests {
     let record = TaskInboxFixture.makeRecord(directory: plain, surfaceIDs: [surfaceID])
     state.taskRecords = [record]
     state.applyPostReduceCacheRecomputes(.all)
-    let removed = LockIsolated(false)
+    let reads = LockIsolated<[String]>([])
     let store = makeStore(state, sandbox: sandbox) {
+      $0.rootDirectoryExists = { _ in
+        reads.withValue { $0.append("exists") }
+        return true
+      }
+      $0.branchName = { _ in
+        reads.withValue { $0.append("branch") }
+        return "main"
+      }
+      $0.lineChanges = { _ in
+        reads.withValue { $0.append("lineChanges") }
+        return (added: 0, removed: 0)
+      }
       $0.removeWorktree = { worktree, _ in
-        removed.withValue { $0 = true }
+        reads.withValue { $0.append("remove") }
         return worktree.workingDirectory
       }
       $0.worktrees = { _ in [] }
@@ -694,7 +708,10 @@ struct RepositoriesFeatureTaskWorktreeTests {
     await store.receive(\.delegate.hibernateTaskSurfaces)
     await store.finish()
 
-    #expect(removed.value == false)
+    // Not "nothing was deleted" — nothing was even *asked*. A settle with no
+    // marker has no delete authority to re-check, so it must not reach git at
+    // all, and a spy on the delete alone would not notice if it did.
+    #expect(reads.value.isEmpty)
     #expect(store.state.taskRecords[id: record.id]?.settledAt == Self.now)
   }
 

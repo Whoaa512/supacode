@@ -352,6 +352,40 @@ struct RepositoriesFeatureTaskCreationTests {
     #expect(store.state.alert == nil)
   }
 
+  /// A second capture arriving while the question is open must not take the
+  /// sheet over. The prompt carries the capture it is blocking, so overwriting
+  /// it would put the first capture's question on screen for the second one's
+  /// directory — and a ticked "remember" would write that answer against a
+  /// repository the user was never asked about.
+  @Test func aSecondCaptureWhileTheQuestionIsOpenIsRefusedRatherThanRetargeting() async throws {
+    let sandbox = try makeSandbox()
+    let busy = try sandbox.makeDirectory("busy", activityAt: Self.freshDate)
+    let otherBusy = try sandbox.makeDirectory("other-busy", activityAt: Self.freshDate)
+    var state = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [busy, otherBusy],
+      hasLoadedTasks: true
+    )
+    state.taskRecords = [
+      TaskInboxFixture.makeRecord(directory: busy),
+      TaskInboxFixture.makeRecord(directory: otherBusy),
+    ]
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(.tasks(.createTask(title: "Second pass", directoryURL: busy)))
+    await store.send(.tasks(.createTask(title: "Elsewhere", directoryURL: otherBusy)))
+    await store.finish()
+
+    let conflict = try #require(store.state.taskDirectoryConflict)
+    // Still the first question, unchanged.
+    #expect(conflict.title == "Second pass")
+    #expect(conflict.directoryPath == TaskDirectoryPath.canonical(busy))
+    // And the refused capture left nothing of its own behind.
+    #expect(store.state.taskRecords.count == 2)
+    #expect(!sandbox.didWriteTasksFile)
+  }
+
   /// Answering without remembering resolves this capture and nothing else —
   /// the next busy capture in the same repository asks again.
   @Test func answeringWithoutRememberingLeavesTheRepositoryUnanswered() async throws {

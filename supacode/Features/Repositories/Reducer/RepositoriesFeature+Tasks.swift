@@ -284,14 +284,20 @@ extension RepositoriesFeature {
         let directoryPath = TaskDirectoryPath.canonical(directoryURL)
         // Switched rather than compared so no answer can silently fall through
         // to the shared path — that would ship an isolation policy that shares.
-        switch state.taskDirectoryConflictPolicy(forDirectory: directoryPath) {
-        case .useDirectly, .share:
+        switch state.taskCaptureRoute(forDirectory: directoryPath) {
+        case .createHere:
           return state.reduceTaskCreation(title: title, directoryPath: directoryPath, now: now)
 
-        case .ask:
-          guard let repository = state.taskCaptureRepository(forDirectory: directoryPath) else {
-            // Unreachable: `.ask` is only returned when a repository answered it.
-            return state.reduceTaskCreation(title: title, directoryPath: directoryPath, now: now)
+        case .ask(let repository):
+          // The prompt is keyed by directory, so a second capture landing while
+          // the question is open would retarget the sheet in place and apply the
+          // user's answer — including a remembered one — to a directory they
+          // were never asked about. The capture in front of the user wins.
+          guard state.taskDirectoryConflict == nil else {
+            tasksLogger.debug(
+              "Task creation refused: a directory conflict question is already open."
+            )
+            return .none
           }
           state.taskDirectoryConflict = TaskDirectoryConflictPrompt(
             title: title,
@@ -304,10 +310,7 @@ extension RepositoriesFeature {
           // earlier): no record, no selection move, no write.
           return .none
 
-        case .isolate:
-          guard let repository = state.taskCaptureRepository(forDirectory: directoryPath) else {
-            return state.reduceTaskCreation(title: title, directoryPath: directoryPath, now: now)
-          }
+        case .isolate(let repository):
           return isolatedCaptureEffect(
             state: state,
             title: title,
@@ -336,6 +339,13 @@ extension RepositoriesFeature {
           @Shared(.repositorySettings(repository.rootURL, host: repository.host))
           var repositorySettings
           $repositorySettings.withLock { $0.taskDirectoryIsolation = isolation }
+        } else if prompt.shouldRemember {
+          // Ticked, and going nowhere: the repository was removed between
+          // question and answer, so there is no settings file to write it to and
+          // the next capture in that directory will ask again.
+          tasksLogger.debug(
+            "Task isolation choice not remembered: repository \(prompt.repositoryID) is gone."
+          )
         }
         // A repository that vanished between question and answer cannot be
         // branched from; A20 forbids blocking creation, so it shares.
@@ -813,6 +823,19 @@ extension RepositoriesFeature {
   }
 }
 
+/// Where a capture in one directory goes: create the task right there (nobody
+/// else is in it, or it belongs to no repository, or the repository already
+/// answered "share"), ask the user, or mint a worktree.
+///
+/// The repository rides along on the two routes that need one, so the caller
+/// never has to unwrap — and never has to invent a fallback for a combination
+/// the cascade cannot produce.
+enum TaskCaptureRoute: Equatable {
+  case createHere
+  case ask(Repository)
+  case isolate(Repository)
+}
+
 /// What only the reducer knows about one candidate directory at seed time.
 nonisolated struct TaskSeedInput: Equatable, Sendable {
   var directoryURL: URL
@@ -916,18 +939,33 @@ extension RepositoriesFeature.State {
     return repository
   }
 
-  /// Steps 1–3 of Resolved #11, resolved against live state. A directory with no
-  /// repository answers `.useDirectly` however busy it is: A20 forbids blocking
-  /// creation, and sharing is the only honest fallback.
-  func taskDirectoryConflictPolicy(forDirectory directoryPath: String) -> TaskDirectoryConflictPolicy {
+  /// Steps 1–3 of Resolved #11, resolved against live state, with the repository
+  /// the answer needs carried *inside* the answer.
+  ///
+  /// The two routes that act on a repository can only be reached through one,
+  /// which is what this shape says out loud: resolving the policy and the
+  /// repository separately left the caller writing fallbacks for a nil that the
+  /// cascade cannot produce — dead branches that would quietly turn "isolate"
+  /// into "share" the day one of them stopped being dead.
+  ///
+  /// A directory with no repository routes to `.createHere` however busy it is:
+  /// A20 forbids blocking creation, and there is nothing to branch from.
+  func taskCaptureRoute(forDirectory directoryPath: String) -> TaskCaptureRoute {
     guard let repository = taskCaptureRepository(forDirectory: directoryPath) else {
-      return .useDirectly
+      return .createHere
     }
     @Shared(.repositorySettings(repository.rootURL, host: repository.host)) var repositorySettings
-    return TaskDirectoryConflictPolicy.resolve(
+    switch TaskDirectoryConflictPolicy.resolve(
       isDirectoryBusy: newestActiveTask(inDirectory: directoryPath) != nil,
       repositoryIsolation: repositorySettings.taskDirectoryIsolation
-    )
+    ) {
+    case .useDirectly, .share:
+      return .createHere
+    case .ask:
+      return .ask(repository)
+    case .isolate:
+      return .isolate(repository)
+    }
   }
 
   /// The title a capture lands with: what the user typed, or the seeder's naming
