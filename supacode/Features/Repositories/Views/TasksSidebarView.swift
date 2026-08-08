@@ -20,32 +20,66 @@ struct TasksSidebarView: View {
     let structure = store.tasksSidebarStructure
     let selectedTaskID = store.selection?.taskID
     let isSettledTailExpanded = store.isSettledTailExpanded
+    let isSnoozedShelfExpanded = store.isSnoozedShelfExpanded
 
     return VStack(spacing: 0) {
       TasksNewTaskBar(store: store)
       Divider()
-      taskList(structure: structure, selectedTaskID: selectedTaskID, isSettledTailExpanded: isSettledTailExpanded)
+      taskList(
+        structure: structure,
+        selectedTaskID: selectedTaskID,
+        isSettledTailExpanded: isSettledTailExpanded,
+        isSnoozedShelfExpanded: isSnoozedShelfExpanded
+      )
     }
   }
 
   private func taskList(
     structure: TasksSidebarStructure,
     selectedTaskID: TaskID?,
-    isSettledTailExpanded: Bool
+    isSettledTailExpanded: Bool,
+    isSnoozedShelfExpanded: Bool
   ) -> some View {
     List(selection: selectionBinding(current: selectedTaskID)) {
-      if structure.visibleTaskIDs.isEmpty, structure.settledTotalCount == 0 {
+      if structure.visibleTaskIDs.isEmpty, structure.settledTotalCount == 0,
+        structure.snoozedTotalCount == 0
+      {
         emptyRow
       }
 
       if !structure.activeTaskIDs.isEmpty {
         Section {
           ForEach(structure.activeTaskIDs, id: \.self) { taskID in
-            TaskSidebarRowView(store: store, taskID: taskID, settledTimestamp: nil, isSettled: false)
+            TaskSidebarRowView(
+              store: store,
+              taskID: taskID,
+              settledTimestamp: nil,
+              isSettled: false,
+              isPinned: structure.pinnedTaskIDs.contains(taskID),
+              isWoke: structure.wokeTaskIDs.contains(taskID)
+            )
           }
         } header: {
           Text("Active (\(structure.activeTaskIDs.count))")
             .help("\(structure.activeTaskIDs.count) task(s) still in flight, newest first")
+        }
+      }
+
+      if structure.snoozedTotalCount > 0 {
+        Section {
+          ForEach(structure.visibleSnoozedEntries) { entry in
+            TaskSidebarRowView(
+              store: store,
+              taskID: entry.id,
+              settledTimestamp: nil,
+              isSettled: false,
+              isPinned: structure.pinnedTaskIDs.contains(entry.id),
+              isWoke: false,
+              wakeAt: entry.wakeAt
+            )
+          }
+        } header: {
+          snoozedHeader(structure: structure, isExpanded: isSnoozedShelfExpanded)
         }
       }
 
@@ -56,7 +90,9 @@ struct TasksSidebarView: View {
               store: store,
               taskID: entry.id,
               settledTimestamp: entry.settledTimestamp,
-              isSettled: true
+              isSettled: true,
+              isPinned: false,
+              isWoke: false
             )
           }
           if structure.hiddenSettledCount > 0 {
@@ -111,6 +147,26 @@ struct TasksSidebarView: View {
       isExpanded
         ? "Hide the settled tail — \(structure.settledTotalCount) task(s) wrapped up"
         : "Show the settled tail — \(structure.settledTotalCount) task(s) wrapped up"
+    )
+  }
+
+  private func snoozedHeader(structure: TasksSidebarStructure, isExpanded: Bool) -> some View {
+    Button {
+      store.send(.tasks(.setSnoozedShelfExpanded(!isExpanded)))
+    } label: {
+      HStack(spacing: 4) {
+        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+          .accessibilityHidden(true)
+        Text("Snoozed (\(structure.snoozedTotalCount))")
+        Spacer(minLength: 0)
+      }
+      .contentShape(.rect)
+    }
+    .buttonStyle(.plain)
+    .help(
+      isExpanded
+        ? "Hide the snoozed shelf — \(structure.snoozedTotalCount) task(s) parked until later"
+        : "Show the snoozed shelf — \(structure.snoozedTotalCount) task(s) parked until later"
     )
   }
 
@@ -169,6 +225,12 @@ private struct TaskSidebarRowView: View {
   /// the label can't drift from the order (A17).
   let settledTimestamp: Date?
   let isSettled: Bool
+  let isPinned: Bool
+  /// Its snooze ended and the user has not opened it since (A24). Derived by the
+  /// structure, never stored, so a relaunch re-derives the same answer.
+  let isWoke: Bool
+  /// Set only for rows on the snoozed shelf, for the countdown.
+  var wakeAt: Date?
 
   var body: some View {
     #if DEBUG
@@ -189,23 +251,88 @@ private struct TaskSidebarRowView: View {
         activity: TaskRowActivity(leaf: leaf),
         childAgents: leaf?.childAgents ?? [],
         settledTimestamp: settledTimestamp,
-        isSettled: isSettled
+        isSettled: isSettled,
+        isPinned: isPinned,
+        isWoke: isWoke,
+        wakeAt: wakeAt
       )
     }
     .buttonStyle(.plain)
     .tag(SidebarSelection.task(taskID))
     .help(Self.help(title: record?.title, isSettled: isSettled))
     .contextMenu {
-      if isSettled {
-        Button("Unsettle") { store.send(.tasks(.unsettle(taskID))) }
-          .help("Move this task back to Active. Its sessions stay as they are until you open it.")
-      } else {
-        Button("Settle") { store.send(.tasks(.settle(taskID))) }
-          .help(
-            "Mark this task wrapped up and move it to the settled tail. "
+      lifecycleMenuItems(canSettle: leaf?.canSettle ?? true)
+      Divider()
+      snoozeMenuItems(canSnooze: leaf?.canSnooze ?? true, isSnoozed: wakeAt != nil)
+      Divider()
+      pinMenuItems()
+    }
+  }
+
+  /// A18b: the affordance is *disabled* rather than hidden, and says why. A menu
+  /// item that vanishes when an agent asks a question reads as a bug; one that
+  /// greys out with a reason reads as the app knowing something.
+  @ViewBuilder
+  private func lifecycleMenuItems(canSettle: Bool) -> some View {
+    if isSettled {
+      Button("Unsettle") { store.send(.tasks(.unsettle(taskID))) }
+        .help("Move this task back to Active. Its sessions stay as they are until you open it.")
+    } else {
+      Button("Settle") { store.send(.tasks(.settle(taskID))) }
+        .disabled(!canSettle)
+        .help(
+          canSettle
+            ? "Mark this task wrapped up and move it to the settled tail. "
               + "Its sessions hibernate when nothing else is using the directory; scrollback is kept."
-          )
+            : "An agent on this task is working or waiting on you — answer it first."
+        )
+    }
+    Button("Keep Active") { store.send(.tasks(.keepActive(taskID))) }
+      .help("Pin this task as active so it is never auto-settled by inactivity.")
+  }
+
+  /// Presets are resolved against the clock at menu-open time, never precomputed
+  /// (A23): one whose instant has already passed is omitted rather than silently
+  /// rolled to tomorrow, which would make a single menu item mean two things.
+  @ViewBuilder
+  private func snoozeMenuItems(canSnooze: Bool, isSnoozed: Bool) -> some View {
+    if isSnoozed {
+      Button("Wake Now") { store.send(.tasks(.unsnooze(taskID))) }
+        .help("Bring this task back to Active right now, ahead of its wake time.")
+    }
+    Menu("Snooze") {
+      ForEach(TaskSnooze.resolveSnoozePresets(now: Date(), calendar: .autoupdatingCurrent), id: \.preset) { preset in
+        Button(Self.presetTitle(preset)) {
+          store.send(.tasks(.snooze(taskID, until: preset.wakeAt)))
+        }
+        .help("Park this task until \(Self.presetTitle(preset).lowercased()); it comes back where it is now.")
       }
+    }
+    .disabled(!canSnooze)
+    .help(
+      canSnooze
+        ? "Park this task until later. It comes back in the same place, and an agent that needs you wakes it early."
+        : "This task is waiting on you — snoozing it would surface it again immediately."
+    )
+  }
+
+  @ViewBuilder
+  private func pinMenuItems() -> some View {
+    if isPinned {
+      Button("Unpin") { store.send(.tasks(.unpin(taskID))) }
+        .help("Stop keeping this task at the top of Active.")
+    } else {
+      Button("Pin") { store.send(.tasks(.pin(taskID))) }
+        .help("Keep this task at the top of Active. Settling it clears the pin.")
+    }
+  }
+
+  private static func presetTitle(_ preset: TaskSnooze.ResolvedPreset) -> String {
+    switch preset.preset {
+    case .oneHour: "In an Hour"
+    case .thisEvening: "This Evening"
+    case .tomorrow: "Tomorrow"
+    case .nextWeek: "Next Week"
     }
   }
 
@@ -292,6 +419,11 @@ private struct TaskSidebarRowContentView: View {
   let childAgents: [TaskLeafState.ChildAgent]
   let settledTimestamp: Date?
   let isSettled: Bool
+  let isPinned: Bool
+  let isWoke: Bool
+  /// Wake instant for a parked row — the same value the shelf sorted by (A17's
+  /// rule applied to snooze), so the countdown can't disagree with the order.
+  let wakeAt: Date?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 2) {
@@ -309,10 +441,26 @@ private struct TaskSidebarRowContentView: View {
   private var summary: some View {
     HStack(spacing: 8) {
       VStack(alignment: .leading, spacing: 1) {
-        Text(title)
-          .font(isSettled ? .callout : .body)
-          .lineLimit(1)
-          .truncationMode(.middle)
+        HStack(spacing: 4) {
+          if isPinned {
+            Image(systemName: "pin.fill")
+              .font(.caption)
+              .accessibilityLabel("Pinned")
+              .help("Pinned to the top of Active")
+          }
+          Text(title)
+            .font(isSettled ? .callout : .body)
+            .lineLimit(1)
+            .truncationMode(.middle)
+          if isWoke {
+            Text("Woke")
+              .font(.caption2)
+              .padding(.horizontal, 5)
+              .padding(.vertical, 1)
+              .background(.tint.opacity(0.2), in: .capsule)
+              .help("This task came back from a snooze and you haven't opened it since")
+          }
+        }
         HStack(spacing: 4) {
           if let secondary {
             Text(secondary)
@@ -337,6 +485,13 @@ private struct TaskSidebarRowContentView: View {
           .foregroundStyle(.secondary)
           .lineLimit(1)
           .help("When this task wrapped up")
+      }
+      if let wakeAt {
+        Text(wakeAt, format: .relative(presentation: .named))
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+          .help("When this task comes back on its own")
       }
       if hasUnseenNotifications {
         Image(systemName: "bell.badge.fill")
