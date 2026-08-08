@@ -23,9 +23,11 @@ import SupacodeSettingsShared
 /// Deliberately *not* an input to `TasksSidebarStructure.compute`: activity
 /// updates a row and can never reorder it (A4).
 ///
-/// Population lands with the task reducer arms; this type only declares the
-/// shape. Kept minimal for Phase 1 — status pills, working-elapsed
-/// (`workingSince`) and PR projection arrive in Phase 5.
+/// Populated entirely by `recomputeTaskLeavesIfChanged`, which is a pure
+/// function of reducer state: presence comes from the per-task snapshots
+/// `AppFeature` fans in, everything else from the record and the owning
+/// worktree row. Nothing writes a leaf field directly, so a recompute can never
+/// clobber state only a push knew about.
 ///
 /// The missing `nonisolated` (unlike `TasksSidebarStructure`) is intentional:
 /// this is reducer state, MainActor-isolated by the target's
@@ -53,10 +55,48 @@ struct TaskLeafState: Equatable, Sendable, Identifiable {
   /// surfaces the task owns rather than to the whole row, so a sibling task's
   /// notification in the same directory cannot wake this one (Resolved #7).
   var notifiedAt: Date?
+  /// What the owning worktree row learned about this task's pull request. Read
+  /// off the row's existing query rather than polled again (A29): a second
+  /// poller would double the rate limit and disagree with the worktree row
+  /// about the same branch.
+  var pullRequest: TaskPullRequestState = .none
+  /// When that projection last moved between two *known* states. First
+  /// observing a PR is not a change, so a relaunch's batch refresh cannot pop
+  /// every snoozed row back into Active (A29b).
+  var pullRequestChangedAt: Date?
+  /// When the current working stretch began, for the row's elapsed timer.
+  /// `nil` renders no timer at all — never a fabricated 0s (Resolved #5).
+  var workingSince: Date?
+  /// Newest real activity on the task, which is what the inactivity window
+  /// measures. Resolved once here so the settle cascade and any label read the
+  /// same instant (A17's rule applied to activity).
+  var lastActivityAt: Date?
+  /// Its snooze ended and the user has not opened it since (A24). Derived on
+  /// every recompute, never stored on the record, so a relaunch re-derives the
+  /// same answer and no acknowledgement field can drift.
+  var isWoke: Bool = false
+  /// A turn finished after the user's last visit (A28). A never-visited task
+  /// reads as *read*: a first launch that seeds fifty stale directories must
+  /// not open on fifty unread badges.
+  var isDoneUnread: Bool = false
 
   init(id: TaskID) {
     self.id = id
   }
+
+  /// The one status the row shows (A27).
+  var status: TaskStatusModel.Status {
+    TaskStatusModel.resolve(TaskStatusModel.Input(activity: activitySnapshot))
+  }
+
+  /// A28/A33's two readings, from the one predicate both the row's contrast and
+  /// the keyboard's jump target consult.
+  var attentionInput: TaskAttention.Input {
+    TaskAttention.Input(status: status, isDoneUnread: isDoneUnread, isWoke: isWoke)
+  }
+
+  var needsHuman: Bool { TaskAttention.needsHuman(attentionInput) }
+  var isReceded: Bool { TaskAttention.isReceded(attentionInput) }
 
   /// What the settlement and snooze rules read about this task right now.
   ///
@@ -78,7 +118,10 @@ struct TaskLeafState: Equatable, Sendable, Identifiable {
       activity: activitySnapshot,
       errorAt: errorAt,
       completedTurnAt: completedTurnAt,
-      notifiedAt: notifiedAt
+      notifiedAt: notifiedAt,
+      pullRequest: pullRequest,
+      lastActivityAt: lastActivityAt,
+      pullRequestChangedAt: pullRequestChangedAt
     )
   }
 
@@ -130,10 +173,9 @@ extension TaskLeafState {
   /// a second thing every leaf write has to keep in sync. A row body runs this
   /// over a handful of instances.
   ///
-  /// Scoped to the leaf's snapshot, which is the whole *row's* snapshot: it
-  /// carries no surface id, so a task owning part of a directory inherits every
-  /// agent in it. Fixing that means projecting presence per surface where the
-  /// per-surface records live (`AppFeature`), not guessing here.
+  /// Scoped to the leaf's snapshot, which `AppFeature` projects across exactly
+  /// the surfaces this task owns — so two tasks sharing a directory report
+  /// their own agents rather than the directory's union.
   var childAgents: [ChildAgent] {
     var worstByAgent: [SkillAgent: ChildAgent] = [:]
     for instance in agentSnapshot.agents {

@@ -74,6 +74,13 @@ struct AppFeatureTaskPresenceTests {
   ) async {
     await store.send(.terminalEvent(.agentHookEventReceived(event)))
     await store.finish()
+    // `finish()` waits for in-flight effects; it does NOT drain the queue of
+    // actions those effects sent, and a non-exhaustive store only drains that
+    // on the *next* `send`. A hook event reaches a task leaf through three
+    // hops (terminal event → presence → `surfacesChanged` → per-task
+    // snapshot), so without this every assertion below would read the state one
+    // event behind and pass or fail for the wrong reason.
+    await store.skipReceivedActions(strict: false)
   }
 
   // MARK: - Task #13: two tasks in one directory report different activity

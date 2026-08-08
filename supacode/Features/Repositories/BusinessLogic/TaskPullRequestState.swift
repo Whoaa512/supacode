@@ -17,4 +17,10 @@ nonisolated enum TaskPullRequestState: Equatable, Sendable {
   case none, loading, failed, unknown, open, merged, closed
 
   var isFinished: Bool { self == .merged || self == .closed }
+
+  /// GitHub told us what this PR is. `loading` / `failed` / `unknown` / `none`
+  /// are all readings of our own pipeline rather than of the PR, so a
+  /// *transition* between two of them is news about us, not about the work —
+  /// which is why the A29b raised-hand trigger only fires known → known.
+  var isKnown: Bool { self == .open || self == .merged || self == .closed }
 }

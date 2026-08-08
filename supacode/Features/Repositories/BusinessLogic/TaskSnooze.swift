@@ -43,6 +43,12 @@ nonisolated enum TaskSnooze {
     /// notification the user already scrolled past cannot hold a row out of the
     /// shelf forever.
     var notifiedAt: Date?
+    /// When this task's pull request last *changed* state (A29b). An event like
+    /// the other two, and freshness-gated for the same reason: parking a task
+    /// whose PR merged an hour ago has to keep it parked. First *observing* a
+    /// PR is not a change — otherwise the batch refresh after a relaunch would
+    /// pop every snoozed row in the app back into Active.
+    var pullRequestChangedAt: Date?
   }
 
   /// Which section of the sidebar a task sorts into.
@@ -145,10 +151,24 @@ nonisolated enum TaskSnooze {
     return newestConditionalTrigger(input) ?? TaskTimestamps.read(input.snoozedAt).date ?? now
   }
 
+  /// The Woke-pill question, asked in one place so the cached structure (which
+  /// places the pill) and the per-task leaf (which holds the row out of
+  /// recession, A28) can never end up with two spellings of "woke" that
+  /// disagree about the same row.
+  ///
+  /// A visit newer than the wake clears it: the pill means "this came back and
+  /// you have not looked at it", so looking at it is the whole dismissal.
+  static func isWoke(_ input: Input, lastVisitedAt: Date?) -> Bool {
+    guard !effectiveSnoozed(input), let wokeAt = wokeAt(input) else { return false }
+    return (TaskTimestamps.read(lastVisitedAt).date ?? .distantPast) < wokeAt
+  }
+
   private static func newestConditionalTrigger(_ input: Input) -> Date? {
     guard let snoozedAt = TaskTimestamps.read(input.snoozedAt).date else { return nil }
-    return TaskTimestamps.latestValid([input.errorAt, input.completedTurnAt, input.notifiedAt])
-      .flatMap { $0 > snoozedAt ? $0 : nil }
+    return TaskTimestamps.latestValid([
+      input.errorAt, input.completedTurnAt, input.notifiedAt, input.pullRequestChangedAt,
+    ])
+    .flatMap { $0 > snoozedAt ? $0 : nil }
   }
 
   // MARK: - Presets

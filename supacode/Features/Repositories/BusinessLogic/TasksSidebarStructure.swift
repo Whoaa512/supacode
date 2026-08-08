@@ -52,6 +52,16 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
     var errorAt: Date?
     var completedTurnAt: Date?
     var notifiedAt: Date?
+    /// What the owning worktree row learned about this task's pull request. An
+    /// open PR is live review work and blocks the inactivity path; a finished
+    /// one is the finished-PR auto-settle's whole trigger (A29).
+    var pullRequest: TaskPullRequestState = .none
+    /// Newest real activity on the task, which is what the inactivity window
+    /// measures. Resolved on the leaf so the structure takes a decision rather
+    /// than re-deriving the evidence behind it.
+    var lastActivityAt: Date?
+    /// When the PR state last changed under a live snooze (A29b).
+    var pullRequestChangedAt: Date?
   }
 
   /// Recent history is the common lookup, so the deep tail stays behind an
@@ -123,6 +133,10 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
   ///   - isSettledTailExpanded: when false the tail is collapsed and renders
   ///     nothing — except the open task, which is still pulled in.
   ///   - isSnoozedShelfExpanded: same rule for the snoozed shelf.
+  ///   - policy: what the user's settings let the auto-settle paths do. It
+  ///     defaults to `.manualOnly` in the one safe direction: a caller that
+  ///     forgets to thread it through files nothing away by itself, rather than
+  ///     shipping an auto-settle policy nobody wrote.
   static func compute(
     tasks: [TaskRecord],
     now: Date,
@@ -130,7 +144,8 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
     openTaskID: TaskID? = nil,
     settledVisibleCount: Int,
     isSettledTailExpanded: Bool,
-    isSnoozedShelfExpanded: Bool
+    isSnoozedShelfExpanded: Bool,
+    policy: TaskSettlement.Policy = .manualOnly
   ) -> TasksSidebarStructure {
     var pinned: [TaskRecord] = []
     var active: [TaskRecord] = []
@@ -141,17 +156,19 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
     var snoozedTaskIDs: Set<TaskID> = []
 
     for task in tasks {
-      let input = snoozeInput(for: task, now: now, signals: signals[task.id] ?? Signals())
+      let taskSignals = signals[task.id] ?? Signals()
+      let input = snoozeInput(for: task, now: now, signals: taskSignals)
       let isSnoozed = TaskSnooze.effectiveSnoozed(input)
       if TaskSnooze.timerIsLive(input) { snoozedTaskIDs.insert(task.id) }
       let isPinned = task.pinnedAt != nil
       if isPinned { pinnedTaskIDs.insert(task.id) }
-      if !isSnoozed, let wokeAt = TaskSnooze.wokeAt(input),
-        (TaskTimestamps.read(task.lastVisitedAt).date ?? .distantPast) < wokeAt
-      {
+      if TaskSnooze.isWoke(input, lastVisitedAt: task.lastVisitedAt) {
         wokeTaskIDs.insert(task.id)
       }
-      switch TaskSnooze.placement(isSnoozed: isSnoozed, isPinned: isPinned, isSettled: isSettled(task)) {
+      let isSettled = TaskSettlement.effectiveSettled(
+        settlementInput(for: task, now: now, signals: taskSignals, policy: policy)
+      )
+      switch TaskSnooze.placement(isSnoozed: isSnoozed, isPinned: isPinned, isSettled: isSettled) {
       case .snoozed:
         snoozed.append(SnoozedEntry(id: task.id, wakeAt: TaskTimestamps.read(task.snoozedUntil).date))
       case .pinned:
@@ -206,19 +223,45 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
       activity: signals.activity,
       errorAt: signals.errorAt,
       completedTurnAt: signals.completedTurnAt,
-      notifiedAt: signals.notifiedAt
+      notifiedAt: signals.notifiedAt,
+      pullRequestChangedAt: signals.pullRequestChangedAt
+    )
+  }
+
+  /// The settle question for one record, assembled here for the same reason the
+  /// snooze one is: the structure's partition, the row's affordance gating and
+  /// the reducer's settle arm must all ask `TaskSettlement` the same way.
+  static func settlementInput(
+    for task: TaskRecord,
+    now: Date,
+    signals: Signals,
+    policy: TaskSettlement.Policy
+  ) -> TaskSettlement.Input {
+    TaskSettlement.Input(
+      now: now,
+      activity: signals.activity,
+      settledOverride: task.settledOverride,
+      settledAt: task.settledAt,
+      pullRequest: signals.pullRequest,
+      lastActivityAt: signals.lastActivityAt,
+      inactivityWindow: policy.inactivityWindow,
+      isAutoSettleEnabled: policy.isAutoSettleEnabled,
+      settlesOnFinishedPullRequest: policy.settlesOnFinishedPullRequest
     )
   }
 
   /// Settled-ness from the record alone: a stamped `settledAt` (or an explicit
   /// `.settled` override), with an explicit `.active` override winning over a
-  /// stale stamp in either direction. Phase 5's `effectiveSettled` cascade
-  /// (inactivity window, PR state, activity blockers) replaces this predicate;
-  /// the structure keeps taking a partition decision, not the evidence behind it.
+  /// stale stamp in either direction.
   ///
-  /// It is only ever *one* of three inputs to placement — `TaskSnooze.placement`
-  /// puts snooze and pin above it (A16) — so a settled row that is also parked
-  /// or pinned never reaches the tail.
+  /// Deliberately *not* the placement predicate any more — that is
+  /// `TaskSettlement.effectiveSettled`, which also reads activity, the PR and
+  /// the user's auto-settle settings. What survives here is the record-only
+  /// question the ownership rules ask: "did the user put this away", asked
+  /// where there is no leaf and no clock to ask the full cascade with
+  /// (`isSoleActiveTaskOwner`, `newestActiveTask`, capture candidates). Those
+  /// are all "is another task live in this directory" questions, and answering
+  /// them from a setting would make a capture route change when a toggle flips.
   static func isSettled(_ task: TaskRecord) -> Bool {
     switch task.settledOverride {
     case .active: return false

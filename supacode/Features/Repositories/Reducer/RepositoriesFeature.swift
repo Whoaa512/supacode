@@ -285,6 +285,13 @@ struct RepositoriesFeature {
     /// not a dictionary, so a single leaf tick invalidates one element instead of
     /// republishing the whole container (see `TaskLeafState`).
     var taskLeaves: IdentifiedArrayOf<TaskLeafState> = []
+    /// Per-task agent presence as `AppFeature` projected it, across exactly the
+    /// surfaces each record owns. The leaf reads this rather than being written
+    /// directly, which is what keeps `recomputeTaskLeavesIfChanged` a pure
+    /// function of state — a push straight onto the leaf would be clobbered by
+    /// the next recompute. A plain dictionary because nothing observes it: the
+    /// per-leaf invalidation unit is `taskLeaves`.
+    var taskAgentSnapshots: [TaskID: AgentPresenceFeature.RowSnapshot] = [:]
     /// Cached Tasks render plan, recomputed in the post-reduce hook and
     /// Equatable-diffed before publish (`AgentDashboardStructure` precedent).
     var tasksSidebarStructure: TasksSidebarStructure = .empty

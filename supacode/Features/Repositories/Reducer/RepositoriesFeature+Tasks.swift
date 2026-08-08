@@ -70,6 +70,17 @@ extension RepositoriesFeature {
     /// The boundary-armed wake fired. Classification only: the record keeps the
     /// stamps the user wrote, so a re-snooze never has to ask for the time again.
     case wakeBoundaryReached
+    /// Per-task agent presence, projected by `AppFeature` across exactly the
+    /// surfaces this task owns. Deliberately not the worktree row's snapshot:
+    /// that one carries no surface id, so it could only ever be the union of
+    /// every agent in the directory — and two tasks in one directory are a
+    /// supported shape (Resolved #11).
+    case agentSnapshotChanged(taskID: TaskID, snapshot: AgentPresenceFeature.RowSnapshot)
+    /// An auto-settle setting changed. Fired by the panel's `.onChange`, the
+    /// way `.sidebarGroupingTogglesChanged` is: waiting for the next coarse
+    /// classification tick would leave the user staring at a list that
+    /// disagrees with the switch they just flipped (A30).
+    case autoSettleSettingsChanged
     /// Tear both clocks down (scene teardown, and every test that armed one).
     case stopTimers
     /// Drop owned surfaces that no longer exist, without deleting the task (A10b).
@@ -350,6 +361,18 @@ extension RepositoriesFeature {
       case .tasks(.setSnoozedShelfExpanded(let isExpanded)):
         guard state.isSnoozedShelfExpanded != isExpanded else { return .none }
         state.isSnoozedShelfExpanded = isExpanded
+        return .none
+
+      case .tasks(.agentSnapshotChanged(let taskID, let snapshot)):
+        guard state.taskRecords[id: taskID] != nil else { return .none }
+        guard state.taskAgentSnapshots[taskID] != snapshot else { return .none }
+        state.taskAgentSnapshots[taskID] = snapshot
+        return .none
+
+      case .tasks(.autoSettleSettingsChanged):
+        // Pure re-classification off the freshly-read settings: `taskNow` was
+        // stamped above and the post-reduce hook rebuilds the partition, so the
+        // list agrees with the toggle before the sheet even closes.
         return .none
 
       case .tasks(.classificationTick), .tasks(.wakeBoundaryReached):
@@ -1529,28 +1552,38 @@ extension RepositoriesFeature.State {
     }
   }
 
-  /// The settlement question for one task.
+  /// What the user's settings let the auto paths do (A15, A30).
   ///
-  /// Phase 4 only asks it the two A18b ways (`canSettle` / `canSnooze`), which
-  /// read activity and nothing else. The auto paths are therefore left off:
-  /// Phase 5 owns the PR projection, the inactivity window and the settings that
-  /// drive them, and a fabricated window here would ship an auto-settle policy
-  /// nobody wrote.
+  /// Read fresh on every recompute rather than cached: `@Shared` app storage is
+  /// the store of record, and a mirrored copy is a second thing that can be
+  /// stale the moment a toggle flips in another window.
+  ///
+  /// A window of zero days or less is not "settle everything instantly", it is
+  /// the inactivity path turned off — the finished-PR path stays independent.
+  var taskSettlementPolicy: TaskSettlement.Policy {
+    @Shared(.taskAutoSettleEnabled) var isAutoSettleEnabled
+    @Shared(.taskAutoSettleOnFinishedPullRequest) var settlesOnFinishedPullRequest
+    @Shared(.taskInactivityWindowDays) var inactivityWindowDays
+    return TaskSettlement.Policy(
+      inactivityWindow: inactivityWindowDays > 0
+        ? TimeInterval(inactivityWindowDays) * 24 * 60 * 60 : nil,
+      isAutoSettleEnabled: isAutoSettleEnabled,
+      settlesOnFinishedPullRequest: settlesOnFinishedPullRequest
+    )
+  }
+
+  /// The settlement question for one task, assembled the same way the cached
+  /// structure assembles it — one spelling, so the row's affordance gating and
+  /// the partition can never disagree about the same task.
   func taskSettlementInput(for id: TaskID) -> TaskSettlement.Input {
-    let record = taskRecords[id: id]
-    return TaskSettlement.Input(
+    guard let record = taskRecords[id: id] else {
+      return TaskSettlement.Input(now: taskNow)
+    }
+    return TasksSidebarStructure.settlementInput(
+      for: record,
       now: taskNow,
-      activity: taskLeaves[id: id]?.activitySnapshot ?? .idle,
-      settledOverride: record?.settledOverride,
-      // Deliberately nil, not `lastVisitedAt`: a visit is when the user last
-      // *looked*, which is not activity, and the two only agree by accident.
-      // Nothing reads this until Phase 5 turns on the inactivity window and the
-      // finished-PR path, so feeding it a proxy now would bake the wrong meaning
-      // into whichever test happened to be written against it first.
-      lastActivityAt: nil,
-      inactivityWindow: nil,
-      isAutoSettleEnabled: false,
-      settlesOnFinishedPullRequest: false
+      signals: taskLeaves[id: id]?.signals ?? TasksSidebarStructure.Signals(),
+      policy: taskSettlementPolicy
     )
   }
 
@@ -1626,6 +1659,10 @@ extension RepositoriesFeature.State {
   /// `recomputeAgentDashboardStructureIfChanged()`.
   @MainActor
   mutating func recomputeTasksSidebarStructureIfChanged() {
+    // An empty inbox has nothing to classify, and the three app-storage reads
+    // behind the policy are not free on an app that never opened the Tasks tab.
+    // Same early-out `recomputeTaskLeavesIfChanged` takes, for the same reason.
+    guard !taskRecords.isEmpty || tasksSidebarStructure != .empty else { return }
     let new = TasksSidebarStructure.compute(
       tasks: Array(taskRecords),
       now: taskNow,
@@ -1633,7 +1670,8 @@ extension RepositoriesFeature.State {
       openTaskID: selection?.taskID,
       settledVisibleCount: settledTailVisibleCount,
       isSettledTailExpanded: isSettledTailExpanded,
-      isSnoozedShelfExpanded: isSnoozedShelfExpanded
+      isSnoozedShelfExpanded: isSnoozedShelfExpanded,
+      policy: taskSettlementPolicy
     )
     if new != tasksSidebarStructure {
       tasksSidebarStructure = new
@@ -1652,19 +1690,21 @@ extension RepositoriesFeature.State {
     }
   }
 
-  /// Projects per-row agent / notification / dormancy state onto the tasks that
-  /// own those surfaces. Activity is never an input to the structure, so this
-  /// updates a row without reordering it (A4).
+  /// Projects everything a task row reports — presence, notifications,
+  /// dormancy, the PR, and the three derived pills — onto its leaf. Activity is
+  /// never an input to the structure's *ordering*, so this updates a row
+  /// without reordering it (A4).
   ///
-  /// `RowSnapshot` carries no surface id ("callers scope by surface set"), so a
-  /// task that owns only *part* of a worktree's surfaces inherits the whole
-  /// row's snapshot. Exact for Phase 1, where a seeded task owns every surface
-  /// in its directory; Phase 3's promote-tab claims are the case that will need
-  /// per-surface presence.
+  /// A pure function of reducer state, deliberately: presence comes from
+  /// `taskAgentSnapshots` (what `AppFeature` fanned in), never from a push
+  /// straight onto the leaf, so running this twice is a no-op and no recompute
+  /// can clobber something only the push knew. `pullRequestChangedAt` is the
+  /// one field that reads its own previous value, and it is idempotent for the
+  /// same reason: the second pass sees the projection it just wrote.
   ///
-  /// Rows are found by directory rather than by inverting every surface: Phase 1
-  /// has exactly one row per task, and this runs on every agent tick, so a
-  /// per-tick `surfaceToItemID` rebuild would be paid for nothing.
+  /// Rows are found by directory rather than by inverting every surface: there
+  /// is exactly one row per task directory, and this runs on every agent tick,
+  /// so a per-tick `surfaceToItemID` rebuild would be paid for nothing.
   ///
   /// Mutates `taskLeaves` per element. Replacing the container would publish a
   /// whole-array change and fan invalidation out to every row (A10).
@@ -1681,32 +1721,121 @@ extension RepositoriesFeature.State {
     liveIDs.reserveCapacity(taskRecords.count)
     for record in taskRecords {
       liveIDs.insert(record.id)
+      let previous = taskLeaves[id: record.id]
       var leaf = TaskLeafState(id: record.id)
-      if !record.surfaceIDs.isEmpty,
-        let rowID = rowIDsByPath[TaskDirectoryPath.normalized(record.directoryPath)],
-        let row = sidebarItems[id: rowID]
-      {
-        leaf.agentSnapshot = row.agentSnapshot
-        leaf.hasUnseenNotifications = row.hasUnseenNotifications
+      let row = rowIDsByPath[TaskDirectoryPath.normalized(record.directoryPath)]
+        .flatMap { sidebarItems[id: $0] }
+      leaf.agentSnapshot = Self.taskAgentSnapshot(
+        for: record, projected: taskAgentSnapshots[record.id], row: row)
+      leaf.errorAt = leaf.agentSnapshot.errorAt
+      leaf.completedTurnAt = leaf.agentSnapshot.completedTurnAt
+      leaf.workingSince = leaf.agentSnapshot.workingSince
+      if let row, !record.surfaceIDs.isEmpty {
         leaf.allSurfacesDormant = row.allTabsDormant
-        leaf.errorAt = row.agentSnapshot.errorAt
-        leaf.completedTurnAt = row.agentSnapshot.completedTurnAt
-        // Scoped to the surfaces this task owns, unlike the row-wide fields
-        // above: a notification is the one signal that carries a surface id, so
-        // there is no reason to let a sibling task's terminal wake this row
-        // (Resolved #7).
+        // Scoped to the surfaces this task owns: a sibling task's terminal in
+        // the same directory must not light this row (Resolved #7).
+        leaf.hasUnseenNotifications = row.unseenSurfaces.contains {
+          record.surfaceIDs.contains($0.id)
+        }
         let unreadOnOwnedSurfaces: [Date?] = row.notifications
           .filter { !$0.isRead && record.surfaceIDs.contains($0.surfaceID) }
           .map(\.createdAt)
         leaf.notifiedAt = TaskTimestamps.latestValid(unreadOnOwnedSurfaces)
       }
-      if taskLeaves[id: record.id] != leaf {
+      // The PR belongs to the directory's branch, not to a surface claim, so it
+      // is read even for a task that currently owns no terminal.
+      leaf.pullRequest = Self.taskPullRequestState(row: row)
+      leaf.pullRequestChangedAt = Self.taskPullRequestChangedAt(
+        previous: previous, current: leaf.pullRequest, now: taskNow)
+      // Creation counts: a task that has never done anything is still as old as
+      // it looks, which is exactly what the inactivity window is measuring.
+      leaf.lastActivityAt = TaskTimestamps.latestValid([
+        record.createdAt, record.lastVisitedAt, leaf.completedTurnAt, leaf.errorAt, leaf.notifiedAt,
+      ])
+      leaf.isWoke = TaskSnooze.isWoke(
+        TasksSidebarStructure.snoozeInput(for: record, now: taskNow, signals: leaf.signals),
+        lastVisitedAt: record.lastVisitedAt
+      )
+      // Never-visited reads as *read* (A28): `isStrictlyOlder` answers `false`
+      // for a missing stamp, which is what keeps a fresh seed of fifty stale
+      // directories from opening on fifty unread badges.
+      leaf.isDoneUnread =
+        leaf.completedTurnAt.map {
+          TaskTimestamps.isStrictlyOlder(record.lastVisitedAt, than: $0)
+        } ?? false
+      if previous != leaf {
         taskLeaves[id: record.id] = leaf
       }
     }
     for staleID in Array(taskLeaves.ids) where !liveIDs.contains(staleID) {
       taskLeaves.remove(id: staleID)
     }
+    // A snapshot for a task that is gone is a leak nothing else prunes, and it
+    // would be handed straight back to a task that later reuses the id.
+    if taskAgentSnapshots.contains(where: { !liveIDs.contains($0.key) }) {
+      taskAgentSnapshots = taskAgentSnapshots.filter { liveIDs.contains($0.key) }
+    }
+  }
+
+  /// Presence for one task: what `AppFeature` projected across the surfaces the
+  /// record owns, or — until it has spoken — the owning row's snapshot, but
+  /// *only* when the task owns every surface that row has.
+  ///
+  /// That condition is the whole honesty of the fallback: when it holds, the
+  /// row's union over its surfaces IS this task's projection, so the seed is
+  /// exact. When it does not, the union is somebody else's news too, and there
+  /// is no way to narrow it here — the per-surface records live in
+  /// `AppFeature`, which is why the projection does.
+  private static func taskAgentSnapshot(
+    for record: TaskRecord,
+    projected: AgentPresenceFeature.RowSnapshot?,
+    row: SidebarItemFeature.State?
+  ) -> AgentPresenceFeature.RowSnapshot {
+    if let projected { return projected }
+    guard let row, !record.surfaceIDs.isEmpty, record.surfaceIDs == Set(row.surfaceIDs) else {
+      return AgentPresenceFeature.RowSnapshot()
+    }
+    return row.agentSnapshot
+  }
+
+  /// A29's three-way distinction, read off the query the worktree row already
+  /// runs — no second poller, and no way for the two to disagree about one
+  /// branch. "No PR" and "we have not asked yet" are different answers, and
+  /// neither may be mistaken for a finished one.
+  ///
+  /// `.failed` has no producer yet: nothing in the PR pipeline records a query
+  /// that came back unavailable, so claiming it here would be inventing one.
+  /// The state exists because the settle cascade must refuse it (Phase 7 wires
+  /// the producer).
+  private static func taskPullRequestState(row: SidebarItemFeature.State?) -> TaskPullRequestState {
+    guard let row else { return .none }
+    guard let pullRequest = row.pullRequest else {
+      return row.pullRequestBranchAtQueryTime != nil ? .loading : .none
+    }
+    switch pullRequest.state.uppercased() {
+    case "OPEN": return .open
+    case "MERGED": return .merged
+    case "CLOSED": return .closed
+    default: return .unknown
+    }
+  }
+
+  /// When the projection last moved between two *known* states (A29b).
+  ///
+  /// Known → known only. Learning that a PR exists is not the PR changing: a
+  /// batch refresh after a relaunch observes every task's PR for the first
+  /// time, and counting that as news would pop every snoozed row in the app
+  /// back into Active on launch.
+  private static func taskPullRequestChangedAt(
+    previous: TaskLeafState?,
+    current: TaskPullRequestState,
+    now: Date
+  ) -> Date? {
+    guard let previous else { return nil }
+    guard previous.pullRequest.isKnown, current.isKnown, previous.pullRequest != current else {
+      return previous.pullRequestChangedAt
+    }
+    return now
   }
 }
 
@@ -1742,7 +1871,7 @@ extension RepositoriesFeature.TaskInboxAction {
     case .loaded, .seeded, .select, .settle, .unsettle,
       .snooze, .unsnooze, .pin, .unpin, .keepActive,
       .setSettledTailExpanded, .setSnoozedShelfExpanded, .expandSettledTail,
-      .classificationTick, .wakeBoundaryReached,
+      .classificationTick, .wakeBoundaryReached, .agentSnapshotChanged, .autoSettleSettingsChanged,
       .reconcileSurfaceOwnership, .promoteTab:
       return .sidebarStructure
     // Creation also moves the selection inline, so it owes the two

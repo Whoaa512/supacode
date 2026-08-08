@@ -144,6 +144,10 @@ nonisolated struct GithubGraphQLPullRequestResponse: Decodable {
       )
     }
 
+    /// Open beats merged beats everything else, so a branch that was closed and
+    /// later merged reports merged. `default` used to describe an impossible
+    /// case; now that the batch query asks for `CLOSED` too, it decides real
+    /// rows — which is exactly the ranking a closed PR wants.
     var stateRank: Int {
       switch state.uppercased() {
       case "OPEN":

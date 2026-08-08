@@ -420,10 +420,16 @@ extension SidebarItemFeature.Action {
     case .terminalProjectionChanged:
       return [.sidebarStructure, .selectedWorktreeSlice, .toolbarNotificationGroups]
     // `.toolbarNotificationGroups` because the notification header bakes the
-    // row's resolved pull-request glyph into that cache.
+    // row's resolved pull-request glyph into that cache; `.sidebarStructure`
+    // because the task leaf projects this row's PR (A29) and a merged PR can
+    // settle its task or raise a snoozed task's hand (A29b).
     case .pullRequestChanged:
-      return [.selectedWorktreeSlice, .toolbarNotificationGroups]
-    case .diffStatsChanged, .pullRequestQueryStarted,
+      return [.sidebarStructure, .selectedWorktreeSlice, .toolbarNotificationGroups]
+    // A query in flight is the task row's `loading` state, which is a different
+    // answer from "no PR" and has to reach the leaf as one (A29).
+    case .pullRequestQueryStarted:
+      return .sidebarStructure
+    case .diffStatsChanged,
       .dragSessionChanged,
       .focusTerminalRequested, .focusTerminalConsumed:
       return []
@@ -653,7 +659,14 @@ extension RepositoriesFeature.State {
     // The Tasks render plan keys off the record set *and* the open-task pull-in
     // (A8), and a selection change declares only the selection bits — the same
     // two-bit dependency `recomputeMenuBarSectionsIfChanged` has.
+    //
+    // The leaves ride the selection bit too, and for a reason that is easy to
+    // miss: opening a task stamps `lastVisitedAt`, which is what clears its
+    // Done pill and its Woke pill and what the inactivity window measures from
+    // (A24, A28). A selection that refreshed the plan but not the leaves would
+    // leave the row you just opened still wearing the badge you just cleared.
     if !invalidations.isDisjoint(with: [.sidebarStructure, .sidebarSelectionSlice]) {
+      recomputeTaskLeavesIfChanged()
       recomputeTasksSidebarStructureIfChanged()
       recomputeTaskDetailWorktreeIDIfChanged()
     }

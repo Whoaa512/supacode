@@ -2014,11 +2014,46 @@ struct AppFeature {
       guard let rowID = surfaceToItemID[surfaceID] else { continue }
       affectedRowIDs.insert(rowID)
     }
-    return agentSnapshotEffects(
-      for: affectedRowIDs,
-      tabSurfaceIDs: surfaces,
-      state: state,
-      badgesEnabled: badgesEnabled
+    return .merge(
+      agentSnapshotEffects(
+        for: affectedRowIDs,
+        tabSurfaceIDs: surfaces,
+        state: state,
+        badgesEnabled: badgesEnabled
+      ),
+      taskAgentSnapshotEffects(surfaces: surfaces, state: state, badgesEnabled: badgesEnabled)
+    )
+  }
+
+  /// Per-task fan-out, projected across exactly the surfaces each record owns.
+  ///
+  /// It happens here rather than downstream because presence records are keyed
+  /// by `(agent, surfaceID)` and only `AppFeature` holds them: a `RowSnapshot`
+  /// carries no surface id, so a task that owns part of a directory could only
+  /// ever inherit the union of every agent in it — and two tasks in one
+  /// directory are a supported shape (Resolved #11).
+  private func taskAgentSnapshotEffects(
+    surfaces: Set<UUID>,
+    state: State,
+    badgesEnabled: Bool
+  ) -> Effect<Action> {
+    let presence = state.agentPresence
+    return .merge(
+      state.repositories.taskRecords
+        .filter { !$0.surfaceIDs.isDisjoint(with: surfaces) }
+        .map { record in
+          .send(
+            .repositories(
+              .tasks(
+                .agentSnapshotChanged(
+                  taskID: record.id,
+                  snapshot: presence.rowSnapshot(
+                    across: record.surfaceIDs, badgesEnabled: badgesEnabled)
+                )
+              )
+            )
+          )
+        }
     )
   }
 

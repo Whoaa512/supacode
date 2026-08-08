@@ -30,10 +30,33 @@ nonisolated enum TaskSettlement {
     static let idle = ActivitySnapshot()
   }
 
+  /// What the user's settings say the auto paths may do, as one value the
+  /// reducer threads through instead of three booleans every call site
+  /// re-derives from app storage (A15, A30).
+  nonisolated struct Policy: Equatable, Sendable {
+    /// `nil` disables the inactivity path entirely.
+    var inactivityWindow: TimeInterval?
+    var isAutoSettleEnabled: Bool
+    var settlesOnFinishedPullRequest: Bool
+
+    /// Every auto path off: nothing settles unless the user said so. A30's
+    /// off-switch, and the default the pure tests reason against.
+    static let manualOnly = Policy(
+      inactivityWindow: nil,
+      isAutoSettleEnabled: false,
+      settlesOnFinishedPullRequest: false
+    )
+  }
+
   nonisolated struct Input: Equatable, Sendable {
     var now: Date
     var activity: ActivitySnapshot = .idle
     var settledOverride: TaskRecord.SettledOverride?
+    /// When the user (or a settle the user asked for) stamped this task done.
+    /// The settle arm writes it *without* a `.settled` override, so reading it
+    /// as anything less than explicit intent would let A30's off-switch
+    /// silently un-settle every row the user settled by hand.
+    var settledAt: Date?
     var pullRequest: TaskPullRequestState = .none
     var lastActivityAt: Date?
     /// `nil` disables the inactivity path entirely.
@@ -48,12 +71,14 @@ nonisolated enum TaskSettlement {
   /// straight back into the tail.
   static let finishedPullRequestIdleWindow: TimeInterval = 60 * 60
 
-  /// Cascade: activity blockers → explicit override → finished-PR auto-settle →
-  /// inactivity auto-settle. The global switch kills only the two auto paths;
-  /// the user's explicit intent is never overridden by a setting.
+  /// Cascade: activity blockers → explicit override → explicit settle stamp →
+  /// finished-PR auto-settle → inactivity auto-settle. The global switch kills
+  /// only the two auto paths; the user's explicit intent is never overridden by
+  /// a setting.
   static func effectiveSettled(_ input: Input) -> Bool {
     guard canSettle(input) else { return false }
     if let settledOverride = input.settledOverride { return settledOverride == .settled }
+    if TaskTimestamps.read(input.settledAt).date != nil { return true }
     guard input.isAutoSettleEnabled else { return false }
     // A malformed `now` makes every age comparison meaningless, so no auto path
     // may fire off it.

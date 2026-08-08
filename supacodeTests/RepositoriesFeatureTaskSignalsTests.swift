@@ -114,6 +114,9 @@ struct RepositoriesFeatureTaskSignalsTests {
     record.lastVisitedAt = lastVisitedAt
     state.taskRecords = [record]
     state.taskNow = Self.now
+    // The tail is collapsed by default and renders nothing but the open task
+    // (A8), so a suite that asserts on `visibleSettledTail` has to open it.
+    state.isSettledTailExpanded = true
     state.applyPostReduceCacheRecomputes(.all)
     return Fixture(sandbox: sandbox, directory: directory, record: record, state: state)
   }
@@ -152,6 +155,12 @@ struct RepositoriesFeatureTaskSignalsTests {
       )
     )
     await store.finish()
+    // The batch result reaches the row — and the row the task leaf — through a
+    // dispatched child action. `finish()` waits for in-flight effects but does
+    // not drain the actions they sent, and a non-exhaustive store only drains
+    // that on the *next* `send`, so without this a single-delivery test would
+    // assert against the state as it was before the PR landed.
+    await store.skipReceivedActions(strict: false)
   }
 
   // MARK: - A29: the PR projection reaches the task
