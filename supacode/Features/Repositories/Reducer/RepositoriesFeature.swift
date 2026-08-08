@@ -92,6 +92,15 @@ struct RepositoriesFeature {
     let worktreeID: Worktree.ID
   }
 
+  /// The Tasks panel's mirror of `PendingSidebarReveal`. A separate request
+  /// rather than a variant of the worktree one: the two panels are different
+  /// `List`s with different scroll proxies, and whichever one is off screen
+  /// would otherwise have to decide to ignore a reveal aimed at its sibling.
+  struct PendingTaskReveal: Equatable {
+    let id: Int
+    let taskID: TaskID
+  }
+
   @ObservableState
   struct State: Equatable {
     var repositories: IdentifiedArrayOf<Repository> = []
@@ -319,6 +328,11 @@ struct RepositoriesFeature {
     /// the detail view can mount the selected task's terminal without scanning
     /// `sidebarItems` from a body (the `selectedWorktreeSlice` precedent).
     var taskDetailWorktreeID: Worktree.ID?
+    /// ⌘⇧E's task half: the row the panel should scroll to and take focus for.
+    /// Consumed by `TasksSidebarView` once it has, so a second ⌘⇧E on the same
+    /// row is a fresh request rather than a no-op diff.
+    var nextPendingTaskRevealID = 0
+    var pendingTaskReveal: PendingTaskReveal?
     /// The open Resolved #11 conflict question, if any. Plain optional rather
     /// than `@Presents`: the sheet has no child reducer, its two answers are
     /// task arms, and the state it carries is the parked capture itself.

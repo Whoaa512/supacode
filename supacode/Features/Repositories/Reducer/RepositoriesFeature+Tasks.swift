@@ -80,6 +80,13 @@ extension RepositoriesFeature {
     /// visit, and re-stamping `lastVisitedAt` here would clear a Done pill the
     /// user never read.
     case focusSelectedSurface
+    /// ⌘⇧E's return half (A34): come back from the terminal to the open task's
+    /// row. The counterpart of `.focusSelectedSurface`, so the round trip is
+    /// one key out and one key back rather than one key out and a mouse back.
+    case revealSelectedInSidebar
+    /// The panel has scrolled to and focused the revealed row. Carries the id so
+    /// a stale consumer cannot clear a newer request.
+    case consumeSidebarReveal(Int)
     /// The explicit "stop auto-settling this" pin the Phase 5 cascade reads (A15).
     case keepActive(TaskID)
     case setSettledTailExpanded(Bool)
@@ -440,6 +447,26 @@ extension RepositoriesFeature {
           return .run { _ in NSSound.beep() }
         }
         return .send(.delegate(focus))
+
+      case .tasks(.revealSelectedInSidebar):
+        guard let id = state.selection?.taskID else { return .none }
+        // The panel may not even be the one on screen — ⌘⇧E from a terminal is
+        // "show me where I am", and where the user is, is a task. The tab flip
+        // has to happen here rather than in the view, because the view that
+        // would do it is the one that is not mounted yet.
+        @Shared(.sidebarTab) var sidebarTabRawValue
+        $sidebarTabRawValue.withLock { $0 = SidebarTab.tasks.rawValue }
+        // No section to uncollapse, unlike the worktree reveal: A8 already
+        // pulls the open task into the visible order whatever shelf it lives
+        // on, so the row the panel is about to scroll to is always rendered.
+        state.nextPendingTaskRevealID += 1
+        state.pendingTaskReveal = .init(id: state.nextPendingTaskRevealID, taskID: id)
+        return .none
+
+      case .tasks(.consumeSidebarReveal(let revealID)):
+        guard state.pendingTaskReveal?.id == revealID else { return .none }
+        state.pendingTaskReveal = nil
+        return .none
 
       case .tasks(.keepActive(let id)):
         guard let record = state.taskRecords[id: id] else { return .none }
@@ -1993,7 +2020,7 @@ extension RepositoriesFeature.TaskInboxAction {
     case .load, .seedIfNeeded, .select, .settle, .unsettle,
       .snooze, .unsnooze, .pin, .unpin, .keepActive,
       .jumpToNextNeedingAttention, .settleSelected, .snoozeSelected, .togglePinSelected,
-      .focusSelectedSurface,
+      .focusSelectedSurface, .revealSelectedInSidebar, .consumeSidebarReveal,
       .setSettledTailExpanded, .setSnoozedShelfExpanded, .expandSettledTail,
       .classificationTick, .wakeBoundaryReached, .agentSnapshotChanged,
       .autoSettleSettingsChanged, .stopTimers,
@@ -2016,6 +2043,10 @@ extension RepositoriesFeature.TaskInboxAction {
     // it here too would stamp `taskNow` twice for one keystroke.
     case .jumpToNextNeedingAttention, .settleSelected, .snoozeSelected,
       .togglePinSelected, .focusSelectedSurface:
+      return []
+    // Presentation only: a reveal moves the scroll offset and the focus ring,
+    // never a record or a placement.
+    case .revealSelectedInSidebar, .consumeSidebarReveal:
       return []
     // Presentation only: the prompts are state no cache projects.
     case .presentCreationPrompt, .setConflictRemember, .cancelDirectoryConflict:

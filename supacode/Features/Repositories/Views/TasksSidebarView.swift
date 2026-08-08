@@ -68,13 +68,20 @@ struct TasksSidebarView: View {
     return VStack(spacing: 0) {
       TasksNewTaskBar(store: store)
       Divider()
-      taskList(
-        structure: structure,
-        selectedTaskID: selectedTaskID,
-        isSettledTailExpanded: isSettledTailExpanded,
-        isSnoozedShelfExpanded: isSnoozedShelfExpanded,
-        shortcutHintByID: shortcutHintByID
-      )
+      // Mirrors `SidebarListView`: the reveal needs a proxy, and the proxy has
+      // to wrap the List rather than live inside it.
+      ScrollViewReader { scrollProxy in
+        taskList(
+          structure: structure,
+          selectedTaskID: selectedTaskID,
+          isSettledTailExpanded: isSettledTailExpanded,
+          isSnoozedShelfExpanded: isSnoozedShelfExpanded,
+          shortcutHintByID: shortcutHintByID
+        )
+        .task(id: store.pendingTaskReveal?.id) {
+          await revealPendingTask(store.pendingTaskReveal, with: scrollProxy)
+        }
+      }
     }
     // Published from here, so the whole Tasks menu is inert on the other two
     // panels: when this view is off screen there is no focused value at all
@@ -226,6 +233,27 @@ struct TasksSidebarView: View {
     .onChange(of: inactivityWindowDays, initial: false) { _, _ in
       store.send(.tasks(.autoSettleSettingsChanged))
     }
+  }
+
+  /// ⌘⇧E landing: scroll the revealed row into view and hand it the keyboard.
+  ///
+  /// Verbatim the shape of `SidebarListView.revealPendingSidebarWorktree`, down
+  /// to the two yields — the panel may have only just been switched to by the
+  /// reducer's tab flip, and `scrollTo` against rows SwiftUI has not
+  /// materialized yet does nothing at all.
+  @MainActor
+  private func revealPendingTask(
+    _ reveal: RepositoriesFeature.PendingTaskReveal?,
+    with scrollProxy: ScrollViewProxy
+  ) async {
+    guard let reveal else { return }
+    await Task.yield()
+    await Task.yield()
+    isTasksSidebarFocused = true
+    withAnimation(.easeOut(duration: 0.2)) {
+      scrollProxy.scrollTo(reveal.taskID, anchor: .center)
+    }
+    store.send(.tasks(.consumeSidebarReveal(reveal.id)))
   }
 
   /// Native list highlight, with clicks and keyboard both routed through

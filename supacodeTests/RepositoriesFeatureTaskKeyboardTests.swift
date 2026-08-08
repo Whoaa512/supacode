@@ -685,4 +685,74 @@ struct RepositoriesFeatureTaskKeyboardTests {
       #expect(store.state.selection == .task(inbox.records[2].id))
     }
   }
+
+  // MARK: - A34's return half: ⌘⇧E back into the panel
+
+  /// The counterpart of bare →. The panel may not even be the one on screen —
+  /// ⌘⇧E from a terminal means "show me where I am" — so the arm flips the tab
+  /// as well as posting the reveal the view scrolls to.
+  @Test func theRevealChordPostsARequestAndSwitchesToTheTasksPanel() async throws {
+    let sandbox = try makeSandbox()
+    let inbox = try makeInbox(sandbox: sandbox, count: 2, selecting: 1)
+    try await withDependencies {
+      $0.defaultAppStorage = .inMemory
+    } operation: {
+      @Shared(.sidebarTab) var sidebarTabRawValue
+      $sidebarTabRawValue.withLock { $0 = SidebarTab.worktrees.rawValue }
+      let store = makeStore(inbox.state, sandbox: sandbox)
+
+      await store.send(.tasks(.revealSelectedInSidebar))
+      await store.send(.tasks(.stopTimers))
+      await store.skipReceivedActions(strict: false)
+      await store.finish()
+
+      #expect(store.state.activeSidebarTab == .tasks)
+      #expect(store.state.pendingTaskReveal?.taskID == inbox.records[1].id)
+    }
+  }
+
+  /// The panel consumes its own request, and only its own: a stale consumer
+  /// must not clear a reveal the user asked for after it.
+  @Test func aStaleConsumerCannotClearANewerReveal() async throws {
+    let sandbox = try makeSandbox()
+    let inbox = try makeInbox(sandbox: sandbox, count: 2, selecting: 0)
+    try await withTasksTab {
+      let store = makeStore(inbox.state, sandbox: sandbox)
+
+      await store.send(.tasks(.revealSelectedInSidebar))
+      await store.skipReceivedActions(strict: false)
+      let first = try #require(store.state.pendingTaskReveal?.id)
+
+      await store.send(.tasks(.revealSelectedInSidebar))
+      await store.skipReceivedActions(strict: false)
+      await store.send(.tasks(.consumeSidebarReveal(first)))
+      await store.skipReceivedActions(strict: false)
+      #expect(store.state.pendingTaskReveal != nil)
+
+      let latest = try #require(store.state.pendingTaskReveal?.id)
+      await store.send(.tasks(.consumeSidebarReveal(latest)))
+      await store.send(.tasks(.stopTimers))
+      await store.skipReceivedActions(strict: false)
+      await store.finish()
+
+      #expect(store.state.pendingTaskReveal == nil)
+    }
+  }
+
+  /// Nothing open, nothing to reveal — and in particular no request left parked
+  /// on state for the next mount to act on.
+  @Test func theRevealChordDoesNothingWithoutATaskSelection() async throws {
+    let sandbox = try makeSandbox()
+    let inbox = try makeInbox(sandbox: sandbox, count: 2)
+    try await withTasksTab {
+      let store = makeStore(inbox.state, sandbox: sandbox)
+
+      await store.send(.tasks(.revealSelectedInSidebar))
+      await store.send(.tasks(.stopTimers))
+      await store.skipReceivedActions(strict: false)
+      await store.finish()
+
+      #expect(store.state.pendingTaskReveal == nil)
+    }
+  }
 }

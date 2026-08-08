@@ -144,11 +144,22 @@ struct ContentView: View {
     }
     .animation(.easeOut(duration: 0.15), value: store.isTerminalGridPresented)
     .focusedSceneAction(
+      // A34's return half: a task selection nils `selectedWorktreeID`, so
+      // before this the one focus-moving chord was inert on the Tasks panel and
+      // the way back from a terminal was the mouse.
       \.revealInSidebarAction,
       enabled: repositoriesStore.selectedWorktreeID != nil
+        || repositoriesStore.selection?.taskID != nil
     ) {
       withAnimation(.easeOut(duration: 0.2)) {
         leftSidebarVisibility = .all
+      }
+      // A task selection is the more specific answer to "where am I": the two
+      // are mutually exclusive in practice, and checking the task first means a
+      // stale worktree id can never win over the row actually open.
+      guard repositoriesStore.selection?.taskID == nil else {
+        store.send(.repositories(.tasks(.revealSelectedInSidebar)))
+        return
       }
       store.send(.repositories(.revealSelectedWorktreeInSidebar))
     }
