@@ -269,6 +269,7 @@ struct TaskTimestampsTests {
     "TaskForwardNavigation.swift",
     "TaskPullRequestState.swift",
     "TaskRecord.swift",
+    "TaskRenamePrompt.swift",
     "TaskSettlement.swift",
     "TaskSnooze.swift",
     "TasksSidebarStructure.swift",
