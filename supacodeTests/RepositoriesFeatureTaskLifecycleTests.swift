@@ -455,6 +455,48 @@ struct RepositoriesFeatureTaskLifecycleTests {
     #expect(store.state.taskRecords[id: record.id]?.surfaceIDs == [surfaceID])
   }
 
+  /// A7 on the snooze path, which shares the settle path's delegate: parking one
+  /// task in a shared directory may only put *its* tabs to sleep. The co-tenant
+  /// keeps its claim and rides along as protected, so the parent drops any tab
+  /// the two somehow share before hibernating anything.
+  @Test func snoozeAndHibernateInASharedDirectorySparesTheCoTenantsSurfaces() async throws {
+    let sandbox = try makeSandbox()
+    let shared = try sandbox.makeDirectory("shared", activityAt: Self.freshDate)
+    let mySurface = UUID()
+    let theirSurface = UUID()
+    var state = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [shared],
+      surfacesPerRow: [shared: [mySurface, theirSurface]],
+      hasLoadedTasks: true
+    )
+    let mine = makeRecord(directory: shared, surfaceIDs: [mySurface])
+    let theirs = makeRecord(directory: shared, surfaceIDs: [theirSurface])
+    state.taskRecords = [mine, theirs]
+    state.taskNow = Self.now
+    state.applyPostReduceCacheRecomputes(.all)
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(
+      .tasks(.snooze(mine.id, until: Self.now.addingTimeInterval(Self.hour), hibernate: true))
+    )
+    await store.receive(\.delegate.hibernateTaskSurfaces)
+    await store.send(.tasks(.stopTimers))
+    await store.finish()
+
+    // The co-tenant is untouched: same claim, still active, never parked.
+    #expect(store.state.taskRecords[id: theirs.id] == theirs)
+    #expect(store.state.tasksSidebarStructure.activeTaskIDs == [theirs.id])
+
+    let delegate = try #require(store.state.taskHibernationDelegate(for: mine))
+    guard case .hibernateTaskSurfaces(_, let surfaceIDs, let protectedSurfaceIDs) = delegate else {
+      Issue.record("Expected a hibernation delegate, got \(delegate).")
+      return
+    }
+    #expect(surfaceIDs == [mySurface])
+    #expect(protectedSurfaceIDs == [theirSurface])
+  }
+
   /// The global default flips the *unspecified* case only; an explicit
   /// `hibernate:` on the action always wins.
   @Test func theGlobalDefaultDecidesAnUnspecifiedSnooze() async throws {
