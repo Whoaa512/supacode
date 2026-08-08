@@ -52,9 +52,11 @@ struct TaskDirectoryConflictPolicyTests {
 
   // MARK: - The remembered value
 
-  /// A20: "per-repo, default isolate". The default is what the sheet offers and
-  /// what a caller that cannot ask (no repository, no UI) falls back to.
-  @Test func theOfferedDefaultIsIsolate() {
+  /// A20: "per-repo, default isolate". This is the standing policy an
+  /// unanswered repository is treated as wanting — *not* the sheet's ⏎, which
+  /// takes the light answer (share) so an accidental Return never spends a
+  /// worktree.
+  @Test func theStandingDefaultPolicyIsIsolate() {
     #expect(TaskDirectoryIsolation.default == .isolate)
   }
 

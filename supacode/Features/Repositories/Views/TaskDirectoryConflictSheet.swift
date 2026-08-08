@@ -59,7 +59,12 @@ struct TaskDirectoryConflictSheet: View {
           .frame(maxWidth: .infinity, alignment: .leading)
         }
         .help(isolation.detail)
-        .keyboardShortcut(isolation == .default ? .defaultAction : nil)
+        // ⏎ takes the light answer, never the expensive one: sharing costs a
+        // terminal and is undone by settling the task, while isolating spends a
+        // worktree, a branch and a clone that somebody has to clean up. A
+        // keyboard default should be the answer you can afford to have picked
+        // for you by accident — isolating stays one deliberate click away.
+        .keyboardShortcut(isolation == .share ? .defaultAction : nil)
       }
 
       Toggle(

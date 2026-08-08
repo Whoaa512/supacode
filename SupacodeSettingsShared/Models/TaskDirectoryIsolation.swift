@@ -20,7 +20,13 @@ public nonisolated enum TaskDirectoryIsolation: String, CaseIterable, Codable, E
 
   public var id: String { rawValue }
 
-  /// What the sheet offers, and what a caller that cannot ask falls back to.
+  /// The policy a repository that never answered is *treated* as wanting — what
+  /// A20 means by "default isolate".
+  ///
+  /// Deliberately not what the sheet's ⏎ picks: a keyboard default should be the
+  /// answer the user can afford to have chosen by accident, and isolating spends
+  /// a worktree and a branch. The sheet defaults to sharing and leaves this as
+  /// the standing policy.
   public static let `default` = TaskDirectoryIsolation.isolate
 
   public var title: String {
