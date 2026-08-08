@@ -58,6 +58,26 @@ struct RepositoriesFeatureTaskSignalsTests {
     return store
   }
 
+  /// Same store, but with a clock the test can move. Everything else in this
+  /// suite pins `date.now`, which is exactly the condition that hides a stale
+  /// `taskNow`: if the sample never moves, an arm that forgot to re-stamp it
+  /// looks identical to one that did.
+  private func makeStore(
+    _ state: RepositoriesFeature.State,
+    sandbox: Sandbox,
+    now: LockIsolated<Date>
+  ) -> TestStoreOf<RepositoriesFeature> {
+    let store = TestStore(initialState: state) {
+      RepositoriesFeature()
+    } withDependencies: {
+      $0.settingsFileStorage = sandbox.storage
+      $0.date = .init { now.value }
+      $0.continuousClock = TestClock()
+    }
+    store.exhaustivity = .off
+    return store
+  }
+
   private static func pullRequest(state: String, headRefName: String) -> GithubPullRequest {
     GithubPullRequest(
       number: 7,
@@ -361,6 +381,46 @@ struct RepositoriesFeatureTaskSignalsTests {
 
     #expect(store.state.taskLeaves[id: fixture.record.id]?.pullRequestChangedAt == nil)
     #expect(store.state.tasksSidebarStructure.snoozedTotalCount == 1)
+  }
+
+  /// The killing case for the `taskNow` stamp. A PR that changes *after* a
+  /// snooze has to be dated from the instant it actually landed, and the only
+  /// arm that carries it — `.sidebarItems(.pullRequestChanged)` — is not a
+  /// `.tasks` arm. Stamping `taskNow` for task arms alone leaves
+  /// `pullRequestChangedAt` equal to `snoozedAt`, and `TaskSnooze`'s trigger is
+  /// *strictly* newer, so the hand never goes up (A29b) and the row stays parked
+  /// through a merge the user is waiting on.
+  @Test func aPullRequestThatChangesAfterASnoozeStillRaisesTheHand() async throws {
+    // The auto-settle cascade is off so the assertion is about the raise alone:
+    // advancing the clock past the finished-PR idle window would otherwise let
+    // the merge settle the row, and a settled row proves nothing about A29b.
+    try await withSettings(autoSettle: false) {
+      let clock = LockIsolated(Self.now)
+      let fixture = try makeFixture()
+      let store = makeStore(fixture.state, sandbox: fixture.sandbox, now: clock)
+
+      // Known state first: a first observation is not a change (A29b's other half).
+      await deliverPullRequest(
+        Self.pullRequest(state: "OPEN", headRefName: fixture.branch), to: fixture, store: store)
+
+      await store.send(.tasks(.snooze(fixture.record.id, until: Self.now.addingTimeInterval(3600))))
+      await store.send(.tasks(.stopTimers))
+      await store.finish()
+      #expect(store.state.taskRecords[id: fixture.record.id]?.snoozedAt == Self.now)
+      #expect(store.state.tasksSidebarStructure.activeTaskIDs.isEmpty)
+
+      clock.setValue(Self.now.addingTimeInterval(600))
+      await deliverPullRequest(
+        Self.pullRequest(state: "MERGED", headRefName: fixture.branch), to: fixture, store: store)
+
+      // The latch stamps a FRESH sample, not the one the snooze left behind.
+      #expect(
+        store.state.taskLeaves[id: fixture.record.id]?.pullRequestChangedAt
+          == Self.now.addingTimeInterval(600)
+      )
+      #expect(store.state.tasksSidebarStructure.activeTaskIDs == [fixture.record.id])
+      #expect(store.state.tasksSidebarStructure.snoozedTaskIDs == [fixture.record.id])
+    }
   }
 
   // MARK: - A28: the Done pill

@@ -137,14 +137,28 @@ extension RepositoriesFeature {
     Reduce { state, action in
       @Dependency(\.date.now) var now
       // Time only moves when an action says it did (A23). Stamped for exactly
-      // the arms that declare `.sidebarStructure`, so the post-reduce hook and
-      // this sample can never disagree about whether the cache needed rebuilding
-      // — a taskNow written by an arm that declares nothing would leave a stale
-      // structure behind it.
-      if case .tasks(let taskAction) = action,
-        taskAction.cacheInvalidations.contains(.sidebarStructure)
-      {
-        state.taskNow = now
+      // the arms that declare `.sidebarStructure` — *every* such arm, not only
+      // the `.tasks` ones — so the post-reduce hook and this sample can never
+      // disagree about whether the cache needed rebuilding. A taskNow written by
+      // an arm that declares nothing would leave a stale structure behind it;
+      // a taskNow *not* written by an arm that does is the mirror bug, and the
+      // expensive one: a PR landing via `.sidebarItems(.pullRequestChanged)`
+      // would stamp `pullRequestChangedAt` from whatever instant the last task
+      // arm sampled, so a PR that changed after a snooze would look older than
+      // the snooze and never raise its hand (A29b).
+      //
+      // An empty inbox is the one exception, and only for the non-task arms:
+      // there is nothing for the sample to classify (every task recompute below
+      // already early-outs on it), and sampling anyway would make the whole app
+      // read the clock on every sidebar mutation. The `.tasks` arms stamp
+      // unconditionally, because `.loaded` and `.seeded` are what *create* the
+      // inbox and run while `taskRecords` is still empty.
+      if action.cacheInvalidations.contains(.sidebarStructure) {
+        if case .tasks = action {
+          state.taskNow = now
+        } else if !state.taskRecords.isEmpty {
+          state.taskNow = now
+        }
       }
       switch action {
       case .tasks(.load):
