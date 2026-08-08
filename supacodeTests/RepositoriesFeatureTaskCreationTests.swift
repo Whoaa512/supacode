@@ -730,4 +730,55 @@ struct RepositoriesFeatureTaskCreationTests {
     #expect(store.state.taskRecords.isEmpty)
     #expect(!sandbox.didWriteTasksFile)
   }
+
+  // MARK: - A36: the inbox stands alone
+
+  /// The ⌘N roster is built from the live rows, not from the panel the user is
+  /// looking at, so hiding the Worktrees and Agents tabs cannot take a
+  /// registered directory away from capture. Asserted rather than assumed: it is
+  /// the whole reason hiding a tab is safe.
+  @Test(.sidebarTab(.tasks))
+  func hidingTheOtherTabsLeavesEveryDirectoryCapturable() async throws {
+    let sandbox = try makeSandbox()
+    let fresh = try sandbox.makeDirectory("fresh", activityAt: Self.freshDate)
+    let other = try sandbox.makeDirectory("other", activityAt: Self.freshDate)
+    let state = TaskInboxFixture.makeState(
+      sandbox: sandbox,
+      directories: [fresh, other],
+      hasLoadedTasks: true
+    )
+    @Shared(.sidebarShowsWorktreesTab) var showsWorktrees
+    @Shared(.sidebarShowsAgentsTab) var showsAgents
+    $showsWorktrees.withLock { $0 = false }
+    $showsAgents.withLock { $0 = false }
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(.createRandomWorktree)
+    await store.receive(\.tasks.presentCreationPrompt)
+
+    let prompt = try #require(store.state.taskCreationPrompt)
+    #expect(
+      Set(prompt.candidates.map(\.id))
+        == Set([fresh, other].map { TaskDirectoryPath.canonical($0) })
+    )
+  }
+
+  /// The prompt's escape hatch reaches the app's real open-repository flow, so
+  /// registering a repo never requires the Worktrees tab (A36).
+  @Test(.sidebarTab(.tasks))
+  func openRepositoryFromThePromptDismissesItAndAsksToOpen() async throws {
+    let sandbox = try makeSandbox()
+    var state = makeEmptyState()
+    state.taskCreationPrompt = TaskCreationPromptFeature.State(candidates: [])
+    let store = makeStore(state, sandbox: sandbox)
+
+    await store.send(.taskCreationPrompt(.presented(.delegate(.openRepository))))
+    await store.receive(\.requestOpenRepository)
+    await store.finish()
+
+    // The prompt gets out of the way: the browse flow needs the keyboard, and a
+    // stale prompt over it would be capturing into a roster that is about to
+    // change underneath it.
+    #expect(store.state.taskCreationPrompt == nil)
+  }
 }

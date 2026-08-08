@@ -236,4 +236,17 @@ struct TaskCreationPromptFeatureTests {
     await store.send(.cancelButtonTapped)
     await store.receive(.delegate(.cancel))
   }
+
+  // MARK: - A36: reaching a new repository from the inbox
+
+  /// A36's bar is that a repository can be added without visiting the Worktrees
+  /// tab. ⌘N is the inbox's only directory picker, so when it has nothing to
+  /// offer it has to hand the user somewhere to go — otherwise the empty prompt
+  /// is a dead end and the Worktrees tab is load-bearing again.
+  @Test func openRepositoryEscapesAnEmptyPrompt() async {
+    let store = makeStore([])
+
+    await store.send(.openRepositoryButtonTapped)
+    await store.receive(.delegate(.openRepository))
+  }
 }
