@@ -56,7 +56,8 @@ struct TasksSidebarView: View {
               settledTimestamp: nil,
               isSettled: false,
               isPinned: structure.pinnedTaskIDs.contains(taskID),
-              isWoke: structure.wokeTaskIDs.contains(taskID)
+              isWoke: structure.wokeTaskIDs.contains(taskID),
+              isSnoozed: structure.snoozedTaskIDs.contains(taskID)
             )
           }
         } header: {
@@ -75,6 +76,7 @@ struct TasksSidebarView: View {
               isSettled: false,
               isPinned: structure.pinnedTaskIDs.contains(entry.id),
               isWoke: false,
+              isSnoozed: true,
               wakeAt: entry.wakeAt
             )
           }
@@ -92,7 +94,8 @@ struct TasksSidebarView: View {
               settledTimestamp: entry.settledTimestamp,
               isSettled: true,
               isPinned: false,
-              isWoke: false
+              isWoke: false,
+              isSnoozed: structure.snoozedTaskIDs.contains(entry.id)
             )
           }
           if structure.hiddenSettledCount > 0 {
@@ -229,6 +232,10 @@ private struct TaskSidebarRowView: View {
   /// Its snooze ended and the user has not opened it since (A24). Derived by the
   /// structure, never stored, so a relaunch re-derives the same answer.
   let isWoke: Bool
+  /// The user's "not now" is still standing. NOT the same as rendering on the
+  /// shelf: a raised hand (A25) puts a still-snoozed row back in Active, and
+  /// that row needs Wake Now, not a Snooze menu it is already inside of.
+  let isSnoozed: Bool
   /// Set only for rows on the snoozed shelf, for the countdown.
   var wakeAt: Date?
 
@@ -263,7 +270,7 @@ private struct TaskSidebarRowView: View {
     .contextMenu {
       lifecycleMenuItems(canSettle: leaf?.canSettle ?? true)
       Divider()
-      snoozeMenuItems(canSnooze: leaf?.canSnooze ?? true, isSnoozed: wakeAt != nil)
+      snoozeMenuItems(canSnooze: leaf?.canSnooze ?? true, isSnoozed: isSnoozed)
       Divider()
       pinMenuItems()
     }
@@ -291,9 +298,16 @@ private struct TaskSidebarRowView: View {
       .help("Pin this task as active so it is never auto-settled by inactivity.")
   }
 
-  /// Presets are resolved against the clock at menu-open time, never precomputed
-  /// (A23): one whose instant has already passed is omitted rather than silently
-  /// rolled to tomorrow, which would make a single menu item mean two things.
+  /// Presets are resolved when the menu content builds, never precomputed (A23):
+  /// one whose instant has already passed is omitted rather than silently rolled
+  /// to tomorrow, which would make a single menu item mean two things.
+  ///
+  /// `store.taskNow` rather than `Date()`: A18 keeps the clock injected so tests
+  /// can drive it, and a view reaching for the ambient clock reintroduces
+  /// exactly the seam the reducer's sample exists to close. `taskNow` re-stamps
+  /// on every task arm and on the 60s classification tick, so a preset can be at
+  /// most a minute stale — which never changes which presets are *offered*,
+  /// since none of the boundaries are minute-grained.
   @ViewBuilder
   private func snoozeMenuItems(canSnooze: Bool, isSnoozed: Bool) -> some View {
     if isSnoozed {
@@ -301,7 +315,10 @@ private struct TaskSidebarRowView: View {
         .help("Bring this task back to Active right now, ahead of its wake time.")
     }
     Menu("Snooze") {
-      ForEach(TaskSnooze.resolveSnoozePresets(now: Date(), calendar: .autoupdatingCurrent), id: \.preset) { preset in
+      ForEach(
+        TaskSnooze.resolveSnoozePresets(now: store.taskNow, calendar: .autoupdatingCurrent),
+        id: \.preset
+      ) { preset in
         Button(Self.presetTitle(preset)) {
           store.send(.tasks(.snooze(taskID, until: preset.wakeAt)))
         }
@@ -487,11 +504,7 @@ private struct TaskSidebarRowContentView: View {
           .help("When this task wrapped up")
       }
       if let wakeAt {
-        Text(wakeAt, format: .relative(presentation: .named))
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-          .help("When this task comes back on its own")
+        Self.wakeCountdown(wakeAt)
       }
       if hasUnseenNotifications {
         Image(systemName: "bell.badge.fill")
@@ -510,6 +523,25 @@ private struct TaskSidebarRowContentView: View {
     }
     .foregroundStyle(isSettled ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
     .accessibilityElement(children: .combine)
+  }
+
+  /// A countdown that actually counts down. A bare relative `Text` renders once
+  /// and then lies until something else invalidates the row — and nothing does:
+  /// the classification tick re-stamps `taskNow`, but the structure it rebuilds
+  /// is Equatable-diffed, so a minute passing without a placement change
+  /// publishes nothing.
+  ///
+  /// `TimelineView` is the cheap fix precisely because it is scoped here: only
+  /// rows that are actually parked carry a schedule, and the redraw is one
+  /// `Text`, not the row, the section, or the List.
+  private static func wakeCountdown(_ wakeAt: Date) -> some View {
+    TimelineView(.periodic(from: .now, by: 60)) { _ in
+      Text(wakeAt, format: .relative(presentation: .named))
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .help("When this task comes back on its own")
+    }
   }
 
   /// One agent reporting on the task's surfaces: the state glyph the Agents tab
