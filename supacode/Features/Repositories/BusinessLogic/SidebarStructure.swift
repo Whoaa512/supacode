@@ -652,13 +652,14 @@ extension RepositoriesFeature.State {
       // agent snapshots, titles, branch names, lifecycle), so it rides the same
       // bit instead of adding one every action arm would have to classify.
       recomputeAgentDashboardStructureIfChanged()
-      // Task leaves project the same per-row agent / notification / dormancy
-      // state, so an agent tick updates a task row on this bit alone.
-      recomputeTaskLeavesIfChanged()
     }
     // The Tasks render plan keys off the record set *and* the open-task pull-in
     // (A8), and a selection change declares only the selection bits — the same
     // two-bit dependency `recomputeMenuBarSectionsIfChanged` has.
+    //
+    // The leaves ride this condition alone. `.sidebarStructure` is one of its
+    // two bits, so a per-row agent tick still reaches them; recomputing them
+    // above as well would just run the same pure pass twice per action.
     //
     // The leaves ride the selection bit too, and for a reason that is easy to
     // miss: opening a task stamps `lastVisitedAt`, which is what clears its
