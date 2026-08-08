@@ -5845,18 +5845,12 @@ extension RepositoriesFeature.State {
     name: String?,
     baseDirectory: URL,
   ) -> FailedWorktreeCleanup {
-    guard let name, !name.isEmpty else {
+    guard let name,
+      let worktreeURL = RepositoriesFeature.failedWorktreeURL(baseDirectory: baseDirectory, name: name)
+    else {
       return FailedWorktreeCleanup(didRemoveWorktree: false, worktree: nil)
     }
     let repositoryRootURL = URL(fileURLWithPath: repositoryID.rawValue).standardizedFileURL
-    let normalizedBaseDirectory = baseDirectory.standardizedFileURL
-    let worktreeURL =
-      normalizedBaseDirectory
-      .appending(path: name, directoryHint: .isDirectory)
-      .standardizedFileURL
-    guard worktreeURL.isInside(baseDirectory: normalizedBaseDirectory) else {
-      return FailedWorktreeCleanup(didRemoveWorktree: false, worktree: nil)
-    }
     let worktreeID = WorktreeID(worktreeURL.path(percentEncoded: false))
     let worktree =
       repositories[id: repositoryID]?.worktrees[id: worktreeID]
@@ -5895,6 +5889,27 @@ extension RepositoriesFeature.State {
     guard let lifecycle = sidebarItems[id: worktreeID]?.lifecycle else { return .none }
     guard lifecycle == .deleting || lifecycle == .deletingScript else { return .none }
     return .send(.sidebarItems(.element(id: worktreeID, action: .lifecycleChanged(.idle))))
+  }
+}
+
+extension RepositoriesFeature {
+  /// Where a creation named `name` would have put its worktree, or `nil` when
+  /// the name is empty or escapes the base directory (`../..`) — the containment
+  /// check is what keeps a rollback from removing something outside the
+  /// worktree root.
+  ///
+  /// Shared by both rollback paths (the manual one's `cleanupFailedWorktree` and
+  /// the task inbox's retry) so the directory a failure removes can never drift
+  /// from the directory a failure created.
+  nonisolated static func failedWorktreeURL(baseDirectory: URL, name: String) -> URL? {
+    guard !name.isEmpty else { return nil }
+    let normalizedBaseDirectory = baseDirectory.standardizedFileURL
+    let worktreeURL =
+      normalizedBaseDirectory
+      .appending(path: name, directoryHint: .isDirectory)
+      .standardizedFileURL
+    guard worktreeURL.isInside(baseDirectory: normalizedBaseDirectory) else { return nil }
+    return worktreeURL
   }
 }
 

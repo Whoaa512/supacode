@@ -253,6 +253,9 @@ struct RepositoriesFeatureTaskWorktreeTests {
     let incumbent = try #require(state.taskRecords.first)
     let store = makeStore(state, sandbox: sandbox) {
       $0.createWorktreeStream = Self.createWorktreeStreamSpy(attempts: attempts, worktree: nil)
+      // Stubbed even though this test asserts nothing about it: the rollback is
+      // real, and the unstubbed client shells out to git in a temp directory.
+      $0.removeWorktree = { worktree, _ in worktree.workingDirectory }
       $0.worktrees = { _ in [] }
     }
 
@@ -272,6 +275,82 @@ struct RepositoriesFeatureTaskWorktreeTests {
     #expect(store.state.alert != nil)
   }
 
+  /// The retry runs under the same name, so the half-created directory a warm
+  /// failure leaves behind has to go first — otherwise the cold attempt fails on
+  /// "directory already exists" and the degrade path that exists to save the
+  /// capture never runs. Ordering is the whole assertion.
+  @Test func aWarmFailureRemovesItsLeftoversBeforeRetryingCold() async throws {
+    let sandbox = try makeSandbox()
+    let busy = try sandbox.makeDirectory("busy", activityAt: Self.freshDate)
+    let created = try sandbox.makeDirectory("created", activityAt: Self.freshDate)
+    let createdWorktree = TaskInboxFixture.makeWorktree(created, rootURL: sandbox.rootURL)
+    let attempts = LockIsolated<[CreateAttempt]>([])
+    let calls = LockIsolated<[String]>([])
+    let removedBranches = LockIsolated<[Bool]>([])
+    let spy = Self.createWorktreeStreamSpy(attempts: attempts, worktree: createdWorktree, succeedsFromAttempt: 2)
+    let store = makeStore(makeIsolatingState(sandbox: sandbox, busy: busy), sandbox: sandbox) {
+      $0.createWorktreeStream = { name, repoRoot, base, ignored, untracked, ref, override in
+        calls.withValue { $0.append("create") }
+        return spy(name, repoRoot, base, ignored, untracked, ref, override)
+      }
+      $0.removeWorktree = { worktree, deleteBranch in
+        calls.withValue { $0.append("remove") }
+        removedBranches.withValue { $0.append(deleteBranch) }
+        return worktree.workingDirectory
+      }
+      $0.worktrees = { _ in [] }
+    }
+
+    await store.send(.tasks(.createTask(title: "Ship the inbox", directoryURL: busy)))
+    await store.receive(\.tasks.autoManagedWorktreeCreated)
+    await store.finish()
+
+    #expect(calls.value == ["create", "remove", "create"])
+    // The branch goes with it: it was minted seconds ago by the attempt that
+    // just failed, so it cannot carry work — and leaving it would make the
+    // retry collide on the branch instead of on the directory.
+    #expect(removedBranches.value == [true])
+    let record = try #require(store.state.taskRecords.first { $0.title == "Ship the inbox" })
+    #expect(record.autoManagedWorktree?.path == TaskDirectoryPath.canonical(created))
+    #expect(store.state.alert == nil)
+  }
+
+  /// A20b is about what is left *behind*, not only about what was written. Both
+  /// attempts failing means the directory and branch the last one may have
+  /// created are orphans nothing else will ever clean up.
+  @Test func aFailedCaptureRemovesTheOrphanItsLastAttemptLeftBehind() async throws {
+    let sandbox = try makeSandbox()
+    let busy = try sandbox.makeDirectory("busy", activityAt: Self.freshDate)
+    let attempts = LockIsolated<[CreateAttempt]>([])
+    let removed = LockIsolated<[(path: String, deleteBranch: Bool)]>([])
+    let store = makeStore(makeIsolatingState(sandbox: sandbox, busy: busy), sandbox: sandbox) {
+      $0.createWorktreeStream = Self.createWorktreeStreamSpy(attempts: attempts, worktree: nil)
+      $0.removeWorktree = { worktree, deleteBranch in
+        removed.withValue {
+          $0.append((worktree.workingDirectory.path(percentEncoded: false), deleteBranch))
+        }
+        return worktree.workingDirectory
+      }
+      $0.worktrees = { _ in [] }
+    }
+
+    await store.send(.tasks(.createTask(title: "Ship the inbox", directoryURL: busy)))
+    await store.receive(\.tasks.autoManagedWorktreeCreationFailed)
+    await store.finish()
+
+    // Once between the attempts, once for the attempt that had no retry left.
+    #expect(removed.value.count == 2)
+    let branch = try #require(attempts.value.first?.name)
+    let baseDirectory = try #require(attempts.value.first?.baseDirectory)
+    let expected = baseDirectory.appending(path: branch, directoryHint: .isDirectory)
+      .standardizedFileURL.path(percentEncoded: false)
+    #expect(removed.value.map(\.path) == [expected, expected])
+    #expect(removed.value.map(\.deleteBranch) == [true, true])
+    // Still nothing persisted, and the failure is still reported.
+    #expect(!sandbox.didWriteTasksFile)
+    #expect(store.state.alert != nil)
+  }
+
   /// The inbox must not gain a phantom row for a worktree that does not exist:
   /// rollback is roster-level too.
   @Test func failedWorktreeCreationRegistersNoWorktreeRow() async throws {
@@ -280,6 +359,7 @@ struct RepositoriesFeatureTaskWorktreeTests {
     let attempts = LockIsolated<[CreateAttempt]>([])
     let store = makeStore(makeIsolatingState(sandbox: sandbox, busy: busy), sandbox: sandbox) {
       $0.createWorktreeStream = Self.createWorktreeStreamSpy(attempts: attempts, worktree: nil)
+      $0.removeWorktree = { worktree, _ in worktree.workingDirectory }
       $0.worktrees = { _ in [] }
     }
     let rowsBefore = Set(store.state.sidebarItems.ids)

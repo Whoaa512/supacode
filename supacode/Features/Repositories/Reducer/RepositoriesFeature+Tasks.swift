@@ -21,6 +21,12 @@ private enum TaskCancelID {
   /// so the later arming supersedes an in-flight one instead of racing it into a
   /// duplicate `.seeded`.
   static let seed = "repositories.tasks.seed"
+  /// Per capture, never shared: two captures in flight are two different
+  /// worktrees being minted, and cancelling one because the other started would
+  /// strand a half-created directory nothing is left to roll back.
+  nonisolated struct AutoManagedWorktreeCreation: Hashable {
+    var taskID: TaskID
+  }
 }
 
 extension RepositoriesFeature {
@@ -69,8 +75,18 @@ extension RepositoriesFeature {
     /// creation date, its attachment — rather than one reconstructed from a
     /// string.
     case autoManagedWorktreeCreated(TaskRecord, worktree: Worktree)
-    /// Both attempts failed. Nothing was persisted, so this only reports (A20b).
-    case autoManagedWorktreeCreationFailed(title: String, directoryPath: String, message: String)
+    /// Both attempts failed. Nothing was persisted, so there is no record to
+    /// undo — but a failed `wt sw` can still leave a directory and a branch
+    /// behind, so this carries what it takes to remove them (A20b: the capture
+    /// leaves *nothing*, not just no record).
+    case autoManagedWorktreeCreationFailed(
+      title: String,
+      directoryPath: String,
+      message: String,
+      repositoryID: Repository.ID,
+      branch: String,
+      baseDirectory: URL
+    )
     /// Re-check Resolved #9's preconditions and, if they all hold, delete the
     /// worktree a settled task's marker authorizes.
     case cleanupAutoManagedWorktree(TaskID)
@@ -349,14 +365,39 @@ extension RepositoriesFeature {
         }
         return state.reduceCreatedTask(record)
 
-      case .tasks(.autoManagedWorktreeCreationFailed(let title, let directoryPath, let message)):
+      case .tasks(
+        .autoManagedWorktreeCreationFailed(
+          let title, let directoryPath, let message, let repositoryID, let branch, let baseDirectory
+        )
+      ):
         tasksLogger.error(
           "Auto-managed worktree creation failed for '\(title)' in \(directoryPath): \(message)"
         )
-        // A20b: nothing was persisted, so the failure is all there is to report —
-        // on the same surface every other worktree creation failure uses.
+        // A20b is about what is *left behind*, not just about what was written:
+        // `wt sw` can fail after creating the directory and the branch, and an
+        // orphan the inbox has no record of is one nothing will ever clean up.
+        // Same rollback the manual path runs (`createRandomWorktreeFailed`), for
+        // the same reason and with the same authority — this name was minted by
+        // the attempt that just failed, so its branch can carry no commits.
+        let cleanup = state.cleanupFailedWorktree(
+          repositoryID: repositoryID,
+          name: branch,
+          baseDirectory: baseDirectory
+        )
         state.alert = messageAlert(title: "Unable to create worktree", message: message)
-        return .none
+        var effects: [Effect<Action>] = []
+        if cleanup.didRemoveWorktree {
+          effects.append(.send(.delegate(.repositoriesChanged(state.repositories))))
+        }
+        if let cleanupWorktree = cleanup.worktree {
+          @Dependency(GitClientDependency.self) var cleanupClient
+          // No `.reloadRepositories` chaser, unlike the manual path: nothing was
+          // ever inserted for this capture, so `cleanupFailedWorktree` has
+          // already taken the roster back to where it started and a reload would
+          // only be a round trip to disk to learn that.
+          effects.append(.run { _ in _ = try? await cleanupClient.removeWorktree(cleanupWorktree, true) })
+        }
+        return .merge(effects)
 
       case .tasks(.cleanupAutoManagedWorktree(let id)):
         guard let record = state.taskRecords[id: id],
@@ -465,7 +506,8 @@ extension RepositoriesFeature {
         baseRef = await client.automaticWorktreeBaseRef(repository.rootURL) ?? ""
       }
       var lastError: (any Error)?
-      for attempt in [(warm: true, copyUntracked: copyUntracked), (warm: false, copyUntracked: false)] {
+      let attempts = [(warm: true, copyUntracked: copyUntracked), (warm: false, copyUntracked: false)]
+      for (index, attempt) in attempts.enumerated() {
         do {
           let worktree = try await Self.finishedWorktree(
             from: client.createWorktreeStream(
@@ -505,6 +547,20 @@ extension RepositoriesFeature {
           tasksLogger.warning(
             "Auto-managed worktree \(branch) failed to create (warm: \(attempt.warm)): \(error)"
           )
+          // The retry runs under the *same* name (a second name would leave the
+          // record's marker authorizing a directory that was never created), so
+          // whatever the failed attempt already put on disk has to go first —
+          // otherwise the cold attempt fails on "directory already exists" and
+          // the degrade path that exists to save the capture never gets to run.
+          // The last attempt's leftovers are the failure arm's to remove, so
+          // they are not touched twice.
+          guard index < attempts.count - 1 else { break }
+          await Self.removeOrphanedWorktreeAttempt(
+            gitClient: client,
+            repositoryRootURL: repository.rootURL,
+            baseDirectory: baseDirectory,
+            branch: branch
+          )
         }
       }
       await send(
@@ -512,11 +568,44 @@ extension RepositoriesFeature {
           .autoManagedWorktreeCreationFailed(
             title: resolvedTitle,
             directoryPath: directoryPath,
-            message: lastError?.localizedDescription ?? "Worktree creation failed."
+            message: lastError?.localizedDescription ?? "Worktree creation failed.",
+            repositoryID: repository.id,
+            branch: branch,
+            baseDirectory: baseDirectory
           )
         )
       )
     }
+    .cancellable(id: TaskCancelID.AutoManagedWorktreeCreation(taskID: taskID))
+  }
+
+  /// Removes what a failed creation attempt left on disk, so the next attempt
+  /// can use the same name. Best-effort by design: the common case is that
+  /// nothing was created at all and there is nothing to remove, which git
+  /// reports as an error and this deliberately swallows.
+  ///
+  /// `deleteBranch: true`, unlike every other delete in the task inbox: this
+  /// branch was minted seconds ago by the attempt that just failed, so it cannot
+  /// carry work — which is exactly what `createRandomWorktreeFailed` concluded
+  /// about the manual path's rollback.
+  nonisolated static func removeOrphanedWorktreeAttempt(
+    gitClient: GitClientDependency,
+    repositoryRootURL: URL,
+    baseDirectory: URL,
+    branch: String
+  ) async {
+    guard let directory = Self.failedWorktreeURL(baseDirectory: baseDirectory, name: branch) else {
+      return
+    }
+    let worktree = Worktree(
+      id: WorktreeID(directory.path(percentEncoded: false)),
+      kind: .git,
+      name: branch,
+      detail: "",
+      workingDirectory: directory,
+      repositoryRootURL: repositoryRootURL
+    )
+    _ = try? await gitClient.removeWorktree(worktree, true)
   }
 
   /// The worktree a creation stream ends with. Progress lines are dropped: an
@@ -1221,11 +1310,14 @@ extension RepositoriesFeature.TaskInboxAction {
     // Presentation only: the prompts are state no cache projects.
     case .presentCreationPrompt, .setConflictRemember, .cancelDirectoryConflict:
       return []
-    // Effect launcher / reporter: neither touches a record or the roster. The
-    // failure arm only raises an alert, which no cache projects (A20b: nothing
-    // was persisted, so there is nothing to recompute).
-    case .cleanupAutoManagedWorktree, .autoManagedWorktreeCreationFailed:
+    // Effect launcher: it touches neither a record nor the roster.
+    case .cleanupAutoManagedWorktree:
       return []
+    // No record was written (A20b), but the rollback prunes the roster and the
+    // sidebar buckets, which is the same set `.createRandomWorktreeFailed`
+    // declares for the same `cleanupFailedWorktree` call.
+    case .autoManagedWorktreeCreationFailed:
+      return [.sidebarStructure, .selectedWorktreeSlice, .sidebarSelectionSlice]
     // Clearing a spent delete marker changes the record set, nothing else.
     case .autoManagedWorktreeCleanupFinished:
       return .sidebarStructure
