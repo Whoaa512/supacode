@@ -264,11 +264,29 @@ nonisolated struct TasksSidebarStructure: Equatable, Sendable {
       // Inverted from the one list the panel renders, never assembled from the
       // sections a second time: that is what makes the hint badge and the chord
       // the same lookup (A32).
-      slotByTaskID: Dictionary(
-        uniqueKeysWithValues: visibleTaskIDs.enumerated().map { ($0.element, $0.offset) }
-      ),
+      slotByTaskID: Self.slots(for: visibleTaskIDs),
       openTaskCommands: openTaskCommands
     )
+  }
+
+  /// Invert the visible order into the slot map the ⌃n badges and the ⌃n chord
+  /// both read.
+  ///
+  /// A *total* function, not `uniqueKeysWithValues`: a placement bug that let
+  /// one task land in two sections would trap the whole recompute, taking the
+  /// sidebar down over a mis-numbered badge. First occurrence wins, which is the
+  /// row nearest the top — the one the user would count to — and DEBUG traps so
+  /// the bug is loud where it can be fixed and survivable where it cannot.
+  private static func slots(for visibleTaskIDs: [TaskID]) -> [TaskID: Int] {
+    let slots = Dictionary(
+      visibleTaskIDs.enumerated().map { ($0.element, $0.offset) },
+      uniquingKeysWith: { first, _ in first }
+    )
+    assert(
+      slots.count == visibleTaskIDs.count,
+      "A task appears twice in the visible order — placement put one record in two sections"
+    )
+    return slots
   }
 
   /// The snooze question for one record, assembled in the one place so the
