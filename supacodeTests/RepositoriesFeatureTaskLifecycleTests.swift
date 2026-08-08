@@ -188,6 +188,43 @@ struct RepositoriesFeatureTaskLifecycleTests {
     #expect(store.state.tasksSidebarStructure.snoozedTotalCount == 1)
   }
 
+  /// The override is a repair for un-settling, not a side effect of parking.
+  /// Stamping `.active` on every snooze would quietly hand a permanent
+  /// "keep active" to tasks the user never settled, immunizing them against
+  /// Phase 5's inactivity cascade for the rest of their lives.
+  @Test func snoozingAnActiveTaskLeavesTheOverrideAlone() async throws {
+    let sandbox = try makeSandbox()
+    let fixture = try makeSingleTaskState(sandbox: sandbox) { makeRecord(directory: $0) }
+    let store = makeStore(fixture.state, sandbox: sandbox)
+
+    await store.send(.tasks(.snooze(fixture.record.id, until: Self.now.addingTimeInterval(Self.hour))))
+    await store.send(.tasks(.stopTimers))
+    await store.finish()
+
+    let parked = try #require(store.state.taskRecords[id: fixture.record.id])
+    #expect(parked.settledOverride == nil)
+    #expect(parked.snoozedAt == Self.now)
+    #expect(store.state.tasksSidebarStructure.snoozedTotalCount == 1)
+  }
+
+  /// An explicit `.settled` override is settled-ness too, so a snooze has to
+  /// clear it the same way it clears the stamp — otherwise the task comes back
+  /// from the shelf straight into the tail it was parked out of.
+  @Test func snoozingAnOverrideSettledTaskUnsettlesIt() async throws {
+    let sandbox = try makeSandbox()
+    let fixture = try makeSingleTaskState(sandbox: sandbox) {
+      makeRecord(directory: $0, settledOverride: .settled)
+    }
+    let store = makeStore(fixture.state, sandbox: sandbox)
+
+    await store.send(.tasks(.snooze(fixture.record.id, until: Self.now.addingTimeInterval(Self.hour))))
+    await store.send(.tasks(.stopTimers))
+    await store.finish()
+
+    #expect(store.state.taskRecords[id: fixture.record.id]?.settledOverride == .active)
+    #expect(store.state.tasksSidebarStructure.settledTotalCount == 0)
+  }
+
   @Test func snoozeIsRefusedForAnUnknownTask() async throws {
     let sandbox = try makeSandbox()
     let fixture = try makeSingleTaskState(sandbox: sandbox) { makeRecord(directory: $0) }

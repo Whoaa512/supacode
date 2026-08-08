@@ -290,8 +290,19 @@ extension RepositoriesFeature {
         // and the explicit `.active` override is what stops the inactivity
         // cascade re-settling it the moment it wakes. The pin is untouched: "not
         // now" and "always up top" are orthogonal instructions.
+        //
+        // The override is only for tasks that were actually *in* the tail:
+        // stamping it on every snooze pins a permanent "keep active" onto tasks
+        // the user never settled, which then immunizes them against Phase 5's
+        // inactivity cascade forever. Records already persisted with the
+        // spurious override keep it: it is a user-visible, user-clearable
+        // keep-active flag, not corruption, and a migration for dogfood-stage
+        // data would cost more than it repairs.
+        let wasSettled = TasksSidebarStructure.isSettled(record)
         state.taskRecords[id: id]?.settledAt = nil
-        state.taskRecords[id: id]?.settledOverride = .active
+        if wasSettled {
+          state.taskRecords[id: id]?.settledOverride = .active
+        }
         @Shared(.settingsFile) var settingsFile
         var snoozeEffects: [Effect<Action>] = [Self.persistTasksEffect(state: state)]
         // Same delegate a settle sends, so the parent has one hibernation path,
@@ -1531,7 +1542,12 @@ extension RepositoriesFeature.State {
       now: taskNow,
       activity: taskLeaves[id: id]?.activitySnapshot ?? .idle,
       settledOverride: record?.settledOverride,
-      lastActivityAt: record?.lastVisitedAt,
+      // Deliberately nil, not `lastVisitedAt`: a visit is when the user last
+      // *looked*, which is not activity, and the two only agree by accident.
+      // Nothing reads this until Phase 5 turns on the inactivity window and the
+      // finished-PR path, so feeding it a proxy now would bake the wrong meaning
+      // into whichever test happened to be written against it first.
+      lastActivityAt: nil,
       inactivityWindow: nil,
       isAutoSettleEnabled: false,
       settlesOnFinishedPullRequest: false
