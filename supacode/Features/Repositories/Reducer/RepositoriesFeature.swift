@@ -292,6 +292,10 @@ struct RepositoriesFeature {
     /// the detail view can mount the selected task's terminal without scanning
     /// `sidebarItems` from a body (the `selectedWorktreeSlice` precedent).
     var taskDetailWorktreeID: Worktree.ID?
+    /// The open Resolved #11 conflict question, if any. Plain optional rather
+    /// than `@Presents`: the sheet has no child reducer, its two answers are
+    /// task arms, and the state it carries is the parked capture itself.
+    var taskDirectoryConflict: TaskDirectoryConflictPrompt?
     /// Settled-tail page window; grows by `expandedSettledVisibleCount`.
     var settledTailVisibleCount = TasksSidebarStructure.settledTailInitialCount
     var isSettledTailExpanded = false

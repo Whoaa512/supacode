@@ -58,6 +58,23 @@ extension RepositoriesFeature {
     /// Create a task in `directoryURL`. `title == nil` hands naming to the
     /// seeder's cascade, which is the fast path for an untitled capture.
     case createTask(title: String?, directoryURL: URL)
+    /// The conflict sheet's "remember for this repository" toggle.
+    case setConflictRemember(Bool)
+    /// Answer the open conflict question and resume the parked capture.
+    case resolveDirectoryConflict(TaskDirectoryIsolation)
+    /// Dismiss it. A20b: no record, no worktree, no write.
+    case cancelDirectoryConflict
+    /// A worktree was minted for a capture. Carries the git-reported `Worktree`
+    /// (not just its path) so the roster gets the real row — its kind, its
+    /// creation date, its attachment — rather than one reconstructed from a
+    /// string.
+    case autoManagedWorktreeCreated(TaskRecord, worktree: Worktree)
+    /// Both attempts failed. Nothing was persisted, so this only reports (A20b).
+    case autoManagedWorktreeCreationFailed(title: String, directoryPath: String, message: String)
+    /// Re-check Resolved #9's preconditions and, if they all hold, delete the
+    /// worktree a settled task's marker authorizes.
+    case cleanupAutoManagedWorktree(TaskID)
+    case autoManagedWorktreeCleanupFinished(taskID: TaskID, didDelete: Bool)
   }
 
   var tasksReducer: some Reducer<State, Action> {
@@ -147,6 +164,16 @@ extension RepositoriesFeature {
         if let hibernation {
           effects.append(.send(.delegate(hibernation)))
         }
+        // Cleanup rides on the settle, always *after* the hibernation request:
+        // deleting a directory that still has live sessions in it is how a
+        // settle turns into data loss. A shared directory is nobody's to delete
+        // (A6), which is the same reason it is nobody's to hibernate.
+        if record.autoManagedWorktree != nil,
+          state.isSoleActiveTaskOwner(of: record),
+          state.autoManagedCleanupWorktree(for: record) != nil
+        {
+          effects.append(.send(.tasks(.cleanupAutoManagedWorktree(id))))
+        }
         return .merge(effects)
 
       case .tasks(.unsettle(let id)):
@@ -232,63 +259,125 @@ extension RepositoriesFeature {
         // Canonicalized inline, the documented one-shot exception: the directory
         // path is the record's identity, so a second spelling would fork the task.
         let directoryPath = TaskDirectoryPath.canonical(directoryURL)
-        // Resolved #11's isolation cascade is Phase 3c. `resolve` is the seam:
-        // it answers `.share` today, so creation lands in the directory the user
-        // picked and a busy directory just gets a second task with zero surfaces
-        // (A3) rather than a worktree decision in the user's face (A19).
-        //
-        // Switched rather than compared so 3c cannot make `.isolate` reachable
-        // without this arm failing to compile — a silent fall-through would ship
-        // an isolation policy that quietly shares.
-        switch TaskDirectoryConflictPolicy.resolve(directoryPath: directoryPath) {
-        case .share:
-          break
+        // Switched rather than compared so no answer can silently fall through
+        // to the shared path — that would ship an isolation policy that shares.
+        switch state.taskDirectoryConflictPolicy(forDirectory: directoryPath) {
+        case .useDirectly, .share:
+          return state.reduceTaskCreation(title: title, directoryPath: directoryPath, now: now)
+
+        case .ask:
+          guard let repository = state.taskCaptureRepository(forDirectory: directoryPath) else {
+            // Unreachable: `.ask` is only returned when a repository answered it.
+            return state.reduceTaskCreation(title: title, directoryPath: directoryPath, now: now)
+          }
+          state.taskDirectoryConflict = TaskDirectoryConflictPrompt(
+            title: title,
+            directoryURL: directoryURL,
+            directoryPath: directoryPath,
+            repositoryID: repository.id,
+            incumbentTitle: state.newestActiveTask(inDirectory: directoryPath)?.title
+          )
+          // Nothing is committed while the question is open (A20b, one step
+          // earlier): no record, no selection move, no write.
+          return .none
+
         case .isolate:
-          tasksLogger.error(
-            """
-            TaskDirectoryConflictPolicy asked to isolate \(directoryPath), which Phase 3b \
-            cannot honor; sharing the directory instead.
-            """
+          guard let repository = state.taskCaptureRepository(forDirectory: directoryPath) else {
+            return state.reduceTaskCreation(title: title, directoryPath: directoryPath, now: now)
+          }
+          return isolatedCaptureEffect(
+            state: state,
+            title: title,
+            directoryPath: directoryPath,
+            repository: repository,
+            now: now
           )
         }
-        let row = state.sidebarItemForTaskDirectory(directoryPath)
-        let branch = row?.provableBranch
-        let typedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let record = TaskRecord(
-          title: typedTitle.flatMap { $0.isEmpty ? nil : $0 }
-            ?? TaskActivitySeeder.title(
-              for: TaskActivitySeeder.Candidate(
-                directoryPath: directoryPath,
-                customizationTitle: row?.customTitle,
-                worktreeName: row?.name,
-                worktreeDetail: row?.subtitle
-              ),
-              branch: branch
-            ),
-          directoryPath: directoryPath,
-          branch: branch,
-          repositoryID: row?.repositoryID,
-          createdAt: now,
-          // A3: a fresh task steals nothing. Its terminal arrives via the delegate.
-          surfaceIDs: [],
-          // A2: created, not inferred — the row must never render seeded confidence.
-          seedEvidence: TaskRecord.SeedEvidence(source: .manual, confidence: .high)
-        )
-        state.taskRecords.append(record)
-        // Selection is applied inline rather than routed through `.tasks(.select)`:
-        // the terminal request has to leave with the new task already open (A4),
-        // and a `.select` round-trip would land the selection one hop *after* the
-        // delegate the parent acts on. `reduceSelectionChangedEffect` is the same
-        // code `.selectionChanged` runs, so the stamp and the persist are identical
-        // — which is also the only write this arm makes: the new record reaches
-        // `tasks.json` on the back of that selection stamp, not a separate save.
-        var effects: [Effect<Action>] = [
-          state.reduceSelectionChangedEffect(selections: [.task(record.id)], focusTerminal: false)
-        ]
-        if let terminal = state.taskTerminalRequestDelegate(for: record) {
-          effects.append(.send(.delegate(terminal)))
+
+      case .tasks(.setConflictRemember(let shouldRemember)):
+        state.taskDirectoryConflict?.shouldRemember = shouldRemember
+        return .none
+
+      case .tasks(.cancelDirectoryConflict):
+        state.taskDirectoryConflict = nil
+        return .none
+
+      case .tasks(.resolveDirectoryConflict(let isolation)):
+        guard let prompt = state.taskDirectoryConflict else { return .none }
+        state.taskDirectoryConflict = nil
+        let repository = state.repositories[id: prompt.repositoryID]
+        // Remembering is what keeps A19's budget intact past the first conflict:
+        // it writes the per-repository policy, and every later busy capture
+        // resolves without a sheet.
+        if prompt.shouldRemember, let repository {
+          @Shared(.repositorySettings(repository.rootURL, host: repository.host))
+          var repositorySettings
+          $repositorySettings.withLock { $0.taskDirectoryIsolation = isolation }
         }
-        return .merge(effects)
+        // A repository that vanished between question and answer cannot be
+        // branched from; A20 forbids blocking creation, so it shares.
+        guard isolation == .isolate, let repository else {
+          return state.reduceTaskCreation(
+            title: prompt.title,
+            directoryPath: prompt.directoryPath,
+            now: now
+          )
+        }
+        return isolatedCaptureEffect(
+          state: state,
+          title: prompt.title,
+          directoryPath: prompt.directoryPath,
+          repository: repository,
+          now: now
+        )
+
+      case .tasks(.autoManagedWorktreeCreated(let record, let worktree)):
+        guard !state.isTaskPersistenceDisabled else { return .none }
+        if let repositoryID = record.repositoryID {
+          // The row has to reach the roster before the terminal request leaves,
+          // or `taskTerminalRequestDelegate` has nothing to resolve and the
+          // capture that just spent a worktree opens no terminal in it.
+          state.insertWorktree(worktree, repositoryID: repositoryID)
+          Self.syncSidebar(&state)
+        }
+        return state.reduceCreatedTask(record)
+
+      case .tasks(.autoManagedWorktreeCreationFailed(let title, let directoryPath, let message)):
+        tasksLogger.error(
+          "Auto-managed worktree creation failed for '\(title)' in \(directoryPath): \(message)"
+        )
+        // A20b: nothing was persisted, so the failure is all there is to report —
+        // on the same surface every other worktree creation failure uses.
+        state.alert = messageAlert(title: "Unable to create worktree", message: message)
+        return .none
+
+      case .tasks(.cleanupAutoManagedWorktree(let id)):
+        guard let record = state.taskRecords[id: id],
+          let marker = record.autoManagedWorktree,
+          let worktree = state.autoManagedCleanupWorktree(for: record)
+        else {
+          return .none
+        }
+        @Dependency(GitClientDependency.self) var client
+        return .run { send in
+          let didDelete = await Self.deleteAutoManagedWorktree(
+            gitClient: client,
+            worktree: worktree,
+            marker: marker
+          )
+          await send(.tasks(.autoManagedWorktreeCleanupFinished(taskID: id, didDelete: didDelete)))
+        }
+
+      case .tasks(.autoManagedWorktreeCleanupFinished(let taskID, let didDelete)):
+        // Refused: the marker survives, because the directory is still ours — we
+        // just refuse to act on it right now.
+        guard didDelete, state.taskRecords[id: taskID]?.autoManagedWorktree != nil else {
+          return .none
+        }
+        // Cleared once the directory is gone, so a later settle / unsettle round
+        // cannot re-authorize a delete against a path something else took over.
+        state.taskRecords[id: taskID]?.autoManagedWorktree = nil
+        return Self.persistTasksEffect(state: state)
 
       case .taskCreationPrompt(.presented(.delegate(.cancel))):
         // A20b: cancel leaves nothing behind — no record, and no write at all.
@@ -309,6 +398,156 @@ extension RepositoriesFeature {
         return .none
       }
     }
+  }
+
+  // MARK: - Auto-managed worktrees
+
+  /// Step 3 of the Resolved #11 cascade: mint a worktree for the capture, then
+  /// create the task in it.
+  ///
+  /// Creation never blocks (A20). The warm attempt CoW-clones the ignored cache
+  /// directories so the worktree is usable the second it exists; if that fails
+  /// it is retried *cold*, under the same name, because a worktree without its
+  /// `node_modules` is a slow start rather than a failed capture. Only when both
+  /// fail does the capture fail — and then it leaves nothing behind (A20b),
+  /// which is why nothing is written to state until the worktree exists.
+  func isolatedCaptureEffect(
+    state: State,
+    title: String?,
+    directoryPath: String,
+    repository: Repository,
+    now: Date
+  ) -> Effect<Action> {
+    // The id is minted here, not in the effect: the branch name is derived from
+    // it, so a retry cannot mint a second name — and a second name would leave
+    // the record's marker authorizing a directory that was never created.
+    let taskID = TaskID()
+    let resolvedTitle = state.resolvedTaskTitle(title: title, directoryPath: directoryPath)
+    let branch = TaskAutoWorktreeNaming.branchName(title: resolvedTitle, taskID: taskID)
+    @Shared(.settingsFile) var settingsFile
+    @Shared(.repositorySettings(repository.rootURL, host: repository.host)) var repositorySettings
+    let baseDirectory = SupacodePaths.worktreeBaseDirectory(
+      for: repository.rootURL,
+      globalDefaultPath: settingsFile.global.defaultWorktreeBaseDirectoryPath,
+      repositoryOverridePath: repositorySettings.worktreeBaseDirectoryPath
+    )
+    let configuredBaseRef = repositorySettings.worktreeBaseRef ?? ""
+    let copyUntracked =
+      repositorySettings.copyUntrackedOnWorktreeCreate
+      ?? settingsFile.global.copyUntrackedOnWorktreeCreate
+    @Dependency(GitClientDependency.self) var client
+    return .run { send in
+      var baseRef = configuredBaseRef
+      if baseRef.isEmpty {
+        baseRef = await client.automaticWorktreeBaseRef(repository.rootURL) ?? ""
+      }
+      var lastError: (any Error)?
+      for attempt in [(warm: true, copyUntracked: copyUntracked), (warm: false, copyUntracked: false)] {
+        do {
+          let worktree = try await Self.finishedWorktree(
+            from: client.createWorktreeStream(
+              branch,
+              repository.rootURL,
+              baseDirectory,
+              attempt.warm,
+              attempt.copyUntracked,
+              baseRef,
+              nil
+            )
+          )
+          let directory = TaskDirectoryPath.canonical(worktree.workingDirectory)
+          let record = TaskRecord(
+            id: taskID,
+            title: resolvedTitle,
+            directoryPath: directory,
+            branch: branch,
+            repositoryID: repository.id,
+            createdAt: now,
+            // A3: a fresh task steals nothing. Its terminal arrives via the delegate.
+            surfaceIDs: [],
+            // A2: created, not inferred — never seeded confidence.
+            seedEvidence: TaskRecord.SeedEvidence(source: .manual, confidence: .high),
+            // Resolved #9's marker, stamped at creation and at no other time. It
+            // is the only thing that will ever authorize deleting this directory.
+            autoManagedWorktree: TaskRecord.AutoManagedWorktree(
+              path: directory,
+              branch: branch,
+              createdAt: now
+            )
+          )
+          await send(.tasks(.autoManagedWorktreeCreated(record, worktree: worktree)))
+          return
+        } catch {
+          lastError = error
+          tasksLogger.warning(
+            "Auto-managed worktree \(branch) failed to create (warm: \(attempt.warm)): \(error)"
+          )
+        }
+      }
+      await send(
+        .tasks(
+          .autoManagedWorktreeCreationFailed(
+            title: resolvedTitle,
+            directoryPath: directoryPath,
+            message: lastError?.localizedDescription ?? "Worktree creation failed."
+          )
+        )
+      )
+    }
+  }
+
+  /// The worktree a creation stream ends with. Progress lines are dropped: an
+  /// auto-managed worktree has no progress sheet to feed them to, and the whole
+  /// point of the isolate path is that it does not stand in the user's way.
+  nonisolated static func finishedWorktree(
+    from stream: AsyncThrowingStream<GitWorktreeCreateEvent, Error>
+  ) async throws -> Worktree {
+    for try await event in stream {
+      guard case .finished(let worktree) = event else { continue }
+      return worktree
+    }
+    throw GitClientError.commandFailed(
+      command: "wt sw",
+      message: "Worktree creation finished without a result."
+    )
+  }
+
+  /// Every Resolved #9 precondition, re-checked immediately before the delete
+  /// and in a locked order: the directory still exists, it still resolves to the
+  /// branch the marker named, and it holds no uncommitted work. Any mismatch —
+  /// including one we cannot *prove* either way — refuses, leaking a directory
+  /// rather than destroying work git cannot give back.
+  ///
+  /// The branch is kept in every case: it may carry commits, and dropping it is
+  /// the one part of the delete that is not recoverable.
+  nonisolated static func deleteAutoManagedWorktree(
+    gitClient: GitClientDependency,
+    worktree: Worktree,
+    marker: TaskRecord.AutoManagedWorktree
+  ) async -> Bool {
+    let directory = worktree.workingDirectory
+    guard await gitClient.rootDirectoryExists(directory) else {
+      tasksLogger.debug("Auto-managed cleanup refused: \(marker.path) no longer exists.")
+      return false
+    }
+    guard let branch = await gitClient.branchName(directory), branch == marker.branch else {
+      tasksLogger.debug("Auto-managed cleanup refused: \(marker.path) is not on \(marker.branch).")
+      return false
+    }
+    guard let changes = await gitClient.lineChanges(directory),
+      changes.added == 0,
+      changes.removed == 0
+    else {
+      tasksLogger.debug("Auto-managed cleanup refused: \(marker.path) has uncommitted work.")
+      return false
+    }
+    do {
+      _ = try await gitClient.removeWorktree(worktree, false)
+    } catch {
+      tasksLogger.warning("Auto-managed cleanup of \(marker.path) failed: \(error)")
+      return false
+    }
+    return true
   }
 
   // MARK: - Store I/O
@@ -484,6 +723,122 @@ extension RepositoriesFeature.State {
     return sidebarItems.first { row in
       row.host == nil && TaskDirectoryPath.canonical(row.workingDirectory) == target
     }
+  }
+
+  // MARK: - The Resolved #11 cascade
+
+  /// The repository a capture in `directoryPath` would branch from, or `nil`
+  /// when the directory belongs to no registered local repository. A directory
+  /// with no repository has nothing to branch from, so the cascade cannot reach
+  /// step 3 there.
+  func taskCaptureRepository(forDirectory directoryPath: String) -> Repository? {
+    guard let row = sidebarItemForTaskDirectory(directoryPath) else { return nil }
+    guard let repository = repositories[id: row.repositoryID], repository.host == nil else {
+      return nil
+    }
+    return repository
+  }
+
+  /// Steps 1–3 of Resolved #11, resolved against live state. A directory with no
+  /// repository answers `.useDirectly` however busy it is: A20 forbids blocking
+  /// creation, and sharing is the only honest fallback.
+  func taskDirectoryConflictPolicy(forDirectory directoryPath: String) -> TaskDirectoryConflictPolicy {
+    guard let repository = taskCaptureRepository(forDirectory: directoryPath) else {
+      return .useDirectly
+    }
+    @Shared(.repositorySettings(repository.rootURL, host: repository.host)) var repositorySettings
+    return TaskDirectoryConflictPolicy.resolve(
+      isDirectoryBusy: newestActiveTask(inDirectory: directoryPath) != nil,
+      repositoryIsolation: repositorySettings.taskDirectoryIsolation
+    )
+  }
+
+  /// The title a capture lands with: what the user typed, or the seeder's naming
+  /// cascade over the directory's row when the capture was untitled.
+  func resolvedTaskTitle(title: String?, directoryPath: String) -> String {
+    let typed = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let typed, !typed.isEmpty { return typed }
+    let row = sidebarItemForTaskDirectory(directoryPath)
+    return TaskActivitySeeder.title(
+      for: TaskActivitySeeder.Candidate(
+        directoryPath: directoryPath,
+        customizationTitle: row?.customTitle,
+        worktreeName: row?.name,
+        worktreeDetail: row?.subtitle
+      ),
+      branch: row?.provableBranch
+    )
+  }
+
+  /// Creates a task in a directory that already exists (steps 1 and 2).
+  @MainActor
+  mutating func reduceTaskCreation(
+    title: String?,
+    directoryPath: String,
+    now: Date
+  ) -> Effect<RepositoriesFeature.Action> {
+    let row = sidebarItemForTaskDirectory(directoryPath)
+    return reduceCreatedTask(
+      TaskRecord(
+        title: resolvedTaskTitle(title: title, directoryPath: directoryPath),
+        directoryPath: directoryPath,
+        branch: row?.provableBranch,
+        repositoryID: row?.repositoryID,
+        createdAt: now,
+        // A3: a fresh task steals nothing. Its terminal arrives via the delegate.
+        surfaceIDs: [],
+        // A2: created, not inferred — the row must never render seeded confidence.
+        seedEvidence: TaskRecord.SeedEvidence(source: .manual, confidence: .high)
+      )
+    )
+  }
+
+  /// Lands a freshly created record: append, open it, ask for its terminal.
+  ///
+  /// Selection is applied inline rather than routed through `.tasks(.select)`:
+  /// the terminal request has to leave with the new task already open (A4), and
+  /// a `.select` round-trip would land the selection one hop *after* the
+  /// delegate the parent acts on. `reduceSelectionChangedEffect` is the same code
+  /// `.selectionChanged` runs, so the stamp and the persist are identical — which
+  /// is also the only write here: the new record reaches `tasks.json` on the back
+  /// of that selection stamp, not a separate save.
+  @MainActor
+  mutating func reduceCreatedTask(_ record: TaskRecord) -> Effect<RepositoriesFeature.Action> {
+    taskRecords.append(record)
+    var effects: [Effect<RepositoriesFeature.Action>] = [
+      reduceSelectionChangedEffect(selections: [.task(record.id)], focusTerminal: false)
+    ]
+    if let terminal = taskTerminalRequestDelegate(for: record) {
+      effects.append(.send(.delegate(terminal)))
+    }
+    return .merge(effects)
+  }
+
+  /// The worktree a settled task's marker authorizes deleting, or `nil` when
+  /// nothing may be deleted.
+  ///
+  /// A marker pointing at a registered repository root is a marker that is
+  /// wrong, whatever it says: main checkouts are never deletable (A20), and that
+  /// check is made here rather than in the effect so a bad marker never even
+  /// reaches the git client.
+  func autoManagedCleanupWorktree(for record: TaskRecord) -> Worktree? {
+    guard let marker = record.autoManagedWorktree else { return nil }
+    let path = TaskDirectoryPath.normalized(marker.path)
+    guard !path.isEmpty else { return nil }
+    guard !repositories.contains(where: { Self.directory($0.rootURL, matches: path) }) else {
+      return nil
+    }
+    return repositories.lazy
+      .flatMap(\.worktrees)
+      .first { $0.host == nil && Self.directory($0.workingDirectory, matches: path) }
+  }
+
+  /// Cheap pure comparison first, symlink-resolving fallback second — records
+  /// store canonical paths and rows do not, so the pure pass alone would miss a
+  /// row whose own path contains a symlink (`sidebarItemForTaskDirectory`'s rule).
+  private static func directory(_ url: URL, matches path: String) -> Bool {
+    if TaskDirectoryPath.normalized(url.path(percentEncoded: false)) == path { return true }
+    return TaskDirectoryPath.canonical(url) == path
   }
 
   /// Whether no *other* live (non-settled) task points at the same directory.
@@ -720,7 +1075,7 @@ extension RepositoriesFeature.State {
   /// Newest-created active task for the directory. Two active tasks may share a
   /// directory (plan Resolved #11), so the join target has to be deterministic;
   /// newest-created is the order the Tasks tab already puts at the top (A4).
-  private func newestActiveTask(inDirectory path: String) -> TaskRecord? {
+  func newestActiveTask(inDirectory path: String) -> TaskRecord? {
     let target = TaskDirectoryPath.normalized(path)
     return taskRecords
       .filter { !TasksSidebarStructure.isSettled($0) }
@@ -826,16 +1181,26 @@ extension RepositoriesFeature.TaskInboxAction {
     // Effect launchers: they mutate nothing the caches project.
     case .load, .seedIfNeeded:
       return []
-    // Presentation only: the prompt is `@Presents` state no cache projects.
-    case .presentCreationPrompt:
+    // Presentation only: the prompts are state no cache projects.
+    case .presentCreationPrompt, .setConflictRemember, .cancelDirectoryConflict:
       return []
+    // Effect launcher / reporter: neither touches a record or the roster. The
+    // failure arm only raises an alert, which no cache projects (A20b: nothing
+    // was persisted, so there is nothing to recompute).
+    case .cleanupAutoManagedWorktree, .autoManagedWorktreeCreationFailed:
+      return []
+    // Clearing a spent delete marker changes the record set, nothing else.
+    case .autoManagedWorktreeCleanupFinished:
+      return .sidebarStructure
     // Every arm that can change the record set, its lifecycle, or the page window.
     case .loaded, .seeded, .select, .settle, .unsettle,
       .setSettledTailExpanded, .expandSettledTail, .reconcileSurfaceOwnership, .promoteTab:
       return .sidebarStructure
     // Creation also moves the selection inline, so it owes the two
-    // selection-derived caches on top of the record set.
-    case .createTask:
+    // selection-derived caches on top of the record set. `autoManagedWorktreeCreated`
+    // adds a row to the roster on top of that, which is the same set
+    // `.createRandomWorktreeSucceeded` declares.
+    case .createTask, .resolveDirectoryConflict, .autoManagedWorktreeCreated:
       return [.sidebarStructure, .selectedWorktreeSlice, .sidebarSelectionSlice]
     }
   }
