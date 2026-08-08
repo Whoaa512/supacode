@@ -555,7 +555,8 @@ struct RepositoriesFeatureTaskSignalsTests {
           snapshot: .init(
             agents: [.init(agent: .claude, activity: activity)],
             isWorking: activity.isWorking,
-            hasError: activity == .error
+            hasError: activity == .error,
+            isErrored: activity == .error
           )
         )
       )
@@ -578,7 +579,8 @@ struct RepositoriesFeatureTaskSignalsTests {
           taskID: fixture.record.id,
           snapshot: .init(
             agents: [.init(agent: .claude, activity: activity)],
-            hasError: activity == .error
+            hasError: activity == .error,
+            isErrored: activity == .error
           )
         )
       )

@@ -108,7 +108,10 @@ struct TaskLeafState: Equatable, Sendable, Identifiable {
       isWorking: agentSnapshot.isWorking,
       isAwaitingInput: agentSnapshot.agents.contains { $0.activity == .awaitingInput },
       isAwaitingApproval: nil,
-      isErrored: agentSnapshot.hasError
+      // The ungated reading, never `hasError`: the badge toggle is a display
+      // preference for the worktree row's badge, and a task that reads `ready`
+      // because badges are off is a task the user is told is fine (A27).
+      isErrored: agentSnapshot.isErrored
     )
   }
 

@@ -59,6 +59,17 @@ struct AgentPresenceFeature {
     var agents: [AgentInstance] = []
     var isWorking = false
     var hasError = false
+    /// Any agent on these surfaces is in `.error` right now — the ungated twin of
+    /// `hasError`, which the badge toggle may silence because the badge *is* how
+    /// a worktree row displays an error.
+    ///
+    /// A task's status is not a badge: A27 says the row reports the one thing
+    /// that is true of it, and a display preference that turned a failed task
+    /// into a ready one would also un-recede it (A28) and hand the settle
+    /// cascade a different answer. Deliberately not folded into `errorAt`: a
+    /// hook that reports `.error` without a usable `ts` leaves that instant nil,
+    /// and a visibly broken agent would then read as fine.
+    var isErrored = false
     /// When the newest errored record on these surfaces *entered* `.error`. The
     /// task inbox needs the *instant* of the failure, not just the fact of it:
     /// only an error newer than a snooze re-surfaces a parked row (A25).
@@ -871,6 +882,7 @@ extension AgentPresenceFeature.State {
     let surfaceSet = Set(surfaceIDs)
     var isWorking = false
     var hasError = false
+    var isErrored = false
     var errorAt: Date?
     var completedTurnAt: Date?
     var workingSince: Date?
@@ -881,6 +893,7 @@ extension AgentPresenceFeature.State {
       }
       if record.activity == .error, badgesEnabled { hasError = true }
       if record.activity == .error {
+        isErrored = true
         errorAt = Self.newest(errorAt, record.erroredAt)
       }
       if record.isDoneUnseen {
@@ -891,6 +904,7 @@ extension AgentPresenceFeature.State {
       agents: agents(across: surfaceSet, badgesEnabled: badgesEnabled),
       isWorking: isWorking,
       hasError: hasError,
+      isErrored: isErrored,
       errorAt: errorAt,
       completedTurnAt: completedTurnAt,
       workingSince: workingSince

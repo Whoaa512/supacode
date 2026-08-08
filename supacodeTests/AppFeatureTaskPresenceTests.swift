@@ -147,6 +147,53 @@ struct AppFeatureTaskPresenceTests {
     #expect(leaf.status == .ready)
   }
 
+  /// A27/A28 against the badge preference. `agentPresenceBadgesEnabled` decides
+  /// whether a *worktree row* draws agent badges, and the error rides that badge
+  /// — so a task leaf reading `hasError` inherits a display preference. A user
+  /// who turned badges off would then be told a broken task is `ready`, and A28
+  /// would fade it for being quiet.
+  ///
+  /// Driven from the wire, because the gate lives in the projection: only a real
+  /// `.error` hook event through `AgentPresenceFeature` and the per-task fan-out
+  /// exercises the `badgesEnabled:` argument that silences it.
+  @Test func aTaskReportsAFailureEvenWhileAgentBadgesAreOff() async throws {
+    let sandbox = try Sandbox(name: "AppFeatureTaskPresenceTests-badgesOff")
+    try await withDependencies {
+      $0.settingsFileStorage = sandbox.storage
+    } operation: {
+      @Shared(.settingsFile) var settingsFile: SettingsFile
+      $settingsFile.withLock { $0.global.agentPresenceBadgesEnabled = false }
+
+      let directory = try sandbox.makeDirectory("work", activityAt: TaskInboxFixture.freshDate)
+      let surfaceID = UUID()
+      var repositories = TaskInboxFixture.makeState(
+        sandbox: sandbox,
+        directories: [directory],
+        surfacesPerRow: [directory: [surfaceID]]
+      )
+      let record = TaskInboxFixture.makeRecord(directory: directory, surfaceIDs: [surfaceID])
+      repositories.taskRecords = [record]
+      repositories.taskNow = Self.now
+      repositories.applyPostReduceCacheRecomputes(.all)
+      let store = makeStore(repositories, sandbox: sandbox)
+
+      await send(hookEvent(.sessionStart, surfaceID: surfaceID), to: store)
+      await send(hookEvent(.busy, surfaceID: surfaceID, at: Self.now), to: store)
+      await send(hookEvent(.error, surfaceID: surfaceID, at: Self.now.addingTimeInterval(30)), to: store)
+
+      let leaf = try #require(store.state.repositories.taskLeaves[id: record.id])
+      // The preference really is off: no badges, and no badge-borne error.
+      #expect(leaf.agentSnapshot.agents.isEmpty)
+      #expect(leaf.agentSnapshot.hasError == false)
+      // The task still tells the truth about itself.
+      #expect(leaf.agentSnapshot.isErrored)
+      #expect(leaf.status == .failed)
+      #expect(leaf.isReceded == false)
+      // A25 keeps working too: the instant is what re-surfaces a snoozed row.
+      #expect(leaf.errorAt == Self.now.addingTimeInterval(30))
+    }
+  }
+
   // MARK: - Resolved #5: the working-elapsed start instant reaches the leaf
 
   /// The leaf-local `TimelineView` renders elapsed from this instant. The timer
