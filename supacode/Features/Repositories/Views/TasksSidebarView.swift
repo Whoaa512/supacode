@@ -38,6 +38,17 @@ struct TasksSidebarView: View {
     let isSettledTailExpanded = store.isSettledTailExpanded
     let isSnoozedShelfExpanded = store.isSnoozedShelfExpanded
     let commands = structure.openTaskCommands
+    // §4.6. A SwiftUI sheet does not disable main-menu key equivalents, so the
+    // Tasks menu has to grey itself out while one is up — otherwise ⌃⌘S files
+    // away the row *behind* the prompt the user is typing into. The reducer
+    // refuses the same four arms for the same reason; this half is what makes
+    // the refusal visible instead of silent.
+    //
+    // Reading it here does observe every `@Presents` field, so presenting a
+    // sheet invalidates this List. That is the rare, user-initiated path — and
+    // the panel is behind a sheet at the time — so it buys the menu's honesty
+    // for a redraw nobody sees.
+    let hasBlockingSheet = store.hasBlockingSheet
 
     // The only legal view-side computation, identical to the other two panels:
     // a join from the reducer-derived `slotByTaskID` against the ⌘-held state
@@ -71,21 +82,31 @@ struct TasksSidebarView: View {
     // reducer resolves the focused task and the direction — while the two
     // titles that flip follow `openTaskCommands`, which republishes on its own.
     .focusedSceneValue(\.openTaskCommands, commands)
-    .focusedSceneAction(\.jumpToNextTaskNeedingAttentionAction, enabled: true) {
+    .focusedSceneAction(\.jumpToNextTaskNeedingAttentionAction, enabled: !hasBlockingSheet) {
       store.send(.tasks(.jumpToNextNeedingAttention))
     }
     .focusedSceneAction(
       \.settleTaskAction,
       // A18b: a task whose agent is asking a question cannot be filed away, and
       // the item greys out rather than offering an action the reducer refuses.
-      enabled: commands.map { $0.isSettled || $0.canSettle } ?? false
+      enabled: !hasBlockingSheet && (commands.map { $0.isSettled || $0.canSettle } ?? false)
     ) {
       store.send(.tasks(.settleSelected))
     }
-    .focusedSceneAction(\.snoozeTaskAction, enabled: commands?.canSnooze ?? false) {
+    .focusedSceneAction(
+      // A parked row's chord is Wake Now, which an agent waiting on the user
+      // never blocks — `canSnooze` only guards the direction that hides a row.
+      \.snoozeTaskAction,
+      enabled: !hasBlockingSheet && (commands.map { $0.isSnoozed || $0.canSnooze } ?? false)
+    ) {
       store.send(.tasks(.snoozeSelected))
     }
-    .focusedSceneAction(\.pinTaskAction, enabled: commands != nil) {
+    .focusedSceneAction(
+      // A16: settling clears the pin, so pinning a settled row is a write that
+      // means nothing the moment it lands.
+      \.pinTaskAction,
+      enabled: !hasBlockingSheet && commands.map { !$0.isSettled } ?? false
+    ) {
       store.send(.tasks(.togglePinSelected))
     }
   }
@@ -174,6 +195,17 @@ struct TasksSidebarView: View {
       // NSOutlineView eats arrow keys before SwiftUI's `onKeyPress` runs. Only
       // fires with zero modifiers while this list holds focus, so it can never
       // be somebody's typing (A34).
+      // The two refusals here are deliberately asymmetric, and the asymmetry is
+      // the point. No task selected → return `false`: the key was never ours,
+      // so it goes back to the system and → keeps whatever meaning the list has
+      // for it. A task selected but with no surface to hand the keyboard to →
+      // the reducer consumes the key and beeps, because that → *was* addressed
+      // at us and did nothing, which is exactly what a beep says.
+      //
+      // Resolving the second case here instead would mean the view asking
+      // "does this task own a live surface?" — a question only the reducer's
+      // ownership map can answer, and re-deriving it in a body is the fan-out
+      // the sidebar doctrine forbids. So the beep stays one level down.
       SidebarRightArrowMonitor(isSidebarFocused: isTasksSidebarFocused) {
         guard store.selection?.taskID != nil else { return false }
         store.send(.tasks(.focusSelectedSurface))
@@ -370,8 +402,10 @@ private struct TaskSidebarRowView: View {
       lifecycleMenuItems(canSettle: leaf?.canSettle ?? true)
       Divider()
       snoozeMenuItems(canSnooze: leaf?.canSnooze ?? true, isSnoozed: isSnoozed)
-      Divider()
-      pinMenuItems()
+      if !isSettled {
+        Divider()
+        pinMenuItems()
+      }
     }
   }
 
@@ -432,6 +466,10 @@ private struct TaskSidebarRowView: View {
     )
   }
 
+  /// Hidden rather than greyed on a settled row, unlike the A18b refusals: A16
+  /// makes settling *clear* the pin, so this is not an action the app is
+  /// declining on a condition the user could fix — it is an action that has no
+  /// meaning where it would be shown.
   @ViewBuilder
   private func pinMenuItems() -> some View {
     if isPinned {

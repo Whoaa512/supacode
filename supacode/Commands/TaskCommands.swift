@@ -33,6 +33,8 @@ struct TaskCommands: Commands {
     // settle.
     let settleTitle = openTaskCommands?.isSettled == true ? "Unsettle Task" : "Settle Task"
     let pinTitle = openTaskCommands?.isPinned == true ? "Unpin Task" : "Pin Task"
+    let isSnoozed = openTaskCommands?.isSnoozed == true
+    let snoozeTitle = isSnoozed ? "Wake Task Now" : "Snooze Task for an Hour"
 
     CommandMenu("Tasks") {
       Button("Jump to Next Task Needing You", systemImage: "hand.raised") {
@@ -52,9 +54,10 @@ struct TaskCommands: Commands {
       .help(Self.settleHelp(openTaskCommands, shortcut: settle?.display))
       .disabled(settleAction?.isEnabled != true)
       // One preset, always the same one: a chord cannot open a submenu, and "In
-      // an Hour" is the cheapest thing to be wrong about — Wake Now is one
-      // right-click away.
-      Button("Snooze Task for an Hour", systemImage: "moon.zzz") {
+      // an Hour" is the cheapest thing to be wrong about. The other direction
+      // is the same key again — the item flips to Wake Now on a parked row,
+      // exactly as Settle/Unsettle does — so the chord is never a one-way door.
+      Button(snoozeTitle, systemImage: isSnoozed ? "sun.max" : "moon.zzz") {
         snoozeAction?()
       }
       .appKeyboardShortcut(snooze)
@@ -94,6 +97,9 @@ struct TaskCommands: Commands {
   ) -> String {
     let chord = shortcut ?? "none"
     guard let commands else { return "Open a task first (\(chord))" }
+    if commands.isSnoozed {
+      return "Bring this task back to Active right now, ahead of its wake time (\(chord))"
+    }
     return commands.canSnooze
       ? "Park this task for an hour; it comes back where it is now (\(chord))"
       : "This task is waiting on you — snoozing it would surface it again immediately"

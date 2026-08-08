@@ -250,6 +250,26 @@ struct RepositoriesFeature {
     @Presents var cloneRepositoryForm: CloneRepositoryFormFeature.State?
     @Presents var alert: AlertState<Alert>?
 
+    /// Is one of this reducer's modals on screen?
+    ///
+    /// SwiftUI sheets do not disable main-menu key equivalents, so without this
+    /// a chord fires straight past an open prompt: ⌃1–9 moves the sidebar
+    /// selection out from under the sheet the user is typing into, and the
+    /// lifecycle chords act on a row that is no longer the one the prompt is
+    /// about (§4.6 of the keyboard context map).
+    ///
+    /// Exhaustive over every `@Presents` field plus `taskDirectoryConflict`,
+    /// which is a sheet without a child reducer. `AppFeature`'s own two modals
+    /// (`alert`, `deeplinkInputConfirmation`) are *not* visible from here; both
+    /// present over the detail pane rather than the sidebar, so the chords the
+    /// Tasks panel owns stay legitimate underneath them.
+    var hasBlockingSheet: Bool {
+      worktreeCreationPrompt != nil || taskCreationPrompt != nil || repositoryCustomization != nil
+        || worktreeCustomization != nil || agentRename != nil || renameBranchPrompt != nil
+        || remoteConnectionForm != nil || cloneRepositoryForm != nil || alert != nil
+        || taskDirectoryConflict != nil
+    }
+
     // MARK: - Sidebar items (per-row TCA collection).
     var sidebarItems: IdentifiedArrayOf<SidebarItemFeature.State> = []
     var sidebarGrouping: SidebarGrouping = .empty
@@ -3668,6 +3688,13 @@ struct RepositoriesFeature {
         case .tasks:
           // Same chord, third panel (A32). Out of range still beeps rather than
           // clamping: ⌃9 in a three-task inbox meant a row that is not there.
+          //
+          // §4.6: a prompt on screen owns the keyboard. Silent rather than a
+          // beep — the sheet has a text field, and beeping at every chord-shaped
+          // keystroke someone types into it is noise, not feedback. Gated on the
+          // `.tasks` branch only: the Worktrees path is pre-existing behaviour
+          // A35 pins, and widening the gate to it is not Phase 6 scope.
+          guard !state.hasBlockingSheet else { return .none }
           guard let taskID = state.taskID(atSlot: index) else {
             return .run { _ in NSSound.beep() }
           }
@@ -3689,6 +3716,8 @@ struct RepositoriesFeature {
           }
           return .send(.activateAgentDashboardEntry(entryID))
         case .tasks:
+          // §4.6, same rule as the slot chord.
+          guard !state.hasBlockingSheet else { return .none }
           guard let taskID = state.taskID(byOffset: 1) else {
             return .run { _ in NSSound.beep() }
           }
@@ -3709,6 +3738,8 @@ struct RepositoriesFeature {
           }
           return .send(.activateAgentDashboardEntry(entryID))
         case .tasks:
+          // §4.6, same rule as the slot chord.
+          guard !state.hasBlockingSheet else { return .none }
           guard let taskID = state.taskID(byOffset: -1) else {
             return .run { _ in NSSound.beep() }
           }

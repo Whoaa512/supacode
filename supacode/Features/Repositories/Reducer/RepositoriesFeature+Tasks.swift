@@ -389,6 +389,10 @@ extension RepositoriesFeature {
 
       case .tasks(.jumpToNextNeedingAttention):
         guard state.activeSidebarTab == .tasks else { return .run { _ in NSSound.beep() } }
+        // §4.6: a prompt on screen owns the keyboard. Silently, not with a beep
+        // — the sheet has a text field in it, and a beep on every chord-shaped
+        // keystroke someone types there is noise rather than feedback.
+        guard !state.hasBlockingSheet else { return .none }
         guard let target = state.nextTaskNeedingAttention() else {
           // Nothing is owed a person, or the only row that is, is already open.
           // Beep rather than re-select: a chord that silently re-opens what you
@@ -398,6 +402,7 @@ extension RepositoriesFeature {
         return .send(.tasks(.select(target)))
 
       case .tasks(.settleSelected):
+        guard !state.hasBlockingSheet else { return .none }
         guard let commands = state.tasksSidebarStructure.openTaskCommands else { return .none }
         // One key, both directions, matching the row's own context menu — and
         // the direction comes from the structure the menu item titled itself
@@ -405,10 +410,16 @@ extension RepositoriesFeature {
         return .send(.tasks(commands.isSettled ? .unsettle(commands.id) : .settle(commands.id)))
 
       case .tasks(.snoozeSelected):
+        guard !state.hasBlockingSheet else { return .none }
         guard let commands = state.tasksSidebarStructure.openTaskCommands else { return .none }
+        // Both directions on one key, exactly like ⌃⌘S: a parked row's chord is
+        // Wake Now. Without this the chord is a one-way door — re-snoozing an
+        // already-snoozed task just rewrites the same hour — and the only undo
+        // is a right-click, which is the mouse A34 exists to avoid.
+        guard !commands.isSnoozed else { return .send(.tasks(.unsnooze(commands.id))) }
         // A chord cannot express a duration and cannot open a submenu, so it
-        // takes the cheapest, most reversible preset. Wake Now is one context
-        // menu away, which is what makes picking for the user acceptable here.
+        // takes the cheapest, most reversible preset. Wake Now is the same key
+        // again, which is what makes picking for the user acceptable here.
         guard
           let preset = TaskSnooze.resolveSnoozePresets(now: now, calendar: .autoupdatingCurrent)
             .first(where: { $0.preset == .oneHour })
@@ -416,7 +427,12 @@ extension RepositoriesFeature {
         return .send(.tasks(.snooze(commands.id, until: preset.wakeAt)))
 
       case .tasks(.togglePinSelected):
+        guard !state.hasBlockingSheet else { return .none }
         guard let commands = state.tasksSidebarStructure.openTaskCommands else { return .none }
+        // A16: settling clears the pin, so a pin on a settled row is a write
+        // that immediately means nothing. Refused here as well as greyed in the
+        // menu, so the chord and the item agree about one rule.
+        guard !commands.isSettled else { return .none }
         return .send(.tasks(commands.isPinned ? .unpin(commands.id) : .pin(commands.id)))
 
       case .tasks(.focusSelectedSurface):

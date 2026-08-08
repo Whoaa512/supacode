@@ -477,6 +477,53 @@ struct RepositoriesFeatureTaskKeyboardTests {
     }
   }
 
+  /// The other direction on the same key. Without it ⌃⌘Z is a one-way door —
+  /// re-snoozing a parked row just rewrites the same hour — and the only undo is
+  /// a right-click, which is the mouse A34 exists to avoid.
+  @Test func theSnoozeChordWakesAnAlreadyParkedTask() async throws {
+    let sandbox = try makeSandbox()
+    let inbox = try makeInbox(sandbox: sandbox, count: 2, snoozedIndices: [1], selecting: 1)
+    try await withTasksTab {
+      let store = makeStore(inbox.state, sandbox: sandbox)
+      #expect(store.state.tasksSidebarStructure.openTaskCommands?.isSnoozed == true)
+
+      await store.send(.tasks(.snoozeSelected))
+      await store.send(.tasks(.stopTimers))
+      await store.skipReceivedActions(strict: false)
+      await store.finish()
+
+      #expect(store.state.taskRecords[id: inbox.records[1].id]?.snoozedUntil == nil)
+      #expect(store.state.tasksSidebarStructure.snoozedTotalCount == 0)
+    }
+  }
+
+  /// A task waiting on a person still wakes: `canSnooze` guards only the
+  /// direction that hides a row, and refusing the undo would strand the task on
+  /// the shelf precisely when it is asking for something.
+  @Test func theSnoozeChordWakesEvenATaskThatIsAwaitingAPerson() async throws {
+    let sandbox = try makeSandbox()
+    let inbox = try makeInbox(sandbox: sandbox, count: 1, snoozedIndices: [0], selecting: 0)
+    try await withTasksTab {
+      let store = makeStore(inbox.state, sandbox: sandbox)
+
+      await store.send(
+        .tasks(
+          .agentSnapshotChanged(
+            taskID: inbox.records[0].id,
+            snapshot: .init(isAwaitingInput: true)
+          )
+        )
+      )
+      await store.send(.tasks(.snoozeSelected))
+      await store.send(.tasks(.stopTimers))
+      await store.skipReceivedActions(strict: false)
+      await store.finish()
+
+      #expect(store.state.tasksSidebarStructure.openTaskCommands?.canSnooze == false)
+      #expect(store.state.taskRecords[id: inbox.records[0].id]?.snoozedUntil == nil)
+    }
+  }
+
   @Test func thePinChordPinsAndThenUnpinsTheFocusedTask() async throws {
     let sandbox = try makeSandbox()
     let inbox = try makeInbox(sandbox: sandbox, count: 2, selecting: 1)
@@ -496,6 +543,29 @@ struct RepositoriesFeatureTaskKeyboardTests {
       await store.finish()
 
       #expect(store.state.taskRecords[id: inbox.records[1].id]?.pinnedAt == nil)
+    }
+  }
+
+  /// A16 makes settling clear the pin, so a pin on a settled row is a write
+  /// that means nothing the moment it lands. The menu hides the item; the chord
+  /// has to refuse for the same reason rather than stamp a `pinnedAt` the next
+  /// settle would wipe.
+  @Test func thePinChordRefusesASettledTask() async throws {
+    let sandbox = try makeSandbox()
+    let inbox = try makeInbox(sandbox: sandbox, count: 1, selecting: 0)
+    try await withTasksTab {
+      let store = makeStore(inbox.state, sandbox: sandbox)
+
+      await store.send(.tasks(.settle(inbox.records[0].id)))
+      await store.skipReceivedActions(strict: false)
+      #expect(store.state.tasksSidebarStructure.openTaskCommands?.isSettled == true)
+
+      await store.send(.tasks(.togglePinSelected))
+      await store.send(.tasks(.stopTimers))
+      await store.skipReceivedActions(strict: false)
+      await store.finish()
+
+      #expect(store.state.taskRecords[id: inbox.records[0].id]?.pinnedAt == nil)
     }
   }
 
@@ -552,6 +622,67 @@ struct RepositoriesFeatureTaskKeyboardTests {
 
       #expect(store.state.taskRecords[id: record.id]?.lastVisitedAt == nil)
       #expect(store.state.selection == .task(record.id))
+    }
+  }
+
+  // MARK: - §4.6: a sheet on screen owns the keyboard
+
+  /// SwiftUI sheets do not disable main-menu key equivalents, so without an
+  /// explicit gate every chord here fires straight past an open prompt: ⌃1–9
+  /// moves the selection out from under the sheet the user is typing into, and
+  /// the lifecycle chords act on a row the prompt is no longer about.
+  ///
+  /// Driven through `.presentCreationPrompt`, the arm that actually raises the
+  /// sheet, rather than by assigning the presentation state by hand.
+  @Test func everyTaskChordIsInertWhileACreationPromptIsUp() async throws {
+    let sandbox = try makeSandbox()
+    let inbox = try makeInbox(sandbox: sandbox, count: 3, selecting: 1)
+    try await withTasksTab {
+      let store = makeStore(inbox.state, sandbox: sandbox)
+
+      await store.send(.tasks(.presentCreationPrompt))
+      await store.skipReceivedActions(strict: false)
+      #expect(store.state.hasBlockingSheet)
+
+      await store.send(.selectWorktreeAtHotkeySlot(2))
+      await store.send(.selectNextWorktree)
+      await store.send(.selectPreviousWorktree)
+      await store.send(.tasks(.jumpToNextNeedingAttention))
+      await store.send(.tasks(.settleSelected))
+      await store.send(.tasks(.snoozeSelected))
+      await store.send(.tasks(.togglePinSelected))
+      await store.send(.tasks(.stopTimers))
+      await store.skipReceivedActions(strict: false)
+      await store.finish()
+
+      // The selection never moved, and no lifecycle stamp was written.
+      #expect(store.state.selection == .task(inbox.records[1].id))
+      #expect(store.state.taskRecords.allSatisfy { $0.settledAt == nil })
+      #expect(store.state.taskRecords.allSatisfy { $0.snoozedUntil == nil })
+      #expect(store.state.taskRecords.allSatisfy { $0.pinnedAt == nil })
+    }
+  }
+
+  /// …and the gate lifts when the sheet does. Otherwise a gate that got stuck
+  /// on would look exactly like the chords never having been wired.
+  @Test func theChordsComeBackWhenThePromptIsDismissed() async throws {
+    let sandbox = try makeSandbox()
+    let inbox = try makeInbox(sandbox: sandbox, count: 3, selecting: 1)
+    try await withTasksTab {
+      let store = makeStore(inbox.state, sandbox: sandbox)
+
+      await store.send(.tasks(.presentCreationPrompt))
+      await store.skipReceivedActions(strict: false)
+      await store.send(.taskCreationPrompt(.dismiss))
+      await store.skipReceivedActions(strict: false)
+      #expect(!store.state.hasBlockingSheet)
+
+      await store.send(.selectWorktreeAtHotkeySlot(2))
+      await store.send(.tasks(.stopTimers))
+      await store.skipReceivedActions(strict: false)
+      await store.finish()
+
+      #expect(store.state.selection == .task(inbox.records[2].id))
     }
   }
 }
