@@ -5214,6 +5214,9 @@ struct RepositoriesFeatureTests {
       $0.inFlightPullRequestRefreshRepositoryIDs = [repository.id]
       $0.inFlightPullRequestBranchSnapshotsByRepositoryID[repository.id] = [:]
     }
+    // An unresolvable remote is a failure, not a clean "no PRs": rows waiting on
+    // the query have to be told so their `loading` can end (A29).
+    await store.receive(\.repositoryPullRequestRefreshFailed)
     await store.receive(\.repositoryPullRequestRefreshCompleted) {
       $0.inFlightPullRequestRefreshRepositoryIDs = []
       $0.inFlightPullRequestBranchSnapshotsByRepositoryID = [:]
@@ -5503,6 +5506,7 @@ struct RepositoriesFeatureTests {
       $0.inFlightPullRequestRefreshRepositoryIDs = [repository.id]
       $0.inFlightPullRequestBranchSnapshotsByRepositoryID[repository.id] = [:]
     }
+    await store.receive(\.repositoryPullRequestRefreshFailed)
     await store.receive(\.repositoryPullRequestRefreshCompleted) {
       $0.inFlightPullRequestRefreshRepositoryIDs = []
       $0.inFlightPullRequestBranchSnapshotsByRepositoryID = [:]
@@ -5616,6 +5620,17 @@ struct RepositoriesFeatureTests {
     }
     await store.receive(\.sidebarItems) {
       $0.sidebarItems[id: featureWorktree.id]?.pullRequestBranchAtQueryTime = featureWorktree.name
+    }
+    // Both rows armed a watermark, so the failure fan-out reaches both and each
+    // ends up reporting `.failed` rather than waiting on a query that is over.
+    await store.receive(\.repositoryPullRequestRefreshFailed)
+    await store.receive(\.sidebarItems) {
+      $0.sidebarItems[id: mainWorktree.id]?.pullRequestBranchAtQueryTime = nil
+      $0.sidebarItems[id: mainWorktree.id]?.pullRequestQueryDidFail = true
+    }
+    await store.receive(\.sidebarItems) {
+      $0.sidebarItems[id: featureWorktree.id]?.pullRequestBranchAtQueryTime = nil
+      $0.sidebarItems[id: featureWorktree.id]?.pullRequestQueryDidFail = true
     }
     await store.receive(\.repositoryPullRequestRefreshCompleted) {
       $0.inFlightPullRequestRefreshRepositoryIDs = []
