@@ -123,6 +123,51 @@ struct AppFeatureTaskTerminalTests {
     #expect(store.state.pendingTaskTabClaims.isEmpty)
   }
 
+  /// A resolved claim lands the keyboard in the tab it just claimed — via the
+  /// existing promote → `.select` → `focusTaskSurface` chain, not a separate
+  /// focus path. Creation's "jump me to the new terminal" rides entirely on
+  /// that chain, so this pins it end to end.
+  @Test(.dependencies) func aResolvedClaimFocusesItsNewSurface() async throws {
+    let sandbox = try makeSandbox()
+    let directory = try sandbox.makeDirectory("mine", activityAt: TaskInboxFixture.freshDate)
+    let commands = LockIsolated<[TerminalClient.Command]>([])
+    let liveTabs = LockIsolated<[TerminalTabID: Set<UUID>]>([:])
+    let store = makeStore(
+      sandbox: sandbox, directory: directory, sentCommands: commands, liveTabSurfaceIDs: liveTabs)
+    let worktreeID = WorktreeID(directory.path(percentEncoded: false))
+
+    await store.send(
+      .repositories(.tasks(.createTask(title: "Ship it", directoryURL: directory))))
+    await store.receive(\.repositories.delegate.openTaskTerminal)
+    let tabID = try createdTabID(in: commands)
+
+    let surfaceID = UUID()
+    liveTabs.withValue { $0[tabID] = [surfaceID] }
+    await store.send(
+      .terminalEvent(
+        .tabProjectionChanged(
+          worktreeID: worktreeID,
+          WorktreeTabProjection(
+            tabID: tabID,
+            surfaceIDs: [surfaceID],
+            activeSurfaceID: surfaceID,
+            unseenNotificationCount: 0
+          )
+        )
+      )
+    )
+    await store.receive(\.repositories.tasks.promoteTab)
+    await store.finish()
+
+    let focused = commands.value.contains { command in
+      guard case .focusSurface(_, let focusedTab, let focusedSurface, _) = command else {
+        return false
+      }
+      return focusedTab == tabID && focusedSurface == surfaceID
+    }
+    #expect(focused)
+  }
+
   /// A projection for someone else's tab leaves the claim pending — the task's
   /// own tab is still coming.
   @Test(.dependencies) func anotherTabsProjectionDoesNotConsumeTheClaim() async throws {
