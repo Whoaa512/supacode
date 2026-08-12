@@ -1619,6 +1619,15 @@ final class WorktreeTerminalState {
   // MARK: - Scrollback Persistence
 
   func saveScrollbackFiles() {
+    saveScrollbackFiles(for: Array(surfaces.values))
+  }
+
+  /// Writes the given surfaces' scrollback dumps to disk. Split out from the
+  /// all-live-surfaces path so hibernation can dump a tab's leaves *before*
+  /// teardown: a hibernated surface leaves `surfaces` and the periodic/quit
+  /// saves never see it again, so the moment of teardown is the last chance to
+  /// capture the dump the restore pruner reads at next launch.
+  private func saveScrollbackFiles(for views: [GhosttySurfaceView]) {
     @Shared(.settingsFile) var settingsFile
     guard settingsFile.global.persistScrollbackEnabled else { return }
     let dir = SupacodePaths.scrollbackDirectory
@@ -1636,7 +1645,8 @@ final class WorktreeTerminalState {
       layoutLogger.warning("Failed to create scrollback directory: \(error.localizedDescription)")
       return
     }
-    for (id, view) in surfaces {
+    for view in views {
+      let id = view.id
       let path = SupacodePaths.scrollbackFileURL(for: id).path(percentEncoded: false)
       if !view.writeScrollback(to: path) {
         layoutLogger.debug("No scrollback to save for surface \(id)")
@@ -1813,13 +1823,11 @@ final class WorktreeTerminalState {
     // strength of that alone would wipe structure users expect back.
     guard settingsFile.global.persistScrollbackEnabled else { return snapshot }
     let pruned = TerminalRestorePruner.prunedSnapshot(snapshot) { leaf in
-      // A nil-id leaf has no session name and no scrollback file: always bare.
-      guard let id = leaf.id else { return false }
-      // The disk dump decides for live sessions too: it is captured on quit and
-      // every 30s, so a trivial-or-missing dump means the session is a bare
-      // prompt nobody used, not worth resurrecting just because zmx kept it.
-      guard let data = scrollbackDataProvider(id) else { return false }
-      return TerminalRestorePruner.isScrollbackMeaningful(data)
+      TerminalRestorePruner.shouldKeepLeaf(
+        surfaceID: leaf.id,
+        scrollbackData: leaf.id.flatMap(scrollbackDataProvider),
+        hasLiveZmxSession: leaf.id.map { liveNames.contains(ZmxSessionID.make(surfaceID: $0)) } ?? false
+      )
     }
     let keptIDs = Set(pruned?.allSurfaceIDs ?? [])
     let prunedIDs = snapshot.allSurfaceIDs.filter { !keptIDs.contains($0) }
@@ -3733,6 +3741,13 @@ final class WorktreeTerminalState {
     cancelHibernationTimer(for: tabId)
     let leaves = root.leaves()
     let leafIDs = leaves.map(\.id)
+    // Dump scrollback while the views are still alive: a dormant surface is
+    // invisible to the periodic/quit saves, and the restore pruner reads the
+    // disk dump to decide whether the surface (and its live zmx session!) is
+    // worth keeping. Without this dump, a tab hibernated by settle/snooze and
+    // still dormant at quit restores as "bare", gets pruned, and its session
+    // gets killed.
+    saveScrollbackFiles(for: leaves)
     // Freeze the live agent records into the layout so a snapshot persisted while
     // dormant keeps its presence badges and image-paste routing across relaunch.
     let layout = captureLayoutNode(root, agentsBySurface: resolvedAgentsBySurface() ?? [:])

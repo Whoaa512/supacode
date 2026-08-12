@@ -8,6 +8,43 @@ import Testing
 @testable import supacode
 
 struct TerminalRestorePrunerTests {
+  // MARK: - Keep/prune decision
+
+  @Test func nilIDLeafIsPrunedEvenWithLiveSession() {
+    #expect(
+      !TerminalRestorePruner.shouldKeepLeaf(
+        surfaceID: nil, scrollbackData: nil, hasLiveZmxSession: true))
+  }
+
+  @Test func missingDumpWithLiveSessionIsKept() {
+    // The hibernated-before-first-save case: no dump is "no signal", and a
+    // live zmx session must never be killed on no signal.
+    #expect(
+      TerminalRestorePruner.shouldKeepLeaf(
+        surfaceID: UUID(), scrollbackData: nil, hasLiveZmxSession: true))
+  }
+
+  @Test func missingDumpWithoutLiveSessionIsPruned() {
+    #expect(
+      !TerminalRestorePruner.shouldKeepLeaf(
+        surfaceID: UUID(), scrollbackData: nil, hasLiveZmxSession: false))
+  }
+
+  @Test func trivialDumpPrunesEvenLiveSession() {
+    // A captured bare prompt is a bare prompt; liveness doesn't rescue it.
+    let dump = Data("~ $ \r\n".utf8)
+    #expect(
+      !TerminalRestorePruner.shouldKeepLeaf(
+        surfaceID: UUID(), scrollbackData: dump, hasLiveZmxSession: true))
+  }
+
+  @Test func meaningfulDumpKeepsDeadSession() {
+    let dump = Data((1...6).map { "line \($0)" }.joined(separator: "\n").utf8)
+    #expect(
+      TerminalRestorePruner.shouldKeepLeaf(
+        surfaceID: UUID(), scrollbackData: dump, hasLiveZmxSession: false))
+  }
+
   // MARK: - Scrollback triviality
 
   @Test func emptyDataIsTrivial() {

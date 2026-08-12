@@ -126,6 +126,25 @@ enum TerminalRestorePruner {
   /// never comes close, and it bounds the per-surface parse cost at launch.
   static let parseByteLimit = 16 * 1024
 
+  /// The restore keep/prune decision for one leaf, pure so it is testable
+  /// without a live ghostty runtime.
+  ///
+  /// A *trivial* dump prunes even a live session: a captured bare prompt is a
+  /// bare prompt. But a *missing* dump alongside a live session is "no signal",
+  /// not "bare" — the periodic/quit saves only see live surfaces, so a surface
+  /// hibernated before its first save has no dump while its zmx session holds
+  /// real work. Pruning it would kill that session.
+  static func shouldKeepLeaf(
+    surfaceID: UUID?,
+    scrollbackData: Data?,
+    hasLiveZmxSession: Bool
+  ) -> Bool {
+    // A nil-id leaf has no session name and no scrollback file: always bare.
+    guard surfaceID != nil else { return false }
+    guard let scrollbackData else { return hasLiveZmxSession }
+    return isScrollbackMeaningful(scrollbackData)
+  }
+
   /// True when a scrollback dump carries more than a fresh shell's prompt.
   static func isScrollbackMeaningful(_ data: Data) -> Bool {
     guard data.count <= parseByteLimit else { return true }
