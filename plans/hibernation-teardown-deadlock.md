@@ -619,3 +619,90 @@ Consensus: deadlock fix correct; ONE regression blocker + majors. Fix round:
 - **Ship gate (manual, cj):** dogfood hibernate → wake → re-hibernate → close
   + stop-script on a real repo; deliberately wedged pty. Confirms SIGTERM'd
   attach client leaves session cleanly re-attachable.
+
+### Fix round items 6-7 (simplification + observability)
+
+- **Stale tests (found while verifying, `797879d1`):** three
+  `WorktreeTerminalManagerTests` unexpected-close tests still sent ghostty's
+  payload as `processAlive: true` and waited on a zmx probe that M1's gate no
+  longer runs (`Timed out waiting for zmx list probe call`). They model a dead
+  attach client under a surviving session, so the payload is child-gone. These
+  failed at HEAD before item 6 — confirmed by stashing.
+- **Item 6 (`53ee292d`):** `Stage`/`Entry` deleted (nothing branched on the
+  stage; `.freed` was written to a slot cleared on the next line) — `pending` is
+  now `[ObjectIdentifier: GhosttySurfaceView]` and tests use `isPending(_:)`.
+  `leakedWarningCap` → `leakedLogEscalationThreshold`. `freeSurfaceInline` is
+  log + unregister + `performDeferredFree()` (one free body). `teardownTasks`
+  comment no longer claims quit abandons them. Plan citations
+  ("(binding N)", "(decision N)", "(constraint N)") stripped from the queue, the
+  view, `GhosttyRuntime`, and the teardown tests; prose reasons kept.
+- **Item 7:** `surface_teardown_freed` (`used_zmx`) on every deferred free — the
+  leak-rate denominator, asserted in
+  `pollingFreesTheSurfaceOnceTheProcessHasExited`. Slow free (>250ms) now emits
+  `surface_teardown_slow_free` (`stall_ms`, `used_zmx`) alongside the warning.
+  No `no_client_kill_possible` leak reason exists BY DESIGN: item 1 frees a
+  non-zmx surface on poll expiry, so only `wedged` / `cancelled` can leak —
+  documented on `leak(_:reason:)`. `freeSurfaceInline` reports
+  `surface_freed_inline_at_deinit` through
+  `SurfaceTeardownQueue.recordInlineFreeAtDeinit(surfaceID:)` (+ a counter):
+  `deinit` cannot resolve a `@Dependency` without resurrecting `self`, and the
+  queue already owns the analytics client for this path. Poll bound 2s → 10s
+  (200 × 50ms): a busy shell can take seconds to unwind, and the outcomes are
+  asymmetric — waiting costs one Task, giving up costs a retained surface. Test
+  helper `advance` bound raised 200 → 400 ticks to stay above the poll bound.
+- **Verified:** `make test -only-testing:supacodeTerminalTests` →
+  `totalTestCount: 429, passed: 427, failed: 2` (the two known pre-existing
+  `GhosttyRuntimeBundledOverridesTests` color failures). `make check`,
+  `make build-app` green.
+
+## Post-merge regression: pattern kill murders the session daemon (binding)
+
+Field report: hibernation intermittently killed live sessions — agents, todo
+shells, whole surfaces gone. Root cause, confirmed against zmx source:
+
+- `killAttachClient` ran `pgrep -f "zmx attach <session>"` and SIGTERMed every
+  match.
+- zmx daemonizes via plain `fork()` with argv untouched
+  (`ThirdParty/zmx/src/main.zig:777`), so the DAEMON's command line is
+  identical to the client's. `pgrep -f` returns both.
+- The daemon installs a SIGTERM wake handler (`main.zig:2492`); the signal
+  exits `daemonLoop`, whose `defer` runs `handleKill()` → SIGHUP then SIGKILL
+  to the NEGATIVE pid, i.e. the entire terminal process group
+  (`main.zig:1046`). Session, shell, agents: all dead.
+- Felt random because hidden tabs hibernate on a timer, often in batches, and
+  the detached kill Task could also race a freshly woken replacement client.
+
+Entered in `4c3b4687`. The one-kill / PID-targeted discipline in the queue
+protected against RE-kills; the FIRST kill was already unsafe because no
+process pattern can distinguish the forked daemon from its clients.
+
+### Options considered
+
+1. **`zmx detach` over IPC (chosen).** Daemon receives `DetachAll`, closes each
+   client's socket; the client exits on socket HUP; the pty child is gone and
+   the free is safe. No signals, no process matching: the IPC handler has no
+   code path from `DetachAll` to `handleKill`, so this bug CLASS is gone, not
+   just this bug. Wake race degrades from "session murdered" to "fresh client
+   detached, session alive" (cosmetic, recoverable). Reuses the existing
+   `ZmxClient` subprocess seam. Softer guarantee than SIGKILL if a client
+   ignores socket HUP — the existing 200-poll leak backstop covers that
+   residue, and `surface_teardown_leaked` counts it.
+2. **Track the exact attach-client PID and signal only it.** Fully targeted,
+   hard guarantee, no wake race. Rejected for now: needs a GhosttyKit API (or
+   patch) to read the surface's pty child pid — bigger diff across the C
+   boundary for a failure mode we have no evidence of yet.
+3. **`pgrep` + filter `ppid != 1`.** Fragile heuristic, wake race remains at
+   full SIGTERM severity. Rejected.
+4. **No kill at all, poll only.** An attached client never exits on its own:
+   every hibernation would burn the 10s poll bound and leak. Non-starter.
+
+### Follow-ups
+
+- Watch `surface_teardown_leaked`: if the detach path leaks in practice
+  (clients surviving socket HUP), implement option 2 (exact-PID signal via a
+  ghostty child-pid API).
+- `zmx detach` has no session argument; it reads `ZMX_SESSION` from env. If
+  upstream zmx grows `detach <session>` (or a client-scoped `.Detach` CLI),
+  drop the env override.
+- Hibernation is default-on while labeled Beta; consider default-off until the
+  fix has soaked.
