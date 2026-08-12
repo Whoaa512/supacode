@@ -3374,10 +3374,9 @@ final class WorktreeTerminalState {
     do {
       let newTree = try tree.replacing(node: node, with: .leaf(view: replacement))
       // The old surface's child already exited (that is why we are reattaching), and
-      // `replacement` reuses this surface id, i.e. the SAME zmx session. Killing the
-      // attach client matches by session pattern, so it would take out the
-      // replacement's freshly spawned client.
-      view.closeSurface(killAttachClient: false)
+      // `replacement` reuses this surface id, i.e. the SAME zmx session. The detach
+      // is session-wide, so it would boot the replacement's freshly attached client.
+      view.closeSurface(detachClients: false)
       bumpSurfaceGeneration(for: tabId)
       updateTree(newTree, for: tabId)
       updateRunningState(for: tabId)

@@ -57,12 +57,12 @@ final class GhosttyRuntime {
     // Resolved HERE, at construction: the queue's teardown Tasks
     // escape the caller's dependency scope, so resolving inside them would pick
     // up the live shell in tests.
-    @Dependency(\.shellClient) var shellClient
+    @Dependency(\.zmxClient) var zmxClient
     @Dependency(\.analyticsClient) var analyticsClient
     self.surfaceTeardownQueue =
       surfaceTeardownQueue
       ?? SurfaceTeardownQueue(
-        shell: .live(shellClient),
+        detachClients: zmxClient.detachSessionClients,
         analytics: analyticsClient
       )
     guard let loaded = Self.loadConfig() else {

@@ -379,21 +379,22 @@ final class GhosttySurfaceView: NSView, Identifiable {
   /// Retires this surface. NEVER frees inline: `ghostty_surface_free` joins the
   /// surface's pty io thread, so a wedged reader would freeze the main actor (and
   /// the whole app) on the closing turn. Ownership goes to
-  /// `SurfaceTeardownQueue`, which kills the attach client, waits for the child to
-  /// exit, and frees via `performDeferredFree()` — the only real free.
+  /// `SurfaceTeardownQueue`, which detaches the session's zmx clients over IPC,
+  /// waits for the child to exit, and frees via `performDeferredFree()` — the only
+  /// real free.
   ///
-  /// - Parameter killAttachClient: pass `false` when the surface's child is already
+  /// - Parameter detachClients: pass `false` when the surface's child is already
   ///   gone AND another surface is (or is about to be) attached to the same zmx
-  ///   session under the same surface id. The kill matches by session pattern, so
-  ///   it would murder that other client. Only the zmx reattach path needs this.
-  func closeSurface(killAttachClient: Bool = true) {
+  ///   session under the same surface id. The detach is session-wide, so it would
+  ///   boot that other client. Only the zmx reattach path needs this.
+  func closeSurface(detachClients: Bool = true) {
     // Inert once the queue owns this view's teardown. Logged because a
     // caller reaching here expects the surface to be gone and it is not (yet).
     if isTeardownDeferred {
       surfaceLogger.warning("closeSurface() ignored for \(id): teardown is deferred")
       return
     }
-    runtime.surfaceTeardownQueue.handOff(self, killAttachClient: killAttachClient)
+    runtime.surfaceTeardownQueue.handOff(self, detachClients: detachClients)
   }
 
   /// Last-resort inline free, reachable only from `deinit`. A view that reaches

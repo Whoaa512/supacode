@@ -9,24 +9,14 @@ import Testing
 @testable import SupacodeSettingsShared
 @testable import supacode
 
-/// Records every command the teardown queue runs, and lets a test decide what
-/// `pgrep` reports so both the PID path and the no-match fallback are pinned.
-private actor ShellSpy {
-  private let pgrepStdout: String?
-  private(set) var commands: [[String]] = []
+/// Records every session the teardown queue detaches, so the tests pin that the
+/// queue's only zmx side effect is the IPC detach (never a signal by pattern,
+/// which also matches the forked daemon and murders the session).
+private actor DetachSpy {
+  private(set) var sessionIDs: [String] = []
 
-  init(pgrepStdout: String? = nil) {
-    self.pgrepStdout = pgrepStdout
-  }
-
-  func run(_ command: [String]) -> String? {
-    commands.append(command)
-    guard command.first == "pgrep" else { return "" }
-    return pgrepStdout
-  }
-
-  var killCommands: [[String]] {
-    commands.filter { $0.first == "kill" || $0.first == "pkill" }
+  func detach(_ sessionID: String) {
+    sessionIDs.append(sessionID)
   }
 }
 
@@ -105,16 +95,14 @@ struct SurfaceTeardownQueueTests {
   }
 
   private func makeQueue(
-    _ spy: ShellSpy,
+    _ spy: DetachSpy,
     clock: any Clock<Duration> = TestClock(),
     probe: ProbeSpy? = nil,
     free: FreeSpy? = nil,
     analytics: AnalyticsSpy? = nil
   ) -> SurfaceTeardownQueue {
     SurfaceTeardownQueue(
-      shell: SurfaceTeardownShell { executable, arguments in
-        await spy.run([executable.lastPathComponent] + arguments)
-      },
+      detachClients: { await spy.detach($0) },
       clock: clock,
       analytics: analytics?.client ?? .testValue,
       hasProcessExited: { probe?.probe($0) ?? true },
@@ -139,7 +127,7 @@ struct SurfaceTeardownQueueTests {
 
   @Test func handOffTracksEachViewGenerationOfAReusedSurfaceID() {
     let runtime = GhosttyRuntime()
-    let queue = makeQueue(ShellSpy())
+    let queue = makeQueue(DetachSpy())
     let surfaceID = UUID()
     let firstGeneration = makeView(id: surfaceID, runtime: runtime)
     let secondGeneration = makeView(id: surfaceID, runtime: runtime)
@@ -154,7 +142,7 @@ struct SurfaceTeardownQueueTests {
 
   @Test func handOffIsIdempotentForTheSameView() {
     let runtime = GhosttyRuntime()
-    let queue = makeQueue(ShellSpy())
+    let queue = makeQueue(DetachSpy())
     let view = makeView(id: UUID(), runtime: runtime)
 
     queue.handOff(view)
@@ -170,7 +158,7 @@ struct SurfaceTeardownQueueTests {
     let view = makeView(id: UUID(), runtime: runtime)
     view.passwordInput = true
 
-    makeQueue(ShellSpy()).handOff(view)
+    makeQueue(DetachSpy()).handOff(view)
 
     #expect(view.passwordInput == false)
   }
@@ -182,7 +170,7 @@ struct SurfaceTeardownQueueTests {
     let runtime = GhosttyRuntime()
     let view = makeView(id: UUID(), runtime: runtime)
 
-    makeQueue(ShellSpy()).handOff(view)
+    makeQueue(DetachSpy()).handOff(view)
     view.passwordInput = true
 
     #expect(view.passwordInput == false)
@@ -195,17 +183,18 @@ struct SurfaceTeardownQueueTests {
     let view = makeView(id: UUID(), runtime: runtime)
     #expect(view.hasLocalEventMonitor)
 
-    makeQueue(ShellSpy()).handOff(view)
+    makeQueue(DetachSpy()).handOff(view)
 
     #expect(view.hasLocalEventMonitor == false)
   }
 
   /// The wedged pty io thread only gets EOF once its `zmx attach` CLIENT dies, so
-  /// the kill must happen at hand-off. PID-targeted, because the `-f` pattern also
-  /// matches any FUTURE client of the same (surviving) session.
-  @Test func handOffKillsTheAttachClientByPID() async {
+  /// the detach must go out at hand-off — over IPC, addressed by session id.
+  /// Anything pattern-based is forbidden: the forked daemon shares the client's
+  /// argv, and signaling it SIGKILLs the whole terminal process group.
+  @Test func handOffDetachesTheSessionsClientsOverIPC() async {
     let runtime = GhosttyRuntime()
-    let spy = ShellSpy(pgrepStdout: "4242\n")
+    let spy = DetachSpy()
     let queue = makeQueue(spy)
     let surfaceID = UUID()
     let view = makeView(id: surfaceID, runtime: runtime)
@@ -213,31 +202,15 @@ struct SurfaceTeardownQueueTests {
     queue.handOff(view)
     await queue.teardownTask(for: view)?.value
 
-    let pattern = "zmx attach \(ZmxSessionID.make(surfaceID: surfaceID))"
-    #expect(await spy.commands == [["pgrep", "-f", pattern], ["kill", "-TERM", "4242"]])
+    #expect(await spy.sessionIDs == [ZmxSessionID.make(surfaceID: surfaceID)])
   }
 
-  /// No client found means nothing is holding the pty open, so there is nothing to
-  /// EOF. A pattern-wide `pkill` here would only add a way to kill the NEXT client
-  /// of the surviving session (a freshly woken terminal).
-  @Test func handOffRunsNoKillWhenNoAttachClientIsFound() async {
+  /// A woken surface reuses its UUID, so when IT later tears down, its own
+  /// hand-off must detach again. (Exactly one detach per hand-off: never zero,
+  /// never a retry that could race a freshly woken replacement client.)
+  @Test func eachHandOffOfAReusedSurfaceIDDetachesItsOwnClient() async {
     let runtime = GhosttyRuntime()
-    let spy = ShellSpy(pgrepStdout: nil)
-    let queue = makeQueue(spy)
-    let view = makeView(id: UUID(), runtime: runtime)
-
-    queue.handOff(view)
-    await queue.teardownTask(for: view)?.value
-
-    #expect(await spy.killCommands.isEmpty)
-  }
-
-  /// A woken surface reuses its UUID, so its NEW attach client is a different
-  /// process and must be killed on ITS hand-off. (Re-killing the SAME hand-off
-  /// later is what murders a freshly woken terminal.)
-  @Test func eachHandOffOfAReusedSurfaceIDKillsItsOwnClient() async {
-    let runtime = GhosttyRuntime()
-    let spy = ShellSpy(pgrepStdout: "4242\n")
+    let spy = DetachSpy()
     let queue = makeQueue(spy)
     let surfaceID = UUID()
     let firstGeneration = makeView(id: surfaceID, runtime: runtime)
@@ -248,7 +221,22 @@ struct SurfaceTeardownQueueTests {
     queue.handOff(secondGeneration)
     await queue.teardownTask(for: secondGeneration)?.value
 
-    #expect(await spy.killCommands.count == 2)
+    #expect(await spy.sessionIDs.count == 2)
+  }
+
+  /// The reattach path hands off with `detachClients: false`: the old child is
+  /// already gone and a replacement client is attaching to the SAME session, so a
+  /// session-wide detach would boot the newcomer.
+  @Test func handOffWithoutDetachRunsNoDetach() async {
+    let runtime = GhosttyRuntime()
+    let spy = DetachSpy()
+    let queue = makeQueue(spy)
+    let view = makeView(id: UUID(), runtime: runtime)
+
+    queue.handOff(view, detachClients: false)
+    await queue.teardownTask(for: view)?.value
+
+    #expect(await spy.sessionIDs.isEmpty)
   }
 
   /// The whole point of the deferred path: the free waits for the pty child to
@@ -262,7 +250,7 @@ struct SurfaceTeardownQueueTests {
     let free = FreeSpy()
     let analytics = AnalyticsSpy()
     let queue = makeQueue(
-      ShellSpy(pgrepStdout: "4242\n"),
+      DetachSpy(),
       clock: clock,
       probe: probe,
       free: free,
@@ -308,7 +296,7 @@ struct SurfaceTeardownQueueTests {
     let free = FreeSpy()
     let analytics = AnalyticsSpy()
     let queue = makeQueue(
-      ShellSpy(pgrepStdout: "4242\n"),
+      DetachSpy(),
       clock: clock,
       probe: probe,
       free: free,
@@ -335,17 +323,17 @@ struct SurfaceTeardownQueueTests {
     #expect(weakRef.view != nil)
   }
 
-  /// A surface with no zmx attach client (script tabs / unbundled zmx) has no kill
-  /// mechanism at all, so there is nothing to look for and nothing to EOF. Leaking
-  /// it would be strictly worse than the pre-branch behavior: freeing SIGHUPs the
-  /// child through the pty, and only a WEDGED reader can hang the free. So after the
-  /// poll bound it is freed anyway.
+  /// A surface with no zmx attach client (script tabs / unbundled zmx) has no
+  /// detach mechanism at all, so there is nothing to EOF. Leaking it would be
+  /// strictly worse than the pre-branch behavior: freeing SIGHUPs the child through
+  /// the pty, and only a WEDGED reader can hang the free. So after the poll bound
+  /// it is freed anyway.
   @Test func nonZmxSurfaceIsFreedAfterThePollBoundInsteadOfLeaked() async {
     let runtime = GhosttyRuntime()
     let clock = TestClock()
     let probe = ProbeSpy()
     let free = FreeSpy()
-    let spy = ShellSpy(pgrepStdout: "4242\n")
+    let spy = DetachSpy()
     let queue = makeQueue(spy, clock: clock, probe: probe, free: free)
     let surfaceID = UUID()
     var task: Task<Void, Never>?
@@ -362,8 +350,8 @@ struct SurfaceTeardownQueueTests {
     #expect(free.freedSurfaceIDs == [surfaceID])
     #expect(queue.leakedCount == 0)
     #expect(queue.pendingCount == 0)
-    // No kill mechanism exists for a non-zmx surface, so not even a pgrep may run.
-    #expect(await spy.commands.isEmpty)
+    // No detach mechanism exists for a non-zmx surface, so none may run.
+    #expect(await spy.sessionIDs.isEmpty)
   }
 
   /// A cancelled teardown must not leave the view in limbo: its Task is gone, so
@@ -373,7 +361,7 @@ struct SurfaceTeardownQueueTests {
     let runtime = GhosttyRuntime()
     let probe = ProbeSpy()
     let free = FreeSpy()
-    let queue = makeQueue(ShellSpy(pgrepStdout: "4242\n"), probe: probe, free: free)
+    let queue = makeQueue(DetachSpy(), probe: probe, free: free)
     let weakRef = WeakSurfaceRef()
     var task: Task<Void, Never>?
     autoreleasepool {
@@ -394,13 +382,13 @@ struct SurfaceTeardownQueueTests {
   }
 
   /// A surface still in the tree must never lose its client.
-  @Test func noCommandsRunWithoutAHandOff() async {
+  @Test func noDetachRunsWithoutAHandOff() async {
     let runtime = GhosttyRuntime()
-    let spy = ShellSpy()
+    let spy = DetachSpy()
     let queue = makeQueue(spy)
     _ = makeView(id: UUID(), runtime: runtime)
     _ = queue
 
-    #expect(await spy.commands.isEmpty)
+    #expect(await spy.sessionIDs.isEmpty)
   }
 }

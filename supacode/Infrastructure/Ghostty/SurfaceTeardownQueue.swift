@@ -1,19 +1,6 @@
 import Foundation
 import SupacodeSettingsShared
 
-/// Off-main command runner the teardown path needs: one closure, so tests get a
-/// double without standing up all of `ShellClient`. Returns stdout, or nil when
-/// the command failed to run or exited non-zero (`pgrep` exits 1 on no match).
-nonisolated struct SurfaceTeardownShell: Sendable {
-  var run: @Sendable (URL, [String]) async -> String?
-
-  static func live(_ shell: ShellClient) -> SurfaceTeardownShell {
-    SurfaceTeardownShell { executable, arguments in
-      try? await shell.run(executable, arguments, nil).stdout
-    }
-  }
-}
-
 /// Owns ghostty surfaces whose teardown has been deferred off the main-actor
 /// critical path.
 ///
@@ -24,9 +11,17 @@ nonisolated struct SurfaceTeardownShell: Sendable {
 /// `isolated deinit` that frees inline, so merely dropping the caller's reference
 /// would still block the main actor.
 ///
-/// Resolve policy per surface: kill the zmx attach client once, then poll
-/// `ghostty_surface_process_exited` on an injected clock with a bounded number of
-/// attempts, and free only once the child is gone.
+/// Resolve policy per surface: detach the session's zmx clients once over IPC,
+/// then poll `ghostty_surface_process_exited` on an injected clock with a bounded
+/// number of attempts, and free only once the child is gone.
+///
+/// Detach, never signal: the zmx daemon is a plain `fork()` of the client, so its
+/// command line is IDENTICAL — any `pgrep -f`/`pkill` pattern matches both, and a
+/// SIGTERM that lands on the daemon SIGKILLs the entire terminal process group
+/// (`handleKill`), murdering the session hibernation exists to preserve. The IPC
+/// `DetachAll` has no code path to `handleKill`, so it cannot kill the session by
+/// construction; the client exits on socket HUP, which is the EOF the wedged pty
+/// io reader needs.
 @MainActor
 final class SurfaceTeardownQueue {
   /// Keyed by VIEW identity, not surface UUID: a dormant tab reuses its surface
@@ -37,7 +32,9 @@ final class SurfaceTeardownQueue {
   /// tests) can await a surface's teardown, and so a resolved surface drops its
   /// Task instead of accumulating one per hibernate.
   private var teardownTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
-  private let shell: SurfaceTeardownShell
+  /// Detaches every client of a zmx session over the daemon's IPC socket
+  /// (`ZmxClient.detachSessionClients` in production).
+  private let detachClients: @Sendable (String) async -> Void
   private let clock: any Clock<Duration>
   private let analytics: AnalyticsClient
   private let hasProcessExited: (GhosttySurfaceView) -> Bool
@@ -53,7 +50,7 @@ final class SurfaceTeardownQueue {
   /// views are still retained.
   private static let leakedLogEscalationThreshold = 32
 
-  /// How long the child gets to die after the SIGTERM before the surface is
+  /// How long the child gets to die after the detach before the surface is
   /// abandoned: 200 * 50ms = 10s. A busy shell (agent flushing output, shell exit
   /// hooks) can take seconds to unwind after its attach client is EOF'd, and the
   /// two outcomes are wildly asymmetric — waiting longer costs one 50ms-interval
@@ -64,13 +61,13 @@ final class SurfaceTeardownQueue {
   private static let slowFreeThreshold: Duration = .milliseconds(250)
 
   init(
-    shell: SurfaceTeardownShell,
+    detachClients: @escaping @Sendable (String) async -> Void,
     clock: any Clock<Duration> = ContinuousClock(),
     analytics: AnalyticsClient,
     hasProcessExited: @escaping (GhosttySurfaceView) -> Bool = { $0.hasSurfaceProcessExited },
     free: @escaping (GhosttySurfaceView) -> Void = { $0.performDeferredFree() }
   ) {
-    self.shell = shell
+    self.detachClients = detachClients
     self.clock = clock
     self.analytics = analytics
     self.hasProcessExited = hasProcessExited
@@ -113,23 +110,23 @@ final class SurfaceTeardownQueue {
   /// Takes ownership of `view`'s surface teardown and returns without touching
   /// ghostty, so the caller's turn on the main actor never waits on a free.
   ///
-  /// - Parameter killAttachClient: `false` skips the client kill for a surface whose
-  ///   child is already gone but whose zmx session is being reattached under the
-  ///   same surface id: the kill matches by session pattern, so it would take out
-  ///   the replacement's client instead (same hazard as re-killing).
-  func handOff(_ view: GhosttySurfaceView, killAttachClient: Bool = true) {
+  /// - Parameter detachClients: `false` skips the detach for a surface whose child
+  ///   is already gone but whose zmx session is being reattached under the same
+  ///   surface id: `DetachAll` is session-wide, so it would boot the replacement's
+  ///   freshly attached client (recoverable, but pointless).
+  func handOff(_ view: GhosttySurfaceView, detachClients: Bool = true) {
     let key = ObjectIdentifier(view)
     guard pending[key] == nil else { return }
     pending[key] = view
     view.prepareForDeferredTeardown()
     let sessionID = ZmxSessionID.make(surfaceID: view.id)
-    let shell = shell
-    // A non-zmx surface (script tab, or zmx unbundled) has no attach client, so
-    // there is nothing to pgrep for and nothing to EOF.
-    let shouldKill = killAttachClient && view.usesZmx
+    let detach = self.detachClients
+    // A non-zmx surface (script tab, or zmx unbundled) has no attach client and no
+    // session daemon, so there is nothing to detach.
+    let shouldDetach = detachClients && view.usesZmx
     teardownTasks[key] = Task { [weak self] in
-      if shouldKill {
-        await Self.killAttachClient(sessionID: sessionID, shell: shell)
+      if shouldDetach {
+        await detach(sessionID)
       }
       await self?.awaitExitThenFree(key)
     }
@@ -159,12 +156,13 @@ final class SurfaceTeardownQueue {
     resolveExpiredPoll(key)
   }
 
-  /// Poll bound exhausted. Leaking is only earned when a client kill was possible:
-  /// for a zmx surface the kill already went out, so a still-live child means a
-  /// genuinely wedged reader and the free would hang the app. A non-zmx surface has
-  /// no kill mechanism at all, so "never exited" carries no such evidence — free it
-  /// anyway, which is what closing the pty did before this queue existed (the free
-  /// SIGHUPs the child; only a wedged reader can block it).
+  /// Poll bound exhausted. Leaking is only earned when a detach was possible: for
+  /// a zmx surface the detach already went out, so a still-live child means a
+  /// client that survived socket HUP (or a genuinely wedged reader) and the free
+  /// would hang the app. A non-zmx surface has no detach mechanism at all, so
+  /// "never exited" carries no such evidence — free it anyway, which is what
+  /// closing the pty did before this queue existed (the free SIGHUPs the child;
+  /// only a wedged reader can block it).
   private func resolveExpiredPoll(_ key: ObjectIdentifier) {
     guard let view = pending[key] else { return }
     guard view.usesZmx else {
@@ -177,10 +175,10 @@ final class SurfaceTeardownQueue {
   /// Leak over hang: freeing a surface whose child may still hold the pty would join
   /// a wedged io thread and freeze the app. Skip the free and keep the view.
   ///
-  /// - Parameter reason: `wedged` (kill went out, child never exited) or `cancelled`
-  ///   (poll interrupted, child's state unknown). There is deliberately no
-  ///   "no kill possible" reason: a surface with no attach client to kill is FREED
-  ///   when the poll expires (see `resolveExpiredPoll`), so it never leaks.
+  /// - Parameter reason: `wedged` (detach went out, child never exited) or
+  ///   `cancelled` (poll interrupted, child's state unknown). There is deliberately
+  ///   no "no detach possible" reason: a surface with no attach client to detach is
+  ///   FREED when the poll expires (see `resolveExpiredPoll`), so it never leaks.
   private func leak(_ key: ObjectIdentifier, reason: String) {
     guard let view = pending[key] else { return }
     pending[key] = nil
@@ -227,36 +225,8 @@ final class SurfaceTeardownQueue {
     teardownTasks[key] = nil
   }
 
-  /// Kills the surface's `zmx attach` CLIENT (never the session, which must
-  /// survive to be re-attached on wake) so the wedged pty io-reader gets EOF.
-  ///
-  /// Exactly ONE kill, at hand-off, and always PID-targeted: the `-f` pattern also
-  /// matches any FUTURE client of the same (surviving) session, so both a retry and
-  /// a pattern-wide `pkill` risk murdering a freshly woken terminal. When `pgrep`
-  /// finds nothing there is no client left to EOF, so there is nothing to do.
-  private nonisolated static func killAttachClient(
-    sessionID: String,
-    shell: SurfaceTeardownShell
-  ) async {
-    let pattern = "zmx attach \(sessionID)"
-    let stdout = await shell.run(URL(fileURLWithPath: "/usr/bin/pgrep"), ["-f", pattern])
-    let pids = Self.parsePIDs(stdout ?? "")
-    guard !pids.isEmpty else {
-      logger.warning("no zmx attach client found for \(sessionID); nothing to kill")
-      return
-    }
-    _ = await shell.run(URL(fileURLWithPath: "/bin/kill"), ["-TERM"] + pids)
-  }
-
   private nonisolated static func milliseconds(_ duration: Duration) -> Int {
     let components = duration.components
     return Int(components.seconds * 1000 + components.attoseconds / 1_000_000_000_000_000)
-  }
-
-  private nonisolated static func parsePIDs(_ stdout: String) -> [String] {
-    stdout
-      .split(whereSeparator: \.isNewline)
-      .map { $0.trimmingCharacters(in: .whitespaces) }
-      .filter { Int32($0) != nil }
   }
 }

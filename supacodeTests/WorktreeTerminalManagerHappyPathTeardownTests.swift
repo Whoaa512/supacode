@@ -10,19 +10,12 @@ import Testing
 @testable import SupacodeSettingsShared
 @testable import supacode
 
-/// Records the queue's shell commands and tells `pgrep` what to report.
-private actor ShellSpy {
-  private let pgrepStdout: String?
-  private(set) var commands: [[String]] = []
+/// Records the sessions the queue detaches over IPC.
+private actor DetachSpy {
+  private(set) var sessionIDs: [String] = []
 
-  init(pgrepStdout: String? = "4242\n") {
-    self.pgrepStdout = pgrepStdout
-  }
-
-  func run(_ command: [String]) -> String? {
-    commands.append(command)
-    guard command.first == "pgrep" else { return "" }
-    return pgrepStdout
+  func detach(_ sessionID: String) {
+    sessionIDs.append(sessionID)
   }
 }
 
@@ -68,7 +61,7 @@ private final class WeakSurfaceRef {
 /// Tasks are dropped, and nothing lands in the leak bucket.
 ///
 /// Everything here drives the REAL close / hibernate paths through
-/// `WorktreeTerminalState`; only the queue's three side-effecting edges (shell,
+/// `WorktreeTerminalState`; only the queue's three side-effecting edges (detach,
 /// clock, exit probe / free) are doubled.
 @MainActor
 @Suite(.serialized, .dependencies)
@@ -85,15 +78,13 @@ struct HappyPathTeardownTests {
   }
 
   private func makeQueue(
-    shell: ShellSpy,
+    detach: DetachSpy,
     clock: any Clock<Duration>,
     probe: ProbeSpy,
     free: FreeSpy
   ) -> SurfaceTeardownQueue {
     SurfaceTeardownQueue(
-      shell: SurfaceTeardownShell { executable, arguments in
-        await shell.run([executable.lastPathComponent] + arguments)
-      },
+      detachClients: { await detach.detach($0) },
       clock: clock,
       analytics: .testValue,
       hasProcessExited: { probe.probe($0) },
@@ -173,7 +164,7 @@ struct HappyPathTeardownTests {
   @Test func closingAMultiLeafTabFreesEverySurfaceExactlyOnce() async {
     let probe = ProbeSpy(hasExited: true)
     let free = FreeSpy()
-    let queue = makeQueue(shell: ShellSpy(), clock: TestClock(), probe: probe, free: free)
+    let queue = makeQueue(detach: DetachSpy(), clock: TestClock(), probe: probe, free: free)
     let runtime = GhosttyRuntime(surfaceTeardownQueue: queue)
     let state = makeState(runtime: runtime)
 
@@ -217,7 +208,7 @@ struct HappyPathTeardownTests {
   @Test func hibernatingAMultiLeafTabFreesEverySurfaceExactlyOnce() async {
     let probe = ProbeSpy(hasExited: true)
     let free = FreeSpy()
-    let queue = makeQueue(shell: ShellSpy(), clock: TestClock(), probe: probe, free: free)
+    let queue = makeQueue(detach: DetachSpy(), clock: TestClock(), probe: probe, free: free)
     let runtime = GhosttyRuntime(surfaceTeardownQueue: queue)
     let state = makeState(runtime: runtime)
 
@@ -263,7 +254,7 @@ struct HappyPathTeardownTests {
     // for the whole test — the worst case the ordering has to survive.
     let probe = ProbeSpy(hasExited: false)
     let free = FreeSpy()
-    let queue = makeQueue(shell: ShellSpy(), clock: TestClock(), probe: probe, free: free)
+    let queue = makeQueue(detach: DetachSpy(), clock: TestClock(), probe: probe, free: free)
     let runtime = GhosttyRuntime(surfaceTeardownQueue: queue)
     let state = makeState(runtime: runtime)
     let record = TerminalLayoutSnapshot.SurfaceAgentRecord(agent: "claude", pids: [42], activity: "busy")
