@@ -26,6 +26,15 @@ struct ZmxClient: Sendable {
   /// Tear down a session. No-op on missing. Bounded by a 5-second timeout so a
   /// stuck daemon can't hold the close path indefinitely.
   var killSession: @Sendable (_ sessionID: String) async -> Void
+  /// Detach every client of a session over the daemon's IPC socket. The daemon
+  /// closes each client's connection; the client exits on socket HUP and the
+  /// session SURVIVES for later reattach. This is the only safe way to make an
+  /// attach client go away: signaling by process pattern also matches the
+  /// forked daemon (argv identical), and SIGTERM to the daemon kills the whole
+  /// terminal process group. No-op on missing session. Defaults to a no-op so
+  /// test doubles that don't care about detach stay terse; the live client
+  /// always wires the real one.
+  var detachSessionClients: @Sendable (_ sessionID: String) async -> Void = { _ in }
   /// Best-effort kill of a host-side zmx session over SSH. No-op when the host
   /// lacks zmx. Bounded so an unreachable host can't hold the close path; an
   /// unreachable host leaks the session (no host-side reaper yet).
@@ -201,7 +210,11 @@ extension ZmxClient {
     }
 
     /// Runs a bundled-zmx subcommand; nil when unbundled or on any failure.
-    @Sendable func runZmx(_ arguments: [String], captureStdout: Bool = false) async -> String? {
+    @Sendable func runZmx(
+      _ arguments: [String],
+      captureStdout: Bool = false,
+      extraEnvironment: [String: String] = [:]
+    ) async -> String? {
       // Uses `bundledExecutable`, not the budget-gated `resolveExecutable`, so
       // kill paths still tear down sessions from a previous under-budget launch
       // even when this launch's `ZMX_DIR` is over budget.
@@ -214,6 +227,7 @@ extension ZmxClient {
       // after the separator fix in `socketDir`.
       var env = ProcessInfo.processInfo.environment
       env["ZMX_DIR"] = ZmxSocketBudget.socketDir(env: env)
+      env.merge(extraEnvironment) { _, extra in extra }
       return await runProcess(
         invocation: (executableURL: executable, arguments: arguments),
         environment: env,
@@ -228,6 +242,12 @@ extension ZmxClient {
       isBundled: { bundledExecutable() != nil },
       killSession: { sessionID in
         _ = await runZmx(["kill", sessionID])
+      },
+      detachSessionClients: { sessionID in
+        // `zmx detach` takes no session argument; it resolves the target from
+        // `ZMX_SESSION` (it is designed to run inside a session). Pin it so the
+        // detach lands on the hibernating surface's daemon.
+        _ = await runZmx(["detach"], extraEnvironment: ["ZMX_SESSION": sessionID])
       },
       killRemoteSession: { host, sessionID in
         _ = await runProcess(
@@ -251,6 +271,7 @@ extension ZmxClient {
     executableURL: { nil },
     isBundled: { false },
     killSession: { _ in },
+    detachSessionClients: { _ in },
     killRemoteSession: { _, _ in },
     listSessionsWithClients: { [] }
   )
