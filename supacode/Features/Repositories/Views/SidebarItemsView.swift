@@ -682,15 +682,37 @@ private struct SidebarItemContextMenu: View {
         // Phase 3 follow-up: bulk promote for a multi-row selection (plan
         // Resolved #10 makes one claim per tab, so a bulk arm needs its own
         // per-row tab resolution rather than a loop over this action).
-        Button("Promote Tab to Task", systemImage: "checklist") {
-          store.send(.tasks(.promoteTab(worktreeID: rowID, tabID: nil)))
+        //
+        // Same-directory only on purpose: a task's directory is what focus,
+        // settle-hibernation and worktree cleanup all key on, so offering a
+        // cross-directory task here would mint a claim those paths cannot honor.
+        let activeTasks = store.state.activeTasks(inDirectory: row.workingDirectoryPath)
+        if activeTasks.isEmpty {
+          Button("Promote Tab to Task", systemImage: "checklist") {
+            store.send(.tasks(.promoteTab(worktreeID: rowID, tabID: nil)))
+          }
+          .disabled(!hasLiveSurfaces)
+          .help(
+            hasLiveSurfaces
+              ? "Track this worktree's selected tab as a task in the Tasks tab"
+              : "This worktree has no open terminal tab to promote"
+          )
+        } else {
+          Menu("Add Tab to Task", systemImage: "checklist") {
+            ForEach(activeTasks) { task in
+              Button(task.title) {
+                store.send(.tasks(.promoteTab(worktreeID: rowID, tabID: nil, taskID: task.id)))
+              }
+              .help("Hand this worktree's selected tab to “\(task.title)”")
+            }
+          }
+          .disabled(!hasLiveSurfaces)
+          .help(
+            hasLiveSurfaces
+              ? "Hand this worktree's selected tab to one of the directory's open tasks"
+              : "This worktree has no open terminal tab to add"
+          )
         }
-        .disabled(!hasLiveSurfaces)
-        .help(
-          hasLiveSurfaces
-            ? "Track this worktree's selected tab as a task in the Tasks tab"
-            : "This worktree has no open terminal tab to promote"
-        )
       }
       Divider()
       if rowIsFolder {

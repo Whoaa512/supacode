@@ -1743,12 +1743,19 @@ extension RepositoriesFeature.State {
   /// directory (plan Resolved #11), so the join target has to be deterministic;
   /// newest-created is the order the Tasks tab already puts at the top (A4).
   func newestActiveTask(inDirectory path: String) -> TaskRecord? {
+    activeTasks(inDirectory: path).first
+  }
+
+  /// Active tasks for the directory, newest-created first with the id
+  /// tie-break — the order the Tasks tab renders (A4), so the row's
+  /// "Add Tab to Task" menu and the panel agree about which task is first.
+  func activeTasks(inDirectory path: String) -> [TaskRecord] {
     let target = TaskDirectoryPath.normalized(path)
     return
       taskRecords
       .filter { !TasksSidebarStructure.isSettled($0) }
       .filter { TaskDirectoryPath.normalized($0.directoryPath) == target }
-      .max { ($0.createdAt, $0.id.rawValue) < ($1.createdAt, $1.id.rawValue) }
+      .sorted { ($0.createdAt, $0.id.rawValue) > ($1.createdAt, $1.id.rawValue) }
   }
 
   /// The worktree the terminal manager should treat as selected while a task row

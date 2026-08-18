@@ -769,4 +769,28 @@ struct RepositoriesFeatureTasksPromoteTests {
     #expect(store.state.taskRecords.count == 1)
     #expect(store.state.taskRecords[id: survivor.id]?.surfaceIDs == Set(tab.surfaceIDs))
   }
+
+  /// The row's "Add Tab to Task" menu renders `activeTasks(inDirectory:)`
+  /// directly, so its order and membership are the contract: newest-created
+  /// first with the id tie-break (A4), settled and foreign-directory tasks
+  /// excluded — a task the menu offered but focus/settle could not honor would
+  /// be a lie.
+  @Test(.dependencies) func activeTasksInDirectoryAreNewestFirstAndOnlyThisDirectorys() throws {
+    let sandbox = try makeSandbox()
+    let directory = try sandbox.makeDirectory("mine")
+    let elsewhere = try sandbox.makeDirectory("elsewhere")
+    var state = makeState(sandbox: sandbox, directories: [directory, elsewhere])
+    let older = makeRecord(directory: directory, createdAt: Self.earlier)
+    let newer = makeRecord(directory: directory, createdAt: Self.freshDate)
+    let settled = makeRecord(directory: directory, settledAt: Self.now)
+    let foreign = makeRecord(directory: elsewhere, createdAt: Self.freshDate)
+    state.taskRecords = [older, settled, newer, foreign]
+    state.applyPostReduceCacheRecomputes(.all)
+
+    let active = state.activeTasks(inDirectory: directory.path(percentEncoded: false))
+
+    #expect(active.map(\.id) == [newer.id, older.id])
+    // The single-target fallback promote uses is the same list's head.
+    #expect(state.newestActiveTask(inDirectory: directory.path(percentEncoded: false))?.id == newer.id)
+  }
 }
