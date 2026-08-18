@@ -527,15 +527,19 @@ struct RepositoriesFeatureTaskSignalsTests {
     #expect(store.state.taskLeaves[id: fixture.record.id]?.isDoneUnread == false)
   }
 
-  /// A28's zero-pill seed check, and the reconciliation of the Phase-1 rule:
-  /// a never-visited task reads as *read*. A first launch that seeds fifty
-  /// stale directories must not open on fifty unread badges — that is an inbox
-  /// nobody trusts by the second screenful.
-  @Test func aFreshSeedOfStaleTasksShowsNoDonePills() async throws {
+  /// A28's zero-pill launch check, and the reconciliation of the Phase-1 rule:
+  /// a never-visited task reads as *read*. A first launch over old records must
+  /// not open on a wall of unread badges — that is an inbox nobody trusts by
+  /// the second screenful.
+  @Test func aFreshLaunchOverOldTasksShowsNoDonePills() async throws {
     let sandbox = try makeSandbox()
     let directories = try (0..<5).map { index in
       try sandbox.makeDirectory("stale-\(index)", activityAt: TaskInboxFixture.staleDate)
     }
+    let records = directories.map { directory in
+      TaskInboxFixture.makeRecord(directory: directory, createdAt: TaskInboxFixture.staleDate)
+    }
+    try sandbox.save(TaskStoreFile(didSeedTasks: true, tasks: records))
     var state = TaskInboxFixture.makeState(sandbox: sandbox, directories: directories)
     state.taskNow = Self.now
     let store = makeStore(state, sandbox: sandbox)
@@ -543,7 +547,6 @@ struct RepositoriesFeatureTaskSignalsTests {
     await store.send(.tasks(.load))
     await store.receive(\.tasks.loaded)
     await store.receive(\.tasks.seedIfNeeded)
-    await store.receive(\.tasks.seeded)
     await store.send(.tasks(.stopTimers))
     await store.finish()
 

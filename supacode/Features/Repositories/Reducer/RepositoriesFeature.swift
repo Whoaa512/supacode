@@ -3476,12 +3476,6 @@ struct RepositoriesFeature {
         if mergedRemote.repositories.contains(where: { $0.host != nil }) {
           allEffects.append(.send(.resolveRemoteRepositories))
         }
-        // Day-one seeding needs the roster (titles, branches, surfaces), so a
-        // load that arrived before it re-arms here. Gated on `hasLoadedTasks` so
-        // a build that never sent `.task` fires no task effects at all.
-        if state.hasLoadedTasks, !state.didSeedTasks, !state.isTaskPersistenceDisabled {
-          allEffects.append(.send(.tasks(.seedIfNeeded)))
-        }
         return .merge(allEffects)
 
       case .resolveRemoteRepositories:

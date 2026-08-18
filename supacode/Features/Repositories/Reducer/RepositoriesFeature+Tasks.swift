@@ -18,10 +18,6 @@ private enum TaskCancelID {
   /// Every save writes the whole file, so a newer save fully supersedes an
   /// in-flight one and cancelling it can never drop state.
   static let persist = "repositories.tasks.persist"
-  /// Seeding is armed from two launch paths (`.loaded` and `.repositoriesLoaded`),
-  /// so the later arming supersedes an in-flight one instead of racing it into a
-  /// duplicate `.seeded`.
-  static let seed = "repositories.tasks.seed"
   /// The coarse 60s re-classification loop, armed once by the load that
   /// populates the inbox.
   static let classificationTick = "repositories.tasks.classificationTick"
@@ -45,7 +41,6 @@ extension RepositoriesFeature {
     /// Day-one seeding. Idempotent twice over: the `didSeedTasks` flag and the
     /// seeder's per-directory dedupe against existing records (A13).
     case seedIfNeeded
-    case seeded([TaskRecord])
     /// Open a task: stamp `lastVisitedAt`, make it the sidebar selection, and
     /// pre-position its owning worktree on an owned surface.
     case select(TaskID)
@@ -201,8 +196,8 @@ extension RepositoriesFeature {
       // there is nothing for the sample to classify (every task recompute below
       // already early-outs on it), and sampling anyway would make the whole app
       // read the clock on every sidebar mutation. The `.tasks` arms stamp
-      // unconditionally, because `.loaded` and `.seeded` are what *create* the
-      // inbox and run while `taskRecords` is still empty.
+      // unconditionally, because `.loaded` is what *creates* the inbox and runs
+      // while `taskRecords` is still empty.
       //
       // The presentation-only arms are the other exception: they owe a rebuild
       // (the structure they project narrowed or expanded) but not a re-timing,
@@ -251,28 +246,13 @@ extension RepositoriesFeature {
         )
 
       case .tasks(.seedIfNeeded):
+        // Day-one bulk seeding is off on purpose: joining the inbox is a choice
+        // made per tab (promote) or per task (⌘N), never a sweep of whatever
+        // happened to be open. The flag still flips and persists so the dormant
+        // seeder in an older build cannot mint a wall of tasks on a downgrade.
         guard state.hasLoadedTasks, !state.didSeedTasks, !state.isTaskPersistenceDisabled else {
           return .none
         }
-        // Seeding reads the roster for titles, branches and surfaces, so it
-        // waits for the load that carries them; `.repositoriesLoaded` re-arms it.
-        guard state.isInitialLoadComplete else { return .none }
-        let inputs = state.taskSeedInputs()
-        guard !inputs.isEmpty else { return .none }
-        let existing = Array(state.taskRecords)
-        return .run { send in
-          let records = Self.seedRecords(inputs: inputs, existingTasks: existing, now: now)
-          await send(.tasks(.seeded(records)))
-        }
-        .cancellable(id: TaskCancelID.seed, cancelInFlight: true)
-
-      case .tasks(.seeded(let records)):
-        guard !state.didSeedTasks, !state.isTaskPersistenceDisabled else { return .none }
-        // An empty seed does NOT flip the flag: an install with no evidence yet
-        // must still seed once real work exists, and re-running the seeder over
-        // zero candidates costs nothing.
-        guard !records.isEmpty else { return .none }
-        state.taskRecords.append(contentsOf: records.filter { state.taskRecords[id: $0.id] == nil })
         state.didSeedTasks = true
         return Self.persistTasksEffect(state: state)
 
@@ -1265,66 +1245,6 @@ extension RepositoriesFeature {
       .cancellable(id: TaskCancelID.persist, cancelInFlight: true)
   }
 
-  // MARK: - Seeding
-
-  /// Off-main evidence gathering + seeding. The reducer collects what only state
-  /// knows (paths, titles, branches, owned surfaces); the filesystem reads
-  /// (reflog, scrollback mtimes) and the pure seeding decision happen here.
-  nonisolated static func seedRecords(
-    inputs: [TaskSeedInput],
-    existingTasks: [TaskRecord],
-    now: Date
-  ) -> [TaskRecord] {
-    var surfacesByPath: [String: Set<UUID>] = [:]
-    var candidates: [TaskActivitySeeder.Candidate] = []
-    candidates.reserveCapacity(inputs.count)
-    for input in inputs {
-      // Canonicalized here, not in the reducer: the seeder's idempotency key is
-      // the directory path, and it cannot resolve symlinks itself (it is pure),
-      // so two spellings of one directory would seed twice.
-      let path = TaskDirectoryPath.canonical(input.directoryURL)
-      surfacesByPath[path, default: []].formUnion(input.surfaceIDs)
-      candidates.append(
-        TaskActivitySeeder.Candidate(
-          directoryPath: path,
-          customizationTitle: input.customizationTitle,
-          worktreeName: input.worktreeName,
-          worktreeDetail: input.worktreeDetail,
-          currentBranch: input.currentBranch,
-          hasLiveSurfaces: !input.surfaceIDs.isEmpty,
-          scrollbackLastMountedAt: newestScrollbackDate(for: input.surfaceIDs),
-          reflogEntries: GitReflogReader.read(worktreeURL: input.directoryURL),
-          // Phase 1 has no cheap ref enumeration in state, and reading every
-          // repo's refs at launch would be a worse trade than the rare
-          // tag-labelled-as-branch the seeder documents.
-          knownBranches: nil,
-          repositoryID: input.repositoryID
-        )
-      )
-    }
-    return TaskActivitySeeder.seeds(candidates: candidates, existingTasks: existingTasks, now: now)
-      .map { record in
-        var record = record
-        // A seeded task stands for its directory's whole working state, so its
-        // claim is directory-granular: it owns every surface open there. Later
-        // captures in the same directory (promote-tab, ⌘N) claim tab by tab and
-        // take those tabs off this record, which is what keeps "one tab, one
-        // task" (plan Resolved #10) true as the two granularities coexist.
-        record.surfaceIDs = surfacesByPath[record.directoryPath] ?? []
-        return record
-      }
-  }
-
-  /// Newest scrollback mtime across the surfaces. A *last-mounted* signal only
-  /// (the persist loop rewrites every live surface every 30s), which is exactly
-  /// how `TaskActivitySeeder` treats it.
-  private nonisolated static func newestScrollbackDate(for surfaceIDs: Set<UUID>) -> Date? {
-    surfaceIDs.compactMap { surfaceID in
-      let url = SupacodePaths.scrollbackFileURL(for: surfaceID)
-      return try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
-    }
-    .max()
-  }
 }
 
 /// Where a capture in one directory goes: create the task right there (nobody
@@ -1338,17 +1258,6 @@ enum TaskCaptureRoute: Equatable {
   case createHere
   case ask(Repository)
   case isolate(Repository)
-}
-
-/// What only the reducer knows about one candidate directory at seed time.
-nonisolated struct TaskSeedInput: Equatable, Sendable {
-  var directoryURL: URL
-  var customizationTitle: String?
-  var worktreeName: String?
-  var worktreeDetail: String?
-  var currentBranch: String?
-  var surfaceIDs: Set<UUID>
-  var repositoryID: Repository.ID?
 }
 
 /// Directory-path comparison for task records.
@@ -1391,24 +1300,6 @@ extension RepositoriesFeature.State {
     )
     file.schemaVersion = taskStoreSchemaVersion
     return file
-  }
-
-  /// Candidate directories for day-one seeding, straight from the live rows.
-  /// Remote rows are excluded: reflog and scrollback evidence is local-only, and
-  /// reading a remote path as a local one would be reading the wrong directory.
-  func taskSeedInputs() -> [TaskSeedInput] {
-    sidebarItems.compactMap { row in
-      guard row.host == nil, !row.isMissing else { return nil }
-      return TaskSeedInput(
-        directoryURL: row.workingDirectory,
-        customizationTitle: row.customTitle,
-        worktreeName: row.name,
-        worktreeDetail: row.subtitle,
-        currentBranch: row.provableBranch,
-        surfaceIDs: Set(row.surfaceIDs),
-        repositoryID: row.repositoryID
-      )
-    }
   }
 
   /// The live row for a task's directory, or `nil` when the directory has none
@@ -2192,7 +2083,7 @@ extension RepositoriesFeature.TaskInboxAction {
     switch self {
     case .promoteTab, .reconcileSurfaceOwnership,
       .createTask, .resolveDirectoryConflict, .autoManagedWorktreeCreated,
-      .loaded, .seeded:
+      .loaded:
       return true
     // Everything else moves stamps, placement or presentation — never a claim.
     case .load, .seedIfNeeded, .select, .settle, .unsettle,
@@ -2252,7 +2143,7 @@ extension RepositoriesFeature.TaskInboxAction {
       return [.sidebarStructure, .selectedWorktreeSlice, .sidebarSelectionSlice]
     // Every arm that can change the record set, its lifecycle, the page window,
     // or the clock sample the placement rules are evaluated against.
-    case .loaded, .seeded, .select, .settle, .unsettle,
+    case .loaded, .select, .settle, .unsettle,
       .snooze, .unsnooze, .pin, .unpin, .keepActive,
       .setSearchQuery, .setSettledTailExpanded, .setSnoozedShelfExpanded, .expandSettledTail,
       .classificationTick, .wakeBoundaryReached, .agentSnapshotChanged, .autoSettleSettingsChanged,
@@ -2295,7 +2186,7 @@ extension RepositoriesFeature.TaskInboxAction {
       // someone retitled a task would age every other row for free.
       .presentRenamePrompt, .cancelRenamePrompt, .renameTask:
       return false
-    case .load, .loaded, .seedIfNeeded, .seeded, .select, .settle, .unsettle,
+    case .load, .loaded, .seedIfNeeded, .select, .settle, .unsettle,
       .snooze, .unsnooze, .pin, .unpin, .keepActive,
       .jumpToNextNeedingAttention, .settleSelected, .snoozeSelected, .togglePinSelected,
       .focusSelectedSurface, .revealSelectedInSidebar, .consumeSidebarReveal,

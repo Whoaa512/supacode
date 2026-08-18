@@ -14,9 +14,6 @@ import Testing
 ///
 /// The store's `tasks.json` URL is `SupacodePaths.tasksURL`, but every test runs
 /// with in-memory `settingsFileStorage`, so nothing here touches the real file.
-/// Seeding evidence is real: each fixture directory gets a `.git/logs/HEAD` with
-/// a git-shaped reflog line, because the reflog is the only activity source the
-/// seeder trusts (plan Resolved #2).
 @MainActor
 struct RepositoriesFeatureTasksTests {
   private typealias Sandbox = TaskInboxSandbox
@@ -77,9 +74,12 @@ struct RepositoriesFeatureTasksTests {
     )
   }
 
-  // MARK: - A1 / A13: load, seed, idempotence
+  // MARK: - A1 / A13: load, no bulk seed, idempotence
 
-  @Test func loadSeedsOneTaskPerDirectoryAndPopulatesTheStructure() async throws {
+  /// Day-one bulk seeding is off: a fresh launch over live directories mints
+  /// zero tasks and flips the seeded flag so no later build can bulk-seed either.
+  /// Joining the inbox is a per-tab (promote) or per-task (⌘N) choice.
+  @Test func loadMintsNoTasksAndFlipsTheSeededFlag() async throws {
     let sandbox = try makeSandbox()
     let fresh = try sandbox.makeDirectory("fresh", activityAt: Self.freshDate)
     let stale = try sandbox.makeDirectory("stale", activityAt: Self.staleDate)
@@ -94,29 +94,15 @@ struct RepositoriesFeatureTasksTests {
     await store.send(.tasks(.load))
     await store.receive(\.tasks.loaded)
     await store.receive(\.tasks.seedIfNeeded)
-    await store.receive(\.tasks.seeded)
     await store.send(.tasks(.stopTimers))
     await store.finish()
 
-    #expect(store.state.taskRecords.count == 2)
+    #expect(store.state.taskRecords.isEmpty)
     #expect(store.state.didSeedTasks)
-    let freshRecord = try #require(
-      store.state.taskRecords.first { $0.directoryPath == TaskDirectoryPath.canonical(fresh) }
-    )
-    let staleRecord = try #require(
-      store.state.taskRecords.first { $0.directoryPath == TaskDirectoryPath.canonical(stale) }
-    )
-    // A3: the task claims the directory's existing surfaces.
-    #expect(freshRecord.surfaceIDs == [surfaceID])
-    // A1: a stale directory seeds straight into the settled tail.
-    #expect(freshRecord.settledAt == nil)
-    #expect(staleRecord.settledAt != nil)
-    #expect(store.state.tasksSidebarStructure.activeTaskIDs == [freshRecord.id])
-    #expect(store.state.tasksSidebarStructure.settledTotalCount == 1)
-    // A11 / A13: the records reached `tasks.json`, and the seeded flag with them.
+    // A11 / A13: the flag reached `tasks.json`, and nothing else did.
     let persisted = try #require(sandbox.loadFile())
     #expect(persisted.didSeedTasks)
-    #expect(Set(persisted.tasks.map(\.id)) == Set(store.state.taskRecords.map(\.id)))
+    #expect(persisted.tasks.isEmpty)
   }
 
   /// A13: a second launch reads the flag and the records back and adds nothing.
@@ -137,9 +123,9 @@ struct RepositoriesFeatureTasksTests {
     #expect(store.state.didSeedTasks)
   }
 
-  /// Even with the flag unset, the seeder's per-directory dedupe keeps a re-seed
-  /// from duplicating a record an older build already wrote.
-  @Test func reseedAfterUpgradeDoesNotDuplicateExistingDirectories() async throws {
+  /// An upgrade from a build that wrote records with the flag still down keeps
+  /// the records, mints nothing, and flips the flag.
+  @Test func upgradeWithUnsetFlagKeepsRecordsAndMintsNothing() async throws {
     let sandbox = try makeSandbox()
     let directory = try sandbox.makeDirectory("fresh", activityAt: Self.freshDate)
     let existing = makeRecord(directory: directory)
@@ -153,9 +139,10 @@ struct RepositoriesFeatureTasksTests {
     await store.finish()
 
     #expect(store.state.taskRecords.map(\.id) == [existing.id])
-    // Nothing was seeded, so the flag stays down and a later launch with real
-    // evidence can still seed.
-    #expect(!store.state.didSeedTasks)
+    #expect(store.state.didSeedTasks)
+    let persisted = try #require(sandbox.loadFile())
+    #expect(persisted.didSeedTasks)
+    #expect(persisted.tasks.map(\.id) == [existing.id])
   }
 
   /// An unreadable `tasks.json` must never be treated as a fresh install: no
@@ -813,35 +800,6 @@ struct RepositoriesFeatureTasksTests {
     #expect(store.state.selection == .task(record.id))
     #expect(store.state.taskRecords[id: record.id]?.lastVisitedAt == Self.now)
     #expect(sandbox.loadFile()?.tasks.first?.lastVisitedAt == Self.now)
-  }
-
-  /// A3, at the representable level: seeding is per directory, and a directory's
-  /// surfaces go to exactly one record, so no two seeded tasks can claim the same
-  /// surface UUID.
-  @Test func seededRecordsNeverShareASurfaceUUID() async throws {
-    let sandbox = try makeSandbox()
-    let first = try sandbox.makeDirectory("first", activityAt: Self.freshDate)
-    let second = try sandbox.makeDirectory("second", activityAt: Self.freshDate)
-    let third = try sandbox.makeDirectory("third", activityAt: Self.staleDate)
-    let surfaces = [first: Set([UUID(), UUID()]), second: Set([UUID()]), third: Set([UUID()])]
-    let state = makeState(
-      sandbox: sandbox,
-      directories: [first, second, third],
-      surfacesPerRow: surfaces
-    )
-    let store = makeStore(state, sandbox: sandbox)
-
-    await store.send(.tasks(.load))
-    await store.receive(\.tasks.loaded)
-    await store.receive(\.tasks.seedIfNeeded)
-    await store.receive(\.tasks.seeded)
-    await store.send(.tasks(.stopTimers))
-    await store.finish()
-
-    #expect(store.state.taskRecords.count == 3)
-    let claimed = store.state.taskRecords.flatMap { Array($0.surfaceIDs) }
-    #expect(claimed.count == Set(claimed).count)
-    #expect(Set(claimed) == surfaces.values.reduce(into: Set<UUID>()) { $0.formUnion($1) })
   }
 
   // MARK: - Paging
