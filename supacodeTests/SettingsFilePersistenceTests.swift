@@ -1163,7 +1163,7 @@ struct SettingsFilePersistenceTests {
     var globalDict = try Self.defaultGlobalDictionary()
     globalDict.removeValue(forKey: "browseSearchDepth")
     let storage = MutableTestStorage(
-      initialData: try JSONSerialization.data(withJSONObject: ["global": globalDict, "repositories": [:]])
+      initialData: try JSONSerialization.data(withJSONObject: globalDict)
     )
 
     let settings: SettingsFile = withDependencies {
@@ -1181,7 +1181,7 @@ struct SettingsFilePersistenceTests {
       var globalDict = try Self.defaultGlobalDictionary()
       globalDict["browseSearchDepth"] = stored
       let storage = MutableTestStorage(
-        initialData: try JSONSerialization.data(withJSONObject: ["global": globalDict, "repositories": [:]])
+        initialData: try JSONSerialization.data(withJSONObject: globalDict)
       )
 
       let settings: SettingsFile = withDependencies {
