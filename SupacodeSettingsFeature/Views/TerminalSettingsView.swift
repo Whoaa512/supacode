@@ -77,6 +77,12 @@ public struct TerminalSettingsView: View {
         }
       }
       Section("Persistence") {
+        Toggle(isOn: $store.persistScrollbackEnabled) {
+          Text("Persist scrollback to disk")
+          Text(
+            "Survives restart. Stored unencrypted under the Supacode state directory."
+          )
+        }
         Toggle(isOn: $store.terminateSessionsOnQuit) {
           Text("Terminate sessions on quit")
           Text(

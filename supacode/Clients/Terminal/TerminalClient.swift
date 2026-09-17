@@ -42,6 +42,11 @@ struct TerminalClient {
   /// Close every tracked surface and kill its zmx session in parallel.
   /// Awaited from the quit path so teardown completes before process exit.
   var terminateAllSessions: @MainActor @Sendable () async -> Void
+  /// Quit-path variant: persist layouts and scrollback before sessions die.
+  var persistAndTerminateAllSessions:
+    @MainActor @Sendable (
+      _ agentsBySurface: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]]
+    ) async -> Void = { _ in }
   /// Kill `supa-*` sessions hosted by the daemon that no persisted layout
   /// references. Called at launch to clean up crash / force-quit orphans.
   var reapOrphanSessions: @MainActor @Sendable (_ knownSurfaceIDs: Set<UUID>) async -> Void
@@ -194,6 +199,9 @@ extension TerminalClient: DependencyKey {
     markAllNotificationsRead: { fatalError("TerminalClient.markAllNotificationsRead not configured") },
     hasInflightBlockingScripts: { fatalError("TerminalClient.hasInflightBlockingScripts not configured") },
     terminateAllSessions: { fatalError("TerminalClient.terminateAllSessions not configured") },
+    persistAndTerminateAllSessions: { _ in
+      fatalError("TerminalClient.persistAndTerminateAllSessions not configured")
+    },
     reapOrphanSessions: { _ in fatalError("TerminalClient.reapOrphanSessions not configured") },
     saveLayoutsWithAgents: { _ in fatalError("TerminalClient.saveLayoutsWithAgents not configured") }
   )
@@ -220,6 +228,7 @@ extension TerminalClient: DependencyKey {
     markAllNotificationsRead: unimplemented("TerminalClient.markAllNotificationsRead"),
     hasInflightBlockingScripts: unimplemented("TerminalClient.hasInflightBlockingScripts", placeholder: false),
     terminateAllSessions: unimplemented("TerminalClient.terminateAllSessions"),
+    persistAndTerminateAllSessions: unimplemented("TerminalClient.persistAndTerminateAllSessions"),
     reapOrphanSessions: unimplemented("TerminalClient.reapOrphanSessions"),
     saveLayoutsWithAgents: unimplemented("TerminalClient.saveLayoutsWithAgents")
   )

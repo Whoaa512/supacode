@@ -18,6 +18,45 @@ public nonisolated enum SupacodePaths {
     baseDirectory.appending(path: "repos", directoryHint: .isDirectory)
   }
 
+  public static var scrollbackDirectory: URL {
+    baseDirectory.appending(path: "scrollback", directoryHint: .isDirectory)
+  }
+
+  public static func scrollbackFileURL(surfaceID: UUID) -> URL {
+    scrollbackDirectory.appending(
+      path: "\(surfaceID.uuidString).vt", directoryHint: .notDirectory)
+  }
+
+  public static func scrollbackReplayFileURL(surfaceID: UUID) -> URL {
+    scrollbackDirectory.appending(
+      path: "\(surfaceID.uuidString).replay.vt", directoryHint: .notDirectory)
+  }
+
+  @discardableResult
+  public static func prepareScrollbackDirectory() throws -> URL {
+    let directory = scrollbackDirectory
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true,
+      attributes: [.posixPermissions: 0o700]
+    )
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o700],
+      ofItemAtPath: directory.path(percentEncoded: false)
+    )
+    return directory
+  }
+
+  public static func purgeAllScrollbackFiles() {
+    guard
+      let items = try? FileManager.default.contentsOfDirectory(
+        at: scrollbackDirectory, includingPropertiesForKeys: nil)
+    else { return }
+    for item in items {
+      try? FileManager.default.removeItem(at: item)
+    }
+  }
+
   /// Where migrated legacy files (settings/sidebar/layouts/ghostty) land so
   /// `~/.supacode` keeps only `repos`.
   public static var backupDirectory: URL {

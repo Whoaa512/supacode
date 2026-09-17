@@ -59,7 +59,7 @@ final class SupacodeAppDelegate: NSObject, NSApplicationDelegate {
     // instance overwriting the file is an accepted dev-only last-writer-wins window.
     terminalManager?.cancelPendingLayoutSaves()
     let agentsBySurface = appStore?.state.agentPresence.agentsBySurface() ?? [:]
-    terminalManager?.saveAllLayoutSnapshots(agentsBySurface: agentsBySurface)
+    terminalManager?.saveLayoutsAndScrollback(agentsBySurface: agentsBySurface)
     terminalManager?.rememberSelectedWorktreeZoomOnQuit()
   }
 
@@ -80,7 +80,15 @@ final class SupacodeAppDelegate: NSObject, NSApplicationDelegate {
     }
     // Apply the saved Dock/menu-bar visibility before the first window shows.
     NSApplication.shared.applyActivationPolicy(for: appStore.state.settings.appVisibility)
-    appStore.send(.appLaunched)
+    guard let terminalManager else {
+      SupaLogger("App").error("applicationDidFinishLaunching with no terminal manager; launch setup skipped.")
+      return
+    }
+    Task { @MainActor in
+      await terminalManager.resolveLiveZmxSessions()
+      SupacodeApp.hydrateLayouts(into: appStore)
+      appStore.send(.appLaunched)
+    }
   }
 
   func applicationDidBecomeActive(_ notification: Notification) {
@@ -198,7 +206,6 @@ struct SupacodeApp: App {
     if settingsStoreHealth.isDegraded(.live) {
       appStore.send(.settingsStoreUnreadable)
     }
-    Self.hydrateLayouts(into: appStore)
     // Source live agent badge records for incremental layout captures; the [:]
     // default would clobber badges that share a surface key on every save.
     terminalManager.currentAgentsBySurface = { [weak appStore] in
@@ -221,7 +228,7 @@ struct SupacodeApp: App {
   /// then drops flushes until the on-disk migration succeeds, so the v1 bytes
   /// survive for the next launch.
   @MainActor
-  private static func hydrateLayouts(into store: StoreOf<AppFeature>) {
+  fileprivate static func hydrateLayouts(into store: StoreOf<AppFeature>) {
     @Dependency(\.defaultAppStorage) var defaults
     guard case .file(let file) = LayoutsFile.readPersisted(from: defaults) else { return }
     store.send(.terminals(.layoutsHydrated(file)))
@@ -259,7 +266,41 @@ struct SupacodeApp: App {
           terminalManager.handleLayoutChanged(for: worktreeID)
         }
       )
-      values.terminalClient = TerminalClient(
+      values.terminalClient = makeTerminalClient(terminalManager: terminalManager)
+      values.worktreeInfoWatcher = WorktreeInfoWatcherClient(
+        send: { command in
+          worktreeInfoWatcher.handleCommand(command)
+        },
+        events: {
+          worktreeInfoWatcher.eventStream()
+        }
+      )
+      // Bridge the archived-worktree timestamps from the canonical
+      // `@Shared(.sidebar)` bucket into the `SupacodeSettingsShared`
+      // package, which cannot see `SidebarState` directly. The
+      // settings auto-delete preflight uses this to decide whether
+      // to show a destructive-confirmation alert before shortening
+      // the retention window.
+      values.archivedWorktreeDatesClient = ArchivedWorktreeDatesClient(
+        load: {
+          @Shared(.sidebar) var sidebar: SidebarState
+          return sidebar.archivedWorktrees.map(\.archivedAt)
+        }
+      )
+      // Force the live continuous clock so the agent-presence liveness
+      // sweep (`AgentPresenceFeature.start`) doesn't trip the unimplemented
+      // test clock when the app shell happens to launch inside an XCTest
+      // process. Tests that take a TestStore for AppFeature inject their
+      // own clock and still override this.
+      values.continuousClock = ContinuousClock()
+    }
+  }
+
+  @MainActor
+  private static func makeTerminalClient(
+    terminalManager: WorktreeTerminalManager
+  ) -> TerminalClient {
+    TerminalClient(
         send: { command in
           terminalManager.handleCommand(command)
         },
@@ -317,40 +358,16 @@ struct SupacodeApp: App {
         terminateAllSessions: {
           await terminalManager.terminateAllSessions()
         },
+        persistAndTerminateAllSessions: { agentsBySurface in
+          await terminalManager.persistAndTerminateAllSessions(agentsBySurface: agentsBySurface)
+        },
         reapOrphanSessions: { knownSurfaceIDs in
           await terminalManager.reapOrphanSessions(knownSurfaceIDs: knownSurfaceIDs)
         },
         saveLayoutsWithAgents: { agentsBySurface in
-          terminalManager.saveAllLayoutSnapshots(agentsBySurface: agentsBySurface)
+          terminalManager.saveLayoutsAndScrollback(agentsBySurface: agentsBySurface)
         }
       )
-      values.worktreeInfoWatcher = WorktreeInfoWatcherClient(
-        send: { command in
-          worktreeInfoWatcher.handleCommand(command)
-        },
-        events: {
-          worktreeInfoWatcher.eventStream()
-        }
-      )
-      // Bridge the archived-worktree timestamps from the canonical
-      // `@Shared(.sidebar)` bucket into the `SupacodeSettingsShared`
-      // package, which cannot see `SidebarState` directly. The
-      // settings auto-delete preflight uses this to decide whether
-      // to show a destructive-confirmation alert before shortening
-      // the retention window.
-      values.archivedWorktreeDatesClient = ArchivedWorktreeDatesClient(
-        load: {
-          @Shared(.sidebar) var sidebar: SidebarState
-          return sidebar.archivedWorktrees.map(\.archivedAt)
-        }
-      )
-      // Force the live continuous clock so the agent-presence liveness
-      // sweep (`AgentPresenceFeature.start`) doesn't trip the unimplemented
-      // test clock when the app shell happens to launch inside an XCTest
-      // process. Tests that take a TestStore for AppFeature inject their
-      // own clock and still override this.
-      values.continuousClock = ContinuousClock()
-    }
   }
 
   /// The live content factory: terminal surfaces built from a freshly
@@ -393,6 +410,9 @@ struct SupacodeApp: App {
       environmentExtras: { [weak terminalManager] request in
         terminalManager?.hostIfExists(for: request.worktreeID)?
           .blockingScriptEnvironment(for: request.tabID) ?? [:]
+      },
+      initialScrollbackPath: { [weak terminalManager] surfaceID in
+        terminalManager?.initialScrollbackPath(for: surfaceID)
       }
     ).factory()
   }

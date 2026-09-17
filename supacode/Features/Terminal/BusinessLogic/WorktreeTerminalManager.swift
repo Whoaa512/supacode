@@ -89,6 +89,10 @@ final class WorktreeTerminalManager {
   @ObservationIgnored private let layoutDebounceSleep: @Sendable (Duration) async throws -> Void
   /// Debounce window before an incremental layout snapshot is flushed.
   private static let layoutDebounceDuration: Duration = .seconds(1)
+  private static let scrollbackPersistInterval: Duration = .seconds(30)
+  @ObservationIgnored private var scrollbackPersistTask: Task<Void, Never>?
+  @ObservationIgnored private(set) var liveZmxSessionNames: Set<String>?
+  private(set) var hasResolvedLiveZmxSessions: Bool
   /// Reads the freshest `agentsBySurface` at flush time so incremental captures
   /// embed live badge records instead of the empty default.
   var currentAgentsBySurface: (() -> [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]])?
@@ -168,10 +172,21 @@ final class WorktreeTerminalManager {
     self.hookEventSleep = { duration in try await clock.sleep(for: duration) }
     self.layoutDebounceSleep = { duration in try await clock.sleep(for: duration) }
     self.clock = clock
+    @Dependency(\.zmxClient) var initialZmxClient
+    let zmxBundled = initialZmxClient.isBundled()
+    self.hasResolvedLiveZmxSessions = !zmxBundled
+    self.liveZmxSessionNames = zmxBundled ? nil : []
     @Dependency(\.defaultAppStorage) var defaultAppStorage
     self.layoutsWriter = LayoutsIncrementalWriter(
       store: LayoutsUserDefaultsStore(defaults: defaultAppStorage)
     )
+    self.scrollbackPersistTask = Task { [weak self] in
+      while !Task.isCancelled {
+        try? await clock.sleep(for: Self.scrollbackPersistInterval)
+        guard !Task.isCancelled else { return }
+        await self?.saveScrollbackFilesCooperatively()
+      }
+    }
     paneWindows.terminalManager = self
     // A theme reload changes the fallback and every non-OSC surface background.
     runtimeObservers.append(
@@ -198,6 +213,7 @@ final class WorktreeTerminalManager {
   }
 
   isolated deinit {
+    scrollbackPersistTask?.cancel()
     for task in pendingIdleHookEvents.values { task.cancel() }
     for task in layoutDirtyTasks.values { task.cancel() }
     for entry in layoutFlushTasks.values { entry.task.cancel() }
@@ -729,7 +745,7 @@ final class WorktreeTerminalManager {
       self?.selectedWorktreeID == worktree.id
     }
     host.onSurfacesClosed = { [weak self] ids in
-      self?.emit(.surfacesClosed(worktreeID: worktree.id, ids))
+      self?.handleSurfacesClosed(worktreeID: worktree.id, surfaceIDs: ids)
       // The last surface closing leaves no focus target, so no focus event
       // follows; fall back to the theme background here.
       self?.refreshFocusedSurfaceBackground()
@@ -900,6 +916,7 @@ final class WorktreeTerminalManager {
       }
       if session.clients == 0 {
         // Reattachable: rebuild the same content at its persisted geometry.
+        self.liveZmxSessionNames?.insert(sessionID)
         self.commitReportedTitle(of: ContentID(rawValue: surfaceID), worktreeID: worktreeID)
         ContentRuntime.liveValue.remove(ContentID(rawValue: surfaceID), tombstone: false)
         self.sendLayout(worktreeID, .wakeTab(id: tabID))
@@ -1455,7 +1472,7 @@ final class WorktreeTerminalManager {
     // removed worktree's agents linger in the presence UI.
     let closedSurfaceIDs = Set(surfaceIDs)
     if !closedSurfaceIDs.isEmpty {
-      emit(.surfacesClosed(worktreeID: worktreeID, closedSurfaceIDs))
+      handleSurfacesClosed(worktreeID: worktreeID, surfaceIDs: closedSurfaceIDs)
     }
     sendTerminals(.detachLayout(worktreeID: worktreeID))
     emit(.worktreeStateTornDown(worktreeID: worktreeID))
@@ -1506,7 +1523,7 @@ final class WorktreeTerminalManager {
       // Global agent presence is keyed by surface id; retract the pruned
       // surfaces or archived / deleted agents linger in the presence UI.
       if !closedSurfaceIDs.isEmpty {
-        emit(.surfacesClosed(worktreeID: id, closedSurfaceIDs))
+        handleSurfacesClosed(worktreeID: id, surfaceIDs: closedSurfaceIDs)
       }
       // Signals the reducer to drop the pruned layout and bookkeeping.
       sendTerminals(.detachLayout(worktreeID: id))
@@ -2020,6 +2037,68 @@ final class WorktreeTerminalManager {
     }
   }
 
+  private func handleSurfacesClosed(worktreeID: Worktree.ID, surfaceIDs: Set<UUID>) {
+    ScrollbackPersistence.removeFiles(surfaceIDs: surfaceIDs)
+    emit(.surfacesClosed(worktreeID: worktreeID, surfaceIDs))
+  }
+
+  func initialScrollbackPath(for surfaceID: UUID) -> String? {
+    ScrollbackPersistence.replayFile(
+      surfaceID: surfaceID,
+      persistenceEnabled: settingsFile.global.persistScrollbackEnabled,
+      zmxBundled: zmxClient.isBundled(),
+      liveSessionNames: liveZmxSessionNames
+    )
+  }
+
+  func resolveLiveZmxSessions() async {
+    defer { hasResolvedLiveZmxSessions = true }
+    guard zmxClient.isBundled() else {
+      liveZmxSessionNames = []
+      return
+    }
+    liveZmxSessionNames = await zmxClient.listSessionsWithClients().map { Set($0.map(\.name)) }
+  }
+
+  func saveScrollbackFiles() {
+    guard settingsFile.global.persistScrollbackEnabled else { return }
+    guard prepareScrollbackDirectory() else { return }
+    for surface in liveSurfaces {
+      writeScrollback(for: surface)
+    }
+  }
+
+  private func saveScrollbackFilesCooperatively() async {
+    guard settingsFile.global.persistScrollbackEnabled else { return }
+    guard prepareScrollbackDirectory() else { return }
+    let surfaces = liveSurfaces
+    for surface in surfaces {
+      writeScrollback(for: surface)
+      await Task.yield()
+    }
+  }
+
+  private var liveSurfaces: [GhosttySurfaceView] {
+    ContentRuntime.liveValue.contents.values.compactMap { $0.renderer as? GhosttySurfaceView }
+  }
+
+  private func prepareScrollbackDirectory() -> Bool {
+    do {
+      try SupacodePaths.prepareScrollbackDirectory()
+      return true
+    } catch {
+      terminalLogger.warning("Failed to prepare scrollback directory: \(error.localizedDescription)")
+      return false
+    }
+  }
+
+  private func writeScrollback(for surface: GhosttySurfaceView) {
+    let path = SupacodePaths.scrollbackFileURL(surfaceID: surface.id).path(percentEncoded: false)
+    if !surface.writeScrollback(to: path) {
+      terminalLogger.debug("No scrollback to save for surface \(surface.id)")
+    }
+  }
+
   /// Embed `agentsBySurface` in each record so badges survive relaunch.
   func saveAllLayoutSnapshots(
     agentsBySurface: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]]? = nil
@@ -2036,6 +2115,22 @@ final class WorktreeTerminalManager {
       changes[id.rawValue] = record.layout.panes.isEmpty ? .delete : .record(record)
     }
     layoutsWriter.flushSync(records: changes)
+  }
+
+  func saveLayoutsAndScrollback(
+    agentsBySurface: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]]? = nil
+  ) {
+    saveScrollbackFiles()
+    saveAllLayoutSnapshots(agentsBySurface: agentsBySurface)
+  }
+
+  func persistAndTerminateAllSessions(
+    agentsBySurface: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]]
+  ) async {
+    saveLayoutsAndScrollback(agentsBySurface: agentsBySurface)
+    rememberSelectedWorktreeZoomOnQuit()
+    cancelPendingLayoutSaves()
+    await terminateAllSessions()
   }
 
   /// Capture the selected worktree's zoom at quit (no switch fires then).

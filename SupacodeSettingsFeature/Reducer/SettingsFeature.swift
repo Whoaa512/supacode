@@ -467,6 +467,13 @@ public struct SettingsFeature {
           shouldPreview ? .run { _ in await notificationSoundClient.play(sound) } : .none
         )
 
+      case .binding(\.persistScrollbackEnabled):
+        if !state.persistScrollbackEnabled {
+          SupacodePaths.purgeAllScrollbackFiles()
+        }
+        state.syncGlobalDefaults()
+        return persist(state)
+
       case .binding:
         state.syncGlobalDefaults()
         return persist(state)

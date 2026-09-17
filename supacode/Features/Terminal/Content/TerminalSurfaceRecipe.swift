@@ -147,6 +147,7 @@ nonisolated enum TerminalSurfaceRecipe {
     var workingDirectory: URL?
     var fontSize: Float32?
     var context: ghostty_surface_context_e
+    var initialScrollbackPath: String?
     /// Blocking-script runners emit their own OSC 133/7 and must not get
     /// Ghostty's shell integration injected into the host shell.
     var disableShellIntegration = false
@@ -169,6 +170,9 @@ nonisolated enum TerminalSurfaceRecipe {
     var fallbackFontSize: Float32?
     /// Caller extras merged into the surface environment (script markers).
     var extraEnvironment: [String: String]
+    /// Disk replay selected by the launch-time zmx gate. Nil for fresh spawns
+    /// and hibernation reattach.
+    var initialScrollbackPath: String?
 
     init(
       terminalState: TerminalContentState,
@@ -177,7 +181,8 @@ nonisolated enum TerminalSurfaceRecipe {
       zmxExecutablePath: String?,
       inheritedFrom: GhosttySurfaceView? = nil,
       fallbackFontSize: Float32? = nil,
-      extraEnvironment: [String: String] = [:]
+      extraEnvironment: [String: String] = [:],
+      initialScrollbackPath: String? = nil
     ) {
       self.terminalState = terminalState
       self.worktree = worktree
@@ -186,6 +191,7 @@ nonisolated enum TerminalSurfaceRecipe {
       self.inheritedFrom = inheritedFrom
       self.fallbackFontSize = fallbackFontSize
       self.extraEnvironment = extraEnvironment
+      self.initialScrollbackPath = initialScrollbackPath
     }
   }
 
@@ -234,6 +240,7 @@ nonisolated enum TerminalSurfaceRecipe {
       workingDirectory: workingDirectory,
       fontSize: fontSize,
       context: context,
+      initialScrollbackPath: seed.initialScrollbackPath,
       disableShellIntegration: override?.bypassZmx ?? false,
       usesZmx: launch.usesZmx
     )
@@ -296,6 +303,8 @@ struct TerminalContentBuilder {
   var wireSurface: (GhosttySurfaceView, ContentRequest) -> Void
   /// Extra environment for a spawning surface (blocking-script markers).
   var environmentExtras: (ContentRequest) -> [String: String]
+  /// Resolves a launch-restore disk replay after the live-zmx probe completes.
+  var initialScrollbackPath: (UUID) -> String?
 
   func factory() -> LayoutContentFactory {
     LayoutContentFactory { request in
@@ -342,6 +351,10 @@ struct TerminalContentBuilder {
             frozenGrid: currentState.frozenGrid
           )
         }
+        let scrollbackPath =
+          phase == .first && request.origin == .restored
+          ? initialScrollbackPath(request.contentID.rawValue)
+          : nil
         let plan = TerminalSurfaceRecipe.plan(
           for: effective,
           seed: TerminalSurfaceRecipe.PlanSeed(
@@ -353,7 +366,8 @@ struct TerminalContentBuilder {
             fallbackFontSize: TerminalSurfaceRecipe.rememberedZoomFontSize(
               gatedBy: runtime.windowInheritsFontSize()
             ),
-            extraEnvironment: environmentExtras(effective)
+            extraEnvironment: environmentExtras(effective),
+            initialScrollbackPath: scrollbackPath
           )
         )
         let view = GhosttySurfaceView(
@@ -367,7 +381,8 @@ struct TerminalContentBuilder {
           disableShellIntegration: plan.disableShellIntegration,
           fontSize: plan.fontSize,
           initialGeometry: geometry,
-          context: plan.context
+          context: plan.context,
+          initialScrollbackPath: plan.initialScrollbackPath
         )
         wireSurface(view, effective)
         return TerminalContent.SpawnedSurface(view: view, usesZmx: plan.usesZmx)

@@ -3650,9 +3650,10 @@ struct AppFeature {
     analyticsClient.capture("app_quit", ["terminate_sessions": terminateSessions])
     let pendingFDEffect = drainPendingResponseFD(state: &state, error: "Supacode is quitting.")
     let pendingAcksEffect = drainAllCommandAcks(state: &state, error: "Supacode is quitting.")
+    let agentsBySurface = state.agentPresence.agentsBySurface()
     let terminateEffect: Effect<Action> = .run { @MainActor [terminalClient, appLifecycleClient] _ in
       if terminateSessions {
-        await terminalClient.terminateAllSessions()
+        await terminalClient.persistAndTerminateAllSessions(agentsBySurface)
       }
       appLifecycleClient.terminate()
     }
