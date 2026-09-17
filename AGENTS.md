@@ -14,7 +14,7 @@ Requires [mise](https://mise.jdx.dev/) for zig, swiftlint, swift-format, xcbeaut
   ```
 - Tests are split across four bundles by filename globs in `Project.swift`; `-only-testing` with the wrong bundle matches nothing and the run "succeeds" with 0 tests. Verify with `xcrun xcresulttool get test-results summary --path build/supacode-tests.xcresult` (check `totalTestCount > 0`). Bundle routing:
   - `supacodeFeatureTests`: `AppFeature*.swift`, `RepositoriesFeature*.swift`
-  - `supacodeTerminalTests`: `Ghostty*.swift`, `Layouts*.swift`, `SplitTree*.swift`, `WorktreeTerminalManager*.swift`, `Zmx*.swift`
+  - `supacodeTerminalTests`: `Ghostty*.swift`, `LayoutFeature*.swift`, `Layouts*.swift`, `SplitTree*.swift`, `WorktreeTerminalManager*.swift`, `Zmx*.swift`
   - `supacodeGitTests`: `AgentHook*.swift`, `Git*.swift`, `ShellClient*.swift`, and a few named files
   - `supacodeTests`: everything else
 - A test file created after the last `tuist generate` is not in the workspace; run `make generate-project` before testing it.
