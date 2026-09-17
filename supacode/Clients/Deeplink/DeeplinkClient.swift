@@ -103,6 +103,8 @@ private nonisolated enum DeeplinkParser {
       logger.warning("Ignoring unrecognized \(name) value: \(item.value ?? "nil")")
     }
     return false
+  }
+
   // MARK: - Agent.
 
   private static func parseAgent(

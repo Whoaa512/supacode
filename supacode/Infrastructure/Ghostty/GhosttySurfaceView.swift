@@ -626,6 +626,11 @@ final class GhosttySurfaceView: NSView, Identifiable {
     cachedScreenContents.get()
   }
 
+  /// Screen text for CLI reads and previews; shares the accessibility cache.
+  func screenPreviewContents() -> String {
+    cachedScreenContents.get()
+  }
+
   override func accessibilityHelp() -> String? {
     accessibilityPaneIndexHelp
   }

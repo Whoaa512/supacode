@@ -21,7 +21,7 @@ enum AgentResumeCommand {
     case .claude: return "claude --resume \(ref)"
     case .pi: return "pi --session \(ref)"
     case .codex: return "codex resume \(ref)"
-    case .copilot, .grok, .hermes, .kimi, .kiro, .omp, .opencode:
+    case .antigravity, .copilot, .grok, .hermes, .kimi, .kiro, .omp, .opencode:
       return nil
     }
   }

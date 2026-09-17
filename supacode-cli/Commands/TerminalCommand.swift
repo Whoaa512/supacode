@@ -80,7 +80,7 @@ extension TerminalCommand {
     /// falls back to treating the target as a worktree ID so an agentless
     /// worktree is still watchable.
     private static func resolvedWorktreeID(_ target: String?) throws -> String {
-      guard let target, !target.isEmpty else { return try resolveWorktreeID(nil) }
+      guard let target, !target.isEmpty else { return try IDResolvers.resolveWorktreeID(nil) }
       guard
         let rows = try? QueryDispatcher.query(resource: "agents", timeoutSeconds: queryTimeoutSeconds),
         let row = try? AgentCommand.resolve(target: target, agentKind: nil, in: rows),

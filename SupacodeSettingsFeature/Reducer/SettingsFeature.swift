@@ -505,7 +505,7 @@ public struct SettingsFeature {
       case .resetAgentsSidebarRows:
         state.agentsSidebarRowsText = AgentsSidebarSettings.default.rowsText
         state.agentsSidebarRowsByAgent = [:]
-        state.syncGlobalDefaults(from: state.globalSettings)
+        state.syncGlobalDefaults()
         return persist(state)
 
       case .showNotificationPermissionAlert(let errorMessage):

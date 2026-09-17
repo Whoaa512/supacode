@@ -594,11 +594,7 @@ struct SupacodeApp: App {
       }
       surfaceID = key.surfaceID
     } else {
-      let state = terminalManager.stateIfExists(for: worktreeID)
-      surfaceID =
-        state.flatMap { terminal in
-          terminal.tabManager.selectedTabId.flatMap { terminal.activeSurfaceID(for: $0) }
-        } ?? item.surfaceIDs.first
+      surfaceID = terminalManager.focusedSurfaceID(worktreeID: worktreeID) ?? item.surfaceIDs.first
     }
     guard let surfaceID,
       let screen = terminalManager.screenPreview(worktreeID: worktreeID, surfaceID: surfaceID)

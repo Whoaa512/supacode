@@ -1,3 +1,4 @@
+import SupacodeSettingsShared
 import SwiftUI
 
 /// Trailing-edge swap between a row's normal accessories and its ⌃n shortcut

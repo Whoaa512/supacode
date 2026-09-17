@@ -1746,7 +1746,20 @@ final class WorktreeTerminalManager {
   /// prompts and key sequences reach a background agent. `false` when the
   /// surface is gone or dormant.
   func sendText(_ text: String, worktreeID: Worktree.ID, surfaceID: UUID) -> Bool {
-    states[worktreeID]?.sendText(text, to: surfaceID) ?? false
+    guard let surface = hosts[worktreeID]?.liveSurface(surfaceID) else { return false }
+    surface.sendText(text)
+    return true
+  }
+
+  /// The focused pane's selected content in a worktree, when its host exists.
+  func focusedSurfaceID(worktreeID: Worktree.ID) -> UUID? {
+    hosts[worktreeID]?.focusedTab?.content.id.rawValue
+  }
+
+  /// Current screen text of one live surface (the same cached read the
+  /// accessibility tree uses). `nil` when the surface is gone or dormant.
+  func screenPreview(worktreeID: Worktree.ID, surfaceID: UUID) -> String? {
+    hosts[worktreeID]?.liveSurface(surfaceID)?.screenPreviewContents()
   }
 
   func isBlockingScriptRunning(kind: BlockingScriptKind, for worktreeID: Worktree.ID) -> Bool {

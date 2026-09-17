@@ -1310,9 +1310,10 @@ private func selectedEntryDelegateAction(
     return .toggleWindowMode
   case .layoutCommand(let command):
     return .layoutCommand(command)
-  case .checkForUpdates, .openRepository, .addRemoteRepository, .worktreeSelect, .openSettings,
-    .newWorktree, .removeWorktree, .archiveWorktree, .viewArchivedWorktrees, .refreshWorktrees,
-    .ghosttyCommand, .openPullRequest, .markPullRequestReady, .mergePullRequest,
+  case .checkForUpdates, .openRepository, .addRemoteRepository, .worktreeSelect, .branchSelect,
+    .openSettings, .newWorktree, .forkWorktree, .removeWorktree, .archiveWorktree,
+    .viewArchivedWorktrees, .refreshWorktrees, .ghosttyCommand, .toggleCollapseRepository,
+    .openPullRequest, .markPullRequestReady, .mergePullRequest,
     .closePullRequest, .copyFailingJobURL, .copyCiFailureLogs, .rerunFailedJobs,
     .openFailingCheckDetails, .runScript, .stopScript:
     return nil
