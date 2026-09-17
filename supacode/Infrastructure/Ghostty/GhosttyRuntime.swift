@@ -1,4 +1,5 @@
 import AppKit
+import Dependencies
 import GhosttyKit
 import Sharing
 import SupacodeSettingsShared
@@ -40,6 +41,7 @@ final class GhosttyRuntime {
   private(set) var app: ghostty_app_t?
   private var observers: [NSObjectProtocol] = []
   private var surfaceRefs: Set<SurfaceReference> = []
+  let surfaceTeardownQueue: SurfaceTeardownQueue
   private var lastColorScheme: ghostty_color_scheme_e?
   /// Whether the user has toggled background opacity to force
   /// an opaque window, overriding the configured transparency.
@@ -53,7 +55,15 @@ final class GhosttyRuntime {
   }
   var onConfigChange: (() -> Void)?
 
-  init(initialColorScheme: ColorScheme? = nil) {
+  init(initialColorScheme: ColorScheme? = nil, surfaceTeardownQueue: SurfaceTeardownQueue? = nil) {
+    @Dependency(\.zmxClient) var zmxClient
+    @Dependency(\.analyticsClient) var analyticsClient
+    self.surfaceTeardownQueue =
+      surfaceTeardownQueue
+      ?? SurfaceTeardownQueue(
+        detachClients: zmxClient.detachSessionClients,
+        analytics: analyticsClient
+      )
     guard let loaded = Self.loadConfig() else {
       preconditionFailure("ghostty_config_new failed")
     }

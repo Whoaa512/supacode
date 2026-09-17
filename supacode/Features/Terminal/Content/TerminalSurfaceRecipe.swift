@@ -378,6 +378,7 @@ struct TerminalContentBuilder {
           initialInput: plan.initialInput,
           environmentVariables: plan.environment,
           commandWrapper: plan.commandWrapper,
+          usesZmx: plan.usesZmx,
           disableShellIntegration: plan.disableShellIntegration,
           fontSize: plan.fontSize,
           initialGeometry: geometry,

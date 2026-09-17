@@ -85,6 +85,10 @@ final class GhosttySurfaceView: NSView, Identifiable {
   /// Argv prepended to Ghostty's resolved command (e.g. `zmx attach <id>`), so
   /// the real shell runs as a child of the wrapper. Empty means no wrapper.
   private let commandWrapper: [String]
+  /// True when this surface's child is a zmx attach client. Only zmx-backed
+  /// surfaces can safely leak after a detach fails to make the child exit.
+  let usesZmx: Bool
+  private var isTeardownDeferred = false
   /// Forces `shell-integration = none` for this surface only. Used by
   /// self-managing surfaces (blocking-script runners) that emit their own OSC
   /// sequences and must not have Ghostty's integration injected.
@@ -127,6 +131,10 @@ final class GhosttySurfaceView: NSView, Identifiable {
   }
   var passwordInput: Bool = false {
     didSet {
+      if isTeardownDeferred, passwordInput {
+        passwordInput = false
+        return
+      }
       let input = SecureInput.shared
       let id = ObjectIdentifier(self)
       if passwordInput {
@@ -244,6 +252,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
     initialInput: String? = nil,
     environmentVariables: [String: String] = [:],
     commandWrapper: [String] = [],
+    usesZmx: Bool = false,
     disableShellIntegration: Bool = false,
     fontSize: Float32? = nil,
     initialGeometry: ContentGeometry,
@@ -259,6 +268,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
     self.context = context
     self.environmentVariables = environmentVariables
     self.commandWrapper = commandWrapper
+    self.usesZmx = usesZmx
     self.disableShellIntegration = disableShellIntegration
     if let workingDirectory {
       let path = Self.normalizedWorkingDirectoryPath(
@@ -343,6 +353,38 @@ final class GhosttySurfaceView: NSView, Identifiable {
     return ghostty_surface_needs_confirm_quit(surface)
   }
 
+  var hasLocalEventMonitor: Bool { eventMonitor != nil }
+
+  func prepareForDeferredTeardown() {
+    clearNotificationObservers()
+    if let eventMonitor {
+      NSEvent.removeMonitor(eventMonitor)
+      self.eventMonitor = nil
+    }
+    passwordInput = false
+    ownedScrollWrapper = nil
+    if let surfaceRef {
+      runtime.unregisterSurface(surfaceRef)
+      self.surfaceRef = nil
+    }
+    isHidden = true
+    isTeardownDeferred = true
+  }
+
+  var hasSurfaceProcessExited: Bool {
+    guard let surface else { return true }
+    return ghostty_surface_process_exited(surface)
+  }
+
+  func performDeferredFree() {
+    guard let surface else { return }
+    ghostty_surface_free(surface)
+    self.surface = nil
+    bridge.surface = nil
+    lastOcclusion = nil
+    lastSurfaceFocus = nil
+  }
+
   func closeSurface() {
     clearNotificationObservers()
     // Break the surface<->wrapper cycle; the strong hold otherwise blocks deinit.
@@ -380,7 +422,7 @@ final class GhosttySurfaceView: NSView, Identifiable {
 
   private func updateScreenObservers() {
     clearNotificationObservers()
-    guard let window else { return }
+    guard !isTeardownDeferred, let window else { return }
     let center = NotificationCenter.default
     notificationObservers.append(
       center.addObserver(
