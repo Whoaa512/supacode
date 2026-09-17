@@ -163,6 +163,8 @@ struct AppFeature {
     // Cached aggregate from the terminal manager; flips only on the global
     // any-surface boundary so menu / action gates avoid sidebarItems iteration.
     var hasAnyTerminalSurface: Bool = false
+    var isTerminalGridPresented = false
+    var terminalGridOverview = TerminalGridOverview.Model()
     var lastKnownSystemNotificationsEnabled: Bool
     var lastKnownAgentPresenceBadgesEnabled: Bool
     var lastKnownAppVisibility: AppVisibility
@@ -340,6 +342,11 @@ struct AppFeature {
     case jumpToLatestUnread
     case focusTerminalSurface(worktreeID: Worktree.ID, tabID: TabID, surfaceID: UUID)
     case closeTerminalSurface(worktreeID: Worktree.ID, tabID: TabID, surfaceID: UUID)
+    case closeTerminalTab(worktreeID: Worktree.ID, tabID: TabID)
+    case setTerminalGridPresented(Bool)
+    case setTerminalGridFilter(TerminalGridOverview.Filter)
+    case refreshTerminalGrid
+    case terminalGridJumpToSurface(worktreeID: Worktree.ID, tabID: TabID, surfaceID: UUID)
     case menuBarWorktreeSelected(worktreeID: Worktree.ID)
     case markAllNotificationsRead
     case runScript
@@ -1225,6 +1232,43 @@ struct AppFeature {
         return .run { @MainActor _ in
           terminalClient.closeSurface(worktree, tabID, surfaceID)
         }
+
+      case .closeTerminalTab(let worktreeID, let tabID):
+        guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
+        return .run { @MainActor _ in
+          terminalClient.closeTab(worktree, tabID)
+        }
+
+      case .setTerminalGridPresented(let isPresented):
+        state.isTerminalGridPresented = isPresented
+        guard isPresented else { return .none }
+        state.terminalGridOverview = terminalGridOverview(state: state, filter: .all)
+        return .none
+
+      case .setTerminalGridFilter(let filter):
+        state.terminalGridOverview = TerminalGridOverview.Model(
+          tiles: state.terminalGridOverview.tiles,
+          filter: filter
+        )
+        return .none
+
+      case .refreshTerminalGrid:
+        guard state.isTerminalGridPresented else { return .none }
+        state.terminalGridOverview = terminalGridOverview(
+          state: state,
+          filter: state.terminalGridOverview.filter
+        )
+        return .none
+
+      case .terminalGridJumpToSurface(let worktreeID, let tabID, let surfaceID):
+        state.isTerminalGridPresented = false
+        return .send(
+          .focusTerminalSurface(
+            worktreeID: worktreeID,
+            tabID: tabID,
+            surfaceID: surfaceID
+          )
+        )
 
       case .menuBarWorktreeSelected(let rawWorktreeID):
         // The menu snapshots its rows when it opens, so a pending id can have
@@ -2232,6 +2276,21 @@ struct AppFeature {
       state.recomputeWorktreeMenuSnapshotIfChanged()
       return .none
     }
+  }
+
+  private func terminalGridOverview(
+    state: State,
+    filter: TerminalGridOverview.Filter
+  ) -> TerminalGridOverview.Model {
+    let sessions = terminalClient.listSurfaces()
+    let tiles = TerminalGridOverview.tiles(
+      sessions: sessions,
+      worktreeLookup: { state.repositories.worktree(for: $0) },
+      agentsForSurface: {
+        state.agentPresence.agents(across: [$0], badgesEnabled: true)
+      }
+    )
+    return TerminalGridOverview.Model(tiles: tiles, filter: filter)
   }
 
   // MARK: - Agent presence fan-out.

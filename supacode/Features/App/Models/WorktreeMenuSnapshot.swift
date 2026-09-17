@@ -135,6 +135,8 @@ extension AppFeature.Action {
       .splitTerminal, .toggleWindowModeForFocusedPane, .toggleSplitZoom,
       .equalizeSplits, .focusSplit, .jumpToLatestUnread,
       .focusTerminalSurface, .closeTerminalSurface,
+      .closeTerminalTab, .setTerminalGridPresented, .setTerminalGridFilter,
+      .refreshTerminalGrid, .terminalGridJumpToSurface,
       .menuBarWorktreeSelected, .markAllNotificationsRead, .runScript, .runNamedScript,
       .manageRepositoryScripts,
       .stopScript, .stopRunScripts, .closeTab, .closeSurface,
