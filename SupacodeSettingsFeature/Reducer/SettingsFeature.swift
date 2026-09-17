@@ -96,6 +96,7 @@ public struct SettingsFeature {
     /// unavailable). Transient UI state, never persisted.
     public var globalHotkeyRegistrationFailed = false
     public var persistScrollbackEnabled: Bool
+    public var pruneBareSurfacesOnRestore: Bool
     /// Agents-tab row layout as editable text: one row per line, tokens
     /// separated by spaces. Round-trips through `AgentsSidebarSettings`, so
     /// unsupported tokens are dropped on persist exactly as a file edit would be.
@@ -249,6 +250,7 @@ public struct SettingsFeature {
       hoverFocusMode = settings.hoverFocusMode
       globalToggleVisibilityHotkey = settings.globalToggleVisibilityHotkey
       persistScrollbackEnabled = settings.persistScrollbackEnabled
+      pruneBareSurfacesOnRestore = settings.pruneBareSurfacesOnRestore
       agentsSidebarRowsText = settings.agentsSidebar.rowsText
       agentsSidebarRowsByAgent = settings.agentsSidebar.rowsByAgent
       browseSearchDepth = settings.browseSearchDepth
@@ -447,6 +449,7 @@ public struct SettingsFeature {
         state.hoverFocusMode = normalizedSettings.hoverFocusMode
         state.globalToggleVisibilityHotkey = normalizedSettings.globalToggleVisibilityHotkey
         state.persistScrollbackEnabled = normalizedSettings.persistScrollbackEnabled
+        state.pruneBareSurfacesOnRestore = normalizedSettings.pruneBareSurfacesOnRestore
         state.agentsSidebarRowsText = normalizedSettings.agentsSidebar.rowsText
         state.agentsSidebarRowsByAgent = normalizedSettings.agentsSidebar.rowsByAgent
         state.browseSearchDepth = normalizedSettings.browseSearchDepth
@@ -1241,6 +1244,7 @@ extension SettingsFeature.State {
     settings.hoverFocusMode = hoverFocusMode
     settings.globalToggleVisibilityHotkey = globalToggleVisibilityHotkey
     settings.persistScrollbackEnabled = persistScrollbackEnabled
+    settings.pruneBareSurfacesOnRestore = pruneBareSurfacesOnRestore
     settings.agentsSidebar = agentsSidebar
     settings.resumeAgentsOnRestore = resumeAgentsOnRestore
     settings.browseSearchDepth = browseSearchDepth

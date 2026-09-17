@@ -83,6 +83,11 @@ public struct TerminalSettingsView: View {
             "Survives restart. Stored unencrypted under the Supacode state directory."
           )
         }
+        Toggle(isOn: $store.pruneBareSurfacesOnRestore) {
+          Text("Prune bare shells on restore")
+          Text("Skip restoring terminals whose saved output is only a bare prompt.")
+        }
+        .disabled(!store.persistScrollbackEnabled)
         Toggle(isOn: $store.terminateSessionsOnQuit) {
           Text("Terminate sessions on quit")
           Text(

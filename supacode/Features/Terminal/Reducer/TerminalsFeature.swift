@@ -72,6 +72,8 @@ struct TerminalsFeature {
     /// Ensures a layout exists for a worktree and carries its display name for
     /// minted tab titles. Never replaces a live layout.
     case attachLayout(worktreeID: Worktree.ID, titlePrefix: String)
+    /// Replaces a not-yet-hosted launch restore after bare-shell pruning.
+    case replaceRestoredLayout(worktreeID: Worktree.ID, layout: PaneLayout)
     /// Drops a pruned worktree's layout and bookkeeping.
     case detachLayout(worktreeID: Worktree.ID)
     /// Worktree selection moved; visibility-driven hibernation re-diffs and
@@ -140,6 +142,11 @@ struct TerminalsFeature {
         }
         state.layouts[id: worktreeID]?.titlePrefix = titlePrefix
         return .none
+
+      case .replaceRestoredLayout(let worktreeID, let layout):
+        guard state.layouts[id: worktreeID] != nil else { return .none }
+        state.layouts[id: worktreeID]?.layout = layout
+        return reconcileHibernation(&state)
 
       case .detachLayout(let worktreeID):
         // Bookkeeping is NOT pre-cleared: the reconcile below must still see

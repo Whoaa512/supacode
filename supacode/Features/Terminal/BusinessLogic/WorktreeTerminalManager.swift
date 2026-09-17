@@ -93,6 +93,7 @@ final class WorktreeTerminalManager {
   @ObservationIgnored private var scrollbackPersistTask: Task<Void, Never>?
   @ObservationIgnored private(set) var liveZmxSessionNames: Set<String>?
   private(set) var hasResolvedLiveZmxSessions: Bool
+  @ObservationIgnored private var fullyPrunedRestoreIDs: Set<Worktree.ID> = []
   /// Reads the freshest `agentsBySurface` at flush time so incremental captures
   /// embed live badge records instead of the empty default.
   var currentAgentsBySurface: (() -> [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]])?
@@ -719,6 +720,9 @@ final class WorktreeTerminalManager {
     for worktree: Worktree,
     runSetupScriptIfNew: () -> Bool = { false }
   ) -> WorktreeContentHost {
+    if hosts[worktree.id] == nil {
+      pruneBareSurfacesOnRestore(for: worktree)
+    }
     // Unconditional: attach is idempotent and a hydrated layout still needs
     // its minted-title prefix stamped.
     sendTerminals(.attachLayout(worktreeID: worktree.id, titlePrefix: worktree.name))
@@ -1104,6 +1108,10 @@ final class WorktreeTerminalManager {
   private func ensureInitialTab(in worktree: Worktree, runSetupScriptIfNew: Bool, focusing: Bool) {
     let host = host(for: worktree) { runSetupScriptIfNew }
     _ = host
+    if fullyPrunedRestoreIDs.contains(worktree.id) {
+      emit(.tabCreated(worktreeID: worktree.id))
+      return
+    }
     guard layoutState(for: worktree.id)?.layout.panes.isEmpty != false else {
       // A hydrated layout already has its tabs; a waiting worktree-new ack
       // still needs the signal or it strands until the watchdog.
@@ -2040,6 +2048,47 @@ final class WorktreeTerminalManager {
   private func handleSurfacesClosed(worktreeID: Worktree.ID, surfaceIDs: Set<UUID>) {
     ScrollbackPersistence.removeFiles(surfaceIDs: surfaceIDs)
     emit(.surfacesClosed(worktreeID: worktreeID, surfaceIDs))
+  }
+
+  private func pruneBareSurfacesOnRestore(for worktree: Worktree) {
+    guard let layout = layoutState(for: worktree.id)?.layout else { return }
+    guard
+      TerminalRestorePruner.shouldPrune(
+        isRemote: worktree.host != nil,
+        settingEnabled: settingsFile.global.pruneBareSurfacesOnRestore,
+        scrollbackEnabled: settingsFile.global.persistScrollbackEnabled,
+        zmxBundled: zmxClient.isBundled(),
+        liveSessionNames: liveZmxSessionNames
+      )
+    else { return }
+
+    let pruned = TerminalRestorePruner.prunedLayout(layout) { content in
+      let path = SupacodePaths.scrollbackFileURL(surfaceID: content.id.rawValue)
+      guard let data = FileManager.default.contents(atPath: path.path(percentEncoded: false)) else {
+        return false
+      }
+      return TerminalRestorePruner.isScrollbackMeaningful(data)
+    }
+    let keptIDs = Set(pruned?.allContentIDs.map(\.rawValue) ?? [])
+    let prunedIDs = layout.allContentIDs.map(\.rawValue).filter { !keptIDs.contains($0) }
+    guard !prunedIDs.isEmpty else { return }
+
+    terminalLogger.info(
+      "Pruning \(prunedIDs.count) bare surface(s) from restore for worktree \(worktree.id)")
+    ScrollbackPersistence.removeFiles(surfaceIDs: prunedIDs)
+    let liveSessionNames = liveZmxSessionNames ?? []
+    let livePrunedSessionNames = prunedIDs.map(ZmxSessionID.make(surfaceID:)).filter {
+      liveSessionNames.contains($0)
+    }
+    self.liveZmxSessionNames?.subtract(livePrunedSessionNames)
+    killZmxSessions(livePrunedSessionNames)
+
+    let replacement = pruned ?? PaneLayout()
+    if pruned == nil {
+      fullyPrunedRestoreIDs.insert(worktree.id)
+    }
+    sendTerminals(.replaceRestoredLayout(worktreeID: worktree.id, layout: replacement))
+    markLayoutDirty(worktreeID: worktree.id)
   }
 
   func initialScrollbackPath(for surfaceID: UUID) -> String? {

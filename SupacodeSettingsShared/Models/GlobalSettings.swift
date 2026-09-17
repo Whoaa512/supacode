@@ -187,6 +187,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   public var globalToggleVisibilityHotkey: AppShortcutOverride?
   /// Persist terminal scrollback to disk across relaunches.
   public var persistScrollbackEnabled: Bool
+  /// Skip restoring terminal tabs whose saved output is only a bare prompt.
+  public var pruneBareSurfacesOnRestore: Bool
   /// Row layout for the sidebar's Agents tab. Hand-editable in `supacode.json`;
   /// the Developer settings pane writes the same keys.
   public var agentsSidebar: AgentsSidebarSettings
@@ -248,6 +250,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     appVisibility: .dockAndMenuBar,
     chromeTextSize: .default,
     persistScrollbackEnabled: true,
+    pruneBareSurfacesOnRestore: false,
     agentsSidebar: .default,
     resumeAgentsOnRestore: true,
     browseSearchDepth: 5
@@ -302,6 +305,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     hoverFocusMode: HoverFocusMode = .never,
     globalToggleVisibilityHotkey: AppShortcutOverride? = nil,
     persistScrollbackEnabled: Bool = true,
+    pruneBareSurfacesOnRestore: Bool = false,
     agentsSidebar: AgentsSidebarSettings = .default,
     resumeAgentsOnRestore: Bool = true,
     browseSearchDepth: Int = 5
@@ -354,6 +358,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.hoverFocusMode = hoverFocusMode
     self.globalToggleVisibilityHotkey = globalToggleVisibilityHotkey
     self.persistScrollbackEnabled = persistScrollbackEnabled
+    self.pruneBareSurfacesOnRestore = pruneBareSurfacesOnRestore
     self.agentsSidebar = agentsSidebar
     self.resumeAgentsOnRestore = resumeAgentsOnRestore
     self.browseSearchDepth = Self.clampedBrowseSearchDepth(browseSearchDepth)
@@ -601,6 +606,9 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     persistScrollbackEnabled =
       try container.decodeIfPresent(Bool.self, forKey: .persistScrollbackEnabled)
       ?? true
+    pruneBareSurfacesOnRestore =
+      try container.decodeIfPresent(Bool.self, forKey: .pruneBareSurfacesOnRestore)
+      ?? Self.default.pruneBareSurfacesOnRestore
     // `AgentsSidebarSettings` swallows its own malformed input, so a bad row
     // config can't throw here and reset every other global to its default.
     agentsSidebar =
