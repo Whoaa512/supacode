@@ -577,9 +577,10 @@ struct GhosttySurfaceViewTests {
     let hadLiveRenderer = surfaceView.surface != nil
 
     surfaceView.closeSurface()
-    #expect(surfaceView.surface != nil)
     #expect(queue.isPending(surfaceView))
     if hadLiveRenderer {
+      // The pointer stays with the view until the queue frees it.
+      #expect(surfaceView.surface != nil)
       #expect(surfaceView.isHidden)
     }
 

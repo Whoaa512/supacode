@@ -1082,8 +1082,11 @@ struct AppFeature {
       case .alert(.presented(.confirmTerminateAllTerminalSessions)):
         state.alert = nil
         analyticsClient.capture("terminal_sessions_terminated_via_menu", nil)
+        // Persist layouts + scrollback first: the sessions are gone after this,
+        // so a relaunch can only replay what was written now.
+        let agentsBySurface = state.agentPresence.agentsBySurface()
         return .run { _ in
-          await terminalClient.terminateAllSessions()
+          await terminalClient.persistAndTerminateAllSessions(agentsBySurface)
         }
 
       case .newTerminal:
