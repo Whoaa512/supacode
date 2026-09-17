@@ -70,6 +70,12 @@ public struct TerminalSettingsView: View {
           Text("When off, honors your Ghostty config theme.")
         }
       }
+      Section("Splits") {
+        Toggle(isOn: $store.equalizeSplitsOnSplit) {
+          Text("Equalize splits automatically")
+          Text("Rebalance all panes evenly after creating a split or closing a pane.")
+        }
+      }
       Section("Persistence") {
         Toggle(isOn: $store.terminateSessionsOnQuit) {
           Text("Terminate sessions on quit")

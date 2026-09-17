@@ -172,6 +172,9 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   /// Beta: hidden terminal tabs release their renderer after a few minutes of
   /// inactivity and reconnect when viewed. On by default.
   public var terminalHibernationEnabled: Bool
+  /// Rebalance every pane after a split is created or a pane closes, like
+  /// iTerm2, instead of Ghostty's binary halving. Off by default.
+  public var equalizeSplitsOnSplit: Bool
   /// Accessibility size for the app chrome's text. Drives the scale published at
   /// each window root. Defaults to the unmodified system size.
   public var chromeTextSize: ChromeTextSize
@@ -293,6 +296,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     remoteSessionPersistenceEnabled: Bool = true,
     appVisibility: AppVisibility = .dockAndMenuBar,
     terminalHibernationEnabled: Bool = true,
+    equalizeSplitsOnSplit: Bool = false,
     chromeTextSize: ChromeTextSize = .default,
     automaticRepositoryRefreshEnabled: Bool = true,
     hoverFocusMode: HoverFocusMode = .never,
@@ -344,6 +348,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.remoteSessionPersistenceEnabled = remoteSessionPersistenceEnabled
     self.appVisibility = appVisibility
     self.terminalHibernationEnabled = terminalHibernationEnabled
+    self.equalizeSplitsOnSplit = equalizeSplitsOnSplit
     self.chromeTextSize = chromeTextSize
     self.automaticRepositoryRefreshEnabled = automaticRepositoryRefreshEnabled
     self.hoverFocusMode = hoverFocusMode
@@ -568,6 +573,9 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     terminalHibernationEnabled =
       try container.decodeIfPresent(Bool.self, forKey: .terminalHibernationEnabled)
       ?? Self.default.terminalHibernationEnabled
+    equalizeSplitsOnSplit =
+      try container.decodeIfPresent(Bool.self, forKey: .equalizeSplitsOnSplit)
+      ?? Self.default.equalizeSplitsOnSplit
     // Old settings files predate this key; they migrate to the system size. An
     // unrecognized value falls back the same way rather than throwing, which
     // would reset the whole file to defaults.
