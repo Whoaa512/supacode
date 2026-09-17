@@ -338,6 +338,8 @@ struct AppFeature {
     case selectPreviousTerminalTab
     case splitTerminal(TerminalSplitMenuDirection)
     case jumpToLatestUnread
+    case focusTerminalSurface(worktreeID: Worktree.ID, tabID: TabID, surfaceID: UUID)
+    case closeTerminalSurface(worktreeID: Worktree.ID, tabID: TabID, surfaceID: UUID)
     case menuBarWorktreeSelected(worktreeID: Worktree.ID)
     case markAllNotificationsRead
     case runScript
@@ -1208,6 +1210,21 @@ struct AppFeature {
             await terminalClient.markNotificationRead(location.worktreeID, location.notificationID)
           }
         )
+
+      case .focusTerminalSurface(let worktreeID, let tabID, let surfaceID):
+        guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
+        return .merge(
+          .send(.repositories(.selectWorktree(worktreeID, focusTerminal: true))),
+          .run { @MainActor _ in
+            terminalClient.focusSurface(worktree, tabID, surfaceID)
+          }
+        )
+
+      case .closeTerminalSurface(let worktreeID, let tabID, let surfaceID):
+        guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
+        return .run { @MainActor _ in
+          terminalClient.closeSurface(worktree, tabID, surfaceID)
+        }
 
       case .menuBarWorktreeSelected(let rawWorktreeID):
         // The menu snapshots its rows when it opens, so a pending id can have

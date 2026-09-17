@@ -156,6 +156,9 @@ private struct SettingsSidebarView: View {
       Label("Global Scripts", systemImage: "terminal")
         .appFont(.body)
         .tag(SettingsSection.scripts)
+      Label("Terminal Sessions", systemImage: "macwindow.on.rectangle")
+        .appFont(.body)
+        .tag(SettingsSection.terminalSessions)
       Label("Updates", systemImage: "arrow.down.circle")
         .appFont(.body)
         .tag(SettingsSection.updates)
@@ -198,6 +201,7 @@ private struct SettingsDetailView: View {
   let selectedRepositorySummary: SettingsRepositorySummary?
   @Bindable var settingsStore: StoreOf<SettingsFeature>
   let updatesStore: StoreOf<UpdatesFeature>
+  let appStore: StoreOf<AppFeature>
   @Environment(GhosttyShortcutManager.self) private var ghosttyShortcuts: GhosttyShortcutManager?
 
   var body: some View {
@@ -225,6 +229,8 @@ private struct SettingsDetailView: View {
     case .scripts:
       GlobalScriptsSettingsView(store: settingsStore)
         .navigationTitle("Global Scripts")
+    case .terminalSessions:
+      TerminalSessionsSettingsView(store: appStore)
     case .repository:
       if let repository = selectedRepositorySummary {
         if let repositorySettingsStore = settingsStore.scope(
@@ -307,7 +313,8 @@ struct SettingsView: View {
         selection: selection,
         selectedRepositorySummary: selectedRepositorySummary,
         settingsStore: settingsStore,
-        updatesStore: updatesStore
+        updatesStore: updatesStore,
+        appStore: store
       )
     }
     .toolbar {

@@ -134,6 +134,7 @@ extension AppFeature.Action {
       .selectTerminalTabAtIndex, .selectNextTerminalTab, .selectPreviousTerminalTab,
       .splitTerminal, .toggleWindowModeForFocusedPane, .toggleSplitZoom,
       .equalizeSplits, .focusSplit, .jumpToLatestUnread,
+      .focusTerminalSurface, .closeTerminalSurface,
       .menuBarWorktreeSelected, .markAllNotificationsRead, .runScript, .runNamedScript,
       .manageRepositoryScripts,
       .stopScript, .stopRunScripts, .closeTab, .closeSurface,
