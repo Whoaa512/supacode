@@ -98,6 +98,13 @@ struct AgentPresenceOSCTests {
     #expect((try? result.get())?.pid == 4242)
   }
 
+  @Test func presenceEventThreadsSessionRef() {
+    let metadata = AgentPresenceOSC.metadata(event: .busy, suffix: ";pid=4242;sid=abc-123")
+    let result = AgentSignal.presenceEvent(
+      id: "claude", metadata: metadata, surfaceID: UUID(), surfaceExists: true)
+    #expect((try? result.get())?.sessionRef == "abc-123")
+  }
+
   @Test func actionMapsSessionEndToEndElseStart() {
     #expect(AgentPresenceOSC.action(for: .sessionEnd) == "end")
     for event in [HookEvent.sessionStart, .busy, .awaitingInput, .idle] {
