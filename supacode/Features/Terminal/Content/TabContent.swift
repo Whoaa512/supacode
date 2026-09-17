@@ -187,9 +187,7 @@ final class TerminalContent: TabContent {
   func hibernate() {
     guard let surfaceView else { return }
     state = recordedState(from: surfaceView)
-    surfaceView.closeSurface()
-    self.surfaceView = nil
-    searchToolbar.surfaceView = nil
+    tearDown()
   }
 
   // Free the Ghostty surface at event time: deferring to the view's dealloc

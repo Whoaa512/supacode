@@ -60,7 +60,6 @@ struct LayoutSurfaceConduit {
 
   private func wireLifecycleCallbacks(_ view: GhosttySurfaceView, contentID: ContentID, surfaceID: UUID) {
     let host = host
-    let handleUnexpectedZmxClose = handleUnexpectedZmxClose
     view.bridge.onProgressReport = { [weak view] _ in
       guard let view, isLive(view), let tabID = host.tabID(containing: surfaceID) else { return }
       host.updateRunningState(for: tabID)
@@ -129,7 +128,11 @@ struct LayoutSurfaceConduit {
     }
     let isExplicit = host.consumeExplicitClose(for: surfaceID)
     // A live zmx-backed content is exactly a hibernatable one.
-    if !isExplicit, !processAlive, runtime.content(for: contentID)?.isHibernatable == true {
+    if Self.shouldProbeUnexpectedZmxClose(
+      isExplicit: isExplicit,
+      processAlive: processAlive,
+      isHibernatable: runtime.content(for: contentID)?.isHibernatable == true
+    ) {
       // Not user-initiated and zmx-backed: probe before deciding to kill,
       // spare, or reattach.
       handleUnexpectedZmxClose(view, processAlive)
@@ -143,5 +146,13 @@ struct LayoutSurfaceConduit {
       return
     }
     host.sendLayoutAction(.contentRequestedClose(content: contentID, scope: .tab))
+  }
+
+  static func shouldProbeUnexpectedZmxClose(
+    isExplicit: Bool,
+    processAlive: Bool,
+    isHibernatable: Bool
+  ) -> Bool {
+    !isExplicit && !processAlive && isHibernatable
   }
 }

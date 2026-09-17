@@ -27,14 +27,14 @@ final class SurfaceTeardownQueue {
     detachClients: @escaping @Sendable (String) async -> Void,
     clock: any Clock<Duration> = ContinuousClock(),
     analytics: AnalyticsClient,
-    hasProcessExited: @escaping (GhosttySurfaceView) -> Bool = { $0.hasSurfaceProcessExited },
-    free: @escaping (GhosttySurfaceView) -> Void = { $0.performDeferredFree() }
+    hasProcessExited: ((GhosttySurfaceView) -> Bool)? = nil,
+    free: ((GhosttySurfaceView) -> Void)? = nil
   ) {
     self.detachClients = detachClients
     self.clock = clock
     self.analytics = analytics
-    self.hasProcessExited = hasProcessExited
-    self.free = free
+    self.hasProcessExited = hasProcessExited ?? { $0.hasSurfaceProcessExited }
+    self.free = free ?? { $0.performDeferredFree() }
   }
 
   var pendingSurfaceIDs: Set<UUID> { Set(pending.values.map(\.id)) }
@@ -95,6 +95,8 @@ final class SurfaceTeardownQueue {
 
   private func resolveExpiredPoll(_ key: ObjectIdentifier) {
     guard let view = pending[key] else { return }
+    Self.logger.warning("Surface teardown timed out for \(view.id); used_zmx=\(view.usesZmx)")
+    analytics.capture("surface_teardown_timed_out", ["used_zmx": view.usesZmx])
     guard view.usesZmx else {
       performFree(key, view)
       return
@@ -123,6 +125,7 @@ final class SurfaceTeardownQueue {
     free(view)
     let elapsed = ContinuousClock.now - start
     analytics.capture("surface_teardown_freed", ["used_zmx": view.usesZmx])
+    Self.logger.info("Freed surface \(view.id); used_zmx=\(view.usesZmx)")
     if elapsed > Self.slowFreeThreshold {
       Self.logger.warning("Slow surface free for \(view.id): \(elapsed)")
       analytics.capture(
