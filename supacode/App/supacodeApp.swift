@@ -307,6 +307,23 @@ struct SupacodeApp: App {
         events: {
           terminalManager.eventStream()
         },
+        listSurfaces: {
+          terminalManager.terminalSessions()
+        },
+        sessionPreview: { worktreeID, surfaceID in
+          terminalManager.sessionPreview(worktreeID: worktreeID, surfaceID: surfaceID)
+        },
+        focusSurface: { worktree, tabID, surfaceID in
+          terminalManager.handleCommand(
+            .focusSurface(worktree, tabID: tabID, surfaceID: surfaceID))
+        },
+        closeSurface: { worktree, tabID, surfaceID in
+          terminalManager.handleCommand(
+            .destroySurface(worktree, tabID: tabID, surfaceID: surfaceID))
+        },
+        closeTab: { worktree, tabID in
+          terminalManager.handleCommand(.destroyTab(worktree, tabID: tabID))
+        },
         tabExists: { worktreeID, tabID in
           terminalManager.tabExists(worktreeID: worktreeID, tabID: tabID)
         },

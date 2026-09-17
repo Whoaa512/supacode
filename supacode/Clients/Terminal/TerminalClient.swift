@@ -5,6 +5,11 @@ import SupacodeSettingsShared
 struct TerminalClient {
   var send: @MainActor @Sendable (Command) -> Void
   var events: @MainActor @Sendable () -> AsyncStream<Event>
+  var listSurfaces: @MainActor @Sendable () -> [TerminalSession]
+  var sessionPreview: @MainActor @Sendable (Worktree.ID, UUID) -> String?
+  var focusSurface: @MainActor @Sendable (Worktree, TabID, UUID) -> Void
+  var closeSurface: @MainActor @Sendable (Worktree, TabID, UUID) -> Void
+  var closeTab: @MainActor @Sendable (Worktree, TabID) -> Void
   var tabExists: @MainActor @Sendable (Worktree.ID, TabID) -> Bool
   var tabCanRename: @MainActor @Sendable (Worktree.ID, TabID) -> Bool
   var surfaceExists: @MainActor @Sendable (Worktree.ID, TabID, UUID) -> Bool
@@ -182,6 +187,11 @@ extension TerminalClient: DependencyKey {
   static let liveValue = TerminalClient(
     send: { _ in fatalError("TerminalClient.send not configured") },
     events: { fatalError("TerminalClient.events not configured") },
+    listSurfaces: { fatalError("TerminalClient.listSurfaces not configured") },
+    sessionPreview: { _, _ in fatalError("TerminalClient.sessionPreview not configured") },
+    focusSurface: { _, _, _ in fatalError("TerminalClient.focusSurface not configured") },
+    closeSurface: { _, _, _ in fatalError("TerminalClient.closeSurface not configured") },
+    closeTab: { _, _ in fatalError("TerminalClient.closeTab not configured") },
     tabExists: { _, _ in fatalError("TerminalClient.tabExists not configured") },
     tabCanRename: { _, _ in fatalError("TerminalClient.tabCanRename not configured") },
     surfaceExists: { _, _, _ in fatalError("TerminalClient.surfaceExists not configured") },
@@ -209,6 +219,11 @@ extension TerminalClient: DependencyKey {
   static let testValue = TerminalClient(
     send: { _ in },
     events: { AsyncStream { $0.finish() } },
+    listSurfaces: { [] },
+    sessionPreview: { _, _ in nil },
+    focusSurface: unimplemented("TerminalClient.focusSurface"),
+    closeSurface: unimplemented("TerminalClient.closeSurface"),
+    closeTab: unimplemented("TerminalClient.closeTab"),
     tabExists: unimplemented("TerminalClient.tabExists", placeholder: true),
     tabCanRename: unimplemented("TerminalClient.tabCanRename", placeholder: true),
     surfaceExists: unimplemented("TerminalClient.surfaceExists", placeholder: true),

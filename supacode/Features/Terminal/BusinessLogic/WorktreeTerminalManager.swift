@@ -1774,6 +1774,57 @@ final class WorktreeTerminalManager {
     layoutState(for: worktreeID)?.layout.allContentIDs.map(\.rawValue) ?? []
   }
 
+  /// Every surface currently known to the hydrated layout store. A missing
+  /// host means the worktree has not been opened this launch, so its persisted
+  /// content is represented as a snapshot rather than dormant live state.
+  func terminalSessions() -> [TerminalSession] {
+    guard let appStore else { return [] }
+    return appStore.withState { state in
+      state.terminals.layouts.flatMap { layoutState in
+        let worktreeID = layoutState.id
+        let worktree = state.repositories.worktree(for: worktreeID)
+        let worktreeName = worktree?.name ?? URL(fileURLWithPath: worktreeID.rawValue).lastPathComponent
+        let directoryName = worktree?.workingDirectory.lastPathComponent ?? worktreeName
+        let host = hosts[worktreeID]
+        return layoutState.layout.panes.flatMap { pane in
+          pane.tabs.map { tab in
+            let surfaceID = tab.content.id.rawValue
+            let availability: TerminalSession.Availability =
+              if host == nil {
+                .snapshot
+              } else if host?.liveSurface(surfaceID) != nil {
+                .live
+              } else {
+                .dormant
+              }
+            return TerminalSession(
+              worktreeID: worktreeID,
+              worktreeName: worktreeName,
+              directoryName: directoryName,
+              tabID: tab.id,
+              tabTitle: TabTitle.resolved(for: tab, runtime: ContentRuntime.liveValue),
+              surfaceID: surfaceID,
+              availability: availability,
+              isFocused: selectedWorktreeID == worktreeID
+                && layoutState.layout.focusedPaneID == pane.id
+                && pane.selectedTabID == tab.id
+            )
+          }
+        }
+      }
+      .sorted {
+        ($0.worktreeName, $0.worktreeID.rawValue, $0.tabTitle, $0.surfaceID.uuidString)
+          < ($1.worktreeName, $1.worktreeID.rawValue, $1.tabTitle, $1.surfaceID.uuidString)
+      }
+    }
+  }
+
+  /// Current screen for live content, else the last persisted scrollback tail.
+  func sessionPreview(worktreeID: Worktree.ID, surfaceID: UUID) -> String? {
+    screenPreview(worktreeID: worktreeID, surfaceID: surfaceID)
+      ?? ScrollbackPreview.tail(surfaceID: surfaceID, maxLines: 40)
+  }
+
   /// Writes raw bytes to one surface's PTY without focusing it, so CLI-driven
   /// prompts and key sequences reach a background agent. `false` when the
   /// surface is gone or dormant.
