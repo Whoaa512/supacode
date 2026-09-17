@@ -706,3 +706,10 @@ process pattern can distinguish the forked daemon from its clients.
   drop the env override.
 - Hibernation is default-on while labeled Beta; consider default-off until the
   fix has soaked.
+
+## Ported to WorktreeContentHost — 2026-09-16
+
+The design now lands on the upstream content architecture. `SurfaceTeardownQueue`
+owns deferred `GhosttySurfaceView` generations; `TerminalContent.tearDown` is the
+single hand-off seam; `WorktreeContentHost` completes dormancy without awaiting
+free; and `LayoutSurfaceConduit` gates zmx reattach on the child actually exiting.
