@@ -24,6 +24,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
   case toggleSplitZoom, equalizeSplits
   case jumpToLatestUnread
   case togglePullRequestInspector, toggleFilesInspector, toggleNotificationsInspector
+  case terminalGridOverview
   case startSearch, findNext, findPrevious, useSelectionForFind
 
   // Stable string key for JSON dictionary persistence.
@@ -97,6 +98,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     case .togglePullRequestInspector: "togglePullRequestInspector"
     case .toggleFilesInspector: "toggleFilesInspector"
     case .toggleNotificationsInspector: "toggleNotificationsInspector"
+    case .terminalGridOverview: "terminalGridOverview"
     case .startSearch: "startSearch"
     case .findNext: "findNext"
     case .findPrevious: "findPrevious"
@@ -156,6 +158,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     "togglePullRequestInspector": .togglePullRequestInspector,
     "toggleFilesInspector": .toggleFilesInspector,
     "toggleNotificationsInspector": .toggleNotificationsInspector,
+    "terminalGridOverview": .terminalGridOverview,
     "startSearch": .startSearch,
     "findNext": .findNext,
     "findPrevious": .findPrevious,
@@ -234,6 +237,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     case .togglePullRequestInspector: "Toggle Pull Request Inspector"
     case .toggleFilesInspector: "Toggle Files Inspector"
     case .toggleNotificationsInspector: "Toggle Notifications Inspector"
+    case .terminalGridOverview: "Terminal Grid Overview"
     case .startSearch: "Find"
     case .findNext: "Find Next"
     case .findPrevious: "Find Previous"
@@ -603,6 +607,9 @@ public enum AppShortcuts {
   public static let toggleNotificationsInspector = AppShortcut(
     id: .toggleNotificationsInspector, key: "n", modifiers: [.command, .option]
   )
+  public static let terminalGridOverview = AppShortcut(
+    id: .terminalGridOverview, key: "o", modifiers: [.command, .option]
+  )
   // The terminal's search chords are owned by the app: each generates a Ghostty
   // `unbind` so the surface never drives search, and the Find menu triggers it.
   public static let startSearch = AppShortcut(id: .startSearch, key: "f", modifiers: .command)
@@ -689,6 +696,7 @@ public enum AppShortcuts {
         openWorktree, revealInFinder, openRepository, addRemoteRepository, cloneRepository,
         openPullRequest, copyPath, runScript, stopRunScript, jumpToLatestUnread,
         togglePullRequestInspector, toggleFilesInspector, toggleNotificationsInspector,
+        terminalGridOverview,
       ]
     ),
   ]

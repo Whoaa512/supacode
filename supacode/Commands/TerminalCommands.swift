@@ -5,6 +5,7 @@ import SwiftUI
 
 struct TerminalCommands: Commands {
   @Shared(.settingsFile) private var settingsFile
+  @FocusedValue(\.toggleTerminalGridAction) private var toggleTerminalGridAction
   @FocusedValue(\.newTerminalAction) private var newTerminalAction
   @FocusedValue(\.renameTabAction) private var renameTabAction
   @FocusedValue(\.splitTerminalAction) private var splitTerminalAction
@@ -76,6 +77,16 @@ struct TerminalCommands: Commands {
       .appKeyboardShortcut(toggleWindowMode)
       .disabled(toggleWindowModeAction?.isEnabled != true)
       .help("Toggle Window Mode (\(toggleWindowMode?.display ?? "none"))")
+
+      Divider()
+
+      let gridShortcut = AppShortcuts.terminalGridOverview.effective(from: overrides)
+      Button("Terminal Grid Overview", systemImage: "square.grid.2x2") {
+        toggleTerminalGridAction?()
+      }
+      .appKeyboardShortcut(gridShortcut)
+      .disabled(toggleTerminalGridAction?.isEnabled != true)
+      .help("Toggle terminal grid overview (\(gridShortcut?.display ?? "no shortcut"))")
     }
     CommandGroup(after: .textEditing) {
       Menu {
@@ -176,7 +187,16 @@ private struct NewTerminalActionKey: FocusedValueKey {
   typealias Value = FocusedAction<Void>
 }
 
+private struct ToggleTerminalGridActionKey: FocusedValueKey {
+  typealias Value = FocusedAction<Void>
+}
+
 extension FocusedValues {
+  var toggleTerminalGridAction: FocusedAction<Void>? {
+    get { self[ToggleTerminalGridActionKey.self] }
+    set { self[ToggleTerminalGridActionKey.self] = newValue }
+  }
+
   var newTerminalAction: FocusedAction<Void>? {
     get { self[NewTerminalActionKey.self] }
     set { self[NewTerminalActionKey.self] = newValue }
