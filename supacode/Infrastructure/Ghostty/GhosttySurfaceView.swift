@@ -323,12 +323,9 @@ final class GhosttySurfaceView: NSView, Identifiable {
     MainActor.assumeIsolated {
       SecureInput.shared.removeScoped(id)
     }
-    // A live surface here means a teardown path bypassed `closeSurface`; the
-    // call below still frees it, off the turn.
-    if surface != nil {
-      assertionFailure("GhosttySurfaceView deallocated with a live surface; a teardown path bypassed closeSurface().")
-    }
-    closeSurface()
+    // Handing off from deinit would resurrect self. Owners must close first;
+    // this last-resort free is observable because it can still block.
+    freeSurfaceInline()
     if let workingDirectoryCString {
       free(workingDirectoryCString)
     }
@@ -385,39 +382,26 @@ final class GhosttySurfaceView: NSView, Identifiable {
     lastSurfaceFocus = nil
   }
 
-  func closeSurface() {
+  func closeSurface(detachClients: Bool = true) {
+    if isTeardownDeferred {
+      surfaceLogger.warning("closeSurface() ignored for \(id): teardown is deferred")
+      return
+    }
+    runtime.surfaceTeardownQueue.handOff(self, detachClients: detachClients)
+  }
+
+  private func freeSurfaceInline() {
     clearNotificationObservers()
-    // Break the surface<->wrapper cycle; the strong hold otherwise blocks deinit.
-    defer { ownedScrollWrapper = nil }
-    guard let surface else { return }
+    guard surface != nil else { return }
+    surfaceLogger.error(
+      "Surface \(id) reached deinit without closeSurface(); freeing inline (may block)"
+    )
+    runtime.surfaceTeardownQueue.recordInlineFreeAtDeinit(surfaceID: id)
     if let surfaceRef {
       runtime.unregisterSurface(surfaceRef)
       self.surfaceRef = nil
     }
-    self.surface = nil
-    bridge.surface = nil
-    lastOcclusion = nil
-    lastSurfaceFocus = nil
-    // Hide before the free so the "[Process exited]" overlay can't paint while
-    // the layout collapses around the closing pane.
-    isHidden = true
-    // Free off the current turn on the main queue: `ghostty_surface_free` joins
-    // the surface's search, renderer, and IO threads and tears down the Metal
-    // renderer, which would otherwise block the reducer turn. The main queue,
-    // not a `Task`, runs the free outside the reducer's inherited task-local
-    // scope, where an isolated-deinit release it triggers can abort as an
-    // invalid free. Retain the runtime and bridge by hand across the free (a
-    // Sendable block can't capture them) so the Ghostty app stays alive and a
-    // synchronous callback during the free still resolves a live bridge; `self`
-    // is intentionally not captured, as the free never touches the surface's
-    // nsview.
-    let retainedRuntime = Unmanaged.passRetained(runtime)
-    let retainedBridge = Unmanaged.passRetained(bridge)
-    DispatchQueue.main.async {
-      ghostty_surface_free(surface)
-      retainedBridge.release()
-      retainedRuntime.release()
-    }
+    performDeferredFree()
   }
 
   private func updateScreenObservers() {
@@ -1322,10 +1306,11 @@ final class GhosttySurfaceView: NSView, Identifiable {
     let currentDelay = delay ?? 0
     guard currentDelay < maxDelay else { return }
     let nextDelay: TimeInterval = if let delay { delay * 2 } else { 0.05 }
-    Task { @MainActor in
+    Task { @MainActor [weak view, weak previous] in
       if let delay {
         try? await ContinuousClock().sleep(for: .seconds(delay))
       }
+      guard let view else { return }
       guard let window = view.window else {
         moveFocus(to: view, from: previous, delay: nextDelay)
         return

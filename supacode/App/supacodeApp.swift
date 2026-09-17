@@ -402,7 +402,8 @@ struct SupacodeApp: App {
         LayoutSurfaceConduit(
           host: host,
           runtime: ContentRuntime.liveValue,
-          handleUnexpectedZmxClose: { [weak terminalManager] view in
+          handleUnexpectedZmxClose: { [weak terminalManager] view, processAlive in
+            guard !processAlive else { return }
             terminalManager?.handleUnexpectedZmxClose(view, worktreeID: worktree.id)
           }
         ).wire(view, contentID: request.contentID)

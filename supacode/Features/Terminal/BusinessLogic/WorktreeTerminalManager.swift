@@ -922,6 +922,13 @@ final class WorktreeTerminalManager {
         // Reattachable: rebuild the same content at its persisted geometry.
         self.liveZmxSessionNames?.insert(sessionID)
         self.commitReportedTitle(of: ContentID(rawValue: surfaceID), worktreeID: worktreeID)
+        if let content = ContentRuntime.liveValue.content(for: ContentID(rawValue: surfaceID))
+          as? TerminalContent
+        {
+          // The old child is already gone and the replacement uses the same
+          // session. A session-wide detach after wake would boot the newcomer.
+          content.tearDown(detachClients: false)
+        }
         ContentRuntime.liveValue.remove(ContentID(rawValue: surfaceID), tombstone: false)
         self.sendLayout(worktreeID, .wakeTab(id: tabID))
         return

@@ -14,7 +14,7 @@ struct LayoutSurfaceConduit {
   let runtime: ContentRuntime
   /// Handles a zmx-backed surface that closed without an explicit user close;
   /// the integration layer probes the session and spares, kills, or reattaches.
-  let handleUnexpectedZmxClose: (GhosttySurfaceView) -> Void
+  let handleUnexpectedZmxClose: (GhosttySurfaceView, Bool) -> Void
 
   func wire(_ view: GhosttySurfaceView, contentID: ContentID) {
     let surfaceID = contentID.rawValue
@@ -87,9 +87,9 @@ struct LayoutSurfaceConduit {
     }
     // The busyness report is dropped: the reducer's three-way confirm mode
     // re-derives it, so an `.always` user still confirms an idle shell.
-    view.bridge.onCloseRequest = { [weak view] _ in
+    view.bridge.onCloseRequest = { [weak view] processAlive in
       guard let view, isLive(view) else { return }
-      handleCloseRequest(for: view, contentID: contentID)
+      handleCloseRequest(for: view, contentID: contentID, processAlive: processAlive)
     }
     view.onFocusChange = { [weak view] focused in
       guard let view, focused, isLive(view) else { return }
@@ -113,7 +113,11 @@ struct LayoutSurfaceConduit {
 
   /// The surface asked to close. Explicit user closes route through the
   /// layout's confirm-close flow; an unexpected zmx exit goes to the probe.
-  private func handleCloseRequest(for view: GhosttySurfaceView, contentID: ContentID) {
+  private func handleCloseRequest(
+    for view: GhosttySurfaceView,
+    contentID: ContentID,
+    processAlive: Bool
+  ) {
     let surfaceID = contentID.rawValue
     // Programmatic destroys (deeplink / CLI) skip the alert outright, so the
     // close goes straight to the layout, never through the confirm mode.
@@ -125,10 +129,10 @@ struct LayoutSurfaceConduit {
     }
     let isExplicit = host.consumeExplicitClose(for: surfaceID)
     // A live zmx-backed content is exactly a hibernatable one.
-    if !isExplicit, runtime.content(for: contentID)?.isHibernatable == true {
+    if !isExplicit, !processAlive, runtime.content(for: contentID)?.isHibernatable == true {
       // Not user-initiated and zmx-backed: probe before deciding to kill,
       // spare, or reattach.
-      handleUnexpectedZmxClose(view)
+      handleUnexpectedZmxClose(view, processAlive)
       return
     }
     // A completed blocking script's parked runner keeps reporting a

@@ -195,7 +195,11 @@ final class TerminalContent: TabContent {
   // Free the Ghostty surface at event time: deferring to the view's dealloc
   // would run it mid-render when SwiftUI drops the last reference.
   func tearDown() {
-    surfaceView?.closeSurface()
+    tearDown(detachClients: true)
+  }
+
+  func tearDown(detachClients: Bool) {
+    surfaceView?.closeSurface(detachClients: detachClients)
     surfaceView = nil
     searchToolbar.surfaceView = nil
   }
