@@ -26,14 +26,6 @@ ghostty_terminfo_path="${ghostty_build_root}/share/terminfo"
 # The submodule pointer stays on upstream; we never fork or commit into it.
 ghostty_patches_dir="${srcroot}/patches/ghostty"
 
-ghostty_patch_paths() {
-  local patch
-  for patch in "${srcroot}/patches"/ghostty-*.patch "${ghostty_patches_dir}"/*.patch; do
-    [ -e "${patch}" ] || continue
-    printf '%s\t%s\n' "$(basename "${patch}")" "${patch}"
-  done | sort | cut -f2-
-}
-
 print_fingerprint() {
   (
     cd "${ghostty_dir}"
@@ -44,10 +36,11 @@ print_fingerprint() {
       shasum -a 256 "${script_path}" | awk '{print $1}'
       shasum -a 256 "${srcroot}/mise.toml" | awk '{print $1}'
       # The patches are applied at build time, so an edited patch must bust the cache.
-      while IFS= read -r patch; do
+      for patch in "${ghostty_patches_dir}"/*.patch; do
+        [ -e "${patch}" ] || continue
         basename "${patch}"
         shasum -a 256 "${patch}" | awk '{print $1}'
-      done < <(ghostty_patch_paths) | shasum -a 256
+      done | shasum -a 256
       shasum -a 256 "${script_dir}/sdk-overlay.sh" | awk '{print $1}'
       find "${script_dir}/sdk-stubs" -type f -exec shasum -a 256 {} + 2>/dev/null | shasum -a 256 | awk '{print $1}'
     } | shasum -a 256 | awk '{print $1}'
@@ -103,8 +96,10 @@ reset_ghostty_patch_files() {
 }
 
 apply_ghostty_patches() {
+  [ -d "${ghostty_patches_dir}" ] || return 0
   local patch
-  while IFS= read -r patch; do
+  for patch in "${ghostty_patches_dir}"/*.patch; do
+    [ -e "${patch}" ] || continue
     if git -C "${ghostty_dir}" apply --reverse --check "${patch}" 2>/dev/null; then
       continue # already fully applied
     fi
@@ -121,19 +116,20 @@ apply_ghostty_patches() {
       fi
     fi
     git -C "${ghostty_dir}" apply "${patch}"
-  done < <(ghostty_patch_paths)
+  done
 }
 
 revert_ghostty_patches() {
+  [ -d "${ghostty_patches_dir}" ] || return 0
   # Collect the same glob apply_ghostty_patches uses, then revert in REVERSE order.
   # Interdependent patches (e.g. osc3008 and scrollback both touch ghostty.h) only
   # reverse-apply cleanly when undone in the opposite order they were applied;
   # reverting forward leaves a half-reverted, dirty tree that breaks the next build.
   local patches=()
   local p
-  while IFS= read -r p; do
-    patches+=("${p}")
-  done < <(ghostty_patch_paths)
+  for p in "${ghostty_patches_dir}"/*.patch; do
+    [ -e "${p}" ] && patches+=("${p}")
+  done
   local i patch
   for (( i=${#patches[@]}-1; i>=0; i-- )); do
     patch="${patches[$i]}"
@@ -196,7 +192,7 @@ cd "${ghostty_dir}"
 # tbds export only arm64e-macos. We build a hermetic overlay SDK (live 26.x headers +
 # vendored arm64-macos libSystem stubs, see scripts/sdk-overlay.sh) and shim zig's
 # `xcrun --sdk macosx --show-sdk-path` at it, then build only the native macOS slice
-# (patches/ghostty-xcode-26.4.patch makes the .native target skip iOS). Metal and
+# (patches/ghostty/ghostty-xcode-26.4.patch makes the .native target skip iOS). Metal and
 # xcframework steps call /usr/bin/xcrun by absolute path, so they keep the real SDK.
 # The shim dir also wraps libtool: Xcode 26's libtool drops archive members that
 # aren't 8-byte aligned, which would silently strip the embedded C API from the fat

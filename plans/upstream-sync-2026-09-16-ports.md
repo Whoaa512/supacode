@@ -24,7 +24,7 @@ skip close-confirm on ⌘⇧W (upstream `confirmCloseTab: busy|always|never`),
   `closeDoesNotEqualize*` (target `supacodeTerminalTests`).
 
 ## B. Scrollback persistence (Swift side) — `4ead469b c3bccdfd d5fd5fe7 7f7ff541 51621278 27ee2e81 708a4b25 b1954296 f821dad1 2e6d1424`
-- Native side already landed: `patches/ghostty-scrollback-persistence.patch`
+- Native side already landed: `patches/ghostty/ghostty-scrollback-persistence.patch`
   (`ghostty_surface_write_scrollback`, replay engine), `patches/zmx/zmx-emit-lib-vt.patch`,
   `GhosttySurfaceView.writeScrollback(to:)` if not present.
 - Port: `SupacodePaths.scrollbackDirectory` (0700) + `purgeAllScrollbackFiles`;
