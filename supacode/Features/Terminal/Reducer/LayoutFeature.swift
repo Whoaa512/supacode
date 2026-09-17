@@ -656,6 +656,7 @@ extension LayoutFeature {
       Self.logger.error("moveTabToSplit insert failed at \(anchorID.rawValue): \(error)")
       return .none
     }
+    equalizeIfEnabled(&state)
     // The new pane starts empty; the ordinary move fills it, retargets the
     // source selection, and collapses the source when it empties.
     state.layout.panes.append(Pane(id: paneID))
@@ -690,6 +691,7 @@ extension LayoutFeature {
       Self.logger.error("moveTabToSpanningSplit insert failed at \(anchorID.rawValue): \(error)")
       return .none
     }
+    equalizeIfEnabled(&state)
     state.layout.panes.append(Pane(id: paneID))
     return reduceMoveTab(&state, tabID: tabID, targetPaneID: paneID, index: 0)
   }
@@ -819,6 +821,7 @@ extension LayoutFeature {
       Self.logger.error("splitPane insert failed at \(anchorID.rawValue): \(error)")
       return reap(identity.contentID, worktree: state.id)
     }
+    equalizeIfEnabled(&state)
     let tab = TabItem(
       id: identity.tabID,
       title: spec.title,
@@ -942,6 +945,13 @@ extension LayoutFeature {
     return .none
   }
 
+  /// Rebalances every pane when the user opted into iTerm2-style splits.
+  private func equalizeIfEnabled(_ state: inout State) {
+    @Shared(.settingsFile) var settingsFile: SettingsFile
+    guard settingsFile.global.equalizeSplitsOnSplit else { return }
+    state.layout.tree = state.layout.tree.equalized()
+  }
+
   /// Drops a closing tab's transient per-tab state.
   private func releaseTabBookkeeping(_ state: inout State, tabID: TabID) {
     if state.editingTabID == tabID {
@@ -960,6 +970,7 @@ extension LayoutFeature {
     let target = node.flatMap { state.layout.tree.focusTargetAfterClosing($0) }
     if let node {
       state.layout.tree = state.layout.tree.removing(node)
+      equalizeIfEnabled(&state)
     }
     state.layout.panes.remove(id: paneID)
     state.windowedPaneIDs.remove(paneID)

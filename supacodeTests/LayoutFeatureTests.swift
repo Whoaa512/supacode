@@ -1253,6 +1253,84 @@ struct LayoutFeatureTests {
     #expect(harness.store.state.layout.isConsistent)
   }
 
+  // MARK: - Equalize splits automatically.
+
+  private func rootRatio(_ harness: Harness) -> Double? {
+    guard case .split(let split) = harness.store.state.layout.tree.root else { return nil }
+    return split.ratio
+  }
+
+  /// One pane on the left, one on the right, root ratio skewed to 0.8.
+  private func makeSkewedPair(_ harness: Harness) async throws -> SplitResult {
+    let split = await splitPane(harness, anchor: harness.paneID)
+    let root = try #require(harness.store.state.layout.tree.root)
+    await harness.store.send(.resizePane(node: root, ratio: 0.8)) {
+      $0.layout.tree = try $0.layout.tree.replacing(node: root, with: root.resizing(to: 0.8))
+    }
+    return split
+  }
+
+  @Test(.dependencies) func newSplitEqualizesWhenSettingIsOn() async throws {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.equalizeSplitsOnSplit = true }
+    let harness = await makeHarness()
+    let first = try await makeSkewedPair(harness)
+    let newPaneID = PaneID(rawValue: UUID(1))
+    let tabID = TabID()
+    let contentID = ContentID()
+    let spec = Self.spec(tabID: tabID, contentID: contentID, title: "Third")
+    await harness.store.send(.splitPane(id: first.paneID, direction: .right, spec: spec)) {
+      $0.layout.tree = try $0.layout.tree.inserting(view: newPaneID, at: first.paneID, direction: .right).equalized()
+      $0.layout.panes.append(
+        Pane(id: newPaneID, tabs: [Self.tab(id: tabID, contentID: contentID, title: "Third")], selectedTabID: tabID)
+      )
+      $0.layout.focusedPaneID = newPaneID
+    }
+    // Same-axis nesting: the left leaf weighs 1, the right pair weighs 2.
+    let ratio = try #require(rootRatio(harness))
+    #expect(abs(ratio - 1.0 / 3.0) < 0.0001)
+    #expect(harness.store.state.layout.isConsistent)
+  }
+
+  @Test(.dependencies) func newSplitDoesNotEqualizeWhenSettingIsOff() async throws {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.equalizeSplitsOnSplit = false }
+    let harness = await makeHarness()
+    let first = try await makeSkewedPair(harness)
+    _ = await splitPane(harness, anchor: first.paneID, direction: .down, mintIndex: 1, title: "Third")
+    #expect(rootRatio(harness) == 0.8)
+    #expect(harness.store.state.layout.isConsistent)
+  }
+
+  @Test(.dependencies) func closePaneEqualizesWhenSettingIsOn() async throws {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.equalizeSplitsOnSplit = false }
+    let harness = await makeHarness()
+    let first = try await makeSkewedPair(harness)
+    let second = await splitPane(harness, anchor: first.paneID, direction: .down, mintIndex: 1, title: "Third")
+    $settingsFile.withLock { $0.global.equalizeSplitsOnSplit = true }
+    harness.store.exhaustivity = .off
+    await harness.store.send(.closePane(id: second.paneID))
+    await harness.store.finish()
+    #expect(harness.store.state.layout.panes.count == 2)
+    #expect(rootRatio(harness) == 0.5)
+    #expect(harness.store.state.layout.isConsistent)
+  }
+
+  @Test(.dependencies) func closePaneDoesNotEqualizeWhenSettingIsOff() async throws {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.equalizeSplitsOnSplit = false }
+    let harness = await makeHarness()
+    let first = try await makeSkewedPair(harness)
+    let second = await splitPane(harness, anchor: first.paneID, direction: .down, mintIndex: 1, title: "Third")
+    harness.store.exhaustivity = .off
+    await harness.store.send(.closePane(id: second.paneID))
+    await harness.store.finish()
+    #expect(harness.store.state.layout.panes.count == 2)
+    #expect(rootRatio(harness) == 0.8)
+    #expect(harness.store.state.layout.isConsistent)
+  }
+
   @Test func toggleZoomTogglesTheLeaf() async {
     let harness = await makeHarness()
     let split = await splitPane(harness, anchor: harness.paneID)
