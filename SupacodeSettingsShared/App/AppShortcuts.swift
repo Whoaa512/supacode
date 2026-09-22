@@ -535,14 +535,13 @@ public enum AppShortcuts {
   public static let selectTab7 = AppShortcut(id: .selectTab(7), key: "7", modifiers: [.command])
   public static let selectTab8 = AppShortcut(id: .selectTab(8), key: "8", modifiers: [.command])
   public static let selectTab9 = AppShortcut(id: .selectTab(9), key: "9", modifiers: [.command])
-  // Relative tab cycling on Ghostty's layout-independent defaults (ctrl+tab).
+  // Relative tab cycling on Ghostty's macOS defaults (⌘⇧[ / ⌘⇧]), leaving
+  // ctrl+tab free for user Ghostty keybinds such as goto_split.
   public static let selectPreviousTab = AppShortcut(
-    id: .selectPreviousTab,
-    keyEquivalent: .tab, ghosttyKeyName: "tab", modifiers: [.control, .shift]
+    id: .selectPreviousTab, key: "[", modifiers: [.command, .shift]
   )
   public static let selectNextTab = AppShortcut(
-    id: .selectNextTab,
-    keyEquivalent: .tab, ghosttyKeyName: "tab", modifiers: [.control]
+    id: .selectNextTab, key: "]", modifiers: [.command, .shift]
   )
 
   public static let openWorktree = AppShortcut(id: .openWorktree, key: "o", modifiers: .command)

@@ -681,11 +681,14 @@ struct PaneWindowShortcutTests {
     )
   }
 
-  @Test func relativeTabCyclingShortcutsUseTabChords() {
-    #expect(AppShortcuts.selectNextTab.keyEquivalent.character == "\t")
-    #expect(AppShortcuts.selectNextTab.modifiers == [.control])
-    #expect(AppShortcuts.selectPreviousTab.keyEquivalent.character == "\t")
-    #expect(AppShortcuts.selectPreviousTab.modifiers == [.control, .shift])
+  @Test func relativeTabCyclingShortcutsUseBracketChords() {
+    #expect(AppShortcuts.selectNextTab.keyEquivalent.character == "]")
+    #expect(AppShortcuts.selectNextTab.modifiers == [.command, .shift])
+    #expect(AppShortcuts.selectPreviousTab.keyEquivalent.character == "[")
+    #expect(AppShortcuts.selectPreviousTab.modifiers == [.command, .shift])
+    let lines = Set(AppShortcuts.ghosttyKeybindConfigLines(from: [:]))
+    #expect(lines.contains("keybind = super+shift+left_bracket=unbind"))
+    #expect(lines.contains("keybind = super+shift+right_bracket=unbind"))
   }
 
   @Test func layoutAndTabSelectionChordsAreUnboundInGhostty() {
