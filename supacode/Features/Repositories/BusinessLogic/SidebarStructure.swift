@@ -457,6 +457,7 @@ extension RepositoriesFeature.Action {
       .setAllSidebarGroupsExpanded,
       .setMoveNotifiedWorktreeToTop,
       .worktreeLineChangesLoaded,
+      .worktreeLineChangesFinished,
       .consumeTerminalFocus:
       return .sidebarStructure
 

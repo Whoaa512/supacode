@@ -218,6 +218,11 @@ struct RepositoriesFeature {
     var githubIntegrationRecoveryAttempt = 0
     var pendingPullRequestRefreshByRepositoryID: [Repository.ID: PendingPullRequestRefresh] = [:]
     var inFlightPullRequestRefreshRepositoryIDs: Set<Repository.ID> = []
+    /// Worktrees with a `git diff` running, and those whose files changed mid-diff.
+    /// A huge worktree's diff must finish so its index gets refreshed; cancelling
+    /// and restarting on every file event leaves it pegged forever.
+    var inFlightLineChangesWorktreeIDs: Set<Worktree.ID> = []
+    var pendingLineChangesWorktreeIDs: Set<Worktree.ID> = []
     /// Forge serving each repository, cached from the last refresh resolution;
     /// drives forge vocabulary and capability gating in synchronous UI builds.
     var resolvedForgeByRepositoryID: [Repository.ID: ForgeID] = [:]
@@ -594,6 +599,7 @@ struct RepositoriesFeature {
     case worktreeInfoEvent(WorktreeInfoWatcherClient.Event)
     case worktreeBranchNameLoaded(worktreeID: Worktree.ID, name: String)
     case worktreeLineChangesLoaded(worktreeID: Worktree.ID, added: Int, removed: Int)
+    case worktreeLineChangesFinished(worktreeID: Worktree.ID)
     case refreshGithubIntegrationAvailability
     case githubIntegrationAvailabilityUpdated(Bool)
     case repositoryPullRequestRefreshCompleted(Repository.ID)
@@ -2691,6 +2697,13 @@ struct RepositoriesFeature {
           removed: removed,
         )
 
+      case .worktreeLineChangesFinished(let worktreeID):
+        state.inFlightLineChangesWorktreeIDs.remove(worktreeID)
+        guard state.pendingLineChangesWorktreeIDs.remove(worktreeID) != nil else {
+          return .none
+        }
+        return .send(.worktreeInfoEvent(.filesChanged(worktreeID: worktreeID)))
+
       case .repositoryPullRequestsLoaded(let repositoryID, let pullRequestsByWorktreeID):
         guard let repository = state.repositories[id: repositoryID] else {
           return .none
@@ -3466,6 +3479,12 @@ struct RepositoriesFeature {
           guard let worktree = state.worktree(for: worktreeID) else {
             return .none
           }
+          // One `git diff` per worktree at a time; a file event mid-diff queues
+          // exactly one follow-up instead of killing and restarting the process.
+          guard state.inFlightLineChangesWorktreeIDs.insert(worktreeID).inserted else {
+            state.pendingLineChangesWorktreeIDs.insert(worktreeID)
+            return .none
+          }
           let worktreeURL = worktree.workingDirectory
           let gitClient = gitClient(for: worktree)
           return .run { send in
@@ -3478,10 +3497,9 @@ struct RepositoriesFeature {
                 )
               )
             }
+            await send(.worktreeLineChangesFinished(worktreeID: worktreeID))
           }
-          // Coalesce overlapping diffs for the same worktree: a burst of
-          // reconcile / FS events can't stack `git diff` processes.
-          .cancellable(id: CancelID.worktreeLineChanges(worktreeID), cancelInFlight: true)
+          .cancellable(id: CancelID.worktreeLineChanges(worktreeID))
         case .repositoryPullRequestRefresh(let repositoryRootURL, let worktreeIDs, let trigger):
           // An automatic refresh is suppressed while the user has background
           // repository refresh off; a manual refresh always runs.
@@ -4748,6 +4766,7 @@ struct RepositoriesFeature {
 
       case .refreshGithubIntegrationAvailability, .githubIntegrationAvailabilityUpdated,
         .repositoryPullRequestRefreshCompleted, .worktreeBranchNameLoaded, .worktreeLineChangesLoaded,
+        .worktreeLineChangesFinished,
         .repositoryPullRequestsLoaded, .repositoryForgeResolved, .worktreePullRequestDetailLoaded,
         .forgeIntegrationDisabled, .pullRequestAction, .setGithubIntegrationEnabled, .setMergedWorktreeAction,
         .openSelectedWorktreePullRequest, .pullRequestOpenFetchLoaded, .pullRequestOpenFetchFailed,
