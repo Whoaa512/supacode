@@ -50,7 +50,7 @@ SELECT_DEVELOPER_DIR = DEVELOPER_DIR="$$(./scripts/select-developer-dir.sh)"; ex
 
 # Local-only: Xcode 26.4+ + TCA strict concurrency surfaces a spurious error
 # in TCA itself; SWIFT_VERSION=5 mitigates. Kept out of release archive flags.
-LOCAL_XCODEBUILD_FLAGS ?= $(shell xcodebuild -version 2>/dev/null | awk '/^Xcode 26\.[4-9]/{print "SWIFT_VERSION=5"}')
+LOCAL_XCODEBUILD_FLAGS ?= $(shell xcodebuild -version 2>/dev/null | awk '/^Xcode (26\.[4-9]|2[7-9]|[3-9][0-9])/{print "SWIFT_VERSION=5"}')
 
 .DEFAULT_GOAL := help
 .PHONY: doctor preflight build-ghostty-xcframework build-zmx smoke-zmx-replay generate-project generate-project-sources inspect-dependencies warm-cache build-app run-app compare-apps install-dev-build archive export-archive format lint check test bump-version bump-and-release log-stream
