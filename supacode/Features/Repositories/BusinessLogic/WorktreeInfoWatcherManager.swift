@@ -49,6 +49,7 @@ final class WorktreeFileEventMonitor {
       1.0,
       FSEventStreamCreateFlags(
         kFSEventStreamCreateFlagFileEvents
+          | kFSEventStreamCreateFlagUseCFTypes
           | kFSEventStreamCreateFlagNoDefer
           | kFSEventStreamCreateFlagWatchRoot
       )
