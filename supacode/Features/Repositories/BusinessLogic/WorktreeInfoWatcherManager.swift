@@ -6,7 +6,7 @@ import SupacodeSettingsShared
 
 private let watcherLogger = SupaLogger("WorktreeInfoWatcher")
 
-private final class WorktreeFileEventMonitor {
+final class WorktreeFileEventMonitor {
   let rootURLs: [URL]
   private let onEvent: @MainActor @Sendable () -> Void
   private nonisolated(unsafe) var stream: FSEventStreamRef?
@@ -29,8 +29,10 @@ private final class WorktreeFileEventMonitor {
       copyDescription: nil
     )
     context.info = Unmanaged.passUnretained(self).toOpaque()
-    let callback: FSEventStreamCallback = { _, callbackInfo, _, _, _, _ in
+    let callback: FSEventStreamCallback = { _, callbackInfo, count, eventPaths, _, _ in
       guard let callbackInfo else { return }
+      let paths = Unmanaged<CFArray>.fromOpaque(eventPaths).takeUnretainedValue() as? [String] ?? []
+      guard count == 0 || paths.contains(where: Self.isRelevant) else { return }
       let monitor = Unmanaged<WorktreeFileEventMonitor>
         .fromOpaque(callbackInfo)
         .takeUnretainedValue()
@@ -61,6 +63,18 @@ private final class WorktreeFileEventMonitor {
       self.stream = nil
       return nil
     }
+  }
+
+  /// Git's own bookkeeping must not re-trigger the diff that produced it: every
+  /// fsmonitor query drops a cookie file under `.git/fsmonitor--daemon/`, so
+  /// watching it made each `git diff` schedule the next one, forever.
+  nonisolated static func isRelevant(_ path: String) -> Bool {
+    let components = path.split(separator: "/")
+    guard let gitIndex = components.lastIndex(where: { $0 == ".git" || $0 == ".bare" }) else {
+      return true
+    }
+    let inner = components[(gitIndex + 1)...]
+    return !inner.contains("fsmonitor--daemon") && !inner.contains("objects")
   }
 
   deinit {

@@ -717,6 +717,17 @@ struct WorktreeInfoWatcherManagerTests {
     try FileManager.default.removeItem(at: linked.tempRoot)
   }
 
+  @Test func fileEventsIgnoreGitBookkeepingThatEveryDiffRewrites() {
+    #expect(!WorktreeFileEventMonitor.isRelevant("/r/.git/fsmonitor--daemon/cookies/abc"))
+    #expect(!WorktreeFileEventMonitor.isRelevant("/r/.git/objects/ab/cdef"))
+    #expect(!WorktreeFileEventMonitor.isRelevant("/r/.bare/objects/pack/x.pack"))
+    #expect(WorktreeFileEventMonitor.isRelevant("/r/.git/index"))
+    #expect(WorktreeFileEventMonitor.isRelevant("/r/.git/worktrees/wt/index"))
+    #expect(WorktreeFileEventMonitor.isRelevant("/r/.git/HEAD"))
+    #expect(WorktreeFileEventMonitor.isRelevant("/r/src/objects/main.swift"))
+    #expect(WorktreeFileEventMonitor.isRelevant("/r/src/fsmonitor--daemon.md"))
+  }
+
   @Test func fileEventRootsIsJustTheWorkingTreeForAnEmbeddedGitDir() throws {
     let tempWorktree = try makeTempWorktree()
     let manager = WorktreeInfoWatcherManager()
