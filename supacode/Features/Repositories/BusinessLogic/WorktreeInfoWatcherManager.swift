@@ -32,7 +32,7 @@ final class WorktreeFileEventMonitor {
     let callback: FSEventStreamCallback = { _, callbackInfo, count, eventPaths, _, _ in
       guard let callbackInfo else { return }
       let paths = Unmanaged<CFArray>.fromOpaque(eventPaths).takeUnretainedValue() as? [String] ?? []
-      guard count == 0 || paths.contains(where: Self.isRelevant) else { return }
+      guard count == 0 || paths.contains(where: WorktreeFileEventMonitor.isRelevant) else { return }
       let monitor = Unmanaged<WorktreeFileEventMonitor>
         .fromOpaque(callbackInfo)
         .takeUnretainedValue()
