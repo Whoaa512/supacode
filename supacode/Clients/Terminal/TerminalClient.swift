@@ -91,6 +91,8 @@ struct TerminalClient {
     case closeFocusedSurface(Worktree)
     case splitFocusedPane(Worktree, direction: TerminalSplitMenuDirection)
     case focusSplit(Worktree, direction: TerminalSplitMenuDirection)
+    /// Cycles focus to the next or previous pane in visual tree order, wrapping at the ends.
+    case focusRelativePane(Worktree, forward: Bool)
     case toggleSplitZoom(Worktree)
     case equalizeSplits(Worktree)
     /// Pane-addressed layout ops from the CLI / deeplinks. `paneToken` is a pane

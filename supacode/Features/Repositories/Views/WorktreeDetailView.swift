@@ -389,6 +389,9 @@ struct WorktreeDetailView: View {
       .focusedAction(\.focusSplitAction, enabled: hasActiveWorktree) { direction in
         store.send(.focusSplit(direction))
       }
+      .focusedAction(\.focusRelativePaneAction, enabled: hasActiveWorktree) { forward in
+        store.send(.focusRelativePane(forward: forward))
+      }
       .focusedAction(\.closeTabAction, enabled: hasActiveWorktree && hasFocusedTab) {
         store.send(.closeTab)
       }

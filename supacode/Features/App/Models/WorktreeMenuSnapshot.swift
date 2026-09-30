@@ -133,7 +133,7 @@ extension AppFeature.Action {
       .requestTerminateAllTerminalSessions, .newTerminal, .renameSelectedTerminalTab,
       .selectTerminalTabAtIndex, .selectNextTerminalTab, .selectPreviousTerminalTab,
       .splitTerminal, .toggleWindowModeForFocusedPane, .toggleSplitZoom,
-      .equalizeSplits, .focusSplit, .jumpToLatestUnread,
+      .equalizeSplits, .focusSplit, .focusRelativePane, .jumpToLatestUnread,
       .focusTerminalSurface, .closeTerminalSurface,
       .closeTerminalTab, .setTerminalGridPresented, .setTerminalGridFilter,
       .refreshTerminalGrid, .terminalGridJumpToSurface,

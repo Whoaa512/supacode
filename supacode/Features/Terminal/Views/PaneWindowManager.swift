@@ -103,6 +103,7 @@ enum PaneWindowShortcut {
       AppShortcuts.splitRight, AppShortcuts.splitLeft, AppShortcuts.splitDown, AppShortcuts.splitUp,
       AppShortcuts.focusSplitLeft, AppShortcuts.focusSplitRight,
       AppShortcuts.focusSplitUp, AppShortcuts.focusSplitDown,
+      AppShortcuts.focusNextPane, AppShortcuts.focusPreviousPane,
       AppShortcuts.toggleSplitZoom, AppShortcuts.equalizeSplits,
     ]
     if unavailable.contains(where: matched) {
@@ -614,6 +615,7 @@ private struct WindowedPaneRootView: View {
         // the selected worktree.
         .focusedAction(\.splitTerminalAction, enabled: false) { (_: TerminalSplitMenuDirection) in }
         .focusedAction(\.focusSplitAction, enabled: false) { (_: TerminalSplitMenuDirection) in }
+        .focusedAction(\.focusRelativePaneAction, enabled: false) { (_: Bool) in }
         .focusedAction(\.toggleSplitZoomAction, enabled: false) {}
         .focusedAction(\.equalizeSplitsAction, enabled: false) {}
         .focusedSceneAction(\.toggleWindowModeAction, enabled: true, token: paneID.rawValue) {

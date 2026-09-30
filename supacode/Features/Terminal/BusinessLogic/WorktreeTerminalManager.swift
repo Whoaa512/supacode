@@ -485,6 +485,24 @@ final class WorktreeTerminalManager {
     sendLayout(worktree.id, .selectTab(id: target.id))
   }
 
+  /// Focuses the next (or previous) pane in visual tree order, wrapping around.
+  /// Windowed panes are placeholders in the tree, so they are skipped like `focusSplit` does.
+  private func focusRelativePane(forward: Bool, in worktree: Worktree) {
+    guard let state = layoutState(for: worktree.id) else { return }
+    let layout = state.layout
+    let leaves = layout.tree.leaves().filter { !state.windowedPaneIDs.contains($0) }
+    guard leaves.count > 1,
+      let focusedID = layout.focusedPaneID,
+      let index = leaves.firstIndex(of: focusedID)
+    else { return }
+    let count = leaves.count
+    let target = leaves[forward ? (index + 1) % count : (index - 1 + count) % count]
+    if let selectedTab = layout.panes[id: target]?.selectedTabID {
+      sendLayout(worktree.id, .wakeTab(id: selectedTab))
+    }
+    sendLayout(worktree.id, .focusPane(.pane(target)))
+  }
+
   /// The tab ID when it exists in the worktree's layout, else nil.
   private func presentTab(_ tabID: TabID, in worktreeID: Worktree.ID) -> TabID? {
     layoutState(for: worktreeID)?.layout.pane(containingTab: tabID) != nil ? tabID : nil
@@ -506,7 +524,7 @@ final class WorktreeTerminalManager {
       .destroyTab, .destroySurface, .renameTab, .setImagePasteAgents, .prune, .removeWorktreeLayout,
       .setNotificationsEnabled, .enforceNotificationRetentionLimit, .setSelectedWorktreeID, .beginTabRename,
       .setTerminalHibernationEnabled, .toggleWindowModeForFocusedPane,
-      .splitFocusedPane, .focusSplit, .toggleSplitZoom, .equalizeSplits,
+      .splitFocusedPane, .focusSplit, .focusRelativePane, .toggleSplitZoom, .equalizeSplits,
       .splitPane, .focusPane, .closePane, .toggleZoomPane, .toggleWindowModeForPane, .moveTabToSplit:
       return false
     }
@@ -523,6 +541,8 @@ final class WorktreeTerminalManager {
       sendFocusedContentLayoutAction(worktree.id) {
         .contentRequestedFocusSplit(content: $0, direction: direction.focusSplitDirection)
       }
+    case .focusRelativePane(let worktree, let forward):
+      focusRelativePane(forward: forward, in: worktree)
     case .toggleSplitZoom(let worktree):
       sendFocusedContentLayoutAction(worktree.id) { .contentRequestedToggleZoom(content: $0) }
     case .equalizeSplits(let worktree):
@@ -600,7 +620,7 @@ final class WorktreeTerminalManager {
       .performBindingActionOnSurface, .setImagePasteAgents, .startSearch, .searchSelection, .navigateSearchNext,
       .navigateSearchPrevious, .selectTab, .selectTabAtIndex, .selectRelativeTab, .focusSurface,
       .splitSurface, .destroyTab, .destroySurface, .renameTab, .beginTabRename,
-      .splitFocusedPane, .focusSplit, .toggleSplitZoom, .equalizeSplits,
+      .splitFocusedPane, .focusSplit, .focusRelativePane, .toggleSplitZoom, .equalizeSplits,
       .splitPane, .focusPane, .closePane, .toggleZoomPane, .toggleWindowModeForPane, .moveTabToSplit:
       assertionFailure("Unhandled terminal command reached management handler: \(command)")
     }

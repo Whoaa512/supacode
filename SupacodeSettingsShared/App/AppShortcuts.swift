@@ -21,6 +21,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
   case newTerminalTab, closeTab
   case splitRight, splitLeft, splitDown, splitUp
   case focusSplitLeft, focusSplitRight, focusSplitUp, focusSplitDown
+  case focusNextPane, focusPreviousPane
   case toggleSplitZoom, equalizeSplits
   case jumpToLatestUnread
   case togglePullRequestInspector, toggleFilesInspector, toggleNotificationsInspector
@@ -92,6 +93,8 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     case .focusSplitRight: "focusSplitRight"
     case .focusSplitUp: "focusSplitUp"
     case .focusSplitDown: "focusSplitDown"
+    case .focusNextPane: "focusNextPane"
+    case .focusPreviousPane: "focusPreviousPane"
     case .toggleSplitZoom: "toggleSplitZoom"
     case .equalizeSplits: "equalizeSplits"
     case .jumpToLatestUnread: "jumpToLatestUnread"
@@ -150,6 +153,8 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     "focusSplitRight": .focusSplitRight,
     "focusSplitUp": .focusSplitUp,
     "focusSplitDown": .focusSplitDown,
+    "focusNextPane": .focusNextPane,
+    "focusPreviousPane": .focusPreviousPane,
     "toggleSplitZoom": .toggleSplitZoom,
     "equalizeSplits": .equalizeSplits,
     "selectNextTab": .selectNextTab,
@@ -231,6 +236,8 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     case .focusSplitRight: "Focus Split Right"
     case .focusSplitUp: "Focus Split Up"
     case .focusSplitDown: "Focus Split Down"
+    case .focusNextPane: "Focus Next Pane"
+    case .focusPreviousPane: "Focus Previous Pane"
     case .toggleSplitZoom: "Toggle Split Zoom"
     case .equalizeSplits: "Equalize Splits"
     case .jumpToLatestUnread: "Jump to Latest Unread"
@@ -584,6 +591,12 @@ public enum AppShortcuts {
     id: .focusSplitDown,
     keyEquivalent: .downArrow, ghosttyKeyName: "arrow_down", modifiers: [.command, .option]
   )
+  public static let focusNextPane = AppShortcut(
+    id: .focusNextPane, keyEquivalent: .tab, ghosttyKeyName: "tab", modifiers: [.control]
+  )
+  public static let focusPreviousPane = AppShortcut(
+    id: .focusPreviousPane, keyEquivalent: .tab, ghosttyKeyName: "tab", modifiers: [.control, .shift]
+  )
   public static let toggleSplitZoom = AppShortcut(
     id: .toggleSplitZoom,
     keyEquivalent: .return, ghosttyKeyName: "enter", modifiers: [.command, .shift]
@@ -677,6 +690,7 @@ public enum AppShortcuts {
       shortcuts: [
         splitRight, splitLeft, splitDown, splitUp,
         focusSplitLeft, focusSplitRight, focusSplitUp, focusSplitDown,
+        focusNextPane, focusPreviousPane,
         toggleSplitZoom, equalizeSplits, toggleWindowMode,
       ]
     ),

@@ -335,6 +335,7 @@ struct AppFeature {
     case toggleSplitZoom
     case equalizeSplits
     case focusSplit(TerminalSplitMenuDirection)
+    case focusRelativePane(forward: Bool)
     case selectTerminalTabAtIndex(Int)
     case selectNextTerminalTab
     case selectPreviousTerminalTab
@@ -1196,6 +1197,16 @@ struct AppFeature {
           await terminalClient.send(.focusSplit(worktree, direction: direction))
         }
 
+      case .focusRelativePane(let forward):
+        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID),
+          !worktree.isMissing
+        else {
+          return .none
+        }
+        return .run { _ in
+          await terminalClient.send(.focusRelativePane(worktree, forward: forward))
+        }
+
       case .jumpToLatestUnread:
         guard let location = terminalClient.latestUnreadNotification() else {
           jumpLogger.debug("jumpToLatestUnread invoked with no unread notifications.")
@@ -1866,6 +1877,10 @@ struct AppFeature {
           return .send(.focusSplit(.down))
         case .focusSplitUp:
           return .send(.focusSplit(.up))
+        case .focusNextPane:
+          return .send(.focusRelativePane(forward: true))
+        case .focusPreviousPane:
+          return .send(.focusRelativePane(forward: false))
         case .toggleSplitZoom:
           return .send(.toggleSplitZoom)
         case .equalizeSplits:

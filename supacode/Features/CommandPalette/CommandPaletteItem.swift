@@ -235,6 +235,8 @@ enum LayoutPaletteCommand: String, CaseIterable, Equatable, Sendable {
   case focusSplitLeft = "focus-split-left"
   case focusSplitDown = "focus-split-down"
   case focusSplitUp = "focus-split-up"
+  case focusNextPane = "focus-next-pane"
+  case focusPreviousPane = "focus-previous-pane"
   case toggleSplitZoom = "toggle-split-zoom"
   case equalizeSplits = "equalize-splits"
 
@@ -250,6 +252,8 @@ enum LayoutPaletteCommand: String, CaseIterable, Equatable, Sendable {
     case .focusSplitLeft: "Focus Split Left"
     case .focusSplitDown: "Focus Split Down"
     case .focusSplitUp: "Focus Split Up"
+    case .focusNextPane: "Focus Next Pane"
+    case .focusPreviousPane: "Focus Previous Pane"
     case .toggleSplitZoom: "Toggle Split Zoom"
     case .equalizeSplits: "Equalize Splits"
     }
@@ -268,6 +272,8 @@ enum LayoutPaletteCommand: String, CaseIterable, Equatable, Sendable {
     case .focusSplitLeft: "arrow.left"
     case .focusSplitDown: "arrow.down"
     case .focusSplitUp: "arrow.up"
+    case .focusNextPane: "arrow.right.square"
+    case .focusPreviousPane: "arrow.left.square"
     case .toggleSplitZoom: "arrow.up.left.and.arrow.down.right"
     case .equalizeSplits: "rectangle.split.2x1"
     }
@@ -286,6 +292,8 @@ enum LayoutPaletteCommand: String, CaseIterable, Equatable, Sendable {
     case .focusSplitLeft: AppShortcuts.focusSplitLeft
     case .focusSplitDown: AppShortcuts.focusSplitDown
     case .focusSplitUp: AppShortcuts.focusSplitUp
+    case .focusNextPane: AppShortcuts.focusNextPane
+    case .focusPreviousPane: AppShortcuts.focusPreviousPane
     case .toggleSplitZoom: AppShortcuts.toggleSplitZoom
     case .equalizeSplits: AppShortcuts.equalizeSplits
     }

@@ -13,6 +13,7 @@ struct TerminalCommands: Commands {
   @FocusedValue(\.toggleSplitZoomAction) private var toggleSplitZoomAction
   @FocusedValue(\.equalizeSplitsAction) private var equalizeSplitsAction
   @FocusedValue(\.focusSplitAction) private var focusSplitAction
+  @FocusedValue(\.focusRelativePaneAction) private var focusRelativePaneAction
   @FocusedValue(\.startSearchAction) private var startSearchAction
   @FocusedValue(\.searchSelectionAction) private var searchSelectionAction
   @FocusedValue(\.navigateSearchNextAction) private var navigateSearchNextAction
@@ -55,6 +56,21 @@ struct TerminalCommands: Commands {
         }
         .appKeyboardShortcut(direction.focusAppShortcut.effective(from: overrides))
         .disabled(focusSplitAction?.isEnabled != true)
+      }
+
+      RelativePaneFocusButton(
+        title: "Focus Next Pane", systemImage: "arrow.right.square",
+        shortcut: AppShortcuts.focusNextPane, overrides: overrides,
+        isEnabled: focusRelativePaneAction?.isEnabled == true
+      ) {
+        focusRelativePaneAction?(true)
+      }
+      RelativePaneFocusButton(
+        title: "Focus Previous Pane", systemImage: "arrow.left.square",
+        shortcut: AppShortcuts.focusPreviousPane, overrides: overrides,
+        isEnabled: focusRelativePaneAction?.isEnabled == true
+      ) {
+        focusRelativePaneAction?(false)
       }
 
       Button("Toggle Split Zoom", systemImage: "arrow.up.left.and.arrow.down.right") {
@@ -183,6 +199,27 @@ private struct RelativeTabSelectionButton: View {
   }
 }
 
+private struct RelativePaneFocusButton: View {
+  let title: String
+  let systemImage: String
+  let shortcut: AppShortcut
+  let overrides: [AppShortcutID: AppShortcutOverride]
+  let isEnabled: Bool
+  let action: () -> Void
+
+  var body: some View {
+    let effective = shortcut.effective(from: overrides)
+    Button(title, systemImage: systemImage) {
+      // Holding the chord would otherwise cycle past the intended pane.
+      guard NSApp.currentEvent?.isAutoRepeatKeyDown != true else { return }
+      action()
+    }
+    .appKeyboardShortcut(effective)
+    .help("\(title) (\(effective?.display ?? "no shortcut"))")
+    .disabled(!isEnabled)
+  }
+}
+
 private struct NewTerminalActionKey: FocusedValueKey {
   typealias Value = FocusedAction<Void>
 }
@@ -219,6 +256,11 @@ private struct FocusSplitActionKey: FocusedValueKey {
   typealias Value = FocusedAction<TerminalSplitMenuDirection>
 }
 
+/// Payload is `forward`: true cycles to the next pane, false to the previous.
+private struct FocusRelativePaneActionKey: FocusedValueKey {
+  typealias Value = FocusedAction<Bool>
+}
+
 private struct RenameTabActionKey: FocusedValueKey {
   typealias Value = FocusedAction<Void>
 }
@@ -242,6 +284,11 @@ extension FocusedValues {
   var focusSplitAction: FocusedAction<TerminalSplitMenuDirection>? {
     get { self[FocusSplitActionKey.self] }
     set { self[FocusSplitActionKey.self] = newValue }
+  }
+
+  var focusRelativePaneAction: FocusedAction<Bool>? {
+    get { self[FocusRelativePaneActionKey.self] }
+    set { self[FocusRelativePaneActionKey.self] = newValue }
   }
 
   var renameTabAction: FocusedAction<Void>? {

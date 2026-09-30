@@ -5857,7 +5857,7 @@ extension RepositoriesFeature.State {
     expandedRepositoryIDs.contains(repositoryID)
   }
 
-  // Menu/UI enablement for ⌘⌃← / ⌘⌃→. Raw `!isEmpty` lies whenever
+  // Menu/UI enablement for ⌘[ / ⌘]. Raw `!isEmpty` lies whenever
   // the back/forward stack contains only stale ids (worktrees
   // archived/deleted between visits) or a self-referential entry
   // equal to the current selection — both get drained silently by
