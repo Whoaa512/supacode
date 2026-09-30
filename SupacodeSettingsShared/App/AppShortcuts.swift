@@ -468,7 +468,9 @@ public enum AppShortcuts {
   public static let checkForUpdates = AppShortcut(id: .checkForUpdates, key: "u", modifiers: .command)
   public static let showMainWindow = AppShortcut(id: .showMainWindow, key: "0", modifiers: [.command, .shift])
 
-  public static let toggleLeftSidebar = AppShortcut(id: .toggleLeftSidebar, key: "[", modifiers: .command)
+  // ⌘⌥S (Finder/Xcode convention) so ⌘[ / ⌘] stay free for browser-style
+  // worktree history navigation.
+  public static let toggleLeftSidebar = AppShortcut(id: .toggleLeftSidebar, key: "s", modifiers: [.command, .option])
   public static let revealInSidebar = AppShortcut(id: .revealInSidebar, key: "e", modifiers: [.command, .shift])
   // Toggles the sidebar between the Agents and Worktrees panels. ⌘⇧A is free:
   // ⌘⇧B is branch search and ⌘⌃A is archived worktrees.
@@ -476,7 +478,7 @@ public enum AppShortcuts {
     id: .toggleAgentsSidebarTab, key: "a", modifiers: [.command, .shift]
   )
   // `]` expands (opens rightward), `[` collapses, mirroring the outline-view
-  // Right/Left arrow convention, and pairs with ⌘[ for the sidebar toggle.
+  // Right/Left arrow convention.
   public static let expandAllSidebarGroups = AppShortcut(
     id: .expandAllSidebarGroups, key: "]", modifiers: [.command, .control]
   )
@@ -507,14 +509,9 @@ public enum AppShortcuts {
     id: .selectPreviousWorktree,
     keyEquivalent: .upArrow, ghosttyKeyName: "arrow_up", modifiers: [.command, .control]
   )
-  public static let worktreeHistoryBack = AppShortcut(
-    id: .worktreeHistoryBack,
-    keyEquivalent: .leftArrow, ghosttyKeyName: "arrow_left", modifiers: [.command, .control]
-  )
-  public static let worktreeHistoryForward = AppShortcut(
-    id: .worktreeHistoryForward,
-    keyEquivalent: .rightArrow, ghosttyKeyName: "arrow_right", modifiers: [.command, .control]
-  )
+  // Browser-style back/forward through recently selected worktrees.
+  public static let worktreeHistoryBack = AppShortcut(id: .worktreeHistoryBack, key: "[", modifiers: .command)
+  public static let worktreeHistoryForward = AppShortcut(id: .worktreeHistoryForward, key: "]", modifiers: .command)
 
   public static let selectWorktree1 = AppShortcut(id: .selectWorktree(1), key: "1", modifiers: [.control])
   public static let selectWorktree2 = AppShortcut(id: .selectWorktree(2), key: "2", modifiers: [.control])

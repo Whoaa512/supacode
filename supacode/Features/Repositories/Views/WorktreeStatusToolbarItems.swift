@@ -3,7 +3,7 @@ import SupacodeSettingsShared
 import SwiftUI
 
 /// Leading toolbar back/forward pair that steps through worktree selection
-/// history, mirroring the ⌘⌃←/→ commands. Enablement and actions are injected
+/// history, mirroring the ⌘[/⌘] commands. Enablement and actions are injected
 /// so the view stays store-agnostic.
 struct WorktreeHistoryToolbarButtons: View {
   let canGoBack: Bool

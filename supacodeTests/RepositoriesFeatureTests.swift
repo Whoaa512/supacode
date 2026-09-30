@@ -8997,7 +8997,7 @@ struct RepositoriesFeatureTests {
     // Regression for the "ghost back press" surfaced in review:
     // before `restoreSelection` sanitized the back stack, the
     // failure path left [wt1] on the back stack with selection==wt1.
-    // Pressing ⌘⌃← would short-circuit and silently drain. Now
+    // Pressing ⌘[ would short-circuit and silently drain. Now
     // restoreSelection strips its own match so the stack matches
     // the user's expectation that the failed create was a no-op.
     let repoRoot = "/tmp/repo"
@@ -9134,7 +9134,7 @@ struct RepositoriesFeatureTests {
     // it must report false for stacks that contain only stale ids
     // (worktrees deleted between visits) or a self-referential
     // entry equal to the current selection. Otherwise the menu
-    // shows enabled but ⌘⌃← is a no-op.
+    // shows enabled but ⌘[ is a no-op.
     let wt1 = makeWorktree(id: "/tmp/wt1", name: "alpha")
     let repository = makeRepository(id: "/tmp/repo", worktrees: [wt1])
     var state = makeState(repositories: [repository])
