@@ -298,6 +298,7 @@ struct AgentPresenceFeature {
     guard let agent = SkillAgent(rawValue: event.agent) else { return apply(event: event, into: &state) }
     let key = PresenceKey(agent: agent, surfaceID: event.surfaceID)
     let before = state.records[key]?.activity
+    let previousRef = state.records[key]?.sessionRef
     let changed = apply(event: event, into: &state)
     // A live record means the agent is running, so any resume offer for it is
     // stale: it either came back on its own or the user already resumed it.
@@ -312,7 +313,7 @@ struct AgentPresenceFeature {
     // (every tool call) can't erase the session we'd resume.
     if let sessionRef = event.sessionRef { record.sessionRef = sessionRef }
     state.records[key] = record
-    return changed
+    return previousRef == record.sessionRef ? changed : changed.union([key.surfaceID])
   }
 
   /// Returns the surface IDs whose row-visible state changed, so the parent can fan

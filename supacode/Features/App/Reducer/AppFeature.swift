@@ -419,6 +419,7 @@ struct AppFeature {
         let startupHotkey = state.settings.globalToggleVisibilityHotkey
         var effects: [Effect<Action>] = [
           refreshInstalledOpenActionsEffect(current: state.installedOpenActions),
+          .send(.repositories(.sessionsStarted)),
           .send(.repositories(.task)),
           .send(.settings(.task)),
           .send(.terminals(.task)),
@@ -570,6 +571,11 @@ struct AppFeature {
           #endif
           return .merge(cancelEffects)
         }
+
+      case .repositories(.delegate(.focusSession(let location))):
+        return .send(.focusTerminalSurface(
+          worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID
+        ))
 
       case .repositories(.delegate(.selectedWorktreeChanged(let worktree))):
         let lastFocusedWorktreeID = worktree?.id
@@ -2245,7 +2251,10 @@ struct AppFeature {
         return .merge(presenceEffect, ackEffect)
 
       case .terminalEvent(.agentHookEventReceived(let event)):
-        return .send(.agentPresence(.hookEventReceived(event)))
+        let refresh: Effect<Action> =
+          event.eventName == .idle || event.eventName == .sessionStart || event.eventName == .sessionEnd
+          ? .send(.repositories(.sessionsRefreshRequested)) : .none
+        return .merge(.send(.agentPresence(.hookEventReceived(event))), refresh)
 
       // The user is looking at this surface, so whatever was parked on them there
       // is acknowledged. Scoped to the focused surface, so a broken session in
@@ -2284,6 +2293,7 @@ struct AppFeature {
     .ifLet(\.$deeplinkInputConfirmation, action: \.deeplinkInputConfirmation) {
       DeeplinkInputConfirmationFeature()
     }
+    sessionsLinkReducer
     Reduce { state, action in
       // Cold-path gate. Without this, an agent storm fires
       // `recomputeWorktreeMenuSnapshotIfChanged` hundreds of times per second
