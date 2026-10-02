@@ -1,0 +1,29 @@
+import Foundation
+import SupacodeSettingsShared
+
+nonisolated protocol SessionSource: Sendable {
+  func sessions() async throws -> [SessionSummary]
+  func resumeCommand(sessionID: String) -> String?
+}
+
+nonisolated struct SessionKey: Hashable, Codable, Sendable, RawRepresentable {
+  let rawValue: String
+
+  init(rawValue: String) { self.rawValue = rawValue }
+
+  init(harness: SkillAgent, sessionID: String) {
+    rawValue = "\(harness.rawValue):\(sessionID)"
+  }
+}
+
+nonisolated struct SessionSummary: Equatable, Codable, Sendable, Identifiable {
+  var harness: SkillAgent
+  var sessionID: String
+  var createdAt: Date
+  var cwd: String
+  var title: String
+  var messageCount: Int
+  var lastActivity: Date
+
+  var id: SessionKey { SessionKey(harness: harness, sessionID: sessionID) }
+}

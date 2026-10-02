@@ -251,6 +251,10 @@ public nonisolated enum SupacodePaths {
     baseDirectory.appending(path: "settings.json", directoryHint: .notDirectory)
   }
 
+  public static var sessionsURL: URL {
+    baseDirectory.appending(path: "sessions.json", directoryHint: .notDirectory)
+  }
+
   /// Legacy `~/.supacode/sidebar.json`, read once by the relocation migrator.
   public static var legacySidebarURL: URL {
     baseDirectory.appending(path: "sidebar.json", directoryHint: .notDirectory)

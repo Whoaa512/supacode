@@ -7,7 +7,7 @@ import SupacodeSettingsShared
 /// Only the agents whose CLI documents a resume-by-id flag are listed. An agent
 /// that isn't listed reports `nil`, which the whole resume path reads as "no
 /// offer" — never as "guess a command".
-enum AgentResumeCommand {
+nonisolated enum AgentResumeCommand {
   /// The shell command that reattaches `agent` to `sessionRef`, or nil when the
   /// agent has no resume-by-id CLI or the ref isn't a shape we'd put on a
   /// command line.
