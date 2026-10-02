@@ -194,6 +194,9 @@ struct AppFeature {
     /// timeout action can't fire against a dialog that recycled the same fd.
     var confirmationGeneration: Int = 0
     var appLifecycleEventDebouncer = AppLifecycleEventDebouncer()
+    /// One-at-a-time dormant session resume request waiting for folder
+    /// registration or cwd validation to complete before launching.
+    var pendingSessionLaunch: PendingSessionLaunch?
 
     init(
       repositories: RepositoriesFeature.State = .init(),

@@ -62,11 +62,30 @@ extension RepositoriesFeature {
         return .none
 
       case .activateSession(let id), .sessionItems(.element(id: let id, action: .activate)):
-        guard let row = state.sessionItems[id: id], let location = row.location else {
-          return .none
-        }
+        guard let row = state.sessionItems[id: id] else { return .none }
         state.sessionSelection = id
-        return .send(.delegate(.focusSession(location)))
+        if let location = row.location {
+          return .send(.delegate(.focusSession(location)))
+        }
+        // Dormant row: delegate resume to App which owns cwd validation and
+        // createTabWithInput orchestration.
+        if case .session(let key) = id {
+          return .send(.delegate(.resumeSession(key)))
+        }
+        return .none
+
+      case .sessionBranchCaptured(let key, let branch):
+        guard !branch.isEmpty else { return .none }
+        state.$sessions.withLock { sidecar in
+          var entry = sidecar[key] ?? SessionSidecarEntry()
+          guard !entry.branches.contains(branch) else { return }
+          entry.recordBranch(branch)
+          sidecar[key] = entry
+        }
+        return .none
+
+      case .registerSessionFolder:
+        return .none
 
       default:
         return .none
