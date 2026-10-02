@@ -445,7 +445,8 @@ extension RepositoriesFeature.Action {
     case .sessionsCacheLoaded, .sessionsRefreshCompleted, .sessionSnapshotsChanged:
       return .sessionsStructure
     case .sessionItems, .sessionsStarted, .sessionsSidebarShown, .sessionsRefreshRequested,
-      .sessionsRefreshDebounced, .sessionsRefreshFailed, .sessionSelectionChanged, .activateSession:
+      .sessionsRefreshDebounced, .sessionsRefreshFailed, .sessionSelectionChanged, .activateSession,
+      .registerSessionFolder, .sessionBranchCaptured:
       return []
     case .sidebarItems(.element(id: _, action: let inner)):
       return inner.cacheInvalidations

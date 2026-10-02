@@ -328,6 +328,7 @@ struct RepositoriesFeature {
     var sessionSummaries: [SessionSummary] = []
     var sessionSnapshots: [SessionLiveSnapshot] = []
     @Shared(.sessions) var sessions: SessionSidecar
+    @Shared(.sessionFolderRoots) var sessionFolderRoots: [String]
     var sessionsStarted = false
     var sessionsRefreshInFlight = false
     var sessionsRefreshPending = false
@@ -401,6 +402,8 @@ struct RepositoriesFeature {
     case sessionSnapshotsChanged([SessionLiveSnapshot])
     case sessionSelectionChanged(SessionRowID?)
     case activateSession(SessionRowID)
+    case registerSessionFolder(URL)
+    case sessionBranchCaptured(key: SessionKey, branch: String)
     case sidebarItems(IdentifiedActionOf<SidebarItemFeature>)
     case task
     /// Fired by `SidebarListView.onChange` whenever `@Shared(.sidebarGroupPinnedRows)`
@@ -732,6 +735,7 @@ struct RepositoriesFeature {
   @CasePathable
   enum Delegate: Equatable {
     case focusSession(SessionLocation)
+    case resumeSession(SessionKey)
     case selectedWorktreeChanged(Worktree?)
     case repositoriesChanged(IdentifiedArrayOf<Repository>)
     case openRepositorySettings(Repository.ID)
@@ -1929,6 +1933,11 @@ struct RepositoriesFeature {
         @Shared(.remoteRepositoryRoots) var remoteRepositoryRoots
         if remoteRepositoryRoots.contains(where: { idSet.contains(RepositoryID($0)) }) {
           $remoteRepositoryRoots.withLock { roots in
+            roots.removeAll { idSet.contains(RepositoryID($0)) }
+          }
+        }
+        if state.sessionFolderRoots.contains(where: { idSet.contains(RepositoryID($0)) }) {
+          state.$sessionFolderRoots.withLock { roots in
             roots.removeAll { idSet.contains(RepositoryID($0)) }
           }
         }
@@ -3944,8 +3953,13 @@ struct RepositoriesFeature {
         let previousSelection = state.selectedWorktreeID
         let previousSelectedWorktree = state.worktree(for: previousSelection)
         let mergedRemote = Self.mergePersistedRemoteRepositories(into: repositories, existingState: state)
+        // Inject session folder roots that were registered at runtime but
+        // are not in the standard git-classified load (exact-cwd folder repos
+        // that may live inside a git repo tree).
+        let allRepositories = Self.mergeSessionFolderRepositories(
+          state.sessionFolderRoots, into: mergedRemote.repositories)
         _ = applyRepositories(
-          mergedRemote.repositories,
+          allRepositories,
           roots: roots,
           // Keep archived curation while git is environment-blocked: the
           // suppressed repos' worktrees are absent from the roster.
@@ -4938,8 +4952,12 @@ struct RepositoriesFeature {
 
       case .sessionItems, .sessionsStarted, .sessionsCacheLoaded, .sessionsSidebarShown,
         .sessionsRefreshRequested, .sessionsRefreshDebounced, .sessionsRefreshCompleted,
-        .sessionsRefreshFailed, .sessionSnapshotsChanged, .sessionSelectionChanged, .activateSession:
+        .sessionsRefreshFailed, .sessionSnapshotsChanged, .sessionSelectionChanged, .activateSession,
+        .sessionBranchCaptured:
         return .none
+
+      case .registerSessionFolder(let url):
+        return Self.handleRegisterSessionFolder(url, state: &state)
 
       case .sidebarItems:
         return .none
@@ -7226,5 +7244,80 @@ extension String {
   /// Returns the remote name if this ref starts with `<remote>/`, matched against known remotes.
   fileprivate nonisolated func matchingRemote(from remotes: [String]) -> String? {
     GitReferenceQueries.remotePrefixMatch(ref: self, remoteNames: remotes)?.remote
+  }
+}
+
+// MARK: - Session folder helpers
+
+extension RepositoriesFeature {
+  /// Synthesises a forced-folder repository for `url`, records the path in
+  /// `sessionFolderRoots`, merges it into the live roster and broadcasts
+  /// `repositoriesChanged`.  No-ops if the cwd already has a worktree.
+  static func handleRegisterSessionFolder(_ url: URL, state: inout State) -> Effect<Action> {
+    let standardized = url.standardizedFileURL
+    let repoID = RepositoryID(standardized.path(percentEncoded: false))
+    // Guard exact-path duplicate (git-classified repos have a different ID).
+    guard state.repositories[id: repoID] == nil else {
+      return .send(.delegate(.repositoriesChanged(state.repositories)))
+    }
+    // Also guard if any existing worktree has this exact working directory.
+    let exists = state.repositories.flatMap(\.worktrees).contains {
+      $0.workingDirectory.standardizedFileURL == standardized
+    }
+    guard !exists else {
+      return .send(.delegate(.repositoriesChanged(state.repositories)))
+    }
+    let repo = makeFolderRepository(for: standardized)
+    state.repositories.append(repo)
+    let path = standardized.path(percentEncoded: false)
+    state.$sessionFolderRoots.withLock { roots in
+      if !roots.contains(path) { roots.append(path) }
+    }
+    return .send(.delegate(.repositoriesChanged(state.repositories)))
+  }
+
+  /// Builds the forced-folder `Repository` + synthetic worktree for `root`.
+  static func makeFolderRepository(for root: URL) -> Repository {
+    let repoID = RepositoryID(root.path(percentEncoded: false))
+    let synthetic = Worktree(
+      id: Repository.folderWorktreeID(for: root),
+      kind: .folder,
+      name: Repository.name(for: root),
+      detail: "",
+      workingDirectory: root,
+      repositoryRootURL: root,
+      isAttached: false
+    )
+    return Repository(
+      id: repoID,
+      rootURL: root,
+      name: Repository.name(for: root),
+      worktrees: IdentifiedArray(uniqueElements: [synthetic]),
+      isGitRepository: false
+    )
+  }
+
+  /// Injects any `sessionFolderRoots` paths that are not yet present in
+  /// `repositories` as forced-folder repos.  Called from `openRepositoriesFinished`
+  /// before the final `applyRepositories` pass.
+  static func mergeSessionFolderRepositories(
+    _ folderRoots: [String],
+    into repositories: [Repository]
+  ) -> [Repository] {
+    let existingRootIDs = Set(repositories.map(\.id))
+    let existingWorktreeRoots = Set(
+      repositories.flatMap(\.worktrees)
+        .map { $0.workingDirectory.standardizedFileURL.path(percentEncoded: false) }
+    )
+    var merged = repositories
+    for path in folderRoots {
+      let url = URL(fileURLWithPath: path).standardizedFileURL
+      let repoID = RepositoryID(url.path(percentEncoded: false))
+      guard !existingRootIDs.contains(repoID),
+        !existingWorktreeRoots.contains(url.path(percentEncoded: false))
+      else { continue }
+      merged.append(makeFolderRepository(for: url))
+    }
+    return merged
   }
 }
