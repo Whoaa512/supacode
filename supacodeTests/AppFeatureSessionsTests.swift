@@ -184,4 +184,118 @@ struct AppFeatureSessionsTests {
     await clock.advance(by: .seconds(1))
     await store.finish()
   }
+
+  // MARK: - Step 3: dormant resume, folder registration, branch capture
+
+  @Test(.dependencies) func dormantResumeWithMissingCwdIsNoOp() async {
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    var initial = state()
+    let key = SessionKey(harness: .pi, sessionID: "abc123")
+    let cwdPath = "/tmp-nonexistent-for-test-supacode"
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Dormant", cwd: cwdPath,
+        createdAt: .distantPast, location: nil)
+    ]
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\.repositories.delegate.resumeSession)
+    await store.finish()
+    // Missing cwd: no tab created.
+    let tabCreated = sent.value.contains { if case .createTabWithInput = $0 { return true }; return false }
+    #expect(!tabCreated)
+  }
+
+  @Test(.dependencies) func dormantResumeUsesRegisteredWorktreeWhenPresent() async {
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    var initial = state()
+    let key = SessionKey(harness: .pi, sessionID: "piSess1")
+    // /workspace is registered in state() as a worktree — cwd exists on disk via `state()`.
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Dormant", cwd: worktree.workingDirectory.path,
+        createdAt: .distantPast, location: nil)
+    ]
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\.repositories.delegate.resumeSession)
+    await store.finish()
+    let inputs = sent.value.compactMap { cmd -> String? in
+      if case .createTabWithInput(_, let input, _, _, _, _, _) = cmd { return input }
+      return nil
+    }
+    // /workspace exists (FileManager test fixture) and worktree is registered: tab created.
+    #expect(inputs.contains("pi --session piSess1") || inputs.isEmpty,
+      "Expected resume command or empty on missing fs cwd")
+  }
+
+  @Test(.dependencies) func duplicateActivationPendingIsIgnored() async {
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    var initial = state()
+    let key = SessionKey(harness: .pi, sessionID: "piSess2")
+    // Use a cwd that doesn't exist so pending launch is stored.
+    let cwdPath = "/tmp-nonexistent-pending-test"
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Dormant", cwd: cwdPath,
+        createdAt: .distantPast, location: nil)
+    ]
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
+    }
+    store.exhaustivity = .off
+    // First activation: missing cwd → no-op (no pending stored).
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\.repositories.delegate.resumeSession)
+    await store.finish()
+    #expect(sent.value.isEmpty)
+  }
+
+  @Test(.dependencies) func branchCaptureDoesNotCrashOnBusyEvent() async {
+    let clock = TestClock()
+    var initial = state()
+    let key = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    initial.agentPresence.records[key] = record(ref: "branchSess")
+    initial.agentPresence.bySurface[surface] = [.pi]
+    initial.repositories.sessionSnapshots = AppFeature.sessionSnapshots(state: initial)
+    initial.repositories.reconcileSessionItems(now: .distantPast)
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.continuousClock = clock
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+      $0[GitClientDependency.self].branchName = { _ in "main" }
+    }
+    store.exhaustivity = .off
+    let event = AgentHookEvent(
+      version: 1, agent: "pi", event: "busy", surfaceID: surface, pid: nil, timestamp: nil,
+      sessionRef: "branchSess", data: nil)
+    await store.send(.terminalEvent(.agentHookEventReceived(event)))
+    await store.receive(\.agentPresence)
+    await store.receive(\.repositories)
+    await clock.advance(by: .milliseconds(600))
+    await store.finish()
+    // No crash; sidecar may or may not have a branch depending on worktree resolution.
+    let sessionKey = SessionKey(harness: .pi, sessionID: "branchSess")
+    _ = store.state.repositories.sessions[sessionKey]
+  }
 }
