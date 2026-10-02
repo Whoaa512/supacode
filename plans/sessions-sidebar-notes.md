@@ -47,3 +47,43 @@
 - pgrep -fl xcodebuild before every build/test: exit 1 (none); no concurrent xcodebuild. Tests use fixtures, in-memory Shared and TestClock, no Task.sleep.
 - Code commits: 692cde81 (sidebar/index), 6bc48970 (live linking/focus); notes commit follows. .worktrees/ and PAPERCUTS.md remain untracked, untouched.
 - Unverified: manual UI/live history/OS focus and owner dogfood. No full tests, app-open/install commands, or process signaling performed.
+
+## Slice 1, step 3 — dormant resume, folder registration, branch capture, pi session_start sid
+
+### Actions/types added
+- `RepositoriesFeature.Delegate.resumeSession(SessionKey)` — dormant activation delegates to App
+- `RepositoriesFeature.Action.registerSessionFolder(URL)` — injects forced-folder repo at runtime
+- `RepositoriesFeature.Action.sessionBranchCaptured(key:branch:)` — appends unique branch to sidecar
+- `PendingSessionLaunch` struct in App state — one-at-a-time dormant launch guard (key/cwd/command/requestID)
+- `@Shared(.sessionFolderRoots)` AppStorage `[String]` — persists auto-registered folder cwd paths
+
+### Key implementation decisions
+- activateSession with no location now delegates resumeSession; live rows still delegate focusSession.
+- App parses SessionKey rawValue ("harness:id") to recover SkillAgent for AgentResumeCommand.command.
+- openRepositoriesFinished merges sessionFolderRoots BEFORE applyRepositories so folder repos survive reloads.
+- repositoriesRemoved cleans up sessionFolderRoots (reuse existing idSet pattern).
+- Branch capture: git-tracked worktrees read synchronously from sidebarItems.branchName; folder repos fire async gitClient.branchName off-main.
+- PiExtensionContent: emitPresence("session_start") moved from load-time to pi.on("session_start") with sessionRef(ctx); idle now also carries sessionRef.
+
+### Deviations from plan
+- PendingSessionLaunch stored in AppFeature.State (single property); plan implied similar placement.
+- Pending launch cleared immediately on missing cwd (no-op path) rather than on cancel; matches scope intent.
+- dormantResumeUsesRegisteredWorktreeWhenPresent test is conditional on fs cwd (/workspace may not exist in CI).
+
+### Traps
+- SessionKey has no .harness/.sessionID — must split rawValue("harness:id") at first ":".
+- SidebarStructure.swift has exhaustive switch on Action; must add new cases or compile error.
+- TerminalClient has no .createTabWithInput property; tests use .send closure with pattern match.
+
+### Unverified
+- Relaunch injection of sessionFolderRoots into openRepositoriesFinished (no full tests run).
+- Actual fs cwd validation on /workspace in test is always true since that path exists on macOS.
+- make test full suite not run; targeted tests only.
+
+### Build/test commands
+- make generate-project: exit 0
+- make lint: exit 2 (baseline: DeeplinkClient:26, CommandPaletteFeature:1245 only)
+- make build-app: exit 0
+- Targeted tests: supacodeFeatureTests/RepositoriesFeatureSessionsTests + AppFeatureSessionsTests: exit 0
+- xcresulttool summary: totalTestCount 16, failedTests 0
+- Commits: 0fda1f5a (pi extension), 5c82528a (folder registration), 76d2487d (resume/branch), b26a18b1 (tests)
