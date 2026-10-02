@@ -98,7 +98,7 @@ extension AppFeature.Action {
     // canNavigate*, isInitialLoadComplete, selectedWorktreeSlice.pullRequest)
     // changes via an action that already invalidates at least one cache.
     case .repositories(let inner):
-      return !inner.cacheInvalidations.isEmpty
+      return !inner.cacheInvalidations.subtracting(.sessionsStructure).isEmpty
     // Settings can change `shortcutOverrides` or `githubIntegrationEnabled`.
     case .settings:
       return true

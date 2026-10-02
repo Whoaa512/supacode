@@ -1,0 +1,86 @@
+import Foundation
+import IdentifiedCollections
+
+nonisolated struct SessionsSidebarStructure: Equatable, Sendable {
+  struct Section: Equatable, Identifiable, Sendable {
+    var id: SessionClassification.Lifecycle
+    var rowIDs: [SessionRowID]
+
+    var title: String { id == .active ? "Active" : "Settled" }
+  }
+
+  var sections: [Section] = []
+  var liveIDs: [SessionRowID] = []
+  var allIDs: [SessionRowID] { sections.flatMap(\.rowIDs) }
+}
+
+extension RepositoriesFeature.State {
+  mutating func recomputeSessionsSidebarStructureIfChanged() {
+    let ordered = sessionItems.sorted {
+      if $0.createdAt != $1.createdAt { return $0.createdAt > $1.createdAt }
+      return $0.id.sortKey < $1.id.sortKey
+    }
+    let sections = [SessionClassification.Lifecycle.active, .settled].compactMap { lifecycle in
+      let ids = ordered.filter { $0.lifecycle == lifecycle }.map(\.id)
+      return ids.isEmpty ? nil : SessionsSidebarStructure.Section(id: lifecycle, rowIDs: ids)
+    }
+    let structure = SessionsSidebarStructure(
+      sections: sections,
+      liveIDs: sections.flatMap(\.rowIDs).filter { sessionItems[id: $0]?.isLive == true }
+    )
+    if sessionsSidebarStructure != structure { sessionsSidebarStructure = structure }
+  }
+
+  mutating func reconcileSessionItems(now: Date) {
+    let previous = sessionItems
+    var rows = IdentifiedArrayOf<SessionSidebarItemFeature.State>()
+    for summary in sessionSummaries where rows[id: .session(summary.id)] == nil {
+      rows.append(
+        SessionSidebarItemFeature.State(
+          id: .session(summary.id), title: summary.title, cwd: summary.cwd,
+          createdAt: summary.createdAt,
+          lifecycle: SessionClassification.classify(isLive: false, sidecar: sessions[summary.id])
+            .lifecycle
+        ))
+    }
+    for row in previous where row.isSynthetic {
+      guard case .session = row.id, rows[id: row.id] == nil else { continue }
+      rows.append(
+        SessionSidebarItemFeature.State(
+          id: row.id, title: row.title, cwd: row.cwd, createdAt: row.createdAt,
+          lifecycle: row.lifecycle, isSynthetic: true
+        ))
+    }
+    for snapshot in sessionSnapshots.sorted(by: {
+      $0.location.surfaceID.uuidString < $1.location.surfaceID.uuidString
+    }) {
+      let id = snapshot.id
+      let provisionalID = SessionRowID.provisional(snapshot.harness, snapshot.location.surfaceID)
+      if rows[id: id] == nil {
+        rows.append(
+          SessionSidebarItemFeature.State(
+            id: id, title: "New session", cwd: snapshot.cwd,
+            createdAt: previous[id: id]?.createdAt ?? previous[id: provisionalID]?.createdAt ?? now,
+            isSynthetic: true
+          ))
+      }
+      if case .session(let key) = id {
+        rows[id: id]?.lifecycle =
+          SessionClassification.classify(isLive: true, sidecar: sessions[key]).lifecycle
+      }
+      let preferred = previous[id: id]?.location
+      if rows[id: id]?.location == nil || snapshot.location == preferred {
+        rows[id: id]?.location = snapshot.location
+      }
+      if sessionSelection == provisionalID, id != provisionalID { sessionSelection = id }
+    }
+    for row in rows {
+      if sessionItems[id: row.id] == nil { sessionItems.append(row) }
+      if sessionItems[id: row.id] != row { sessionItems[id: row.id]?.update(from: row) }
+    }
+    sessionItems.removeAll { rows[id: $0.id] == nil }
+    if let selection = sessionSelection, sessionItems[id: selection] == nil {
+      sessionSelection = nil
+    }
+  }
+}

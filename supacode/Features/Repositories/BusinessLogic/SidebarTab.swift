@@ -1,13 +1,13 @@
 import Sharing
 
-/// The two top-level sidebar panels. `worktrees` is the repo/worktree tree the
-/// app has always shipped; `agents` is the flat cross-repo agent dashboard.
 enum SidebarTab: String, CaseIterable, Codable, Sendable {
+  case sessions
   case worktrees
   case agents
 
   var title: String {
     switch self {
+    case .sessions: "Sessions"
     case .worktrees: "Worktrees"
     case .agents: "Agents"
     }
@@ -15,6 +15,7 @@ enum SidebarTab: String, CaseIterable, Codable, Sendable {
 
   var help: String {
     switch self {
+    case .sessions: "Show agent sessions across directories"
     case .worktrees: "Show repositories and worktrees"
     case .agents: "Show every running agent across repositories"
     }
@@ -27,6 +28,6 @@ enum SidebarTab: String, CaseIterable, Codable, Sendable {
 /// without a custom coder.
 nonisolated extension SharedReaderKey where Self == AppStorageKey<String>.Default {
   static var sidebarTab: Self {
-    Self[.appStorage("sidebarTab"), default: SidebarTab.worktrees.rawValue]
+    Self[.appStorage("sessionsSidebarTab"), default: SidebarTab.sessions.rawValue]
   }
 }

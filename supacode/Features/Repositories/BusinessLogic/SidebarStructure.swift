@@ -388,6 +388,7 @@ extension RepositoriesFeature.State {
 /// than a silent "skip the recompute".
 struct CacheInvalidations: OptionSet {
   let rawValue: UInt8
+  static let sessionsStructure = CacheInvalidations(rawValue: 1 << 5)
   static let sidebarStructure = CacheInvalidations(rawValue: 1 << 0)
   static let selectedWorktreeSlice = CacheInvalidations(rawValue: 1 << 1)
   static let toolbarNotificationGroups = CacheInvalidations(rawValue: 1 << 2)
@@ -404,7 +405,7 @@ struct CacheInvalidations: OptionSet {
     .sidebarStructure, .selectedWorktreeSlice, .toolbarNotificationGroups, .sidebarSelectionSlice,
   ]
   /// Every bit: the row-derived caches plus the roster-scoped open-action resolution.
-  static let all: CacheInvalidations = [.allSidebar, .openActionResolution]
+  static let all: CacheInvalidations = [.allSidebar, .openActionResolution, .sessionsStructure]
 }
 
 extension SidebarItemFeature.Action {
@@ -441,6 +442,11 @@ extension RepositoriesFeature.Action {
   /// "post-reduce skips the recompute" path.
   var cacheInvalidations: CacheInvalidations {
     switch self {
+    case .sessionsCacheLoaded, .sessionsRefreshCompleted, .sessionSnapshotsChanged:
+      return .sessionsStructure
+    case .sessionItems, .sessionsStarted, .sessionsSidebarShown, .sessionsRefreshRequested,
+      .sessionsRefreshDebounced, .sessionsRefreshFailed, .sessionSelectionChanged, .activateSession:
+      return []
     case .sidebarItems(.element(id: _, action: let inner)):
       return inner.cacheInvalidations
     case .sidebarItems:
@@ -661,6 +667,9 @@ extension RepositoriesFeature.State {
   /// repository's `supacode.json`, and a reducer must not touch disk.
   @MainActor
   mutating func applyCacheRecomputes(_ invalidations: CacheInvalidations) {
+    if invalidations.contains(.sessionsStructure) {
+      recomputeSessionsSidebarStructureIfChanged()
+    }
     if invalidations.contains(.sidebarStructure) {
       recomputeSidebarStructureIfChanged()
       // The Agents tab shares every input of the sidebar structure (per-row

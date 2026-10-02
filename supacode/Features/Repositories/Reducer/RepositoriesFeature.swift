@@ -322,6 +322,15 @@ struct RepositoriesFeature {
     @Presents var alert: AlertState<Alert>?
 
     // MARK: - Sidebar items (per-row TCA collection).
+    var sessionItems: IdentifiedArrayOf<SessionSidebarItemFeature.State> = []
+    var sessionsSidebarStructure = SessionsSidebarStructure()
+    var sessionSelection: SessionRowID?
+    var sessionSummaries: [SessionSummary] = []
+    var sessionSnapshots: [SessionLiveSnapshot] = []
+    @Shared(.sessions) var sessions: SessionSidecar
+    var sessionsStarted = false
+    var sessionsRefreshInFlight = false
+    var sessionsRefreshPending = false
     var sidebarItems: IdentifiedArrayOf<SidebarItemFeature.State> = []
     var sidebarGrouping: SidebarGrouping = .empty
     /// Long-lived reader hoisted onto State so `reconcileSidebarItems` stays a
@@ -381,6 +390,17 @@ struct RepositoriesFeature {
   }
 
   enum Action {
+    case sessionItems(IdentifiedActionOf<SessionSidebarItemFeature>)
+    case sessionsStarted
+    case sessionsCacheLoaded([SessionSummary])
+    case sessionsSidebarShown
+    case sessionsRefreshRequested
+    case sessionsRefreshDebounced
+    case sessionsRefreshCompleted([SessionSummary])
+    case sessionsRefreshFailed
+    case sessionSnapshotsChanged([SessionLiveSnapshot])
+    case sessionSelectionChanged(SessionRowID?)
+    case activateSession(SessionRowID)
     case sidebarItems(IdentifiedActionOf<SidebarItemFeature>)
     case task
     /// Fired by `SidebarListView.onChange` whenever `@Shared(.sidebarGroupPinnedRows)`
@@ -711,6 +731,7 @@ struct RepositoriesFeature {
 
   @CasePathable
   enum Delegate: Equatable {
+    case focusSession(SessionLocation)
     case selectedWorktreeChanged(Worktree?)
     case repositoriesChanged(IdentifiedArrayOf<Repository>)
     case openRepositorySettings(Repository.ID)
@@ -4915,6 +4936,11 @@ struct RepositoriesFeature {
         }
         return .none
 
+      case .sessionItems, .sessionsStarted, .sessionsCacheLoaded, .sessionsSidebarShown,
+        .sessionsRefreshRequested, .sessionsRefreshDebounced, .sessionsRefreshCompleted,
+        .sessionsRefreshFailed, .sessionSnapshotsChanged, .sessionSelectionChanged, .activateSession:
+        return .none
+
       case .sidebarItems:
         return .none
 
@@ -4958,6 +4984,7 @@ struct RepositoriesFeature {
       .ifLet(\.$cloneRepositoryForm, action: \.cloneRepositoryForm) {
         CloneRepositoryFormFeature()
       }
+    sessionsReducer
     worktreeArchiveReducer
     worktreeRemovalReducer
     worktreeCreateInRepoReducer

@@ -12,7 +12,7 @@ struct SidebarView: View {
 
   private var sidebarTab: Binding<SidebarTab> {
     Binding(
-      get: { SidebarTab(rawValue: sidebarTabRawValue) ?? .worktrees },
+      get: { SidebarTab(rawValue: sidebarTabRawValue) ?? .sessions },
       set: { newTab in $sidebarTabRawValue.withLock { $0 = newTab.rawValue } }
     )
   }
@@ -33,7 +33,7 @@ struct SidebarView: View {
         ForEach(SidebarTab.allCases, id: \.self) { tab in
           Text(tab.title)
             .tag(tab)
-            .help("\(tab.help) (\(tabShortcut) switches between panels)")
+            .help("\(tab.help) (\(tabShortcut) switches Worktrees/Agents)")
         }
       }
       .pickerStyle(.segmented)
@@ -41,11 +41,13 @@ struct SidebarView: View {
       .controlSize(.small)
       .padding(.horizontal, 8)
       .padding(.vertical, 6)
-      .help("\(sidebarTab.wrappedValue.help) (\(tabShortcut) switches between panels)")
+      .help("\(sidebarTab.wrappedValue.help) (\(tabShortcut) switches Worktrees/Agents)")
 
       Divider()
 
       switch sidebarTab.wrappedValue {
+      case .sessions:
+        SessionsSidebarListView(store: store)
       case .worktrees:
         SidebarListView(
           store: store,
