@@ -67,8 +67,6 @@ extension RepositoriesFeature {
         if let location = row.location {
           return .send(.delegate(.focusSession(location)))
         }
-        // Dormant row: delegate resume to App which owns cwd validation and
-        // createTabWithInput orchestration.
         if case .session(let key) = id {
           return .send(.delegate(.resumeSession(key)))
         }
