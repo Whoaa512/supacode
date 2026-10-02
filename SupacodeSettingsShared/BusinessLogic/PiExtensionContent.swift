@@ -26,14 +26,10 @@ nonisolated enum PiExtensionContent {
      *                         so the app's liveness sweep can reap a crashed agent.
      *
      * Hook event mapping:
-     *   extension load      -> session_start  (agent presence badge)
+     *   Pi session_start   -> session_start + sid=<session id>  (early link)
      *   Pi agent_start      -> busy + sid=<session id>  (resume ref)
-     *   Pi agent_end        -> idle + notification with last_assistant_message
+     *   Pi agent_end        -> idle + sid=<session id>  (sticky ref)
      *   Pi session_shutdown -> session_end + idle (defensive activity reset)
-     *
-     * The resume ref rides `busy` rather than `session_start` because the session
-     * id is only reachable through the event context, which extension load has no
-     * access to. Supacode keeps the last ref it saw, so one per turn is plenty.
      */
 
     import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -185,18 +181,22 @@ nonisolated enum PiExtensionContent {
       // Not running under Supacode, or not a Supacode surface: stay inert.
       if (!isSupacodeSurface()) return;
 
-      // Extension load = agent process running. Pi has no equivalent of
-      // Claude's SessionStart hook, so we fire it ourselves.
-      emitPresence("session_start");
+      // session_start fires when pi has a fully initialised session context,
+      // so the sid is already reachable via sessionRef(ctx). Emit it here so
+      // restored and freshly resumed surfaces link without waiting for the
+      // first turn. Replaces the unconditional load-time emitPresence above.
+      pi.on("session_start", (_event, ctx) => {
+        emitPresence("session_start", sessionRef(ctx));
+      });
 
       pi.on("agent_start", (_event, ctx) => {
         emitPresence("busy", sessionRef(ctx));
       });
 
       pi.on("agent_end", (_event, ctx) => {
-        // Atomic state-set: `idle` overwrites whatever was running on the
-        // Supacode side (turn-level Stop equivalent).
-        emitPresence("idle");
+        // Emit the sid on idle too so Supacode can associate the last-known
+        // session id with the surface even when no busy turn occurred yet.
+        emitPresence("idle", sessionRef(ctx));
         emitNotification({ body: lastAssistantText(ctx) });
       });
 
