@@ -4,6 +4,56 @@ serially on `cj-main`; finish with a dogfoodable daily build, not a feature bran
 Do not resurrect Task Inbox entities, event logs, workflows, or archived code.
 Read-only planning; no builds/tests. Line references are discovery anchors.
 
+## 0. Orchestrator amendments (these override anything below)
+- **A1. Never touch the owner's live environment.** His app is running with
+  live sessions. Do not run `make run-app`, `make install-dev-build`,
+  `make compare-apps` or `open` on any app bundle. Do not kill or signal any
+  supacode, zmx or pi process. Do not write to `~/.pi`, `~/.supacode` or
+  `/Applications`. Reading `~/.pi/agent/sessions` to confirm the format is
+  fine. The "Manual QA" lists below are for the owner; your proof is automated
+  tests. This replaces every "launch/install the daily build" instruction.
+- **A2. Baseline.** Before any change, `make build-app` passed and `make test`
+  ran 3,796 tests with exactly these 5 failures, which are not yours to fix:
+  `GhosttyRuntimeBundledOverridesTests/backgroundColorTracksColorScheme`,
+  `GhosttyRuntimeBundledOverridesTests/initSeedsResolvedColorSchemeBeforeFirstRead`,
+  `PaneWindowShortcutTests/relativeTabCyclingShortcutsUseBracketChords`,
+  `AppFeatureSettingsChangedTests/settingsChangedPropagatesRepositorySettings`,
+  `AppFeatureCommandAckTests/deleteSocketDeeplinkFailsOnScriptCancellation`.
+  A slice is done when the full `make test` shows no failure outside this list
+  and the total test count went up.
+- **A3. Numbered jumps use the existing `selectWorktree1…9` chords (⌃1–9).**
+  Make those tab-aware for Sessions. Do NOT reroute `selectTab1…9` (⌘1–9);
+  terminal tab selection stays exactly as it is. This replaces the ⌘-digit
+  routing in §6.
+- **A4. Default tab.** Store the Sessions-era tab selection under a new storage
+  key whose default is `.sessions`, so the first launch of this build lands on
+  Sessions and later choices persist. No migration flag.
+- **A5. Index cost.** Scan lines as bytes and JSON-decode only the header, the
+  `session_info` lines and the first user message; count messages with a cheap
+  prefix/substring check. Persist the per-file cache (path, mtime, size,
+  summary) to one JSON file in the state directory so relaunch does not re-read
+  755 MB. Publish the list as soon as the cache is loaded, then refresh.
+- **A6. Default chords.** Keep them near the existing ⌘⌃↑/↓ navigation:
+  `settleSessionAndAdvance` ⌘⌃E, `unsettleSession` ⌘⌃U, `nextSessionNeedsMe`
+  ⌘⌃N, `newSession` ⌘⇧N, `newSessionInDirectory` ⌘⌥⇧N. Verify each against
+  `AppShortcuts` defaults and Ghostty's default keybinds; on a collision fall
+  back to the chord named in §6.
+- **A7. Terminal teardown is fragile** (see `plans/hibernation-teardown-deadlock.md`).
+  Slice 3 may only ADD bookkeeping there. Do not reorder, delay or make async
+  any existing teardown, hibernate, kill or probe step. Wherever attribution
+  is uncertain the answer is "do not settle": a row wrongly left Active is
+  fine, a row wrongly settled or a wedged teardown is not.
+- **A8. Size.** The previous attempt died at 61k lines. If a slice heads past
+  roughly 1,500 lines of production code, stop and simplify. Fewer,
+  higher-value tests over exhaustive ones.
+- **A9. Builds.** One xcodebuild at a time. Use `-only-testing` (always with
+  `SWIFT_VERSION=5`) while working; run the full `make test` once at the end
+  of the slice.
+- **A10. Commits.** Small and focused, straight to `cj-main`. Stage named
+  files only; never `git add .` or `-A` (`.worktrees/` and `PAPERCUTS.md` are
+  untracked and must stay untouched). Run `make lint` and fix only your own
+  violations. Messages say why. No co-author or generated-by lines.
+
 ## 1. Architecture: one page
 - `supacode/Domain/SessionSource.swift` (new): `nonisolated` Sendable protocol,
   `sessions() async throws -> [SessionSummary]` and
