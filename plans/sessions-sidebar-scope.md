@@ -69,8 +69,20 @@ must be, from the first slice that lands:
 
 ### 5. Settling
 - Manual settle and unsettle: chord, context menu, CLI.
-- Closing the session's tab settles it. App quit, hibernation and crashes do
-  not; those leave the row active and dormant.
+- A session settles when the user ends it:
+  - an explicit tab or pane close (the confirm-close path, CLI and deeplink
+    destroys);
+  - the harness reports the session ended: quit, or replaced by `/new`,
+    `/resume` or `/fork`. Pi's `session_shutdown` carries this `reason`.
+- A session does not settle when the app or system ends it: hibernation, app
+  quit, Terminate Sessions, system restart, a zmx session dying, a failed zmx
+  probe. Those leave the row active and dormant.
+- `.closeTab` alone is not a user signal. `handleUnexpectedZmxClose` sends it
+  for three non-user cases, so settle hangs off the explicit-close marker
+  (`consumeExplicitClose`), one layer above the reducer.
+- Pi reports `reason: "quit"` on SIGHUP and SIGTERM too. Supacode ignores a
+  harness end that arrives while it is itself tearing that surface down or
+  quitting.
 - Auto-settle after 3 idle days (setting). A live session never auto-settles.
   A manual unsettle holds until new activity.
 - Sessions under 4 messages with no live surface go straight to Settled.
@@ -102,7 +114,27 @@ must be, from the first slice that lands:
 - V1 ships the pi adapter only. Claude and codex adapters come after V1 is in
   daily use (2 and 10 sessions in the last 30 days, against 227 for pi).
 
+### 10. Branch tracking (directory pool drift)
+- Supacode records, per session in the sidecar, the ordered set of branches
+  the session's worktree was on at each turn start and end. Supacode already
+  tracks each worktree's branch; no harness involvement, so it works for any
+  harness. A Graphite stack shows up as several branches on one session.
+- At resume: if the cwd's current branch is in the session's set, resume
+  silently. If not, one confirm naming both branches. Never auto-checkout.
+- The row shows the session's last branch when it differs from the cwd's.
+- Sessions from before this feature have no branch data and never warn.
+
+### 11. Session identity on a surface
+- A surface with a running agent and no reported session id yet shows a
+  provisional "New session" row. It becomes the real row when the id arrives.
+- The pi extension reports the id on pi's `session_start` as well as on each
+  turn, so restored and freshly resumed sessions link without waiting.
+- A cwd that is not a registered repo is auto-registered as a folder-kind
+  repository on resume.
+
 ## Out of scope for V1
+- Resuming a session in a different pool directory that has its branch
+  checked out.
 - Search over titles or contents.
 - Grouping sessions, pinning, snoozing, PR-driven auto-settle.
 - Auto-created worktrees.
@@ -112,11 +144,12 @@ must be, from the first slice that lands:
 ## Slices (each lands on cj-main and gets used before the next)
 
 1. **See**: Sessions tab listing every pi session, newest first, with live
-   rows marked. Click focuses or resumes.
+   rows marked. Click focuses or resumes. Branch capture starts here so the
+   data accrues.
 2. **Move**: next/previous over live rows, ⌘1–9, new-session chord and its
    directory-picker variant.
-3. **Settle**: sidecar, manual settle/unsettle, close-tab settles, Settled
-   section, settle-and-advance chord.
+3. **Settle**: manual settle/unsettle, user-ended sessions settle, Settled
+   section, settle-and-advance chord, branch-mismatch confirm at resume.
 4. **Triage**: status on rows, next-needs-me chord, 3-day auto-settle.
 
 ## Validation contract
@@ -133,8 +166,15 @@ must be, from the first slice that lands:
   session's cwd with no prompt; the variant asks for a directory first.
 - **VC7**: Settle moves a row to Settled; unsettle returns it to its
   creation-order position in Active. Both survive relaunch.
-- **VC8**: Closing a session's tab settles it. Quitting the app or hibernating
-  does not.
+- **VC8**: Closing a session's tab, quitting the agent, or `/new` settles the
+  session. Hibernating, quitting the app, Terminate Sessions and a killed zmx
+  session do not.
+- **VC13**: Resuming a session whose cwd is on a branch the session never
+  worked on asks once, naming both branches; a branch in the session's set
+  resumes without asking.
+- **VC14**: After quit-without-terminate and relaunch, every running agent tab
+  appears as a live row and every plain shell stays where it was in the
+  Worktrees tab.
 - **VC9**: A session idle for 3 days with no surface is settled; a live one
   never is.
 - **VC10**: Settle-and-advance lands on the next live row; next-needs-me lands
@@ -146,21 +186,17 @@ must be, from the first slice that lands:
 
 ## Open items for planning
 
-- **Unregistered cwd**: surfaces are worktree-keyed. Resuming a session whose
-  cwd is not a registered repo needs an answer. `RepositoryKind.folder`
-  exists; check whether auto-registering a folder repo is acceptable.
-- **Session swap inside one pi** (`/new`, `/resume`, `/fork`): the surface
-  moves to a new session id. Proposed: the old session is treated like a
-  closed tab and settles. Confirm with cj.
-- **Fresh `pi` with no prompt yet**: the session id rides the first `busy`
-  signal, so there is no id until the first turn. Proposed: show a provisional
-  "New session" row for the surface.
-- **Tab close vs teardown**: confirm the terminal layer can tell a user close
-  from hibernation or app quit.
-- **Directory pool drift**: a dormant session's cwd (ergo1–5) may be on a
-  different branch at resume time. Session files do not record the branch.
-  V1 ignores this.
+- **Shell `exit` vs zmx crash**: both arrive as "session already dead" and
+  cannot be told apart at that layer. Treated as not settled; an agent that
+  quit first has already reported its own end.
+- **Harness end during teardown**: confirm whether pi's shutdown signal
+  reaches the app during Terminate Sessions or system shutdown, and that the
+  guard in §5 covers it.
+- **Already-running pi processes** keep the old extension until restarted, so
+  on first launch they sit as provisional rows until their next turn, with
+  their session file listed as a dormant row meanwhile.
 - **Index cost**: about 2,900 session files today. Read header and last
   `session_info` only; cache by mtime and size (resume-plus does the same).
-- **Pi-side settle**: a `/settle` command that calls the supacode CLI.
-  Cheap follow-up, not V1.
+- **In-harness settle**: `supacode session settle` defaults to the calling
+  surface's session, so any harness can run it; a pi `/settle` command is a
+  thin wrapper. Cheap follow-up, not V1.
