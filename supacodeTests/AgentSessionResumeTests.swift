@@ -296,6 +296,19 @@ struct AgentSessionResumeTests {
     #expect(PiExtensionContent.indexTs.contains("/^[A-Za-z0-9][A-Za-z0-9._-]*$/"))
   }
 
+  @Test func piExtensionEmitsSessionStartWithSidViaHook() {
+    let content = PiExtensionContent.indexTs
+    #expect(content.contains(#"pi.on("session_start""#))
+    #expect(content.contains(#"emitPresence("session_start", sessionRef(ctx))"#))
+    #expect(!content.contains(#"emitPresence("session_start")"#),
+      "session_start must carry sessionRef, not fire without sid")
+  }
+
+  @Test func piExtensionEmitsIdleWithSidOnAgentEnd() {
+    let content = PiExtensionContent.indexTs
+    #expect(content.contains(#"emitPresence("idle", sessionRef(ctx))"#))
+  }
+
   // MARK: - Helpers.
 
   /// A pid that cannot be alive: `kill(2)` on it always fails, so restore

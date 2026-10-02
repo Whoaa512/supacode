@@ -8,6 +8,7 @@ import Testing
 @testable import SupacodeSettingsShared
 @testable import supacode
 
+@Suite(.serialized)
 @MainActor
 struct AppFeatureSessionsTests {
   private let surface = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
@@ -69,7 +70,9 @@ struct AppFeatureSessionsTests {
     AgentPresenceFeature.PresenceRecord(pids: [], sessionRef: ref)
   }
 
-  @Test(.dependencies) func liveClickUsesExactSurfaceAndDormantClickDoesNothing() async {
+  // MARK: - Live click focuses exact surface; dormant click without location is no-op
+
+  @Test(.dependencies) func liveClickFocusesExactSurfaceIDAndWorktree() async {
     let focused = LockIsolated<[SessionLocation]>([])
     var initial = state()
     let key = SessionRowID.session(SessionKey(harness: .pi, sessionID: "real"))
@@ -81,9 +84,9 @@ struct AppFeatureSessionsTests {
       AppFeature()
     } withDependencies: {
       $0.date.now = .distantPast
-      $0.terminalClient.focusSurface = { worktree, tab, surface in
+      $0.terminalClient.focusSurface = { worktree, tab, surf in
         focused.withValue {
-          $0.append(SessionLocation(worktreeID: worktree.id, tabID: tab, surfaceID: surface))
+          $0.append(SessionLocation(worktreeID: worktree.id, tabID: tab, surfaceID: surf))
         }
       }
     }
@@ -92,8 +95,31 @@ struct AppFeatureSessionsTests {
     await store.receive(\.repositories.delegate.focusSession)
     await store.receive(\.focusTerminalSurface)
     await store.finish()
-    #expect(focused.value == [location])
+    #expect(focused.value.count == 1)
+    #expect(focused.value[0] == location)
     #expect(store.state.repositories.selectedWorktreeID == worktree.id)
+  }
+
+  @Test(.dependencies) func liveRowStaysFocusableAfterCacheLoad() async {
+    let focused = LockIsolated<[SessionLocation]>([])
+    var initial = state()
+    let presenceKey = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    initial.agentPresence.records[presenceKey] = record(ref: "real")
+    initial.agentPresence.bySurface[surface] = [.pi]
+    initial.repositories.sessionSnapshots = AppFeature.sessionSnapshots(state: initial)
+    initial.repositories.reconcileSessionItems(now: .distantPast)
+    let key = SessionRowID.session(SessionKey(harness: .pi, sessionID: "real"))
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.terminalClient.focusSurface = { worktree, tab, surf in
+        focused.withValue {
+          $0.append(SessionLocation(worktreeID: worktree.id, tabID: tab, surfaceID: surf))
+        }
+      }
+    }
+    store.exhaustivity = .off
     await store.send(
       .repositories(
         .sessionsCacheLoaded([
@@ -101,22 +127,28 @@ struct AppFeatureSessionsTests {
             harness: .pi, sessionID: "real", createdAt: .distantPast, cwd: "/workspace",
             title: "Agent", messageCount: 0, lastActivity: .distantPast)
         ])))
+    #expect(store.state.repositories.sessionItems[id: key]?.location == location)
     await store.send(.repositories(.activateSession(key)))
+    await store.receive(\.repositories.delegate.focusSession)
+    await store.receive(\.focusTerminalSurface)
     await store.finish()
-    #expect(focused.value == [location])
+    #expect(focused.value.count == 1)
+    #expect(focused.value[0] == location)
   }
 
+  // MARK: - Presence links current and restored layouts
+
   @Test(.dependencies, arguments: [false, true])
-  func rawPresenceLinksCurrentAndRestoredLayoutsWithoutShellRows(restored: Bool) {
+  func presenceLinksLayoutsExcludingShells(restored: Bool) {
     var state = state(restored: restored)
     state.settings.agentPresenceBadgesEnabled = false
     let key = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     state.agentPresence.records[key] = record()
     let snapshots = AppFeature.sessionSnapshots(state: state)
     #expect(snapshots.count == 1)
-    #expect(snapshots.first?.location == location)
-    #expect(snapshots.first?.sessionRef == "real")
-    #expect(snapshots.first?.cwd == "/workspace")
+    #expect(snapshots[0].location == location)
+    #expect(snapshots[0].sessionRef == "real")
+    #expect(snapshots[0].cwd == "/workspace")
   }
 
   @Test(.dependencies) func checkedRestoreLinksBeforeTurnAndDelayedIndexHydrates() async {
@@ -153,7 +185,7 @@ struct AppFeatureSessionsTests {
     await store.finish()
   }
 
-  @Test(.dependencies) func identityOnlyHookMergesProvisionalWithoutActivityChange() async {
+  @Test(.dependencies) func identityHookMergesProvisionalRowPreservingCreation() async {
     let clock = TestClock()
     var initial = state()
     let key = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
@@ -166,136 +198,252 @@ struct AppFeatureSessionsTests {
     } withDependencies: {
       $0.date.now = .distantPast
       $0.continuousClock = clock
+      $0.uuid = .incrementing
       $0.terminalClient.saveLayoutsWithAgents = { _ in }
     }
     store.exhaustivity = .off
     let event = AgentHookEvent(
       version: 1, agent: "pi", event: "idle", surfaceID: surface, pid: nil, timestamp: nil,
       sessionRef: "real", data: nil)
-    await store.send(.agentPresence(.hookEventReceived(event)))
-    await store.receive(\.agentPresence.delegate)
+    await store.send(.terminalEvent(.agentHookEventReceived(event)))
+    await store.receive(\.agentPresence)
     await store.receive(\.repositories.sessionSnapshotsChanged)
     await store.receive(\.repositories.sessionsRefreshRequested)
     #expect(store.state.repositories.sessionItems.count == 1)
-    #expect(
-      store.state.repositories.sessionItems.first?.id
-        == .session(SessionKey(harness: .pi, sessionID: "real")))
+    let rowID = store.state.repositories.sessionItems.first?.id
+    #expect(rowID == .session(SessionKey(harness: .pi, sessionID: "real")))
     #expect(store.state.repositories.sessionItems.first?.createdAt == .distantPast)
     await clock.advance(by: .seconds(1))
     await store.finish()
   }
 
-  // MARK: - Step 3: dormant resume, folder registration, branch capture
+  // MARK: - Dormant resume with real temp directory fixtures
 
-  @Test(.dependencies) func dormantResumeWithMissingCwdIsNoOp() async {
+  @Test(.dependencies) func dormantResumeWithMissingCwdSendsNoTerminalCommand() async {
     let sent = LockIsolated<[TerminalClient.Command]>([])
     var initial = state()
     let key = SessionKey(harness: .pi, sessionID: "abc123")
-    let cwdPath = "/tmp-nonexistent-for-test-supacode"
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Dormant", cwd: cwdPath,
+        id: .session(key), title: "Dormant", cwd: "/tmp/supacode-test-nonexistent-\(UUID())",
         createdAt: .distantPast, location: nil)
     ]
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
       $0.date.now = .distantPast
+      $0.uuid = .incrementing
       $0.continuousClock = ImmediateClock()
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
     }
     store.exhaustivity = .off
-    await store.send(.repositories(.activateSession(.session(key))))
-    await store.receive(\.repositories.delegate.resumeSession)
-    await store.finish()
-    // Missing cwd: no tab created.
-    let tabCreated = sent.value.contains { if case .createTabWithInput = $0 { return true }; return false }
-    #expect(!tabCreated)
-  }
-
-  @Test(.dependencies) func dormantResumeUsesRegisteredWorktreeWhenPresent() async {
-    let sent = LockIsolated<[TerminalClient.Command]>([])
-    var initial = state()
-    let key = SessionKey(harness: .pi, sessionID: "piSess1")
-    // /workspace is registered in state() as a worktree — cwd exists on disk via `state()`.
-    initial.repositories.sessionItems = [
-      SessionSidebarItemFeature.State(
-        id: .session(key), title: "Dormant", cwd: worktree.workingDirectory.path,
-        createdAt: .distantPast, location: nil)
-    ]
-    let store = TestStore(initialState: initial) {
-      AppFeature()
-    } withDependencies: {
-      $0.date.now = .distantPast
-      $0.continuousClock = ImmediateClock()
-      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
-    }
-    store.exhaustivity = .off
-    await store.send(.repositories(.activateSession(.session(key))))
-    await store.receive(\.repositories.delegate.resumeSession)
-    await store.finish()
-    let inputs = sent.value.compactMap { cmd -> String? in
-      if case .createTabWithInput(_, let input, _, _, _, _, _) = cmd { return input }
-      return nil
-    }
-    // /workspace exists (FileManager test fixture) and worktree is registered: tab created.
-    #expect(inputs.contains("pi --session piSess1") || inputs.isEmpty,
-      "Expected resume command or empty on missing fs cwd")
-  }
-
-  @Test(.dependencies) func duplicateActivationPendingIsIgnored() async {
-    let sent = LockIsolated<[TerminalClient.Command]>([])
-    var initial = state()
-    let key = SessionKey(harness: .pi, sessionID: "piSess2")
-    // Use a cwd that doesn't exist so pending launch is stored.
-    let cwdPath = "/tmp-nonexistent-pending-test"
-    initial.repositories.sessionItems = [
-      SessionSidebarItemFeature.State(
-        id: .session(key), title: "Dormant", cwd: cwdPath,
-        createdAt: .distantPast, location: nil)
-    ]
-    let store = TestStore(initialState: initial) {
-      AppFeature()
-    } withDependencies: {
-      $0.date.now = .distantPast
-      $0.continuousClock = ImmediateClock()
-      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
-    }
-    store.exhaustivity = .off
-    // First activation: missing cwd → no-op (no pending stored).
     await store.send(.repositories(.activateSession(.session(key))))
     await store.receive(\.repositories.delegate.resumeSession)
     await store.finish()
     #expect(sent.value.isEmpty)
+    #expect(store.state.pendingSessionLaunch == nil)
   }
 
-  @Test(.dependencies) func branchCaptureDoesNotCrashOnBusyEvent() async {
-    let clock = TestClock()
+  @Test(.dependencies) func dormantResumeWithExistingWorktreeCreatesExactTab() async throws {
+    let tmpDir = FileManager.default.temporaryDirectory
+      .appendingPathComponent("supacode-test-\(UUID())")
+    try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+    let sent = LockIsolated<[TerminalClient.Command]>([])
     var initial = state()
-    let key = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
-    initial.agentPresence.records[key] = record(ref: "branchSess")
-    initial.agentPresence.bySurface[surface] = [.pi]
-    initial.repositories.sessionSnapshots = AppFeature.sessionSnapshots(state: initial)
-    initial.repositories.reconcileSessionItems(now: .distantPast)
+    let standardTmp = tmpDir.standardizedFileURL
+    let tmpPath = standardTmp.path(percentEncoded: false)
+    let tmpWorktreeID = WorktreeID(tmpPath)
+    let tmpWorktree = Worktree(
+      id: tmpWorktreeID,
+      name: "test-session", detail: "",
+      workingDirectory: standardTmp,
+      repositoryRootURL: standardTmp)
+    initial.repositories.repositories.append(
+      Repository(
+        id: RepositoryID(tmpPath), rootURL: standardTmp, name: "test-session",
+        worktrees: [tmpWorktree]))
+    let key = SessionKey(harness: .pi, sessionID: "piSess1")
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Dormant",
+        cwd: standardTmp.path(percentEncoded: false),
+        createdAt: .distantPast, location: nil)
+    ]
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
       $0.date.now = .distantPast
-      $0.continuousClock = clock
-      $0.terminalClient.saveLayoutsWithAgents = { _ in }
-      $0[GitClientDependency.self].branchName = { _ in "main" }
+      $0.uuid = .incrementing
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
     }
     store.exhaustivity = .off
-    let event = AgentHookEvent(
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\.repositories.delegate.resumeSession)
+    await store.finish()
+
+    let createInputs = sent.value.compactMap { cmd -> String? in
+      if case .createTabWithInput(_, let input, _, _, _, _, _) = cmd { return input }
+      return nil
+    }
+    #expect(createInputs == ["pi --session piSess1"])
+    let createFlags = sent.value.compactMap { cmd -> (setup: Bool, focusing: Bool)? in
+      if case .createTabWithInput(_, _, let setup, _, _, let focusing, _) = cmd {
+        return (setup, focusing)
+      }
+      return nil
+    }
+    #expect(createFlags.count == 1)
+    #expect(createFlags[0].setup == false)
+    #expect(createFlags[0].focusing == true)
+    #expect(store.state.pendingSessionLaunch == nil)
+  }
+
+  // MARK: - Existing worktree resume creates exactly one tab per click
+
+  @Test(.dependencies) func existingWorktreeResumeProducesExactlyOneTab() async throws {
+    let tmpDir = FileManager.default.temporaryDirectory
+      .appendingPathComponent("supacode-test-dedup-\(UUID())")
+    try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    var initial = state()
+    let standardTmp = tmpDir.standardizedFileURL
+    let tmpPath = standardTmp.path(percentEncoded: false)
+    let tmpWorktree = Worktree(
+      id: WorktreeID(tmpPath), name: "dedup", detail: "",
+      workingDirectory: standardTmp, repositoryRootURL: standardTmp)
+    initial.repositories.repositories.append(
+      Repository(
+        id: RepositoryID(tmpPath), rootURL: standardTmp, name: "dedup",
+        worktrees: [tmpWorktree]))
+    let key = SessionKey(harness: .pi, sessionID: "piSess2")
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Dormant",
+        cwd: tmpPath, createdAt: .distantPast, location: nil)
+    ]
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.uuid = .incrementing
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\.repositories.delegate.resumeSession)
+    await store.finish()
+
+    let tabInputs = sent.value.compactMap { cmd -> String? in
+      if case .createTabWithInput(_, let input, _, _, _, _, _) = cmd { return input }
+      return nil
+    }
+    #expect(tabInputs == ["pi --session piSess2"])
+    #expect(store.state.pendingSessionLaunch == nil)
+  }
+
+  // MARK: - Folder registration completes pending launch even with unchanged snapshots
+
+  @Test(.dependencies) func pendingLaunchFiresOnRepositoriesChangedEvenWithUnchangedSnapshots() async throws {
+    let tmpDir = FileManager.default.temporaryDirectory
+      .appendingPathComponent("supacode-test-pending-\(UUID())")
+    try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    var initial = state()
+    let standardTmp = tmpDir.standardizedFileURL
+    let key = SessionKey(harness: .pi, sessionID: "piSess3")
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Dormant",
+        cwd: standardTmp.path(percentEncoded: false),
+        createdAt: .distantPast, location: nil)
+    ]
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.uuid = .incrementing
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
+    }
+    store.exhaustivity = .off
+
+    // Trigger resume → sets pending, sends registerSessionFolder
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\.repositories.delegate.resumeSession)
+    #expect(store.state.pendingSessionLaunch != nil)
+
+    // Simulate: registerSessionFolder adds folder repo then fires repositoriesChanged.
+    // Inject the folder repo into the store and fire the delegate.
+    await store.send(.repositories(.registerSessionFolder(standardTmp)))
+    await store.receive(\.repositories.delegate.repositoriesChanged)
+    await store.finish()
+
+    let created = sent.value.compactMap { cmd -> String? in
+      if case .createTabWithInput(_, let input, _, _, _, _, _) = cmd { return input }
+      return nil
+    }
+    #expect(created == ["pi --session piSess3"])
+    #expect(store.state.pendingSessionLaunch == nil)
+  }
+
+  // MARK: - Branch capture writes to sidecar on busy/idle sequence
+
+  @Test(.dependencies) func busyThenIdleCapturesBranchInSidecar() async {
+    let clock = TestClock()
+    var initial = state()
+    let presenceKey = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    initial.agentPresence.records[presenceKey] = record(ref: "branchSess")
+    initial.agentPresence.bySurface[surface] = [.pi]
+    initial.repositories.sessionSnapshots = AppFeature.sessionSnapshots(state: initial)
+    initial.repositories.reconcileSessionItems(now: .distantPast)
+    let branchCalls = LockIsolated<[URL]>([])
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.uuid = .incrementing
+      $0.continuousClock = clock
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+      $0[GitClientDependency.self].branchName = { url in
+        branchCalls.withValue { $0.append(url) }
+        return "feature/test"
+      }
+    }
+    store.exhaustivity = .off
+
+    let busyEvent = AgentHookEvent(
       version: 1, agent: "pi", event: "busy", surfaceID: surface, pid: nil, timestamp: nil,
       sessionRef: "branchSess", data: nil)
-    await store.send(.terminalEvent(.agentHookEventReceived(event)))
+    await store.send(.terminalEvent(.agentHookEventReceived(busyEvent)))
     await store.receive(\.agentPresence)
     await store.receive(\.repositories)
     await clock.advance(by: .milliseconds(600))
     await store.finish()
-    // No crash; sidecar may or may not have a branch depending on worktree resolution.
+
     let sessionKey = SessionKey(harness: .pi, sessionID: "branchSess")
-    _ = store.state.repositories.sessions[sessionKey]
+    let entry = store.state.repositories.sessions[sessionKey]
+    #expect(entry?.branches == ["feature/test"])
+
+    let idleEvent = AgentHookEvent(
+      version: 1, agent: "pi", event: "idle", surfaceID: surface, pid: nil, timestamp: nil,
+      sessionRef: "branchSess", data: nil)
+    await store.send(.terminalEvent(.agentHookEventReceived(idleEvent)))
+    await store.receive(\.agentPresence)
+    await store.receive(\.repositories)
+    await clock.advance(by: .milliseconds(600))
+    await store.finish()
+
+    let updatedEntry = store.state.repositories.sessions[sessionKey]
+    #expect(updatedEntry?.branches == ["feature/test"])
+    #expect(branchCalls.value.count >= 1)
   }
 }
