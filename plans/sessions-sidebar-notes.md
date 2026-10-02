@@ -87,3 +87,30 @@
 - Targeted tests: supacodeFeatureTests/RepositoriesFeatureSessionsTests + AppFeatureSessionsTests: exit 0
 - xcresulttool summary: totalTestCount 16, failedTests 0
 - Commits: 0fda1f5a (pi extension), 5c82528a (folder registration), 76d2487d (resume/branch), b26a18b1 (tests)
+
+## Slice 1, step 3 corrections
+
+### Bugs fixed
+- sessionsLinkReducer: snapshot-unchanged guard no longer blocks pending launch resolution
+- handleResumeSession: FileManager.isReadableFile added to cwd validation
+- handleResumeSession: @Dependency(\.uuid) moved after guards to avoid test crashes
+- handleResumeSession: pending set+cleared for existing-worktree path (dedup)
+- branchCaptureEffect: async gitClient.branchName now .cancellable(cancelInFlight: true)
+- Removed obvious comments from both reducer files
+
+### Tests replaced
+- Vacuous assertions (inputs.contains||inputs.isEmpty) → exact command/flag checks
+- Missing-cwd test uses unique /tmp path not /workspace
+- Existing-worktree test uses real temp dir + asserts exact input/flags
+- Folder registration test verifies pending fires with unchanged snapshots
+- Branch capture test asserts sidecar entry content after busy+idle
+- PiExtensionContent tests: session_start hook with sessionRef, idle with sid
+- @Suite(.serialized) prevents parallel test isolation crashes
+
+### Build/test commands
+- make generate-project: exit 0
+- make lint: exit 2 (baseline only)
+- make build-app: exit 0
+- Targeted tests: exit 0, 50 tests, 0 failures
+- Full make test: exit 2, totalTestCount 3829, failedTests 5 (all baseline)
+- Commits: 58cbdf3a (production fixes), 1f9f05bc (test rewrites)
