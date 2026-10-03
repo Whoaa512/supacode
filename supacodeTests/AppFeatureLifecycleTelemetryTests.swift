@@ -11,6 +11,22 @@ import Testing
 @MainActor
 struct AppFeatureLifecycleTelemetryTests {
   @Test(.dependencies)
+  func activationRefreshesSessionsOnlyAfterStartup() async {
+    var initial = AppFeature.State()
+    initial.repositories.sessionsStarted = true
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = Date(timeIntervalSince1970: 1_000)
+      $0.continuousClock = TestClock()
+      $0.analyticsClient.capture = { _, _ in }
+    }
+    store.exhaustivity = .off
+    await store.send(.applicationDidBecomeActive)
+    await store.receive(\.repositories.sessionsRefreshRequested)
+    await store.send(.repositories(.sessionsStopped))
+    await store.finish()
+  }
+
+  @Test(.dependencies)
   func activationDebouncesForFifteenMinutes() async {
     let base = Date(timeIntervalSince1970: 1_000)
     let currentDate = LockIsolated(base)
@@ -47,6 +63,7 @@ struct AppFeatureLifecycleTelemetryTests {
     await store.receive(\.repositories.resolveOpenActions)
     expectNoDifference(events.value, ["app_activated_debounced", "app_activated_debounced"])
 
+    #expect(store.state.repositories.sessionsStarted == false)
     await store.finish()
   }
 
@@ -81,6 +98,7 @@ struct AppFeatureLifecycleTelemetryTests {
     }
     expectNoDifference(events.value, ["app_deactivated_debounced", "app_deactivated_debounced"])
 
+    #expect(store.state.repositories.sessionsStarted == false)
     await store.finish()
   }
 
@@ -112,6 +130,7 @@ struct AppFeatureLifecycleTelemetryTests {
 
     expectNoDifference(events.value, ["app_activated_debounced", "app_deactivated_debounced"])
 
+    #expect(store.state.repositories.sessionsStarted == false)
     await store.finish()
   }
 }

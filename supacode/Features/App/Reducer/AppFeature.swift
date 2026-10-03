@@ -426,7 +426,7 @@ struct AppFeature {
           // A `supacode.json` can be edited out of band while the app is away, and
           // the roster refresh may be minutes off, so pick that up on activate too.
           .send(.repositories(.resolveOpenActions)),
-          .send(.repositories(.sessionsRefreshRequested))
+          state.repositories.sessionsStarted ? .send(.repositories(.sessionsRefreshRequested)) : .none
         )
 
       case .applicationDidResignActive:
@@ -878,7 +878,7 @@ struct AppFeature {
           .send(.repositories(.setMoveNotifiedWorktreeToTop(settings.moveNotifiedWorktreeToTop))),
           // Re-resolves the Agents tab's configured row segments.
           .send(.repositories(.agentsSidebarRowsChanged(settings.agentsSidebar))),
-          .send(.repositories(.sessionsRefreshRequested)),
+          state.repositories.sessionsStarted ? .send(.repositories(.sessionsRefreshRequested)) : .none,
           // The global default editor feeds every repo's resolved open action, and the
           // selected worktree's own open action resolves against it too.
           .send(.repositories(.openActionSettingsChanged)),
