@@ -143,3 +143,20 @@
 - AppFeatureSessionsTests (supacodeFeatureTests): exit 0, 16 cases + 2 params = 18 runs, 0 failures
 - RepositoriesFeatureSessionsTests (supacodeFeatureTests): exit 0, 11 cases, 0 failures
 - Commit: c175ae1
+
+## Slice 1, step 3 — final verified handoff
+- Dormant activation delegates resumeSession; PendingSessionLaunch.launched/requestID holds until launchSessionCompleted.
+- Exact readable cwd uses createTabWithInput/AgentResumeCommand; registerSessionFolder supplies missing folder roots.
+- sessionFolderRoots overrides now enter loadRepositoriesData BEFORE git classification; removal clears overrides.
+- Matching worktree cwd never replaces its parent git repository; exact repository roots retain forced-folder kind.
+- BranchCaptureRequest FIFO and branchCaptureProbeCompleted serialize folder probes without cross-session cancellation.
+- Removed obsolete BranchCaptureCancelID. Pi session_start and idle emit sessionRef(ctx); no shutdown/settle changes.
+- Final combined targeted tests: AppFeatureSessionsTests, RepositoriesFeatureSessionsTests, AgentSessionResumeTests.
+- make test LOCAL_XCODEBUILD_FLAGS='SWIFT_VERSION=5 -only-testing:supacodeFeatureTests/AppFeatureSessionsTests -only-testing:supacodeFeatureTests/RepositoriesFeatureSessionsTests -only-testing:supacodeTests/AgentSessionResumeTests': exit 0.
+- xcresulttool summary: exit 0, totalTestCount 58, failedTests 0. make build-app: exit 0.
+- make lint: exit 2, only existing DeeplinkClient:26 and CommandPaletteFeature:1245 complexity violations.
+- Final logs: /tmp/slice1-step3-final-{tests,build,lint}.log; xcodebuild serialized with process checks.
+- Process deviation: delegated validator mistakenly ran full make test despite prohibition (3829 tests, 5 baseline failures).
+- Duplicate guard tested via pending launch state because TerminalClient.send is synchronous; no throwing launch acknowledgment exists.
+- Unverified without owner launch: actual harness resume, UI focus, installed extension and relaunch behavior.
+- No owner-app launch/install/signaling or protected-home writes; untracked .worktrees/ and PAPERCUTS.md preserved.
