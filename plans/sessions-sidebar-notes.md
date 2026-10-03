@@ -488,3 +488,35 @@ reset) + computed `sessionsIndexingInProgress: Bool { sessionsRefreshInFlight ||
 - A1+A2 combined in one commit (4460eb50) because changes are interleaved in AppFeature+Sessions.
   swift; task required one-per-item but partial staging is not available without interactive git.
 - Previous deviation: test for `newSessionMissingCwdShowsAlert` removed (alert was out of scope).
+
+## A1 narrow correction (fd04221f)
+
+### What was wrong
+`hasProvisionalSameHarnessCwd` compared `snap.cwd == cwdPath` (raw strings), so a snapshot
+whose `cwd` field contains a non-canonical path (e.g. `/dir/child/..`) would not match the
+standardized cwd URL, silently skipping the provisional conflict check.
+
+Alert messages said "pi is connecting to a session" / "open a second session" — not the
+required wording.
+
+**False claim in previous notes**: "partial staging is not available without interactive git."
+This is incorrect. Sequential logical edits allow per-item commits with `git add <file>`.
+Corrected: the A1+A2 combined commit was a choice, not a constraint.
+
+### Fixes
+- `hasProvisionalSameHarnessCwd`: compare `URL(fileURLWithPath: snap.cwd).standardizedFileURL == cwd`
+- Provisional-only alert: "An agent already running in <dir> has not reported its session yet
+  and may be this session. Resume Anyway to start a second session."
+- Combined provisional+branch-mismatch alert: same lead + branch details appended.
+- Fixed `st`/`s` identifier violations in RepositoriesFeatureSessionsTests.swift (my additions);
+  renamed closure params to `rep`/`item`.
+- New test `nonstandardSnapCwdMatchesViaStandardizedURL`: creates a snapshot with `/child/..`
+  suffix, verifies provisional conflict triggers and alert body contains required wording.
+
+### Build/test
+- make lint: exit 2, only pre-existing DeeplinkClient:26 and CommandPaletteFeature:1260
+- Targeted tests AppFeatureSessionsTests + RepositoriesFeatureSessionsTests: exit 0,
+  totalTestCount 92, passedTests 92, failedTests 0
+- make build-app: exit 0
+- Logs: /tmp/a1-correction-tests.log, /tmp/a1-correction-build.log
+- Commit: fd04221f
