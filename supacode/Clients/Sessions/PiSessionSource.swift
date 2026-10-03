@@ -96,8 +96,13 @@ actor PiSessionSource: SessionSource {
     let keys: Set<URLResourceKey> = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
     let directories = try manager.contentsOfDirectory(at: root, includingPropertiesForKeys: Array(keys))
     let directoryPaths = Set(directories.map(\.path))
+    // Grouped once: re-deriving each entry's directory per listed directory
+    // made a warm refresh quadratic (directories x cached files).
+    let cachedPathsByDirectory = Dictionary(grouping: cache.keys) {
+      ($0 as NSString).deletingLastPathComponent
+    }
     var refreshed = cache.filter {
-      directoryPaths.contains(URL(fileURLWithPath: $0.key).deletingLastPathComponent().path)
+      directoryPaths.contains(($0.key as NSString).deletingLastPathComponent)
     }.mapValues { file in
       var unverified = file
       unverified.summary.isVerified = false
@@ -111,8 +116,8 @@ actor PiSessionSource: SessionSource {
       guard let files = try? manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys))
       else { continue }
       let filePaths = Set(files.map(\.path))
-      refreshed = refreshed.filter {
-        URL(fileURLWithPath: $0.key).deletingLastPathComponent().path != directory.path || filePaths.contains($0.key)
+      for path in cachedPathsByDirectory[directory.path] ?? [] where !filePaths.contains(path) {
+        refreshed.removeValue(forKey: path)
       }
       for file in files where file.pathExtension == "jsonl" {
         guard let values = try? file.resourceValues(forKeys: keys),
