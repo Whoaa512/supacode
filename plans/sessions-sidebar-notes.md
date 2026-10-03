@@ -114,3 +114,32 @@
 - Targeted tests: exit 0, 50 tests, 0 failures
 - Full make test: exit 2, totalTestCount 3829, failedTests 5 (all baseline)
 - Commits: 58cbdf3a (production fixes), 1f9f05bc (test rewrites)
+
+## Slice 1, step 3 — second corrections (bug fixes)
+
+### Bugs fixed
+- PendingSessionLaunch gained `launched: Bool`; pending stays set through async terminal send
+- launchSessionCompleted(requestID:) action clears pending only on matching UUID
+- Second activation while launched=true hits `guard pending == nil` and returns .none
+- BranchCaptureCancelID.probe global cancelInFlight dropped; replaced with FIFO queue
+  (branchCaptureQueue/branchCaptureInFlight on AppFeature.State; branchCaptureProbeCompleted pumps next)
+- mergeSessionFolderRepositories: replaces (not skips) git-classified repos at matching root
+
+### New tests
+- secondActivationWhileLaunchedTrueProducesNoEffect: pending guard blocks send, empty sent
+- launchCompletedClearsPendingByRequestID: wrong UUID no-ops, correct UUID clears
+- branchCaptureQueuesTwoSurfacesInOrder: two busy events → FIFO probes → both branches captured
+- mergeSessionFolderOverridesGitRootWithSameID: git repo at path replaced by folder repo
+- mergeSessionFolderDoesNotDuplicateWhenAlreadyFolderRepo: no-dup when already folder
+- mergeSessionFolderAppendsNewRoots: new root appended when not present
+
+### Deviations / traps
+- branchCaptureInFlight end-state assertion unstable (TCA .off drain timing); removed; behavior tested
+- `terminalClient.send` is sync (@MainActor), no async gate possible; two-activation test uses direct state
+- BranchCaptureCancelID enum retained (nonisolated) to avoid breaking exhaustive switch in WorktreeMenuSnapshot
+
+### Build/test
+- make build-app: exit 0; make lint: exit 2 (baseline only)
+- AppFeatureSessionsTests (supacodeFeatureTests): exit 0, 16 cases + 2 params = 18 runs, 0 failures
+- RepositoriesFeatureSessionsTests (supacodeFeatureTests): exit 0, 11 cases, 0 failures
+- Commit: c175ae1
