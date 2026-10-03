@@ -1558,6 +1558,63 @@ struct AppFeatureSessionsTests {
     await store.receive(\.repositories.delegate.focusSession)
   }
 
+  @Test(.dependencies) func nextSessionNeedsMeStartsAfterFocusedNonAttentionRowAndWraps() async {
+    var initial = state()
+    let first = SessionKey(harness: .pi, sessionID: "first")
+    let idle = SessionKey(harness: .pi, sessionID: "idle")
+    let next = SessionKey(harness: .pi, sessionID: "next")
+    let working = SessionKey(harness: .pi, sessionID: "working")
+    let firstLocation = SessionLocation(
+      worktreeID: worktree.id,
+      tabID: TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-0000000000B1")!),
+      surfaceID: UUID(uuidString: "00000000-0000-0000-0000-0000000000B1")!)
+    let idleLocation = SessionLocation(
+      worktreeID: worktree.id,
+      tabID: TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-0000000000B2")!),
+      surfaceID: UUID(uuidString: "00000000-0000-0000-0000-0000000000B2")!)
+    let nextLocation = SessionLocation(
+      worktreeID: worktree.id,
+      tabID: TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-0000000000B3")!),
+      surfaceID: UUID(uuidString: "00000000-0000-0000-0000-0000000000B3")!)
+    let workingLocation = SessionLocation(
+      worktreeID: worktree.id,
+      tabID: TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-0000000000B4")!),
+      surfaceID: UUID(uuidString: "00000000-0000-0000-0000-0000000000B4")!)
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(first), title: "First", cwd: "/workspace",
+        createdAt: Date(timeIntervalSince1970: 40), location: firstLocation, status: .needsYou),
+      SessionSidebarItemFeature.State(
+        id: .session(idle), title: "Idle", cwd: "/workspace",
+        createdAt: Date(timeIntervalSince1970: 30), location: idleLocation, status: .idle),
+      SessionSidebarItemFeature.State(
+        id: .session(next), title: "Next", cwd: "/workspace",
+        createdAt: Date(timeIntervalSince1970: 20), location: nextLocation, status: .doneUnseen),
+      SessionSidebarItemFeature.State(
+        id: .session(working), title: "Working", cwd: "/workspace",
+        createdAt: Date(timeIntervalSince1970: 10), location: workingLocation, status: .working),
+    ]
+    initial.repositories.recomputeSessionsSidebarStructureIfChanged()
+    initial.repositories.sessionSelection = .session(idle)
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.terminalClient.focusSurface = { _, _, _ in }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.nextSessionNeedsMe) { appState in
+      appState.repositories.sessionSelection = .session(next)
+    }
+    await store.receive(\.repositories.delegate.focusSession)
+
+    await store.send(.repositories(.sessionSelectionChanged(.session(working)))) { appState in
+      appState.repositories.sessionSelection = .session(working)
+    }
+    await store.send(.nextSessionNeedsMe) { appState in
+      appState.repositories.sessionSelection = .session(first)
+    }
+    await store.receive(\.repositories.delegate.focusSession)
+  }
+
   @Test(.dependencies) func nextSessionNeedsMeNoopsWhenOnlyDormantBusyOrIdle() async {
     var initial = state()
     let busy = SessionKey(harness: .pi, sessionID: "busy")

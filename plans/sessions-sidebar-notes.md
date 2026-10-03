@@ -361,3 +361,13 @@
 - make build-app: exit 0.
 - pgrep xcodebuild checked before every build/test; no full tests run.
 - Unverified: live UI glyph appearance and actual menu shortcut dispatch in owner app.
+
+## Slice 4 review fix — next-needs-me live-order scan
+- Corrected `nextNeedingAttention` to iterate circular `liveIDs` starting after current, testing eligibility per leaf instead of filtering targets before locating current.
+- Regression covers focused idle between attention rows selecting the next row, and focused working after the last attention row wrapping to the first.
+- Observation regression now drives real `.sessionSnapshotsChanged` reconciliation status-only updates through `RepositoriesFeature`, not only direct leaf assignment.
+- Targeted command: `make test LOCAL_XCODEBUILD_FLAGS='SWIFT_VERSION=5 -only-testing:supacodeFeatureTests/AppFeatureSessionsTests -only-testing:supacodeTests/SessionsSidebarObservationTests'`.
+- Targeted tests: exit 0; xcresult totalTestCount 47, failedTests 0; logs `/tmp/slice4-triage-fix-tests.log`, summary `/tmp/slice4-triage-fix-xcresult.json`.
+- make lint: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations; log `/tmp/slice4-triage-fix-lint.log`.
+- make build-app: exit 0; log `/tmp/slice4-triage-fix-build.log`. git diff --check: exit 0.
+- Builds/tests serialized with pgrep xcodebuild waits; no full suite, live app launch/install/signaling or protected-home writes.

@@ -26,13 +26,14 @@ struct SessionsSidebarStructure: Equatable, Sendable {
   func nextNeedingAttention(
     from current: SessionRowID?, items: IdentifiedArrayOf<SessionSidebarItemFeature.State>
   ) -> SessionRowID? {
-    let targets = liveIDs.filter {
-      guard let status = items[id: $0]?.status else { return false }
-      return status == .needsYou || status == .doneUnseen
+    guard !liveIDs.isEmpty else { return nil }
+    let startIndex = current.flatMap { liveIDs.firstIndex(of: $0) }.map { $0 + 1 } ?? 0
+    for offset in liveIDs.indices {
+      let id = liveIDs[(startIndex + offset) % liveIDs.count]
+      guard let status = items[id: id]?.status else { continue }
+      if status == .needsYou || status == .doneUnseen { return id }
     }
-    guard !targets.isEmpty else { return nil }
-    guard let current, let index = targets.firstIndex(of: current) else { return targets.first }
-    return targets[(index + 1) % targets.count]
+    return nil
   }
 }
 
