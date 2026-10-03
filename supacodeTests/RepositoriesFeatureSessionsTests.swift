@@ -577,6 +577,94 @@ struct RepositoriesFeatureSessionsTests {
     #expect(initial.sessionsSidebarStructure.liveIDs == [.session(live.id)])
   }
 
+  // MARK: - Manual settle / unsettle
+
+  @Test(.dependencies) func settleSessionWritesSettledAtAndMovesRowToSettledSection() async {
+    let store = store()
+    let key = SessionKey(harness: .pi, sessionID: "s1")
+    await store.send(.sessionsRefreshCompleted([summary("s1", created: 10)])) { state in
+      #expect(state.sessionItems[id: .session(key)]?.lifecycle == .active)
+    }
+    await store.send(.settleSession(key)) { state in
+      let entry = state.sessions[key]
+      #expect(entry?.settledAt != nil)
+      #expect(entry?.manualUnsettledAtActivity == nil)
+      #expect(state.sessionItems[id: .session(key)]?.lifecycle == .settled)
+      #expect(state.sessionsSidebarStructure.sections.first?.id == .settled)
+    }
+  }
+
+  @Test(.dependencies) func unsettleSessionClearsSettledAtAndSetsWatermark() async {
+    let store = store()
+    let key = SessionKey(harness: .pi, sessionID: "s1")
+    let lastActivity = Date(timeIntervalSince1970: 10)
+    await store.send(.sessionsRefreshCompleted([summary("s1", created: 10)])) { _ in }
+    await store.send(.settleSession(key)) { _ in }
+    await store.send(.unsettleSession(key)) { state in
+      let entry = state.sessions[key]
+      #expect(entry?.settledAt == nil)
+      #expect(entry?.manualUnsettledAtActivity == lastActivity)
+      #expect(state.sessionItems[id: .session(key)]?.lifecycle == .active)
+    }
+  }
+
+  @Test(.dependencies) func settlingDoesNotAffectOtherRows() async {
+    let store = store()
+    let key1 = SessionKey(harness: .pi, sessionID: "s1")
+    let key2 = SessionKey(harness: .pi, sessionID: "s2")
+    await store.send(.sessionsRefreshCompleted([summary("s1", created: 20), summary("s2", created: 10)]))
+    await store.send(.settleSession(key1)) { state in
+      #expect(state.sessionItems[id: .session(key1)]?.lifecycle == .settled)
+      #expect(state.sessionItems[id: .session(key2)]?.lifecycle == .active)
+    }
+  }
+
+  @Test(.dependencies) func settledLiveRowActivationUnsettles() async {
+    let surface = UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000001")!
+    let ref = "live-settled"
+    let key = SessionKey(harness: .pi, sessionID: ref)
+    let store = store()
+    await store.send(.sessionsRefreshCompleted([summary(ref, created: 10)]))
+    await store.send(.settleSession(key)) { state in
+      #expect(state.sessionItems[id: .session(key)]?.lifecycle == .settled)
+    }
+    let snap = snapshot(surface, ref: ref)
+    await store.send(.sessionSnapshotsChanged([snap])) { state in
+      #expect(state.sessionItems[id: .session(key)]?.isLive == true)
+    }
+    await store.send(.activateSession(.session(key))) { state in
+      #expect(state.sessionItems[id: .session(key)]?.lifecycle == .active)
+    }
+  }
+
+  @Test(.dependencies) func refreshDoesNotAutoUnsettleManuallySettledRow() async {
+    let store = store()
+    let key = SessionKey(harness: .pi, sessionID: "s1")
+    await store.send(.sessionsRefreshCompleted([summary("s1", created: 10)]))
+    await store.send(.settleSession(key))
+    await store.send(.sessionsRefreshCompleted([summary("s1", created: 10)])) { state in
+      #expect(state.sessionItems[id: .session(key)]?.lifecycle == .settled)
+    }
+  }
+
+  @Test(.dependencies) func sectionsOrderIsActiveThenSettledCreationDescending() async {
+    let store = store()
+    let key1 = SessionKey(harness: .pi, sessionID: "s1")
+    let key2 = SessionKey(harness: .pi, sessionID: "s2")
+    let key3 = SessionKey(harness: .pi, sessionID: "s3")
+    await store.send(.sessionsRefreshCompleted([
+      summary("s1", created: 30), summary("s2", created: 20), summary("s3", created: 10),
+    ]))
+    await store.send(.settleSession(key2)) { state in
+      let sections = state.sessionsSidebarStructure.sections
+      #expect(sections.map(\.id) == [.active, .settled])
+      let activeIDs = sections.first?.rowIDs ?? []
+      #expect(activeIDs == [.session(key1), .session(key3)])
+      let settledIDs = sections.last?.rowIDs ?? []
+      #expect(settledIDs == [.session(key2)])
+    }
+  }
+
   @Test func forcedFolderPathSkipsGitClassification() async {
     let folderPath = "/tmp/supacode-forced-folder-\(UUID())"
     let folderURL = URL(fileURLWithPath: folderPath).standardizedFileURL

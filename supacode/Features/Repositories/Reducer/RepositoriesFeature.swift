@@ -408,6 +408,8 @@ struct RepositoriesFeature {
     case sessionSnapshotsChanged([SessionLiveSnapshot])
     case sessionSelectionChanged(SessionRowID?)
     case activateSession(SessionRowID)
+    case settleSession(SessionKey)
+    case unsettleSession(SessionKey)
     case registerSessionFolder(URL)
     case sessionBranchCaptured(key: SessionKey, branch: String)
     case sidebarItems(IdentifiedActionOf<SidebarItemFeature>)
@@ -4986,7 +4988,7 @@ struct RepositoriesFeature {
       case .sessionItems, .sessionsStarted, .sessionsCacheLoaded, .sessionsSidebarShown,
         .sessionsRefreshRequested, .sessionsRefreshDebounced, .sessionsRefreshCompleted,
         .sessionsRefreshFailed, .sessionSnapshotsChanged, .sessionSelectionChanged, .activateSession,
-        .sessionBranchCaptured:
+        .settleSession, .unsettleSession, .sessionBranchCaptured:
         return .none
 
       case .registerSessionFolder(let url):

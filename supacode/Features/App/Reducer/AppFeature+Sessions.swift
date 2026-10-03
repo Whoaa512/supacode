@@ -51,10 +51,13 @@ extension AppFeature {
         return Self.handleResumeSession(key, state: &state)
 
       case .launchSessionCompleted(let requestID):
-        if state.pendingSessionLaunch?.requestID == requestID {
-          state.pendingSessionLaunch = nil
-        }
-        return .none
+        guard let pending = state.pendingSessionLaunch, pending.requestID == requestID
+        else { return .none }
+        let key = pending.key
+        state.pendingSessionLaunch = nil
+        guard state.repositories.sessionItems[id: .session(key)]?.lifecycle == .settled
+        else { return .none }
+        return .send(.repositories(.unsettleSession(key)))
 
       case .terminalEvent(.agentHookEventReceived(let event)):
         let refresh: Effect<Action> =
@@ -104,6 +107,24 @@ extension AppFeature {
   private static func cwd(for rowID: SessionRowID, state: State) -> URL? {
     guard let item = state.repositories.sessionItems[id: rowID] else { return nil }
     return URL(fileURLWithPath: item.cwd).standardizedFileURL
+  }
+
+  static func handleSettleSessionAndAdvance(state: inout State) -> Effect<Action> {
+    let currentID = focusedSessionRowID(state: state) ?? state.repositories.sessionSelection
+    guard let currentID, case .session(let key) = currentID else { return .none }
+    let nextID = state.repositories.sessionRowID(byOffset: 1, focusedRowID: currentID)
+    let advanceTarget = nextID != currentID ? nextID : nil
+    let settleEffect = Effect<Action>.send(.repositories(.settleSession(key)))
+    guard let target = advanceTarget, let location = state.repositories.sessionItems[id: target]?.location
+    else { return settleEffect }
+    return .merge(settleEffect, .send(.focusTerminalSurface(
+      worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID)))
+  }
+
+  static func handleUnsettleCurrentSession(state: inout State) -> Effect<Action> {
+    let currentID = focusedSessionRowID(state: state) ?? state.repositories.sessionSelection
+    guard let currentID, case .session(let key) = currentID else { return .none }
+    return .send(.repositories(.unsettleSession(key)))
   }
 
   static func handleNewSession(directory: URL?, state: inout State) -> Effect<Action> {

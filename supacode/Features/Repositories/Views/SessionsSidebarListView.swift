@@ -3,6 +3,23 @@ import Sharing
 import SupacodeSettingsShared
 import SwiftUI
 
+@MainActor
+private struct SessionContextMenu: View {
+  let store: StoreOf<RepositoriesFeature>
+  let id: SessionRowID
+
+  var body: some View {
+    if case .session(let key) = id {
+      let lifecycle = store.sessionItems[id: id]?.lifecycle ?? .active
+      if lifecycle == .active {
+        Button("Settle") { store.send(.settleSession(key)) }
+      } else {
+        Button("Unsettle") { store.send(.unsettleSession(key)) }
+      }
+    }
+  }
+}
+
 struct SessionsSidebarListView: View {
   let store: StoreOf<RepositoriesFeature>
   @Environment(CommandKeyObserver.self) private var commandKeyObserver
@@ -40,6 +57,7 @@ struct SessionsSidebarListView: View {
             {
               SessionSidebarRowView(store: rowStore, shortcutHint: shortcutHintByID[id])
                 .tag(id)
+                .contextMenu { SessionContextMenu(store: store, id: id) }
             }
           }
         }

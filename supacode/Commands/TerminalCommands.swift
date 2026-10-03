@@ -9,6 +9,8 @@ struct TerminalCommands: Commands {
   @FocusedValue(\.newTerminalAction) private var newTerminalAction
   @FocusedValue(\.newSessionAction) private var newSessionAction
   @FocusedValue(\.newSessionInDirectoryAction) private var newSessionInDirectoryAction
+  @FocusedValue(\.settleSessionAndAdvanceAction) private var settleSessionAndAdvanceAction
+  @FocusedValue(\.unsettleSessionAction) private var unsettleSessionAction
   @FocusedValue(\.renameTabAction) private var renameTabAction
   @FocusedValue(\.splitTerminalAction) private var splitTerminalAction
   @FocusedValue(\.toggleWindowModeAction) private var toggleWindowModeAction
@@ -48,6 +50,23 @@ struct TerminalCommands: Commands {
       .help(
         "New Session in Directory (\(AppShortcuts.newSessionInDirectory.effective(from: overrides)?.display ?? "none"))"
       )
+
+      Divider()
+
+      Button("Settle Session and Advance") {
+        settleSessionAndAdvanceAction?()
+      }
+      .appKeyboardShortcut(AppShortcuts.settleSessionAndAdvance.effective(from: overrides))
+      .disabled(settleSessionAndAdvanceAction?.isEnabled != true)
+      .help("Settle and advance (\(AppShortcuts.settleSessionAndAdvance.effective(from: overrides)?.display ?? "none"))"
+      )
+
+      Button("Unsettle Session") {
+        unsettleSessionAction?()
+      }
+      .appKeyboardShortcut(AppShortcuts.unsettleSession.effective(from: overrides))
+      .disabled(unsettleSessionAction?.isEnabled != true)
+      .help("Unsettle current session (\(AppShortcuts.unsettleSession.effective(from: overrides)?.display ?? "none"))")
 
       Button("Rename Tab", systemImage: "pencil") {
         renameTabAction?()
@@ -250,6 +269,14 @@ private struct NewSessionInDirectoryActionKey: FocusedValueKey {
   typealias Value = FocusedAction<Void>
 }
 
+private struct SettleSessionAndAdvanceActionKey: FocusedValueKey {
+  typealias Value = FocusedAction<Void>
+}
+
+private struct UnsettleSessionActionKey: FocusedValueKey {
+  typealias Value = FocusedAction<Void>
+}
+
 private struct ToggleTerminalGridActionKey: FocusedValueKey {
   typealias Value = FocusedAction<Void>
 }
@@ -273,6 +300,16 @@ extension FocusedValues {
   var newSessionInDirectoryAction: FocusedAction<Void>? {
     get { self[NewSessionInDirectoryActionKey.self] }
     set { self[NewSessionInDirectoryActionKey.self] = newValue }
+  }
+
+  var settleSessionAndAdvanceAction: FocusedAction<Void>? {
+    get { self[SettleSessionAndAdvanceActionKey.self] }
+    set { self[SettleSessionAndAdvanceActionKey.self] = newValue }
+  }
+
+  var unsettleSessionAction: FocusedAction<Void>? {
+    get { self[UnsettleSessionActionKey.self] }
+    set { self[UnsettleSessionActionKey.self] = newValue }
   }
 }
 

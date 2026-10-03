@@ -114,4 +114,16 @@ extension RepositoriesFeature.State {
       sessionSelection = nil
     }
   }
+
+  mutating func applyUnsettle(key: SessionKey, summaries: [SessionSummary], now: Date) {
+    let watermark = summaries.first(where: { $0.id == key })?.lastActivity ?? now
+    $sessions.withLock { sidecar in
+      var entry = sidecar[key] ?? SessionSidecarEntry()
+      entry.settledAt = nil
+      entry.manualUnsettledAtActivity = watermark
+      sidecar[key] = entry
+    }
+    reconcileSessionItems(now: now)
+    recomputeSessionsSidebarStructureIfChanged()
+  }
 }

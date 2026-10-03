@@ -18,7 +18,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
   case selectNextTab, selectPreviousTab
   case openWorktree, revealInFinder, openRepository, addRemoteRepository, cloneRepository, openPullRequest, copyPath
   case runScript, stopRunScript, renameTab, toggleWindowMode
-  case newTerminalTab, newSession, newSessionInDirectory, closeTab
+  case newTerminalTab, newSession, newSessionInDirectory, settleSessionAndAdvance, unsettleSession, closeTab
   case splitRight, splitLeft, splitDown, splitUp
   case focusSplitLeft, focusSplitRight, focusSplitUp, focusSplitDown
   case focusNextPane, focusPreviousPane
@@ -86,6 +86,8 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     case .newTerminalTab: "newTerminalTab"
     case .newSession: "newSession"
     case .newSessionInDirectory: "newSessionInDirectory"
+    case .settleSessionAndAdvance: "settleSessionAndAdvance"
+    case .unsettleSession: "unsettleSession"
     case .closeTab: "closeTab"
     case .splitRight: "splitRight"
     case .splitLeft: "splitLeft"
@@ -148,6 +150,8 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     "newTerminalTab": .newTerminalTab,
     "newSession": .newSession,
     "newSessionInDirectory": .newSessionInDirectory,
+    "settleSessionAndAdvance": .settleSessionAndAdvance,
+    "unsettleSession": .unsettleSession,
     "closeTab": .closeTab,
     "splitRight": .splitRight,
     "splitLeft": .splitLeft,
@@ -233,6 +237,8 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     case .newTerminalTab: "New Terminal Tab"
     case .newSession: "New Session"
     case .newSessionInDirectory: "New Session in Directory"
+    case .settleSessionAndAdvance: "Settle Session and Advance"
+    case .unsettleSession: "Unsettle Session"
     case .closeTab: "Close Tab"
     case .splitRight: "Split Right"
     case .splitLeft: "Split Left"
@@ -574,6 +580,13 @@ public enum AppShortcuts {
   public static let newSessionInDirectory = AppShortcut(
     id: .newSessionInDirectory, key: "n", modifiers: [.command, .option, .shift]
   )
+  // ⌘⌃E and ⌘⌃U are free in both Supacode defaults and Ghostty defaults.
+  public static let settleSessionAndAdvance = AppShortcut(
+    id: .settleSessionAndAdvance, key: "e", modifiers: [.command, .control]
+  )
+  public static let unsettleSession = AppShortcut(
+    id: .unsettleSession, key: "u", modifiers: [.command, .control]
+  )
   // Hardcoded to the platform's close chord: no settings row, and the
   // recorder refuses ⌘W for anything else.
   public static let closeTab = AppShortcut(id: .closeTab, key: "w", modifiers: .command, isCustomizable: false)
@@ -706,7 +719,11 @@ public enum AppShortcuts {
     ),
     AppShortcutGroup(
       category: .tabSelection,
-      shortcuts: [newTerminalTab, newSession, newSessionInDirectory, closeTab, renameTab]
+      shortcuts: [
+        newTerminalTab, newSession, newSessionInDirectory,
+        settleSessionAndAdvance, unsettleSession,
+        closeTab, renameTab,
+      ]
         + tabSelection + [selectPreviousTab, selectNextTab]
         + [startSearch, findNext, findPrevious, useSelectionForFind]
     ),

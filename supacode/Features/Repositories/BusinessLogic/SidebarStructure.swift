@@ -444,6 +444,8 @@ extension RepositoriesFeature.Action {
     switch self {
     case .sessionsCacheLoaded, .sessionsRefreshCompleted, .sessionSnapshotsChanged:
       return .sessionsStructure
+    case .settleSession, .unsettleSession:
+      return .sessionsStructure
     case .sessionItems, .sessionsStarted, .sessionsSidebarShown, .sessionsRefreshRequested,
       .sessionsRefreshDebounced, .sessionsRefreshFailed, .sessionSelectionChanged, .activateSession,
       .registerSessionFolder, .sessionBranchCaptured:

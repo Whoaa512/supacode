@@ -71,11 +71,29 @@ extension RepositoriesFeature {
         guard let row = state.sessionItems[id: id] else { return .none }
         state.sessionSelection = id
         if let location = row.location {
+          if case .session(let key) = id, row.lifecycle == .settled {
+            state.applyUnsettle(key: key, summaries: state.sessionSummaries, now: now)
+          }
           return .send(.delegate(.focusSession(location)))
         }
         if case .session(let key) = id {
           return .send(.delegate(.resumeSession(key)))
         }
+        return .none
+
+      case .settleSession(let key):
+        state.$sessions.withLock { sidecar in
+          var entry = sidecar[key] ?? SessionSidecarEntry()
+          entry.settledAt = now
+          entry.manualUnsettledAtActivity = nil
+          sidecar[key] = entry
+        }
+        state.reconcileSessionItems(now: now)
+        state.recomputeSessionsSidebarStructureIfChanged()
+        return .none
+
+      case .unsettleSession(let key):
+        state.applyUnsettle(key: key, summaries: state.sessionSummaries, now: now)
         return .none
 
       case .sessionBranchCaptured(let key, let branch):
