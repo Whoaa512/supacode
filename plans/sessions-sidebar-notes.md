@@ -160,3 +160,9 @@
 - Duplicate guard tested via pending launch state because TerminalClient.send is synchronous; no throwing launch acknowledgment exists.
 - Unverified without owner launch: actual harness resume, UI focus, installed extension and relaunch behavior.
 - No owner-app launch/install/signaling or protected-home writes; untracked .worktrees/ and PAPERCUTS.md preserved.
+
+## Slice 1 review fix — durable session-folder roots
+- Confirmed registration omitted repositoryRoots/saveRoots. Registration now updates exact-cwd runtime roots and merges persisted roots before repositoriesChanged (and pending launch).
+- Refresh and fresh-state persisted load regression: RepositoriesFeatureSessionsTests, 14 tests, 0 failures; fixture-only IO.
+- make lint: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1245; git diff --check: exit 0.
+- No scope deviation; forced-folder override remains classification metadata, not a substitute for persisted roots.

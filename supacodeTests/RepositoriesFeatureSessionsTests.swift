@@ -350,6 +350,59 @@ struct RepositoriesFeatureSessionsTests {
 
   // MARK: - loadRepositoriesData forced folder paths skip git classification
 
+  @Test(.dependencies) func registeredSessionFolderSurvivesRefreshAndPersistedLoad() async throws {
+    let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let path = folder.standardizedFileURL.path(percentEncoded: false)
+    let persisted = LockIsolated(["/existing-root"])
+    var initial = state()
+    initial.$sessionFolderRoots = Shared(value: [])
+    let store = TestStore(initialState: initial) {
+      RepositoriesFeature()
+    } withDependencies: {
+      $0.repositoryPersistence.loadRoots = { persisted.value }
+      $0.repositoryPersistence.saveRoots = { persisted.setValue($0) }
+      $0.gitClient.rootDirectoryExists = { _ in true }
+      $0.gitClient.isGitRepository = { _ in
+        Issue.record("Forced folder must bypass git classification")
+        return false
+      }
+    }
+    store.exhaustivity = .off
+    await store.send(.registerSessionFolder(folder))
+    await store.receive(\.delegate.repositoriesChanged)
+    #expect(persisted.value == ["/existing-root", path])
+    #expect(store.state.repositoryRoots == [folder.standardizedFileURL])
+    #expect(store.state.sessionFolderRoots == [path])
+    await store.send(.refreshWorktrees)
+    await store.receive(\.reloadRepositories)
+    await store.receive(\.repositoriesLoaded)
+    #expect(store.state.repositories.first?.worktrees.first?.workingDirectory == folder.standardizedFileURL)
+    await store.finish()
+
+    persisted.setValue([path])
+    var fresh = state()
+    fresh.$sessionFolderRoots = Shared(value: [path])
+    let relaunched = TestStore(initialState: fresh) {
+      RepositoriesFeature()
+    } withDependencies: {
+      $0.repositoryPersistence.loadRoots = { persisted.value }
+      $0.gitClient.rootDirectoryExists = { _ in true }
+      $0.gitClient.isGitRepository = { _ in
+        Issue.record("Persisted forced folder must bypass git classification")
+        return false
+      }
+    }
+    relaunched.exhaustivity = .off
+    await relaunched.send(.loadPersistedRepositories)
+    await relaunched.receive(\.repositoriesLoaded)
+    #expect(relaunched.state.repositoryRoots == [folder.standardizedFileURL])
+    #expect(relaunched.state.repositories.first?.worktrees.first?.workingDirectory == folder.standardizedFileURL)
+    #expect(relaunched.state.repositories.first?.isGitRepository == false)
+    await relaunched.finish()
+  }
+
   @Test func forcedFolderPathSkipsGitClassification() async {
     let folderPath = "/tmp/supacode-forced-folder-\(UUID())"
     let folderURL = URL(fileURLWithPath: folderPath).standardizedFileURL

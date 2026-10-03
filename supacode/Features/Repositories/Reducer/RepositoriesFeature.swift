@@ -7288,7 +7288,17 @@ extension RepositoriesFeature {
     state.$sessionFolderRoots.withLock { roots in
       if !roots.contains(path) { roots.append(path) }
     }
-    return .send(.delegate(.repositoriesChanged(state.repositories)))
+    let rootPaths = RepositoryPathNormalizer.normalize(
+      state.repositoryRoots.map { $0.path(percentEncoded: false) } + [path])
+    state.repositoryRoots = rootPaths.map { URL(fileURLWithPath: $0) }
+    let repositories = state.repositories
+    @Dependency(\.repositoryPersistence) var repositoryPersistence
+    return .run { send in
+      let persistedPaths = await repositoryPersistence.loadRoots()
+      await repositoryPersistence.saveRoots(
+        RepositoryPathNormalizer.normalize(persistedPaths + rootPaths))
+      await send(.delegate(.repositoriesChanged(repositories)))
+    }
   }
 
   /// Builds the forced-folder `Repository` + synthetic worktree for `root`.
