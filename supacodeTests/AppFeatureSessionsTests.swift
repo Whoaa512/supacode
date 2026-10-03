@@ -1921,6 +1921,52 @@ struct AppFeatureSessionsTests {
     await store.finish()
   }
 
+  // MARK: - A1 correction: nonstandard snap.cwd must match via standardizedFileURL
+
+  @Test(.dependencies) func nonstandardSnapCwdMatchesViaStandardizedURL() async throws {
+    let tmpDir = try temporaryDirectory(named: "nonstandard-cwd")
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+    let key = SessionKey(harness: .pi, sessionID: "nonstandard1")
+    var initial = state()
+    let worktree = Worktree(
+      id: WorktreeID(tmpDir.path), name: "nonstandard", detail: "",
+      workingDirectory: tmpDir, repositoryRootURL: tmpDir)
+    initial.repositories.repositories.append(
+      Repository(id: RepositoryID(tmpDir.path), rootURL: tmpDir, name: "nonstandard",
+        worktrees: [worktree]))
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
+        createdAt: .distantPast)
+    ]
+    let surfaceID = UUID()
+    // snap.cwd uses a non-canonical path with an embedded "child/.."
+    let nonstandardCwdPath = tmpDir.path(percentEncoded: false) + "/child/.."
+    initial.repositories.sessionSnapshots = [
+      SessionLiveSnapshot(
+        harness: .pi, sessionRef: nil,
+        cwd: nonstandardCwdPath,
+        location: SessionLocation(
+          worktreeID: worktree.id, tabID: TabID(), surfaceID: surfaceID))
+    ]
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = .distantPast
+      $0.uuid = .incrementing
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\..repositories.delegate.resumeSession)
+    await store.receive(\.resumeBranchProbeCompleted) { appState in
+      #expect(appState.pendingBranchMismatchResume?.isProvisionalConflict == true)
+      #expect(appState.alert != nil)
+      let message = appState.alert.map { String(describing: $0.message) } ?? ""
+      #expect(message.contains("already running"))
+      #expect(message.contains("not reported"))
+      #expect(message.contains("may be this session"))
+    }
+    await store.finish()
+  }
+
   // MARK: - A2 regression: nil branch probe with history must alert, not launch
 
   @Test(.dependencies) func failedBranchProbeWithHistoryAlertsAndClearsReservation() async throws {

@@ -368,14 +368,16 @@ extension AppFeature {
     if isProvisional && isMismatch {
       title = "Session conflict"
       message =
-        "pi is connecting to a session at \(cwd.path(percentEncoded: false)) and this folder is "
-        + "on \(resolvedBranch ?? ""). The session last worked on \(recordedBranch ?? ""). "
+        "An agent already running in \(cwd.path(percentEncoded: false)) has not reported its "
+        + "session yet and may be this session. This folder is on \(resolvedBranch ?? "") but "
+        + "the session last worked on \(recordedBranch ?? ""). "
         + "Supacode will not checkout branches for you."
+
     } else if isProvisional {
       title = "Session already starting"
       message =
-        "pi is connecting to a session at \(cwd.path(percentEncoded: false)). "
-        + "Resume anyway to open a second session."
+        "An agent already running in \(cwd.path(percentEncoded: false)) has not reported its "
+        + "session yet and may be this session. Resume Anyway to start a second session."
     } else {
       title = "Resume on different branch?"
       message =
@@ -398,9 +400,9 @@ extension AppFeature {
   ) -> Bool {
     let rawParts = key.rawValue.split(separator: ":", maxSplits: 1).map(String.init)
     guard let harness = SkillAgent(rawValue: rawParts.first ?? "") else { return false }
-    let cwdPath = cwd.path(percentEncoded: false)
     return state.repositories.sessionSnapshots.contains { snap in
-      snap.harness == harness && snap.sessionRef == nil && snap.cwd == cwdPath
+      snap.harness == harness && snap.sessionRef == nil
+        && URL(fileURLWithPath: snap.cwd).standardizedFileURL == cwd
     }
   }
 
