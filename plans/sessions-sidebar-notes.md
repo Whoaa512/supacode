@@ -262,3 +262,22 @@
 - New test: settleSessionAndAdvanceUnsettlesSettledDestination — second row settled+live; advance unsettles it. Passed.
 - make lint: exit 2, only baseline violations (unchanged). make build-app: exit 0. Targeted supacodeFeatureTests/AppFeatureSessionsTests: exit 0, totalTestCount=28, failedTests=0. Logs: /tmp/slice3-step2-{lint,tests-feature,build}.log. No live-app interaction; live app was running (pgrep exit 0) but build-app does not launch it.
 - Commit: de0e401e. Named files: SessionsSidebarListView.swift, AppFeature+Sessions.swift, AppFeatureSessionsTests.swift.
+
+## Slice 3, step 2 — explicit-close attribution + teardown suppression
+- Added TerminalClient user-close intent marker and synchronous isHarnessEndSuppressed gate.
+- User close intent now survives confirm flow until actual removed-content diff; cancelled/rejected closes prune stale intent.
+- WorktreeContentHost emits userClosedSurfaces before surfacesClosed, while presence still exists.
+- App settles distinct session keys from userClosedSurfaces; direct UI contentRequestedClose marks targets synchronously before LayoutFeature runs.
+- CLI/deeplink manager closes mark destroyTab/destroySurface/closePane/closeFocused targets; pane batches settle distinct sessions once.
+- Unexpected zmx close paths mark harness-end suppression and never mark user-close intent.
+- Added suppressedHarnessEndSurfaceIDs and isEndingAllSessions in WorktreeTerminalManager; app delegate begins global suppression on termination.
+- AppFeature has isQuitting and hook-end suppression gate for next shutdown-reason step; no reason settlement implemented yet.
+- TerminalContent gained onWillTearDown/onDidStart callbacks; recipe wires teardown suppression before closeSurface and clears after start.
+- Suppression covers hibernate/rebuild/remove/prune/Terminate Sessions through existing teardown paths without reordering teardown.
+- Tests: AppFeature user-close settles before presence removal; direct close intent; terminal content callbacks; unexpected-zmx gate.
+- make generate-project: exit 0 (new WorktreeTerminalManagerSessionsTests routed terminal bundle).
+- Targeted feature tests: exit 0; xcresult totalTestCount 30, failedTests 0.
+- Targeted terminal tests: exit 0; xcresult totalTestCount 2, failedTests 0.
+- make lint: exit 2; only baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations.
+- make build-app: exit 0. Build/test serialized with pgrep checks; no full make test.
+- Unverified: live app close UI, pi shutdown reason settlement, branch mismatch/CLI Slice 3 later parts.
