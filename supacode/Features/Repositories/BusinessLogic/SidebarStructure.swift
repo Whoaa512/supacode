@@ -446,7 +446,9 @@ extension RepositoriesFeature.Action {
       return .sessionsStructure
     case .settleSession, .unsettleSession:
       return .sessionsStructure
-    case .sessionItems, .sessionsStarted, .sessionsSidebarShown, .sessionsRefreshRequested,
+    case .sessionsRestorationCompleted, .sessionsLiveKeysChanged, .sessionActivityObserved,
+      .sessionsCoarseClockFired, .sessionsStopped,
+      .sessionItems, .sessionsStarted, .sessionsSidebarShown, .sessionsRefreshRequested,
       .sessionsRefreshDebounced, .sessionsRefreshFailed, .sessionSelectionChanged, .activateSession,
       .registerSessionFolder, .sessionBranchCaptured:
       return []

@@ -181,6 +181,7 @@ struct RepositoriesFeatureSessionsTests {
       RepositoriesFeature()
     } withDependencies: {
       $0.date.now = .distantPast
+      $0.continuousClock = TestClock()
       $0.sessionIndex.cached = {
         cacheCalls.withValue { $0 += 1 }
         return [cached]
@@ -204,6 +205,7 @@ struct RepositoriesFeatureSessionsTests {
     await store.receive(\.sessionsRefreshFailed)
     #expect(store.state.sessionItems.first?.id == .session(cached.id))
     #expect(!store.state.sessionsRefreshInFlight)
+    await store.send(.sessionsStopped)
     await store.finish()
   }
 

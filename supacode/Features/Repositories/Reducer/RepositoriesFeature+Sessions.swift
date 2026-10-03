@@ -9,23 +9,56 @@ extension RepositoriesFeature {
     return .send(.delegate(.focusSession(location)))
   }
 
-  nonisolated enum SessionsCancelID: Hashable { case refresh, debounce }
+  nonisolated enum SessionsCancelID: Hashable { case refresh, debounce, coarse }
 
   var sessionsReducer: some Reducer<State, Action> {
     Reduce { state, action in
       @Dependency(\.sessionIndex) var index
       @Dependency(\.continuousClock) var clock
       @Dependency(\.date.now) var now
+      @Shared(.settingsFile) var settingsFile
       switch action {
+      case .sessionsRestorationCompleted(let keys):
+        state.sessionsRestorationFinished = true
+        state.sessionsLiveKeys = keys
+        state.autoSettleSessions(now: now, idleDays: settingsFile.global.sessionIdleDays)
+        return .none
+
+      case .sessionsLiveKeysChanged(let keys):
+        state.sessionsLiveKeys = keys
+        return .none
+
+      case .sessionActivityObserved(let key, let activity):
+        guard let hold = state.sessions[key]?.manualUnsettledAtActivity, activity > hold else { return .none }
+        state.$sessions.withLock { $0[key]?.manualUnsettledAtActivity = nil }
+        return .none
+
+      case .sessionsCoarseClockFired:
+        return .send(.sessionsRefreshRequested)
+
+      case .sessionsStopped:
+        return .merge(
+          .cancel(id: SessionsCancelID.coarse), .cancel(id: SessionsCancelID.refresh),
+          .cancel(id: SessionsCancelID.debounce))
+
       case .sessionsStarted:
         guard !state.sessionsStarted else { return .none }
         state.sessionsStarted = true
         state.sessionsRefreshInFlight = true
-        return .run { send in
-          await send(.sessionsCacheLoaded(await index.cached()))
-          await Self.refreshSessions(index: index, send: send)
-        }
-        .cancellable(id: SessionsCancelID.refresh)
+        return .merge(
+          .run { send in
+            await send(.sessionsCacheLoaded(await index.cached()))
+            await Self.refreshSessions(index: index, send: send)
+          }
+          .cancellable(id: SessionsCancelID.refresh),
+          .run { send in
+            while !Task.isCancelled {
+              try await clock.sleep(for: .seconds(900))
+              await send(.sessionsCoarseClockFired)
+            }
+          }
+          .cancellable(id: SessionsCancelID.coarse, cancelInFlight: true)
+        )
 
       case .sessionsCacheLoaded(let summaries):
         state.sessionSummaries = summaries
@@ -50,11 +83,14 @@ extension RepositoriesFeature {
           .cancellable(id: SessionsCancelID.refresh)
 
       case .sessionsRefreshCompleted(let summaries):
+        state.sessionsRefreshSucceeded = true
         state.sessionSummaries = summaries
         state.reconcileSessionItems(now: now)
+        state.autoSettleSessions(now: now, idleDays: settingsFile.global.sessionIdleDays)
         return Self.finishSessionsRefresh(state: &state)
 
       case .sessionsRefreshFailed:
+        state.sessionsRefreshSucceeded = false
         return Self.finishSessionsRefresh(state: &state)
 
       case .sessionSnapshotsChanged(let snapshots):
@@ -82,12 +118,7 @@ extension RepositoriesFeature {
         return .none
 
       case .settleSession(let key):
-        state.$sessions.withLock { sidecar in
-          var entry = sidecar[key] ?? SessionSidecarEntry()
-          entry.settledAt = now
-          entry.manualUnsettledAtActivity = nil
-          sidecar[key] = entry
-        }
+        state.applySettle(key: key, now: now)
         state.reconcileSessionItems(now: now)
         state.recomputeSessionsSidebarStructureIfChanged()
         return .none

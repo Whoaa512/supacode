@@ -197,6 +197,8 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   /// never types the resume command on its own — the offer is the whole feature,
   /// so that a surface running something else is never interrupted.
   public var resumeAgentsOnRestore: Bool
+  public var sessionIdleDays: Int
+
   /// How many directory levels below the browsed folder the Open Repository picker's
   /// nested search walks. Deeper finds more but visits more of the tree, so it is a
   /// user knob rather than a constant.
@@ -308,6 +310,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     pruneBareSurfacesOnRestore: Bool = false,
     agentsSidebar: AgentsSidebarSettings = .default,
     resumeAgentsOnRestore: Bool = true,
+    sessionIdleDays: Int = 3,
     browseSearchDepth: Int = 5
   ) {
     self.appearanceMode = appearanceMode
@@ -361,6 +364,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.pruneBareSurfacesOnRestore = pruneBareSurfacesOnRestore
     self.agentsSidebar = agentsSidebar
     self.resumeAgentsOnRestore = resumeAgentsOnRestore
+    self.sessionIdleDays = max(0, sessionIdleDays)
     self.browseSearchDepth = Self.clampedBrowseSearchDepth(browseSearchDepth)
   }
 
@@ -617,6 +621,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     resumeAgentsOnRestore =
       try container.decodeIfPresent(Bool.self, forKey: .resumeAgentsOnRestore)
       ?? Self.default.resumeAgentsOnRestore
+    sessionIdleDays = max(0, try container.decodeIfPresent(Int.self, forKey: .sessionIdleDays) ?? 3)
     browseSearchDepth = Self.clampedBrowseSearchDepth(
       try container.decodeIfPresent(Int.self, forKey: .browseSearchDepth)
         ?? Self.default.browseSearchDepth

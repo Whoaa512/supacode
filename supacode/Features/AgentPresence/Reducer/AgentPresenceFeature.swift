@@ -258,7 +258,9 @@ struct AgentPresenceFeature {
         return .none
 
       case .restoreFromSnapshot(let staged):
-        guard !staged.isEmpty else { return .none }
+        guard !staged.isEmpty else {
+          return .send(.restoreFromSnapshotChecked(records: [:], resumeCandidates: [:]))
+        }
         @Shared(.settingsFile) var settingsFile
         let offersResume = settingsFile.global.resumeAgentsOnRestore
         return .run { send in
@@ -280,7 +282,6 @@ struct AgentPresenceFeature {
             else { continue }
             candidates[key] = ResumeCandidate(sessionRef: ref, lastActivity: stage.activity)
           }
-          guard !checked.isEmpty || !candidates.isEmpty else { return }
           await send(.restoreFromSnapshotChecked(records: checked, resumeCandidates: candidates))
         }
 

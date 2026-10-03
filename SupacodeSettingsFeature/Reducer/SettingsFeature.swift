@@ -104,6 +104,7 @@ public struct SettingsFeature {
     /// Per-agent overrides are file-only (`global.agentsSidebar.rowsByAgent`);
     /// held here so editing the shared rows can't discard them.
     public var agentsSidebarRowsByAgent: [String: [[String]]]
+    public var sessionIdleDays: Int
     public var browseSearchDepth: Int
     public var cliInstallState = CLIInstallState.checking
     /// Installed editors in menu order, resolved once off the picker's body.
@@ -253,6 +254,7 @@ public struct SettingsFeature {
       pruneBareSurfacesOnRestore = settings.pruneBareSurfacesOnRestore
       agentsSidebarRowsText = settings.agentsSidebar.rowsText
       agentsSidebarRowsByAgent = settings.agentsSidebar.rowsByAgent
+      sessionIdleDays = settings.sessionIdleDays
       browseSearchDepth = settings.browseSearchDepth
       defaultWorktreeBaseDirectoryPath =
         SupacodePaths.normalizedWorktreeBaseDirectoryPath(settings.defaultWorktreeBaseDirectoryPath) ?? ""
@@ -452,6 +454,7 @@ public struct SettingsFeature {
         state.pruneBareSurfacesOnRestore = normalizedSettings.pruneBareSurfacesOnRestore
         state.agentsSidebarRowsText = normalizedSettings.agentsSidebar.rowsText
         state.agentsSidebarRowsByAgent = normalizedSettings.agentsSidebar.rowsByAgent
+        state.sessionIdleDays = normalizedSettings.sessionIdleDays
         state.browseSearchDepth = normalizedSettings.browseSearchDepth
         state.defaultWorktreeBaseDirectoryPath = normalizedSettings.defaultWorktreeBaseDirectoryPath ?? ""
         state.syncGlobalDefaults()
@@ -1247,6 +1250,7 @@ extension SettingsFeature.State {
     settings.pruneBareSurfacesOnRestore = pruneBareSurfacesOnRestore
     settings.agentsSidebar = agentsSidebar
     settings.resumeAgentsOnRestore = resumeAgentsOnRestore
+    settings.sessionIdleDays = max(0, sessionIdleDays)
     settings.browseSearchDepth = browseSearchDepth
   }
 }

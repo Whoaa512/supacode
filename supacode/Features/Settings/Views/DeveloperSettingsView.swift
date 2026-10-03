@@ -39,6 +39,13 @@ struct DeveloperSettingsView: View {
       } footer: {
         Text("These features require an installed agent integration.")
       }
+      Section("Sessions") {
+        Stepper(value: $store.sessionIdleDays, in: 0...365) {
+          Text("Auto-settle after \(store.sessionIdleDays) idle days")
+          Text("Dormant sessions only. Zero disables automatic settling, including short sessions.")
+        }
+        .help("Set the idle-day threshold; 0 disables auto-settle. Default: 3 days.")
+      }
       AgentsSidebarRowsSection(store: store)
       Section("Advanced") {
         Picker(selection: $store.automatedActionPolicy.sending(\.setAutomatedActionPolicy)) {

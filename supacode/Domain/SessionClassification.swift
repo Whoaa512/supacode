@@ -22,6 +22,22 @@ nonisolated enum SessionClassification {
     )
   }
 
+  static func classify(
+    summary: SessionSummary, isLive: Bool, sidecar: SessionSidecarEntry? = nil,
+    now: Date, idleDays: Int = 3
+  ) -> Classification {
+    let runtime: Runtime = isLive ? .live : .dormant
+    if sidecar?.settledAt != nil { return Classification(lifecycle: .settled, runtime: runtime) }
+    if isLive { return Classification(lifecycle: .active, runtime: runtime) }
+    if let hold = sidecar?.manualUnsettledAtActivity, summary.lastActivity <= hold {
+      return Classification(lifecycle: .active, runtime: runtime)
+    }
+    guard idleDays > 0 else { return Classification(lifecycle: .active, runtime: runtime) }
+    let settled = summary.messageCount < 4
+      || now.timeIntervalSince(summary.lastActivity) >= Double(idleDays) * 86_400
+    return Classification(lifecycle: settled ? .settled : .active, runtime: runtime)
+  }
+
   static func ordered(_ sessions: [SessionSummary], sidecar: SessionSidecar = [:]) -> [SessionSummary] {
     sessions.sorted {
       let lhsSettled = sidecar[$0.id]?.settledAt != nil

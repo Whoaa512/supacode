@@ -425,7 +425,8 @@ struct AppFeature {
           refreshInstalledOpenActionsEffect(current: state.installedOpenActions),
           // A `supacode.json` can be edited out of band while the app is away, and
           // the roster refresh may be minutes off, so pick that up on activate too.
-          .send(.repositories(.resolveOpenActions))
+          .send(.repositories(.resolveOpenActions)),
+          .send(.repositories(.sessionsRefreshRequested))
         )
 
       case .applicationDidResignActive:
@@ -475,6 +476,7 @@ struct AppFeature {
             case .absent:
               // A fresh start owns nothing; stray supa-* sessions are orphans.
               await terminalClient.reapOrphanSessions([])
+              await send(.agentPresence(.restoreFromSnapshot(staged: [:])))
             case .unreadable:
               // Never destroy on no signal: an unreadable store must not
               // masquerade as empty, or the sweep would kill every detached
@@ -876,6 +878,7 @@ struct AppFeature {
           .send(.repositories(.setMoveNotifiedWorktreeToTop(settings.moveNotifiedWorktreeToTop))),
           // Re-resolves the Agents tab's configured row segments.
           .send(.repositories(.agentsSidebarRowsChanged(settings.agentsSidebar))),
+          .send(.repositories(.sessionsRefreshRequested)),
           // The global default editor feeds every repo's resolved open action, and the
           // selected worktree's own open action resolves against it too.
           .send(.repositories(.openActionSettingsChanged)),
@@ -3880,7 +3883,8 @@ struct AppFeature {
       }
       appLifecycleClient.terminate()
     }
-    return .concatenate(pendingFDEffect, pendingAcksEffect, terminateEffect)
+    return .concatenate(
+      .send(.repositories(.sessionsStopped)), pendingFDEffect, pendingAcksEffect, terminateEffect)
   }
 
   private func captureAppLifecycleEvent(_ event: AppLifecycleEvent, state: inout State) {

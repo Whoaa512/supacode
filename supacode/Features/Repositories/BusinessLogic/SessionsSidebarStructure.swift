@@ -150,6 +150,36 @@ extension RepositoriesFeature.State {
     return nil
   }
 
+  mutating func applySettle(key: SessionKey, now: Date) {
+    $sessions.withLock { sidecar in
+      var entry = sidecar[key] ?? SessionSidecarEntry()
+      entry.settledAt = now
+      entry.manualUnsettledAtActivity = nil
+      sidecar[key] = entry
+    }
+  }
+
+  mutating func autoSettleSessions(now: Date, idleDays: Int) {
+    guard sessionsRestorationFinished, sessionsRefreshSucceeded,
+      !sessionSnapshots.contains(where: { if case .provisional = $0.id { return true }; return false })
+    else { return }
+    for summary in sessionSummaries {
+      let live = sessionsLiveKeys.contains(summary.id)
+        || sessionSnapshots.contains { $0.id == .session(summary.id) }
+      if let hold = sessions[summary.id]?.manualUnsettledAtActivity, summary.lastActivity > hold {
+        $sessions.withLock { $0[summary.id]?.manualUnsettledAtActivity = nil }
+      }
+      guard sessions[summary.id]?.settledAt == nil,
+        SessionClassification.classify(
+          summary: summary, isLive: live, sidecar: sessions[summary.id], now: now, idleDays: idleDays
+        ).lifecycle == .settled
+      else { continue }
+      applySettle(key: summary.id, now: now)
+    }
+    reconcileSessionItems(now: now)
+    recomputeSessionsSidebarStructureIfChanged()
+  }
+
   mutating func applyUnsettle(key: SessionKey, summaries: [SessionSummary], now: Date) {
     let watermark = summaries.first(where: { $0.id == key })?.lastActivity ?? now
     $sessions.withLock { sidecar in

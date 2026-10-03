@@ -46,9 +46,18 @@ extension AppFeature {
     @Dependency(TerminalClient.self) var terminalClient
     return Reduce { state, action in
       switch action {
+      case .agentPresence(.restoreFromSnapshotChecked):
+        return .concatenate(
+          .send(.repositories(.sessionSnapshotsChanged(Self.sessionSnapshots(state: state)))),
+          .send(.repositories(.sessionsRestorationCompleted(Self.liveSessionKeys(state: state)))))
+
       case .agentPresence(.delegate(.surfacesChanged)), .terminals,
         .repositories(.delegate(.repositoriesChanged)):
         var effects: [Effect<Action>] = []
+        let keys = Self.liveSessionKeys(state: state)
+        if keys != state.repositories.sessionsLiveKeys {
+          effects.append(.send(.repositories(.sessionsLiveKeysChanged(keys))))
+        }
         let snapshots = Self.sessionSnapshots(state: state)
         if snapshots != state.repositories.sessionSnapshots {
           effects.append(.send(.repositories(.sessionSnapshotsChanged(snapshots))))
@@ -90,7 +99,15 @@ extension AppFeature {
         let settlement: Effect<Action> =
           !state.isQuitting && !terminalClient.isHarnessEndSuppressed(event.surfaceID)
           ? Self.settleReplacedOrEndedSession(event: event, state: state) : .none
-        return .merge(.send(.agentPresence(.hookEventReceived(event))), refresh, branchEffect, settlement)
+        var activity: Effect<Action> = .none
+        if event.eventName == .busy || event.eventName == .idle,
+          let agent = SkillAgent(rawValue: event.agent), let ref = event.sessionRef,
+          let timestamp = event.timestamp
+        {
+          activity = .send(.repositories(.sessionActivityObserved(
+            SessionKey(harness: agent, sessionID: ref), timestamp)))
+        }
+        return .merge(.send(.agentPresence(.hookEventReceived(event))), refresh, branchEffect, settlement, activity)
 
       case .branchCaptureProbeCompleted(let key, let branch):
         state.branchCaptureInFlight = false
@@ -451,6 +468,12 @@ extension AppFeature {
   }
 
   // MARK: - Snapshot helper
+
+  static func liveSessionKeys(state: State) -> Set<SessionKey> {
+    Set(state.agentPresence.records.compactMap { key, record in
+      record.sessionRef.map { SessionKey(harness: key.agent, sessionID: $0) }
+    })
+  }
 
   static func sessionSnapshots(state: State) -> [SessionLiveSnapshot] {
     var locations: [UUID: (SessionLocation, String)] = [:]

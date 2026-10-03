@@ -158,6 +158,25 @@ struct AppFeatureSessionsTests {
     #expect(snapshots[0].cwd == "/workspace")
   }
 
+  @Test(.dependencies) func checkedRestoreReleasesAutoSettleGateWithUnmappedLiveIdentity() async {
+    let clock = TestClock()
+    let store = TestStore(initialState: state()) { AppFeature() } withDependencies: {
+      $0.date.now = .distantPast
+      $0.continuousClock = clock
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+    }
+    store.exhaustivity = .off
+    let key = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: UUID())
+    await store.send(.agentPresence(.restoreFromSnapshotChecked(
+      records: [key: AgentPresenceFeature.RestoredRecord(
+        alivePids: [123], activity: .idle, sessionRef: "unmapped")], resumeCandidates: [:])))
+    await store.receive(\.repositories.sessionsRestorationCompleted)
+    #expect(store.state.repositories.sessionsRestorationFinished)
+    #expect(store.state.repositories.sessionsLiveKeys.contains(SessionKey(harness: .pi, sessionID: "unmapped")))
+    await clock.advance(by: .seconds(1))
+    await store.finish()
+  }
+
   @Test(.dependencies) func checkedRestoreLinksBeforeTurnAndDelayedIndexHydrates() async {
     let clock = TestClock()
     let store = TestStore(initialState: state(restored: true)) {

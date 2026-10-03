@@ -12,6 +12,21 @@ import Testing
 
 @MainActor
 struct SettingsFeatureTests {
+  @Test(.dependencies) func sessionIdleDaysLoadsAndPersistsDisabledValue() async {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.sessionIdleDays = 7 }
+    let store = TestStore(initialState: SettingsFeature.State()) { SettingsFeature() }
+    store.exhaustivity = .off
+    await store.send(.settingsLoaded(settingsFile.global))
+    await store.receive(\.delegate.settingsChanged)
+    #expect(store.state.sessionIdleDays == 7)
+    await store.send(.binding(.set(\.sessionIdleDays, 0)))
+    await store.receive(\.delegate.settingsChanged)
+    #expect(settingsFile.global.sessionIdleDays == 0)
+    #expect(store.state.sessionIdleDays == 0)
+    await store.finish()
+  }
+
   @Test(.dependencies) func loadSettings() async {
     let loaded = GlobalSettings(
       appearanceMode: .dark,

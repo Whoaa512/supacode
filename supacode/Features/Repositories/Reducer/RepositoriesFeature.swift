@@ -335,6 +335,9 @@ struct RepositoriesFeature {
     var sessionSnapshots: [SessionLiveSnapshot] = []
     @Shared(.sessions) var sessions: SessionSidecar
     @Shared(.sessionFolderRoots) var sessionFolderRoots: [String]
+    var sessionsRestorationFinished = false
+    var sessionsRefreshSucceeded = false
+    var sessionsLiveKeys: Set<SessionKey> = []
     var sessionsStarted = false
     var sessionsRefreshInFlight = false
     var sessionsRefreshPending = false
@@ -398,6 +401,11 @@ struct RepositoriesFeature {
 
   enum Action {
     case sessionItems(IdentifiedActionOf<SessionSidebarItemFeature>)
+    case sessionsRestorationCompleted(Set<SessionKey>)
+    case sessionsLiveKeysChanged(Set<SessionKey>)
+    case sessionActivityObserved(SessionKey, Date)
+    case sessionsCoarseClockFired
+    case sessionsStopped
     case sessionsStarted
     case sessionsCacheLoaded([SessionSummary])
     case sessionsSidebarShown
@@ -4985,7 +4993,9 @@ struct RepositoriesFeature {
         }
         return .none
 
-      case .sessionItems, .sessionsStarted, .sessionsCacheLoaded, .sessionsSidebarShown,
+      case .sessionsRestorationCompleted, .sessionsLiveKeysChanged, .sessionActivityObserved,
+        .sessionsCoarseClockFired, .sessionsStopped,
+        .sessionItems, .sessionsStarted, .sessionsCacheLoaded, .sessionsSidebarShown,
         .sessionsRefreshRequested, .sessionsRefreshDebounced, .sessionsRefreshCompleted,
         .sessionsRefreshFailed, .sessionSnapshotsChanged, .sessionSelectionChanged, .activateSession,
         .settleSession, .unsettleSession, .sessionBranchCaptured:
