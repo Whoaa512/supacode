@@ -141,7 +141,7 @@ struct CommandPaletteFeature {
     case dismissedWithoutSelection
     case browseSelectRepository(URL)
     case newSessionDirectorySelected(URL)
-    case browseOpenNativePanel
+    case browseOpenNativePanel(BrowsePurpose)
     #if DEBUG
       case debugTestToast(RepositoriesFeature.StatusToast)
     #endif
@@ -429,15 +429,9 @@ struct CommandPaletteFeature {
 
       case .browseOpenNativePanel:
         let purpose = state.browse.purpose
-        let directory = state.browse.directoryURL
         state.isPresented = false
         state.resetForDismiss()
-        switch purpose {
-        case .openRepository:
-          return .send(.delegate(.browseOpenNativePanel))
-        case .newSession:
-          return .send(.delegate(.newSessionDirectorySelected(directory)))
-        }
+        return .send(.delegate(.browseOpenNativePanel(purpose)))
 
       case .delegate:
         return .none

@@ -104,6 +104,11 @@ struct RepositoriesFeature {
     let worktreeID: Worktree.ID
   }
 
+  enum OpenPanelPurpose: Equatable {
+    case openRepository
+    case newSession
+  }
+
   @ObservableState
   struct State: Equatable {
     var repositories: IdentifiedArrayOf<Repository> = []
@@ -119,6 +124,7 @@ struct RepositoriesFeature {
     var resolvingRemoteRepositoryIDs: Set<Repository.ID> = []
     var selection: SidebarSelection?
     var isOpenPanelPresented = false
+    var openPanelPurpose: OpenPanelPurpose = .openRepository
     var isInitialLoadComplete = false
     var pendingWorktrees: [PendingWorktree] = []
     /// Creations cancelled while their git work was still in flight, consumed
@@ -435,6 +441,7 @@ struct RepositoriesFeature {
     /// Settings editor), so the post-reduce hook re-resolves every row's
     /// configured segments.
     case agentsSidebarRowsChanged(AgentsSidebarSettings)
+    case presentOpenPanel(OpenPanelPurpose)
     case setOpenPanelPresented(Bool)
     case requestAddRemoteRepository
     case requestEditRemoteRepository(Repository.ID)
@@ -3697,8 +3704,16 @@ struct RepositoriesFeature {
         // and rebuilds `sidebarStructure` in the selected display order.
         return .none
 
+      case .presentOpenPanel(let purpose):
+        state.openPanelPurpose = purpose
+        state.isOpenPanelPresented = true
+        return .none
+
       case .setOpenPanelPresented(let isPresented):
         state.isOpenPanelPresented = isPresented
+        if !isPresented {
+          state.openPanelPurpose = .openRepository
+        }
         return .none
 
       case .requestAddRemoteRepository, .requestEditRemoteRepository, .remoteConnectionForm:

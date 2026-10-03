@@ -2561,7 +2561,7 @@ struct CommandPaletteFeatureTests {
       $0.mode = .commands
       $0.browse = CommandPaletteFeature.BrowseState()
     }
-    await store.receive(.delegate(.browseOpenNativePanel))
+    await store.receive(.delegate(.browseOpenNativePanel(.openRepository)))
   }
 
   @Test func branchSearchItems_listsLoadedBranchesPerRepository() {

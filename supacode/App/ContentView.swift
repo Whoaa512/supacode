@@ -60,7 +60,13 @@ struct ContentView: View {
     ) { result in
       switch result {
       case .success(let urls):
-        store.send(.repositories(.openRepositories(urls)))
+        switch repositoriesStore.openPanelPurpose {
+        case .openRepository:
+          store.send(.repositories(.openRepositories(urls)))
+        case .newSession:
+          guard let url = urls.first else { return }
+          store.send(.newSessionDirectorySelected(url))
+        }
       case .failure:
         store.send(
           .repositories(

@@ -62,9 +62,22 @@ struct AppFeatureCommandPaletteTests {
       AppFeature()
     }
 
-    await store.send(.commandPalette(.delegate(.browseOpenNativePanel)))
-    await store.receive(\.repositories.setOpenPanelPresented) {
+    await store.send(.commandPalette(.delegate(.browseOpenNativePanel(.openRepository))))
+    await store.receive(\.repositories.presentOpenPanel) {
       $0.repositories.isOpenPanelPresented = true
+      $0.repositories.openPanelPurpose = .openRepository
+    }
+  }
+
+  @Test(.dependencies) func newSessionBrowseOpenNativePanelShowsOpenPanelForSession() async {
+    let store = TestStore(initialState: AppFeature.State()) {
+      AppFeature()
+    }
+
+    await store.send(.commandPalette(.delegate(.browseOpenNativePanel(.newSession))))
+    await store.receive(\.repositories.presentOpenPanel) {
+      $0.repositories.isOpenPanelPresented = true
+      $0.repositories.openPanelPurpose = .newSession
     }
   }
 

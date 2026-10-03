@@ -198,12 +198,15 @@
 - Cwd fallback order: focused session row, selected session row, selected worktree, home; missing/unreadable cwd no-ops.
 - Reuses PendingSessionLaunch/registerSessionFolder so unregistered exact directories take the same safe folder-registration path as dormant resume.
 - Palette browse gained `BrowsePurpose` defaulting to open-repository; new-session purpose delegates selected/typed directories to AppFeature and resets on selection/dismiss.
-- Native fallback in new-session browse resolves to the typed directory instead of leaking to repository-open behavior; repository browse path unchanged.
+- A6 correction: native fallback now preserves `BrowsePurpose` and reuses the folder-importer panel; new-session fallback opens a native directory chooser, then launches the chosen directory instead of accepting the typed browse path.
+- Repository-open fallback still presents the same panel with `.openRepository`; selection result dispatches by stored purpose.
+- A6 shortcut audit now asserts all enabled Supacode defaults are unique and new-session chords emit Ghostty unbinds while avoiding known Ghostty defaults.
 - Tests added: AppFeature new-session cwd fallback/launch, CommandPaletteSessionDirectoryTests, SessionShortcutTests.
-- make generate-project: exit 0.
-- Targeted tests final: exit 0; xcresult totalTestCount 26, failedTests 0.
-- make lint: exit 2; only baseline DeeplinkClient:26 and CommandPaletteFeature complexity failures (line shifted by this edit).
-- make build-app: exit 0.
+- make generate-project: exit 0 (/tmp/slice2-a6-generate.log).
+- Targeted tests final: exit 0; xcresult totalTestCount 5, failedTests 0 (/tmp/slice2-a6-targeted-tests-final.log, /tmp/slice2-a6-targeted-xcresult-final.json).
+- AppFeature command-palette tests: exit 0; xcresult totalTestCount 34, failedTests 0 (/tmp/slice2-a6-appfeature-tests.log, /tmp/slice2-a6-appfeature-xcresult.json).
+- make lint: exit 2; only baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity failures (/tmp/slice2-a6-lint.log).
+- make build-app: exit 0 (/tmp/slice2-a6-build.log).
 - pgrep/xcodebuild serialization used before each build/test; no full make test run.
 - No app launch/install, no supacode/zmx/pi signaling, no writes to protected home dirs; .worktrees/ and PAPERCUTS.md untouched.
 - Unverified: actual menu/key handling in owner UI and real pi process startup.

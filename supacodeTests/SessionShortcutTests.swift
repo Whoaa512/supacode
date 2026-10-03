@@ -13,7 +13,22 @@ struct SessionShortcutTests {
     let duplicates = Dictionary(grouping: AppShortcuts.all.filter(\.isEnabledByDefault), by: \.display)
       .filter { $0.value.count > 1 }
       .mapValues { $0.map(\.id.displayName) }
-    #expect(duplicates["⌘⇧N"] == nil)
-    #expect(duplicates["⌘⇧⌥N"] == nil)
+    #expect(duplicates.isEmpty)
+  }
+
+  @Test func newSessionChordsReleaseGhosttyAndAvoidKnownGhosttyDefaults() {
+    let ghosttyDefaults = Set([
+      "super+n", "super+t", "super+w", "super+shift+w", "super+q",
+      "super+comma", "super+enter", "super+shift+comma", "super+shift+j",
+      "super+shift+k", "super+shift+left", "super+shift+right", "super+shift+up",
+      "super+shift+down", "super+shift+open_bracket", "super+shift+close_bracket",
+    ])
+
+    #expect(AppShortcuts.newSession.ghosttyKeybind == "shift+super+n")
+    #expect(AppShortcuts.newSessionInDirectory.ghosttyKeybind == "alt+shift+super+n")
+    #expect(AppShortcuts.newSession.ghosttyUnbindConfigLine == "keybind = shift+super+n=unbind")
+    #expect(AppShortcuts.newSessionInDirectory.ghosttyUnbindConfigLine == "keybind = alt+shift+super+n=unbind")
+    #expect(!ghosttyDefaults.contains(AppShortcuts.newSession.ghosttyKeybind))
+    #expect(!ghosttyDefaults.contains(AppShortcuts.newSessionInDirectory.ghosttyKeybind))
   }
 }

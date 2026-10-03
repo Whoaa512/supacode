@@ -32,7 +32,7 @@ struct CommandPaletteSessionDirectoryTests {
     await store.receive(\.delegate.newSessionDirectorySelected)
   }
 
-  @Test func newSessionNativeFallbackUsesTypedDirectoryAndResets() async {
+  @Test func newSessionNativeFallbackDelegatesPurposeAndResets() async {
     let directory = URL(fileURLWithPath: "/tmp/session-native", isDirectory: true)
     let store = TestStore(initialState: CommandPaletteFeature.State()) {
       CommandPaletteFeature()
@@ -54,7 +54,7 @@ struct CommandPaletteSessionDirectoryTests {
       $0.selectedIndex = nil
       $0.browse = CommandPaletteFeature.BrowseState()
     }
-    await store.receive(\.delegate.newSessionDirectorySelected)
+    await store.receive(.delegate(.browseOpenNativePanel(.newSession)))
   }
 
   @Test func defaultBrowsePurposeStillOpensRepositoryAndResets() async {

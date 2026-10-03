@@ -1946,8 +1946,13 @@ struct AppFeature {
       case .commandPalette(.delegate(.newSessionDirectorySelected(let url))):
         return .send(.newSessionDirectorySelected(url))
 
-      case .commandPalette(.delegate(.browseOpenNativePanel)):
-        return .send(.repositories(.setOpenPanelPresented(true)))
+      case .commandPalette(.delegate(.browseOpenNativePanel(let purpose))):
+        switch purpose {
+        case .openRepository:
+          return .send(.repositories(.presentOpenPanel(.openRepository)))
+        case .newSession:
+          return .send(.repositories(.presentOpenPanel(.newSession)))
+        }
 
       case .commandPalette(.delegate(.addRemoteRepository)):
         return .send(.repositories(.requestAddRemoteRepository))

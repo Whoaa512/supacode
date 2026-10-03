@@ -607,7 +607,7 @@ extension RepositoriesFeature.Action {
       return []
 
     // Everything else is UI / effects / transient state, no cache touched.
-    case .task, .setOpenPanelPresented,
+    case .task, .presentOpenPanel, .setOpenPanelPresented,
       .requestAddRemoteRepository, .requestEditRemoteRepository, .remoteConnectionForm,
       .requestCloneRepository, .cloneRepositoryForm,
       .loadPersistedRepositories,
