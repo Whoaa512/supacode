@@ -1720,6 +1720,7 @@ struct RepositoriesFeature {
           _ = sidebar.sections.removeValue(forKey: repositoryID)
         }
         state.dropStaleFailedRepositorySelection()
+        let capturedFolderPaths = Set(state.sessionFolderRoots)
         return .run { send in
           let loadedPaths = await repositoryPersistence.loadRoots()
           var seen: Set<String> = []
@@ -1728,7 +1729,7 @@ struct RepositoriesFeature {
           await repositoryPersistence.saveRoots(remaining)
           await repositoryPersistence.pruneRepositoryConfigs([repositoryID.rawValue])
           let roots = remaining.map { URL(fileURLWithPath: $0) }
-          let loadResult = await loadRepositoriesData(roots)
+          let loadResult = await loadRepositoriesData(roots, forcedFolderPaths: capturedFolderPaths)
           await send(.gitEnvironmentChanged(loadResult.environmentError))
           await send(
             .repositoriesLoaded(
@@ -3727,11 +3728,12 @@ struct RepositoriesFeature {
       case .loadPersistedRepositories:
         state.alert = nil
         state.isRefreshingWorktrees = false
+        let capturedFolderPathsLPR = Set(state.sessionFolderRoots)
         return .run { send in
           let loadedPaths = await repositoryPersistence.loadRoots()
           let rootPaths = RepositoryPathNormalizer.normalize(loadedPaths)
           let roots = rootPaths.map { URL(fileURLWithPath: $0) }
-          let loadResult = await loadRepositoriesData(roots)
+          let loadResult = await loadRepositoriesData(roots, forcedFolderPaths: capturedFolderPathsLPR)
           await send(.gitEnvironmentChanged(loadResult.environmentError))
           await send(
             .repositoriesLoaded(
@@ -3772,7 +3774,7 @@ struct RepositoriesFeature {
           state.isRefreshingWorktrees = false
           return .none
         }
-        return loadRepositories(roots, animated: animated)
+        return loadRepositories(roots, animated: animated, folderRoots: state.sessionFolderRoots)
 
       case .gitEnvironmentChanged(let environmentError):
         // Guard so the periodic refresh doesn't re-publish an unchanged value.
@@ -3901,6 +3903,7 @@ struct RepositoriesFeature {
       case .openRepositories(let urls):
         analyticsClient.capture("repository_added", ["count": urls.count])
         state.alert = nil
+        let capturedFolderPathsOR = Set(state.sessionFolderRoots)
         return .run { send in
           let loadedPaths = await repositoryPersistence.loadRoots()
           let existingRootPaths = RepositoryPathNormalizer.normalize(loadedPaths)
@@ -3935,7 +3938,7 @@ struct RepositoriesFeature {
           let mergedPaths = RepositoryPathNormalizer.normalize(existingRootPaths + resolvedRootPaths)
           let mergedRoots = mergedPaths.map { URL(fileURLWithPath: $0) }
           await repositoryPersistence.saveRoots(mergedPaths)
-          let loadResult = await loadRepositoriesData(mergedRoots)
+          let loadResult = await loadRepositoriesData(mergedRoots, forcedFolderPaths: capturedFolderPathsOR)
           await send(.gitEnvironmentChanged(loadResult.environmentError))
           await send(
             .openRepositoriesFinished(
@@ -3953,9 +3956,6 @@ struct RepositoriesFeature {
         let previousSelection = state.selectedWorktreeID
         let previousSelectedWorktree = state.worktree(for: previousSelection)
         let mergedRemote = Self.mergePersistedRemoteRepositories(into: repositories, existingState: state)
-        // Inject session folder roots that were registered at runtime but
-        // are not in the standard git-classified load (exact-cwd folder repos
-        // that may live inside a git repo tree).
         let allRepositories = Self.mergeSessionFolderRepositories(
           state.sessionFolderRoots, into: mergedRemote.repositories)
         _ = applyRepositories(
@@ -5150,16 +5150,20 @@ struct RepositoriesFeature {
     .cancellable(id: CancelID.pullRequestRefresh(repositoryID), cancelInFlight: true)
   }
 
-  private func loadRepositories(_ roots: [URL], animated: Bool = false) -> Effect<Action> {
+  private func loadRepositories(
+    _ roots: [URL],
+    animated: Bool = false,
+    folderRoots: [String] = []
+  ) -> Effect<Action> {
     let gitClient = gitClient
+    let forcedFolderPaths = Set(folderRoots)
     return .run { [animated, roots] send in
-      // Each reconcile shells out independently; parallel to keep load latency flat.
       await withTaskGroup(of: Void.self) { group in
         for root in roots {
           group.addTask { await gitClient.reconcileSupacodeLocks(root) }
         }
       }
-      let loadResult = await loadRepositoriesData(roots)
+      let loadResult = await loadRepositoriesData(roots, forcedFolderPaths: forcedFolderPaths)
       await send(.gitEnvironmentChanged(loadResult.environmentError))
       await send(
         .repositoriesLoaded(
@@ -5367,9 +5371,22 @@ struct RepositoriesFeature {
     let environmentError: GitEnvironmentError?
   }
 
-  private func loadRepositoriesData(_ roots: [URL]) async -> RepositoriesLoadResult {
+  private func loadRepositoriesData(
+    _ roots: [URL],
+    forcedFolderPaths: Set<String> = []
+  ) async -> RepositoriesLoadResult {
+    var preloaded: [Repository] = []
+    var gitRoots: [URL] = []
+    for root in roots {
+      let normalized = root.standardizedFileURL
+      if forcedFolderPaths.contains(normalized.path(percentEncoded: false)) {
+        preloaded.append(Self.makeFolderRepository(for: normalized))
+      } else {
+        gitRoots.append(root)
+      }
+    }
     let fetchResults = await withTaskGroup(of: WorktreesFetchResult.self) { group in
-      for root in roots {
+      for root in gitRoots {
         let gitClient = self.gitClient
         group.addTask {
           await Self.worktreesFetchResult(for: root, gitClient: gitClient)
@@ -5384,12 +5401,10 @@ struct RepositoriesFeature {
       return resultsByRootID
     }
 
-    var loaded: [Repository] = []
+    var loaded: [Repository] = preloaded
     var failures: [LoadFailure] = []
-    // Git roots that failed to list, deferred until the probe decides whether
-    // git itself is blocked (see below).
     var deferredGitFailures: [DeferredGitFailure] = []
-    for root in roots {
+    for root in gitRoots {
       let normalizedRoot = root.standardizedFileURL
       let rootID = RepositoryID(normalizedRoot.path(percentEncoded: false))
       guard let result = fetchResults[rootID] else { continue }
@@ -7311,15 +7326,6 @@ extension RepositoriesFeature {
       let repoID = RepositoryID(urlPath)
       let folderRepo = makeFolderRepository(for: url)
       if let idx = merged.firstIndex(where: { $0.id == repoID }) {
-        merged[idx] = folderRepo
-        continue
-      }
-      let worktreeMatchIdx = merged.firstIndex { repo in
-        repo.worktrees.contains {
-          $0.workingDirectory.standardizedFileURL.path(percentEncoded: false) == urlPath
-        }
-      }
-      if let idx = worktreeMatchIdx {
         merged[idx] = folderRepo
         continue
       }

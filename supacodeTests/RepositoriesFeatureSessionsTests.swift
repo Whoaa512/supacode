@@ -327,4 +327,61 @@ struct RepositoriesFeatureSessionsTests {
     #expect(result.count == 1)
     #expect(result[0].isGitRepository == false)
   }
+
+  @Test func mergeSessionFolderDoesNotReplaceParentGitRepoOnWorktreeCwdMatch() {
+    let gitRoot = "/tmp/supacode-parent-git-\(UUID())"
+    let worktreePath = gitRoot + "/wt-feature"
+    let gitRootURL = URL(fileURLWithPath: gitRoot).standardizedFileURL
+    let wtURL = URL(fileURLWithPath: worktreePath).standardizedFileURL
+    let wtWorktree = Worktree(
+      id: WorktreeID(wtURL.path(percentEncoded: false)), name: "wt-feature", detail: "",
+      workingDirectory: wtURL, repositoryRootURL: gitRootURL)
+    let gitRepo = Repository(
+      id: RepositoryID(gitRootURL.path(percentEncoded: false)), rootURL: gitRootURL, name: "git",
+      worktrees: [wtWorktree], isGitRepository: true)
+    // sessionFolderRoot path is the worktree cwd, not the git repo root
+    let result = RepositoriesFeature.mergeSessionFolderRepositories(
+      [worktreePath], into: [gitRepo])
+    // git repo must be preserved; folder repo is appended as a separate entry
+    #expect(result.count == 2)
+    #expect(result.contains { $0.id == gitRepo.id && $0.isGitRepository })
+    #expect(result.contains { $0.id == RepositoryID(wtURL.path(percentEncoded: false)) && !$0.isGitRepository })
+  }
+
+  // MARK: - loadRepositoriesData forced folder paths skip git classification
+
+  @Test func forcedFolderPathSkipsGitClassification() async {
+    let folderPath = "/tmp/supacode-forced-folder-\(UUID())"
+    let folderURL = URL(fileURLWithPath: folderPath).standardizedFileURL
+    let gitCallCount = LockIsolated(0)
+
+    var initial = state()
+    initial.$sessionFolderRoots = Shared(value: [folderURL.path(percentEncoded: false)])
+
+    let store = TestStore(initialState: initial) {
+      RepositoriesFeature()
+    } withDependencies: {
+      $0.repositoryPersistence.loadRoots = { [folderURL.path(percentEncoded: false)] }
+      $0.gitClient.rootDirectoryExists = { _ in true }
+      $0.gitClient.isGitRepository = { _ in
+        gitCallCount.withValue { $0 += 1 }
+        return false
+      }
+      $0.gitClient.worktrees = { _ in
+        Issue.record("worktrees() must not be called for forced folder root")
+        return []
+      }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.loadPersistedRepositories)
+    await store.receive(\.gitEnvironmentChanged)
+    await store.receive(\.repositoriesLoaded) { state in
+      #expect(state.repositories.count == 1)
+      #expect(state.repositories.first?.isGitRepository == false)
+      #expect(state.repositories.first?.id == RepositoryID(folderURL.path(percentEncoded: false)))
+    }
+    #expect(gitCallCount.value == 0, "isGitRepository must not be called for forced folder path")
+    await store.finish()
+  }
 }

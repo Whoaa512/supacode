@@ -168,8 +168,6 @@ extension AppFeature {
     return runBranchProbe(key: request.key, cwd: request.cwd)
   }
 
-  nonisolated enum BranchCaptureCancelID: Hashable { case probe }
-
   static func runBranchProbe(key: SessionKey, cwd: URL) -> Effect<Action> {
     @Dependency(GitClientDependency.self) var gitClient
     return .run { send in
