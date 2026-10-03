@@ -584,6 +584,14 @@ struct AppFeature {
           worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID
         ))
 
+      case .repositories(.selectNextWorktree), .repositories(.selectPreviousWorktree):
+        if state.repositories.isSessionsSidebarTabActive,
+          let focused = Self.focusedSessionRowID(state: state)
+        {
+          state.repositories.sessionSelection = focused
+        }
+        return .none
+
       case .repositories(.delegate(.selectedWorktreeChanged(let worktree))):
         let lastFocusedWorktreeID = worktree?.id
         guard let worktree else {

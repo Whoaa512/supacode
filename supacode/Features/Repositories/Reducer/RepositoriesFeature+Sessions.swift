@@ -3,6 +3,12 @@ import Foundation
 import SupacodeSettingsShared
 
 extension RepositoriesFeature {
+  static func focusSessionNavigation(state: inout State, id: SessionRowID?) -> Effect<Action> {
+    guard let id, let location = state.sessionItems[id: id]?.location else { return .none }
+    state.sessionSelection = id
+    return .send(.delegate(.focusSession(location)))
+  }
+
   nonisolated enum SessionsCancelID: Hashable { case refresh, debounce }
 
   var sessionsReducer: some Reducer<State, Action> {

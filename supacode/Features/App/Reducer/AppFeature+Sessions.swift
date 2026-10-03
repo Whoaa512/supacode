@@ -16,6 +16,17 @@ struct BranchCaptureRequest: Equatable {
 }
 
 extension AppFeature {
+  static func focusedSessionRowID(state: State) -> SessionRowID? {
+    guard let selectedWorktreeID = state.terminals.selectedWorktreeID else { return nil }
+    guard let layout = state.terminals.layouts[id: selectedWorktreeID] else { return nil }
+    guard let focusedPane = layout.layout.panes.first(where: { $0.id == layout.layout.focusedPaneID })
+    else { return nil }
+    guard let selectedTab = focusedPane.tabs.first(where: { $0.id == focusedPane.selectedTabID })
+    else { return nil }
+    let surfaceID = selectedTab.content.id.rawValue
+    return state.repositories.sessionItems.first(where: { $0.location?.surfaceID == surfaceID })?.id
+  }
+
   var sessionsLinkReducer: some Reducer<State, Action> {
     Reduce { state, action in
       switch action {

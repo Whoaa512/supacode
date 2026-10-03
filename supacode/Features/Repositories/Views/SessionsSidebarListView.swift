@@ -1,11 +1,28 @@
 import ComposableArchitecture
+import Sharing
+import SupacodeSettingsShared
 import SwiftUI
 
 struct SessionsSidebarListView: View {
   let store: StoreOf<RepositoriesFeature>
+  @Environment(CommandKeyObserver.self) private var commandKeyObserver
+  @Shared(.settingsFile) private var settingsFile
 
   var body: some View {
-    List(
+    let shortcutHintByID: [SessionRowID: String]
+    if commandKeyObserver.isPressed {
+      let overrides = settingsFile.global.shortcutOverrides
+      let structure = store.sessionsSidebarStructure
+      shortcutHintByID = structure.liveIDs.enumerated().reduce(into: [:]) { dict, pair in
+        let (index, rowID) = pair
+        if let hint = AppShortcuts.worktreeSelectionShortcutDisplay(atSlot: index, overrides: overrides) {
+          dict[rowID] = hint
+        }
+      }
+    } else {
+      shortcutHintByID = [:]
+    }
+    return List(
       selection: Binding(
         get: { store.sessionSelection },
         set: { store.send(.sessionSelectionChanged($0)) }
@@ -21,7 +38,7 @@ struct SessionsSidebarListView: View {
             if let rowStore = store.scope(
               state: \.sessionItems[id: id], action: \.sessionItems[id: id])
             {
-              SessionSidebarRowView(store: rowStore)
+              SessionSidebarRowView(store: rowStore, shortcutHint: shortcutHintByID[id])
                 .tag(id)
             }
           }
@@ -30,16 +47,26 @@ struct SessionsSidebarListView: View {
     }
     .listStyle(.sidebar)
     .onAppear { store.send(.sessionsSidebarShown) }
+    .onKeyPress(.upArrow) { moveSelection(by: -1) }
+    .onKeyPress(.downArrow) { moveSelection(by: 1) }
     .onKeyPress(.return) {
       guard let id = store.sessionSelection else { return .ignored }
       store.send(.activateSession(id))
       return .handled
     }
   }
+
+  private func moveSelection(by offset: Int) -> KeyPress.Result {
+    guard let id = store.sessionsSidebarStructure.selection(byOffset: offset, from: store.sessionSelection)
+    else { return .ignored }
+    store.send(.sessionSelectionChanged(id))
+    return .handled
+  }
 }
 
 private struct SessionSidebarRowView: View {
   let store: StoreOf<SessionSidebarItemFeature>
+  let shortcutHint: String?
 
   var body: some View {
     Button {
@@ -58,6 +85,12 @@ private struct SessionSidebarRowView: View {
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .help(store.cwd)
+        }
+        Spacer()
+        if let hint = shortcutHint {
+          Text(hint)
+            .font(.caption)
+            .foregroundStyle(.quaternary)
         }
       }
       .foregroundStyle(store.isLive ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))

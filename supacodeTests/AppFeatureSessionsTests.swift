@@ -302,6 +302,253 @@ struct AppFeatureSessionsTests {
     #expect(store.state.pendingSessionLaunch == nil)
   }
 
+  // MARK: - Sessions navigation with focused surface precedence
+
+  @Test(.dependencies) func selectNextWorktreeOnSessionsUsesLiveRows() async {
+    let focused = LockIsolated<[SessionLocation]>([])
+    var initial = state()
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.sessions.rawValue }
+    let key1 = SessionKey(harness: .pi, sessionID: "sess1")
+    let key2 = SessionKey(harness: .pi, sessionID: "sess2")
+    let surface2 = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
+    let tab2 = TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!)
+    let layout = initial.terminals.layouts[id: worktree.id]!.layout
+    let newTabs = layout.panes[0].tabs + [
+      TabItem(
+        id: tab2, title: "Agent2",
+        content: ContentSnapshot(
+          id: ContentID(rawValue: surface2),
+          state: .terminal(TerminalContentState(workingDirectory: "/workspace"))))
+    ]
+    initial.terminals.layouts[id: worktree.id]?.layout.panes[0].tabs = IdentifiedArray(uniqueElements: newTabs)
+    let presenceKey1 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    initial.agentPresence.records[presenceKey1] = record(ref: "sess1")
+    initial.agentPresence.bySurface[surface] = [.pi]
+    let presenceKey2 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface2)
+    initial.agentPresence.records[presenceKey2] = record(ref: "sess2")
+    initial.agentPresence.bySurface[surface2] = [.pi]
+    initial.repositories.sessionSnapshots = AppFeature.sessionSnapshots(state: initial)
+    initial.repositories.reconcileSessionItems(now: .distantPast)
+    initial.repositories.recomputeSessionsSidebarStructureIfChanged()
+    initial.repositories.sessionSelection = .session(key1)
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    initial.terminals.selectedWorktreeID = worktree.id
+    initial.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = self.tab
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
+      $0.terminalClient.focusSurface = { worktree, tab, surf in
+        focused.withValue {
+          $0.append(SessionLocation(worktreeID: worktree.id, tabID: tab, surfaceID: surf))
+        }
+      }
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.selectNextWorktree)) {
+      $0.repositories.sessionSelection = .session(key2)
+    }
+    await store.finish()
+    #expect(!sent.value.contains { if case .createTabWithInput = $0 { return true }; return false })
+    #expect(focused.value == [initial.repositories.sessionItems[id: .session(key2)]!.location!])
+  }
+
+  @Test(.dependencies) func selectPreviousWorktreeOnSessionsWrapsLiveRows() async {
+    let focused = LockIsolated<[SessionLocation]>([])
+    var initial = state()
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.sessions.rawValue }
+    let key1 = SessionKey(harness: .pi, sessionID: "sess1")
+    let key2 = SessionKey(harness: .pi, sessionID: "sess2")
+    let surface2 = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
+    let tab2 = TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!)
+    let layout = initial.terminals.layouts[id: worktree.id]!.layout
+    let newTabs = layout.panes[0].tabs + [
+      TabItem(
+        id: tab2, title: "Agent2",
+        content: ContentSnapshot(
+          id: ContentID(rawValue: surface2),
+          state: .terminal(TerminalContentState(workingDirectory: "/workspace"))))
+    ]
+    initial.terminals.layouts[id: worktree.id]?.layout.panes[0].tabs = IdentifiedArray(uniqueElements: newTabs)
+    let presenceKey1 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    initial.agentPresence.records[presenceKey1] = record(ref: "sess1")
+    initial.agentPresence.bySurface[surface] = [.pi]
+    let presenceKey2 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface2)
+    initial.agentPresence.records[presenceKey2] = record(ref: "sess2")
+    initial.agentPresence.bySurface[surface2] = [.pi]
+    initial.repositories.sessionSnapshots = AppFeature.sessionSnapshots(state: initial)
+    initial.repositories.reconcileSessionItems(now: .distantPast)
+    initial.repositories.recomputeSessionsSidebarStructureIfChanged()
+    initial.repositories.sessionSelection = .session(key1)
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    initial.terminals.selectedWorktreeID = worktree.id
+    initial.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = self.tab
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
+      $0.terminalClient.focusSurface = { worktree, tab, surf in
+        focused.withValue {
+          $0.append(SessionLocation(worktreeID: worktree.id, tabID: tab, surfaceID: surf))
+        }
+      }
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.selectPreviousWorktree)) {
+      $0.repositories.sessionSelection = .session(key2)
+    }
+    await store.finish()
+    #expect(!sent.value.contains { if case .createTabWithInput = $0 { return true }; return false })
+    #expect(focused.value == [initial.repositories.sessionItems[id: .session(key2)]!.location!])
+  }
+
+  @Test(.dependencies) func selectWorktreeAtHotkeySlotOnSessionsJumpsToNthLive() async {
+    let focused = LockIsolated<[SessionLocation]>([])
+    var initial = state()
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.sessions.rawValue }
+    let key1 = SessionKey(harness: .pi, sessionID: "sess1")
+    let key2 = SessionKey(harness: .pi, sessionID: "sess2")
+    let surface2 = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
+    let tab2 = TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!)
+    let layout = initial.terminals.layouts[id: worktree.id]!.layout
+    let newTabs = layout.panes[0].tabs + [
+      TabItem(
+        id: tab2, title: "Agent2",
+        content: ContentSnapshot(
+          id: ContentID(rawValue: surface2),
+          state: .terminal(TerminalContentState(workingDirectory: "/workspace"))))
+    ]
+    initial.terminals.layouts[id: worktree.id]?.layout.panes[0].tabs = IdentifiedArray(uniqueElements: newTabs)
+    let presenceKey1 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    initial.agentPresence.records[presenceKey1] = record(ref: "sess1")
+    initial.agentPresence.bySurface[surface] = [.pi]
+    let presenceKey2 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface2)
+    initial.agentPresence.records[presenceKey2] = record(ref: "sess2")
+    initial.agentPresence.bySurface[surface2] = [.pi]
+    initial.repositories.sessionSnapshots = AppFeature.sessionSnapshots(state: initial)
+    initial.repositories.reconcileSessionItems(now: .distantPast)
+    initial.repositories.recomputeSessionsSidebarStructureIfChanged()
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    initial.terminals.selectedWorktreeID = worktree.id
+    initial.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = self.tab
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
+      $0.terminalClient.focusSurface = { worktree, tab, surf in
+        focused.withValue {
+          $0.append(SessionLocation(worktreeID: worktree.id, tabID: tab, surfaceID: surf))
+        }
+      }
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.selectWorktreeAtHotkeySlot(1))) {
+      $0.repositories.sessionSelection = .session(key2)
+    }
+    await store.finish()
+    #expect(!sent.value.contains { if case .createTabWithInput = $0 { return true }; return false })
+    #expect(focused.value == [initial.repositories.sessionItems[id: .session(key2)]!.location!])
+  }
+
+  @Test(.dependencies) func focusedSurfaceResolvesToSessionRowID() {
+    var state = state()
+    state.terminals.selectedWorktreeID = worktree.id
+    state.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = tab
+    let key = SessionKey(harness: .pi, sessionID: "real")
+    let location = SessionLocation(worktreeID: worktree.id, tabID: TabID(rawValue: tab.id), surfaceID: surface)
+    let snapshot = SessionLiveSnapshot(
+      harness: .pi, sessionRef: "real", cwd: "/workspace", location: location)
+    state.repositories.sessionSnapshots = [snapshot]
+    state.repositories.reconcileSessionItems(now: .distantPast)
+    let resolved = AppFeature.focusedSessionRowID(state: state)
+    #expect(resolved == .session(key))
+  }
+
+  @Test(.dependencies) func focusedSurfaceWithNoPresenceReturnsNil() {
+    let state = state()
+    let resolved = AppFeature.focusedSessionRowID(state: state)
+    #expect(resolved == nil)
+  }
+
+  @Test(.dependencies) func focusedSurfacePrecedesStoredSelectionInNavigation() async {
+    let focused = LockIsolated<[SessionLocation]>([])
+    var initial = state()
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.sessions.rawValue }
+    let key1 = SessionKey(harness: .pi, sessionID: "sess1")
+    let key2 = SessionKey(harness: .pi, sessionID: "sess2")
+    let surface2 = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
+    let tab2 = TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!)
+    let layout = initial.terminals.layouts[id: worktree.id]!.layout
+    let newTabs = layout.panes[0].tabs + [
+      TabItem(
+        id: tab2, title: "Agent2",
+        content: ContentSnapshot(
+          id: ContentID(rawValue: surface2),
+          state: .terminal(TerminalContentState(workingDirectory: "/workspace"))))
+    ]
+    initial.terminals.layouts[id: worktree.id]?.layout.panes[0].tabs = IdentifiedArray(uniqueElements: newTabs)
+    initial.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = tab2
+    let presenceKey1 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    initial.agentPresence.records[presenceKey1] = record(ref: "sess1")
+    initial.agentPresence.bySurface[surface] = [.pi]
+    let presenceKey2 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface2)
+    initial.agentPresence.records[presenceKey2] = record(ref: "sess2")
+    initial.agentPresence.bySurface[surface2] = [.pi]
+    initial.repositories.sessionSnapshots = AppFeature.sessionSnapshots(state: initial)
+    initial.repositories.reconcileSessionItems(now: .distantPast)
+    initial.repositories.recomputeSessionsSidebarStructureIfChanged()
+    initial.repositories.sessionSelection = .session(key1)
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    initial.terminals.selectedWorktreeID = worktree.id
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
+      $0.terminalClient.focusSurface = { worktree, tab, surf in
+        focused.withValue {
+          $0.append(SessionLocation(worktreeID: worktree.id, tabID: tab, surfaceID: surf))
+        }
+      }
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.selectNextWorktree)) {
+      $0.repositories.sessionSelection = .session(key1)
+    }
+    await store.finish()
+    #expect(!sent.value.contains { if case .createTabWithInput = $0 { return true }; return false })
+    #expect(focused.value == [initial.repositories.sessionItems[id: .session(key1)]!.location!])
+  }
+
+  @Test(.dependencies) func selectTerminalTabAtIndexUnchangedWhenSessionsActive() async {
+    var initial = state()
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.sessions.rawValue }
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
+    }
+    store.exhaustivity = .off
+    await store.send(.selectTerminalTabAtIndex(1))
+    await store.finish()
+    let selectTabs = sent.value.compactMap { cmd -> Int? in
+      if case .selectTabAtIndex(_, let index) = cmd { return index }
+      return nil
+    }
+    #expect(selectTabs == [1])
+    #expect(store.state.pendingSessionLaunch == nil)
+  }
+
   // MARK: - Existing worktree resume creates exactly one tab per click
 
   @Test(.dependencies) func existingWorktreeResumeProducesExactlyOneTab() async throws {

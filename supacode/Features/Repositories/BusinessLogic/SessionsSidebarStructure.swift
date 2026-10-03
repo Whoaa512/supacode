@@ -1,5 +1,6 @@
 import Foundation
 import IdentifiedCollections
+import Sharing
 
 nonisolated struct SessionsSidebarStructure: Equatable, Sendable {
   struct Section: Equatable, Identifiable, Sendable {
@@ -12,9 +13,39 @@ nonisolated struct SessionsSidebarStructure: Equatable, Sendable {
   var sections: [Section] = []
   var liveIDs: [SessionRowID] = []
   var allIDs: [SessionRowID] { sections.flatMap(\.rowIDs) }
+
+  func selection(byOffset offset: Int, from current: SessionRowID?) -> SessionRowID? {
+    let ids = allIDs
+    guard !ids.isEmpty else { return nil }
+    guard let current, let index = ids.firstIndex(of: current) else {
+      return offset > 0 ? ids.first : ids.last
+    }
+    return ids[(index + offset + ids.count) % ids.count]
+  }
 }
 
 extension RepositoriesFeature.State {
+  var isSessionsSidebarTabActive: Bool {
+    let sidebarTabRawValue = SharedReader(.sidebarTab).wrappedValue
+    return SidebarTab(rawValue: sidebarTabRawValue) == .sessions
+  }
+
+  func sessionRowID(atSlot index: Int) -> SessionRowID? {
+    let live = sessionsSidebarStructure.liveIDs
+    guard live.indices.contains(index) else { return nil }
+    return live[index]
+  }
+
+  func sessionRowID(byOffset offset: Int, focusedRowID: SessionRowID?) -> SessionRowID? {
+    let live = sessionsSidebarStructure.liveIDs
+    guard !live.isEmpty else { return nil }
+    let current = focusedRowID ?? sessionSelection
+    guard let current, let index = live.firstIndex(of: current) else {
+      return live[offset > 0 ? 0 : live.count - 1]
+    }
+    return live[(index + offset + live.count) % live.count]
+  }
+
   mutating func recomputeSessionsSidebarStructureIfChanged() {
     let ordered = sessionItems.sorted {
       if $0.createdAt != $1.createdAt { return $0.createdAt > $1.createdAt }

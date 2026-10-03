@@ -328,6 +328,19 @@ struct RepositoriesFeatureSessionsTests {
     #expect(result[0].isGitRepository == false)
   }
 
+  @Test(.dependencies) func sessionRowIDByOffsetOnlyIncludesLiveRows() {
+    var state = state()
+    let active = summary("active", created: 30)
+    let dormant = summary("dormant", created: 20)
+    state.sessionSummaries = [active, dormant]
+    state.sessionSnapshots = [snapshot(UUID(), ref: "active")]
+    state.reconcileSessionItems(now: .distantPast)
+    state.applyCacheRecomputes(.sessionsStructure)
+    state.sessionSelection = .session(active.id)
+    #expect(state.sessionRowID(byOffset: 1, focusedRowID: nil) == .session(active.id))
+    #expect(state.sessionRowID(byOffset: -1, focusedRowID: nil) == .session(active.id))
+  }
+
   @Test func mergeSessionFolderDoesNotReplaceParentGitRepoOnWorktreeCwdMatch() {
     let gitRoot = "/tmp/supacode-parent-git-\(UUID())"
     let worktreePath = gitRoot + "/wt-feature"
@@ -396,11 +409,172 @@ struct RepositoriesFeatureSessionsTests {
     }
     relaunched.exhaustivity = .off
     await relaunched.send(.loadPersistedRepositories)
+    await relaunched.receive(\.gitEnvironmentChanged)
     await relaunched.receive(\.repositoriesLoaded)
     #expect(relaunched.state.repositoryRoots == [folder.standardizedFileURL])
     #expect(relaunched.state.repositories.first?.worktrees.first?.workingDirectory == folder.standardizedFileURL)
     #expect(relaunched.state.repositories.first?.isGitRepository == false)
     await relaunched.finish()
+  }
+
+  @Test(.dependencies) func settledLiveNavigationAndAllVisibleSelection() async {
+    var initial = state()
+    let live = summary("live", created: 30)
+    let dormant = summary("dormant", created: 20)
+    let settled = summary("settled", created: 10)
+    initial.sessionSummaries = [live, dormant, settled]
+    initial.sessionSnapshots = [snapshot(UUID(), ref: "settled")]
+    initial.$sessions.withLock { $0[settled.id] = SessionSidecarEntry(settledAt: .distantPast) }
+    initial.reconcileSessionItems(now: .distantPast)
+    initial.applyCacheRecomputes(.sessionsStructure)
+    let structure = initial.sessionsSidebarStructure
+    #expect(structure.liveIDs == [.session(settled.id)])
+    #expect(structure.selection(byOffset: 1, from: .session(live.id)) == .session(dormant.id))
+    #expect(structure.selection(byOffset: 1, from: .session(dormant.id)) == .session(settled.id))
+    #expect(structure.selection(byOffset: 1, from: .session(settled.id)) == .session(live.id))
+    #expect(structure.selection(byOffset: -1, from: nil) == .session(settled.id))
+    let store = TestStore(initialState: initial) { RepositoriesFeature() }
+    await store.send(.sessionSelectionChanged(.session(dormant.id))) {
+      $0.sessionSelection = .session(dormant.id)
+    }
+    await store.send(.activateSession(.session(dormant.id)))
+    await store.receive(\.delegate.resumeSession)
+    await store.finish()
+  }
+
+  @Test(.dependencies) func sessionRowIDAtSlotReturnsNthLive() {
+    var state = state()
+    state.sessionSummaries = [
+      summary("live1", created: 30), summary("live2", created: 20), summary("dormant", created: 10),
+    ]
+    state.sessionSnapshots = [
+      snapshot(UUID(), ref: "live1"), snapshot(UUID(), ref: "live2"),
+    ]
+    state.reconcileSessionItems(now: .distantPast)
+    state.applyCacheRecomputes(.sessionsStructure)
+    #expect(state.sessionRowID(atSlot: 0) == .session(summary("live1").id))
+    #expect(state.sessionRowID(atSlot: 1) == .session(summary("live2").id))
+    #expect(state.sessionRowID(atSlot: 2) == nil)
+  }
+
+  @Test(.dependencies) func sessionRowIDByOffsetWrapsOverLiveIDs() {
+    var state = state()
+    let first = summary("live1", created: 30)
+    let second = summary("live2", created: 20)
+    let third = summary("live3", created: 10)
+    state.sessionSummaries = [first, second, third]
+    state.sessionSnapshots = [
+      snapshot(UUID(), ref: "live1"), snapshot(UUID(), ref: "live2"),
+      snapshot(UUID(), ref: "live3"),
+    ]
+    state.reconcileSessionItems(now: .distantPast)
+    state.applyCacheRecomputes(.sessionsStructure)
+    state.sessionSelection = .session(second.id)
+    #expect(state.sessionRowID(byOffset: 1, focusedRowID: nil) == .session(third.id))
+    #expect(state.sessionRowID(byOffset: -1, focusedRowID: nil) == .session(first.id))
+    state.sessionSelection = .session(third.id)
+    #expect(state.sessionRowID(byOffset: 1, focusedRowID: nil) == .session(first.id))
+    state.sessionSelection = .session(first.id)
+    #expect(state.sessionRowID(byOffset: -1, focusedRowID: nil) == .session(third.id))
+  }
+
+  @Test(.dependencies) func sessionRowIDByOffsetWithNoSelectionEntersFromTravelDirection() {
+    var state = state()
+    state.sessionSummaries = [summary("live1", created: 30), summary("live2", created: 20)]
+    state.sessionSnapshots = [
+      snapshot(UUID(), ref: "live1"), snapshot(UUID(), ref: "live2"),
+    ]
+    state.reconcileSessionItems(now: .distantPast)
+    state.applyCacheRecomputes(.sessionsStructure)
+    state.sessionSelection = nil
+    #expect(state.sessionRowID(byOffset: 1, focusedRowID: nil) == .session(summary("live1").id))
+    #expect(state.sessionRowID(byOffset: -1, focusedRowID: nil) == .session(summary("live2").id))
+  }
+
+  @Test(.dependencies) func sessionRowIDByOffsetWithFocusedRowIDUsesThat() {
+    var state = state()
+    let first = summary("live1", created: 30)
+    let second = summary("live2", created: 20)
+    state.sessionSummaries = [first, second]
+    state.sessionSnapshots = [
+      snapshot(UUID(), ref: "live1"), snapshot(UUID(), ref: "live2"),
+    ]
+    state.reconcileSessionItems(now: .distantPast)
+    state.applyCacheRecomputes(.sessionsStructure)
+    state.sessionSelection = .session(first.id)
+    let focused = SessionRowID.session(second.id)
+    #expect(state.sessionRowID(byOffset: 1, focusedRowID: focused) == .session(first.id))
+    #expect(state.sessionRowID(byOffset: -1, focusedRowID: focused) == .session(first.id))
+  }
+
+  @Test(.dependencies) func sessionRowIDByOffsetReturnsNilWhenEmpty() {
+    var state = state()
+    #expect(state.sessionRowID(byOffset: 1, focusedRowID: nil) == nil)
+    #expect(state.sessionRowID(byOffset: -1, focusedRowID: nil) == nil)
+  }
+
+  @Test(.dependencies) func selectNextWorktreeWithFocusOnlyLiveRows() async {
+    var initial = state()
+    let live1 = summary("live1", created: 30)
+    let live2 = summary("live2", created: 20)
+    let dormant = summary("dormant", created: 10)
+    initial.sessionSummaries = [live1, live2, dormant]
+    initial.sessionSnapshots = [
+      snapshot(UUID(), ref: "live1"),
+      snapshot(UUID(), ref: "live2"),
+    ]
+    initial.reconcileSessionItems(now: .distantPast)
+    initial.applyCacheRecomputes(.sessionsStructure)
+    initial.sessionSelection = .session(live1.id)
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.sessions.rawValue }
+    let store = TestStore(initialState: initial) { RepositoriesFeature() }
+    store.exhaustivity = .off
+    await store.send(.selectNextWorktree) {
+      $0.sessionSelection = .session(live2.id)
+    }
+    await store.receive(\.delegate.focusSession)
+    await store.finish()
+    #expect(initial.sessionsSidebarStructure.allIDs.count == 3)
+    #expect(initial.sessionsSidebarStructure.liveIDs.count == 2)
+  }
+
+  @Test(.dependencies) func selectPreviousWorktreeWithDormantRowsPreservesBounds() async {
+    var initial = state()
+    let dormant = summary("dormant", created: 10)
+    initial.sessionSummaries = [dormant]
+    initial.reconcileSessionItems(now: .distantPast)
+    initial.applyCacheRecomputes(.sessionsStructure)
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.sessions.rawValue }
+    let store = TestStore(initialState: initial) { RepositoriesFeature() }
+    store.exhaustivity = .off
+    await store.send(.selectPreviousWorktree)
+    await store.finish()
+    #expect(initial.sessionSelection == nil)
+    #expect(initial.sessionsSidebarStructure.allIDs.count == 1)
+    #expect(initial.sessionsSidebarStructure.liveIDs.isEmpty)
+  }
+
+  @Test(.dependencies) func selectWorktreeAtHotkeySlotWithLiveAndDormant() async {
+    var initial = state()
+    let live = summary("live", created: 30)
+    let dormant = summary("dormant", created: 10)
+    initial.sessionSummaries = [live, dormant]
+    initial.sessionSnapshots = [snapshot(UUID(), ref: "live")]
+    initial.reconcileSessionItems(now: .distantPast)
+    initial.applyCacheRecomputes(.sessionsStructure)
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.sessions.rawValue }
+    let store = TestStore(initialState: initial) { RepositoriesFeature() }
+    store.exhaustivity = .off
+    await store.send(.selectWorktreeAtHotkeySlot(0)) {
+      $0.sessionSelection = .session(live.id)
+    }
+    await store.receive(\.delegate.focusSession)
+    await store.finish()
+    #expect(initial.sessionsSidebarStructure.allIDs == [.session(live.id), .session(dormant.id)])
+    #expect(initial.sessionsSidebarStructure.liveIDs == [.session(live.id)])
   }
 
   @Test func forcedFolderPathSkipsGitClassification() async {

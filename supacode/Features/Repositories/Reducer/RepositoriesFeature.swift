@@ -4104,8 +4104,9 @@ struct RepositoriesFeature {
         // Snapshot-driven menu items capture only the slot index, so the
         // current `hotkeySlots` lookup happens here at action time. Out-of-range
         // slots beep so the user gets feedback that the shortcut hit nothing.
-        // The Agents panel owns the same chord while it is on screen, and jumps
-        // to the row's worktree exactly like the Worktrees panel does.
+        if state.isSessionsSidebarTabActive {
+          return Self.focusSessionNavigation(state: &state, id: state.sessionRowID(atSlot: index))
+        }
         if state.isAgentsSidebarTabActive {
           guard let entryID = state.agentDashboardEntryID(atSlot: index) else {
             return .run { _ in NSSound.beep() }
@@ -4119,6 +4120,9 @@ struct RepositoriesFeature {
         return .send(.selectWorktree(slots[index].id, focusTerminal: true))
 
       case .selectNextWorktree:
+        if state.isSessionsSidebarTabActive {
+          return Self.focusSessionNavigation(state: &state, id: state.sessionRowID(byOffset: 1, focusedRowID: nil))
+        }
         if state.isAgentsSidebarTabActive {
           guard let entryID = state.agentDashboardEntryID(byOffset: 1) else {
             return .run { _ in NSSound.beep() }
@@ -4131,6 +4135,9 @@ struct RepositoriesFeature {
         return .send(.selectWorktree(id, focusTerminal: true))
 
       case .selectPreviousWorktree:
+        if state.isSessionsSidebarTabActive {
+          return Self.focusSessionNavigation(state: &state, id: state.sessionRowID(byOffset: -1, focusedRowID: nil))
+        }
         if state.isAgentsSidebarTabActive {
           guard let entryID = state.agentDashboardEntryID(byOffset: -1) else {
             return .run { _ in NSSound.beep() }
