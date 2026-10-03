@@ -1,3 +1,5 @@
+import ConcurrencyExtras
+import Dependencies
 import Foundation
 import Testing
 
@@ -43,5 +45,52 @@ struct WorktreeTerminalManagerSessionsTests {
         isHibernatable: true
       )
     )
+  }
+
+  @Test func hostEmitsUserClosedOnlyForAcceptedIntent() {
+    let worktree = Worktree(
+      id: "/tmp/repo", name: "repo", detail: "",
+      workingDirectory: URL(fileURLWithPath: "/tmp/repo"),
+      repositoryRootURL: URL(fileURLWithPath: "/tmp/repo")
+    )
+    let host = WorktreeContentHost(
+      worktree: worktree,
+      runtime: ContentRuntime(),
+      clock: ImmediateClock(),
+      runSetupScript: false
+    )
+    let accepted = UUID()
+    let cancelled = UUID()
+    var userClosed: [Set<UUID>] = []
+    var closed: [Set<UUID>] = []
+    host.onUserClosedSurfaces = { userClosed.append($0) }
+    host.onSurfacesClosed = { closed.append($0) }
+
+    host.markUserCloseIntent(for: [accepted, cancelled])
+    host.cancelExplicitClose(for: cancelled)
+    host.cleanupSurfaceState(for: accepted)
+    host.cleanupSurfaceState(for: cancelled)
+
+    #expect(userClosed == [[accepted]])
+    #expect(closed == [[accepted], [cancelled]])
+  }
+
+  @Test func killSessionSuppressesHarnessEndForKilledSurface() async {
+    let surfaceID = UUID()
+    let manager = withDependencies {
+      $0.zmxClient = ZmxClient(
+        executableURL: { nil },
+        isBundled: { true },
+        killSession: { _ in },
+        killRemoteSession: { _, _ in },
+        listSessionsWithClients: { [] }
+      )
+    } operation: {
+      WorktreeTerminalManager(runtime: GhosttyRuntime())
+    }
+
+    await manager.killSession(for: ContentID(rawValue: surfaceID), worktreeID: WorktreeID("/tmp/repo"))
+
+    #expect(manager.isHarnessEndSuppressed(surfaceID: surfaceID))
   }
 }

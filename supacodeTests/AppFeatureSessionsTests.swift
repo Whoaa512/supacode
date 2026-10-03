@@ -1137,6 +1137,44 @@ struct AppFeatureSessionsTests {
     await store.finish()
   }
 
+  @Test(.dependencies) func userClosedSurfacesSettlesDistinctSessionsBeforePresenceRemoval() async {
+    var initial = state()
+    let first = SessionKey(harness: .pi, sessionID: "one")
+    let second = SessionKey(harness: .pi, sessionID: "two")
+    initial.agentPresence.records[
+      AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    ] = record(ref: "one")
+    initial.agentPresence.records[
+      AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: shell)
+    ] = record(ref: "two")
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(first), title: "One", cwd: "/workspace",
+        createdAt: .distantPast, location: location
+      ),
+      SessionSidebarItemFeature.State(
+        id: .session(second), title: "Two", cwd: "/workspace",
+        createdAt: .distantPast,
+        location: SessionLocation(worktreeID: worktree.id, tabID: TabID(rawValue: shell), surfaceID: shell)
+      ),
+    ]
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = Date(timeIntervalSince1970: 100)
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.terminalEvent(.userClosedSurfaces(worktreeID: worktree.id, [surface, shell])))
+    await store.receive(\.repositories.settleSession)
+    await store.receive(\.repositories.settleSession)
+    #expect(store.state.repositories.sessions[first]?.settledAt == Date(timeIntervalSince1970: 100))
+    #expect(store.state.repositories.sessions[second]?.settledAt == Date(timeIntervalSince1970: 100))
+    await store.send(.terminalEvent(.surfacesClosed(worktreeID: worktree.id, [surface, shell])))
+    await store.receive(\.agentPresence.surfacesClosed)
+    await store.finish()
+  }
+
   @Test(.dependencies) func directContentRequestedCloseMarksUserIntentSynchronously() async {
     let marked = LockIsolated<[Set<UUID>]>([])
     let initial = state()
@@ -1156,6 +1194,49 @@ struct AppFeatureSessionsTests {
       )
     )
     #expect(marked.value == [[surface, shell]])
+  }
+
+  @Test(.dependencies) func suppressedSessionEndSkipsRefreshButNonEndEventsStillRefresh() async {
+    let store = TestStore(initialState: state()) { AppFeature() } withDependencies: {
+      $0.date.now = Date(timeIntervalSince1970: 100)
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+      $0.terminalClient.isHarnessEndSuppressed = { $0 == surface }
+    }
+    store.exhaustivity = .off
+    let end = AgentHookEvent(
+      version: 1, agent: "pi", event: "session_end", surfaceID: surface, pid: nil,
+      timestamp: nil, sessionRef: "real", data: nil)
+    let start = AgentHookEvent(
+      version: 1, agent: "pi", event: "session_start", surfaceID: surface, pid: nil,
+      timestamp: nil, sessionRef: "real", data: nil)
+
+    await store.send(.terminalEvent(.agentHookEventReceived(end)))
+    await store.receive(\.agentPresence.hookEventReceived)
+    await store.send(.terminalEvent(.agentHookEventReceived(start)))
+    await store.receive(\.agentPresence.hookEventReceived)
+    await store.receive(\.repositories.sessionsRefreshRequested)
+    await store.finish()
+  }
+
+  @Test(.dependencies) func terminateSessionsRequestIsGatedByTerminalSurfacePresence() async {
+    var withoutSurface = state()
+    withoutSurface.hasAnyTerminalSurface = false
+    let noSurfaceStore = TestStore(initialState: withoutSurface) { AppFeature() }
+    noSurfaceStore.exhaustivity = .off
+
+    await noSurfaceStore.send(.requestTerminateAllTerminalSessions)
+    #expect(noSurfaceStore.state.alert == nil)
+    await noSurfaceStore.finish()
+
+    var withSurface = state()
+    withSurface.hasAnyTerminalSurface = true
+    let surfaceStore = TestStore(initialState: withSurface) { AppFeature() }
+    surfaceStore.exhaustivity = .off
+
+    await surfaceStore.send(.requestTerminateAllTerminalSessions)
+    #expect(surfaceStore.state.alert != nil)
+    await surfaceStore.finish()
   }
 
 }

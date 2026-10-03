@@ -3793,12 +3793,12 @@ struct AppFeatureDeeplinkTests {
   @Test(.dependencies) func requestTerminateAllTerminalSessionsShowsAlertAndConfirmInvokesTerminate() async {
     let worktree = makeWorktree()
     let terminateCalled = LockIsolated(false)
-    let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(),
-      )
-    ) {
+    var initial = AppFeature.State(
+      repositories: makeRepositoriesState(worktree: worktree),
+      settings: SettingsFeature.State(),
+    )
+    initial.hasAnyTerminalSurface = true
+    let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
       $0.terminalClient.persistAndTerminateAllSessions = { _ in terminateCalled.setValue(true) }
@@ -3812,6 +3812,23 @@ struct AppFeatureDeeplinkTests {
     await store.finish()
 
     #expect(terminateCalled.value)
+    #expect(store.state.alert == nil)
+  }
+
+  @Test(.dependencies) func requestTerminateAllTerminalSessionsNoopsWithoutSurfaces() async {
+    let store = TestStore(
+      initialState: AppFeature.State(
+        repositories: makeRepositoriesState(worktree: makeWorktree()),
+        settings: SettingsFeature.State(),
+      )
+    ) {
+      AppFeature()
+    }
+    store.exhaustivity = .off
+
+    await store.send(.requestTerminateAllTerminalSessions)
+    await store.finish()
+
     #expect(store.state.alert == nil)
   }
 

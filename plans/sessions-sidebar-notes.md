@@ -275,9 +275,12 @@
 - TerminalContent gained onWillTearDown/onDidStart callbacks; recipe wires teardown suppression before closeSurface and clears after start.
 - Suppression covers hibernate/rebuild/remove/prune/Terminate Sessions through existing teardown paths without reordering teardown.
 - Tests: AppFeature user-close settles before presence removal; direct close intent; terminal content callbacks; unexpected-zmx gate.
+- Follow-up tightened Terminate Sessions entry gate, session-end-only suppression, and killSession pre-kill suppression.
+- Added fixture tests for accepted-vs-cancelled host removal, distinct multi-surface settlement, terminate gate, and suppressed session_end vs fresh session_start refresh.
+- Added killed-surface suppression coverage; unexpected probe remains covered at branch predicate level, not full Ghostty fixture.
+- Direct pane/UI attribution coverage remains reducer-level for contentRequestedClose/allTabs; no live UI/process close exercised.
 - make generate-project: exit 0 (new WorktreeTerminalManagerSessionsTests routed terminal bundle).
-- Targeted feature tests: exit 0; xcresult totalTestCount 30, failedTests 0.
-- Targeted terminal tests: exit 0; xcresult totalTestCount 2, failedTests 0.
+- Targeted feature+terminal tests: exit 0; xcresult totalTestCount 37, failedTests 0.
 - make lint: exit 2; only baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations.
 - make build-app: exit 0. Build/test serialized with pgrep checks; no full make test.
 - Unverified: live app close UI, pi shutdown reason settlement, branch mismatch/CLI Slice 3 later parts.

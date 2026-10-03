@@ -28,7 +28,8 @@ extension AppFeature {
   }
 
   var sessionsLinkReducer: some Reducer<State, Action> {
-    Reduce { state, action in
+    @Dependency(TerminalClient.self) var terminalClient
+    return Reduce { state, action in
       switch action {
       case .agentPresence(.delegate(.surfacesChanged)), .terminals,
         .repositories(.delegate(.repositoriesChanged)):
@@ -60,8 +61,11 @@ extension AppFeature {
         return .send(.repositories(.unsettleSession(key)))
 
       case .terminalEvent(.agentHookEventReceived(let event)):
+        let suppressEnd = event.eventName == .sessionEnd
+          && (state.isQuitting || terminalClient.isHarnessEndSuppressed(event.surfaceID))
         let refresh: Effect<Action> =
-          event.eventName == .idle || event.eventName == .sessionStart || event.eventName == .sessionEnd
+          !suppressEnd
+            && (event.eventName == .idle || event.eventName == .sessionStart || event.eventName == .sessionEnd)
           ? .send(.repositories(.sessionsRefreshRequested)) : .none
         let branchEffect = Self.enqueueBranchCapture(for: event, state: &state)
         return .merge(.send(.agentPresence(.hookEventReceived(event))), refresh, branchEffect)

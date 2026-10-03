@@ -1095,6 +1095,7 @@ struct AppFeature {
         return quitEffect(state: &state, terminateSessions: true)
 
       case .requestTerminateAllTerminalSessions:
+        guard state.hasAnyTerminalSurface else { return .none }
         state.alert = AlertState {
           TextState("Terminate All Terminal Sessions?")
         } actions: {
@@ -2312,11 +2313,11 @@ struct AppFeature {
         return .merge(presenceEffect, ackEffect)
 
       case .terminalEvent(.agentHookEventReceived(let event)):
-        if state.isQuitting || terminalClient.isHarnessEndSuppressed(event.surfaceID) {
-          return .send(.agentPresence(.hookEventReceived(event)))
-        }
+        let suppressEnd = event.eventName == .sessionEnd
+          && (state.isQuitting || terminalClient.isHarnessEndSuppressed(event.surfaceID))
         let refresh: Effect<Action> =
-          event.eventName == .idle || event.eventName == .sessionStart || event.eventName == .sessionEnd
+          !suppressEnd
+            && (event.eventName == .idle || event.eventName == .sessionStart || event.eventName == .sessionEnd)
           ? .send(.repositories(.sessionsRefreshRequested)) : .none
         return .merge(.send(.agentPresence(.hookEventReceived(event))), refresh)
 

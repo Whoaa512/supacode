@@ -927,6 +927,7 @@ final class WorktreeTerminalManager {
   /// under-budget launch still tear down.
   func killSession(for contentID: ContentID, worktreeID: Worktree.ID) async {
     guard !consumeSpareSession(for: contentID) else { return }
+    suppressHarnessEnd(surfaceID: contentID.rawValue)
     let killLocal = zmxClient.isBundled()
     // A non-explicit end (clean remote exit, deliberate host-side detach)
     // spares the host session; only explicit closes tear it down.
