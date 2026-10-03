@@ -214,6 +214,24 @@ struct PiSessionSourceTests {
     #expect(try await source.sessions().isEmpty)
   }
 
+  @Test func unwritableCacheDoesNotFailSuccessfulOrAbsentRootScan() async throws {
+    let fixture = try Fixture()
+    defer { fixture.clean() }
+    try fixture.write(Self.header() + Self.user)
+    let stateDirectory = fixture.cache.deletingLastPathComponent()
+    try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+    try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: stateDirectory.path)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stateDirectory.path) }
+    let source = fixture.source()
+    let rows = try await source.sessions()
+    #expect(rows.count == 1)
+    #expect(await source.cachedSessions() == rows)
+    #expect(!FileManager.default.fileExists(atPath: fixture.cache.path))
+    try FileManager.default.removeItem(at: fixture.root)
+    #expect(try await source.sessions().isEmpty)
+    #expect(await source.cachedSessions().isEmpty)
+  }
+
   @Test func resumeValidatesIdentity() {
     let source = PiSessionSource(root: URL(fileURLWithPath: "/unused"), cacheURL: URL(fileURLWithPath: "/unused/cache"))
     #expect(source.resumeCommand(sessionID: "abc-123") == "pi --session abc-123")

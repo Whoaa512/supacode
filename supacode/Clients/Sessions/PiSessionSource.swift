@@ -90,7 +90,7 @@ actor PiSessionSource: SessionSource {
       _ = try manager.attributesOfItem(atPath: root.path)
     } catch CocoaError.fileReadNoSuchFile {
       cache = [:]
-      try persist()
+      persist()
       return []
     }
     let keys: Set<URLResourceKey> = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
@@ -132,7 +132,7 @@ actor PiSessionSource: SessionSource {
     }
     if failures > 0 { Self.logger.warning("Could not read \(failures) session files") }
     cache = refreshed
-    try persist()
+    persist()
     return SessionClassification.ordered(cache.values.map(\.summary))
   }
 
@@ -144,9 +144,14 @@ actor PiSessionSource: SessionSource {
     return Stamp(modified: modified, size: size)
   }
 
-  private func persist() throws {
-    try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-    try JSONEncoder().encode(cache).write(to: cacheURL, options: .atomic)
+  private func persist() {
+    do {
+      try FileManager.default.createDirectory(
+        at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try JSONEncoder().encode(cache).write(to: cacheURL, options: .atomic)
+    } catch {
+      Self.logger.warning("Could not persist session cache: \(error)")
+    }
   }
 
   private func parse(_ url: URL) throws -> SessionSummary? {
