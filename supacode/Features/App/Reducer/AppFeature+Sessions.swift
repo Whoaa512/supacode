@@ -515,7 +515,22 @@ extension AppFeature {
   // MARK: - Snapshot helper
 
   static func hasUnresolvedLivePresence(state: State) -> Bool {
-    state.agentPresence.records.values.contains { $0.sessionRef == nil }
+    var mappedSurfaceIDs: Set<UUID> = []
+    for repository in state.repositories.repositories {
+      for worktree in repository.worktrees {
+        let layout = state.terminals.layouts[id: worktree.id]?.layout
+          ?? state.repositories.persistedLayouts.worktrees[worktree.id.rawValue]?.layout
+        guard let layout else { continue }
+        for pane in layout.panes {
+          for tab in pane.tabs {
+            mappedSurfaceIDs.insert(tab.content.id.rawValue)
+          }
+        }
+      }
+    }
+    return state.agentPresence.records.contains { key, record in
+      record.sessionRef == nil && !mappedSurfaceIDs.contains(key.surfaceID)
+    }
   }
 
   static func liveSessionKeys(state: State) -> Set<SessionKey> {

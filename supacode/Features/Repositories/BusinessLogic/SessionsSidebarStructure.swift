@@ -162,15 +162,24 @@ extension RepositoriesFeature.State {
   }
 
   mutating func autoSettleSessions(now: Date, idleDays: Int) {
-    guard sessionsRestorationFinished, sessionsRefreshSucceeded, !sessionsHasUnresolvedLivePresence,
-      !sessionSnapshots.contains(where: { if case .provisional = $0.id { return true }; return false })
+    guard sessionsRestorationFinished, sessionsRefreshSucceeded, !sessionsHasUnresolvedLivePresence
     else { return }
+    // Collect cwds covered by a provisional snapshot; only block auto-settle
+    // for sessions in the same directory, not globally.
+    var provisionalCwds: Set<String> = []
+    for snap in sessionSnapshots {
+      if case .provisional = snap.id {
+        provisionalCwds.insert(URL(fileURLWithPath: snap.cwd).standardizedFileURL.path)
+      }
+    }
     for summary in sessionSummaries {
       let live = sessionsLiveKeys.contains(summary.id)
         || sessionSnapshots.contains { $0.id == .session(summary.id) }
       if let hold = sessions[summary.id]?.manualUnsettledAtActivity, summary.lastActivity > hold {
         $sessions.withLock { $0[summary.id]?.manualUnsettledAtActivity = nil }
       }
+      let summaryCwd = URL(fileURLWithPath: summary.cwd).standardizedFileURL.path
+      guard !provisionalCwds.contains(summaryCwd) else { continue }
       guard sessions[summary.id]?.settledAt == nil,
         SessionClassification.classify(
           summary: summary, isLive: live, sidecar: sessions[summary.id], now: now, idleDays: idleDays

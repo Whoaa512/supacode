@@ -107,6 +107,26 @@ struct RepositoriesFeatureAutoSettleTests {
     await store.finish()
   }
 
+  @Test(.dependencies) func provisionalInDirABlocksOldDirAButOldDirBSettles() async {
+    // provisional in /a → old session in /a stays active; old session in /b settles
+    var rowA = summary("session-a")
+    var rowB = summary("session-b")
+    rowB.cwd = "/other"
+    let store = store()
+    let surface = UUID()
+    let snapshot = SessionLiveSnapshot(
+      harness: .pi, sessionRef: nil, cwd: "/fixture",
+      location: SessionLocation(worktreeID: "/fixture", tabID: TabID(rawValue: surface), surfaceID: surface))
+    await store.send(.sessionSnapshotsChanged([snapshot]))
+    await store.receive(\.sessionsRefreshRequested)
+    await store.send(.sessionsRestorationCompleted([]))
+    await store.send(.sessionsRefreshCompleted([rowA, rowB]))
+    #expect(store.state.sessions[rowA.id] == nil, "dir-a blocked by provisional")
+    #expect(store.state.sessions[rowB.id]?.settledAt == now, "dir-b settles independently")
+    await store.send(.sessionsStopped)
+    await store.finish()
+  }
+
   @Test(.dependencies) func turnActivityClearsHoldOnlyWhenNewerAndNeverUnsettles() async {
     let row = summary()
     let store = store()
