@@ -52,6 +52,30 @@ struct PiSessionSourceTests {
     #expect(row.lastActivity == ISO8601DateFormatter().date(from: "2026-01-03T00:00:00Z"))
   }
 
+  @Test(arguments: [
+    ("<skill name=\"upstream-rebase\" location=\"/p/skill.md\"> body", "skill: upstream-rebase"),
+    ("<task> Analyze the current stack", "Analyze the current stack"),
+    ("<task>", "<task>"),
+    ("a < b is fine", "a < b is fine"),
+    ("Plain title", "Plain title"),
+  ])
+  func markupTitlesShowWhatWasInvoked(raw: String, expected: String) {
+    #expect(PiSessionSource.cleanedTitle(raw) == expected)
+  }
+
+  @Test func skillInvocationFallbackTitleIsCleanedOnTheWayOut() async throws {
+    let fixture = try Fixture()
+    defer { fixture.clean() }
+    try fixture.write(
+      Self.header()
+        + "{\"type\":\"message\",\"timestamp\":\"2026-01-02T00:00:00Z\","
+        + "\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\","
+        + "\"text\":\"<skill name=\\\"explain-diff\\\" location=\\\"/p\\\">\\nbody\"}]}}\n")
+    let source = fixture.source()
+    #expect(try await source.sessions().first?.title == "skill: explain-diff")
+    #expect(await fixture.source().cachedSessions().first?.title == "skill: explain-diff")
+  }
+
   @Test func cacheRestartHitAppendDeleteAndRewrite() async throws {
     let fixture = try Fixture()
     defer { fixture.clean() }

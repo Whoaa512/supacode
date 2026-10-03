@@ -69,7 +69,32 @@ actor PiSessionSource: SessionSource {
 
   func cachedSessions() -> [SessionSummary] {
     loadCacheIfNeeded()
-    return SessionClassification.ordered(cache.values.map(\.summary))
+    return orderedSummaries()
+  }
+
+  /// Titles are cleaned on the way out, not at parse time, so entries cached
+  /// before the cleanup existed are covered without a rescan.
+  private func orderedSummaries() -> [SessionSummary] {
+    SessionClassification.ordered(
+      cache.values.map {
+        var summary = $0.summary
+        summary.title = Self.cleanedTitle(summary.title)
+        return summary
+      })
+  }
+
+  /// A session started from a skill or prompt template opens with markup.
+  /// Show what was invoked instead of the tag.
+  static func cleanedTitle(_ title: String) -> String {
+    guard title.hasPrefix("<") else { return title }
+    let skillPrefix = "<skill name=\""
+    if title.hasPrefix(skillPrefix) {
+      let name = title.dropFirst(skillPrefix.count).prefix { $0 != "\"" }
+      return name.isEmpty ? title : "skill: \(name)"
+    }
+    guard let close = title.firstIndex(of: ">") else { return title }
+    let rest = title[title.index(after: close)...].trimmingCharacters(in: .whitespaces)
+    return rest.isEmpty ? title : rest
   }
 
   private func loadCacheIfNeeded() {
@@ -144,7 +169,7 @@ actor PiSessionSource: SessionSource {
     if failures > 0 { Self.logger.warning("Could not read \(failures) session files") }
     cache = refreshed
     persist()
-    return SessionClassification.ordered(cache.values.map(\.summary))
+    return orderedSummaries()
   }
 
   private func stamp(_ url: URL) throws -> Stamp {
