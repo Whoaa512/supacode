@@ -45,11 +45,15 @@ struct SessionCLITests {
     for action in [Deeplink.SessionAction.settle, .unsettle] {
       let pipe = Pipe()
       let writer = dup(pipe.fileHandleForWriting.fileDescriptor)
+      try #require(writer >= 0)
+      try pipe.fileHandleForWriting.close()
       await store.send(.deeplink(
         .session(key: SessionKey(rawValue: raw), action: action),
         source: .socket, responseFD: writer, timeoutSeconds: 0))
       await store.finish()
-      #expect(fcntl(writer, F_GETFD) == -1)
+      var reader = pollfd(fd: pipe.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
+      #expect(poll(&reader, 1, 0) == 1)
+      #expect(reader.revents & Int16(POLLHUP) != 0)
       let data = pipe.fileHandleForReading.availableData
       let ack = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
       #expect(ack["ok"] as? Bool == false)
