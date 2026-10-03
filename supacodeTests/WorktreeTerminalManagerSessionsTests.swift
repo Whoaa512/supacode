@@ -75,6 +75,69 @@ struct WorktreeTerminalManagerSessionsTests {
     #expect(closed == [[accepted], [cancelled]])
   }
 
+  @Test func unexpectedZmxRemovesStaleUserCloseIntent() {
+    let worktree = Worktree(
+      id: "/tmp/repo", name: "repo", detail: "",
+      workingDirectory: URL(fileURLWithPath: "/tmp/repo"),
+      repositoryRootURL: URL(fileURLWithPath: "/tmp/repo")
+    )
+    let host = WorktreeContentHost(
+      worktree: worktree, runtime: ContentRuntime(),
+      clock: ImmediateClock(), runSetupScript: false
+    )
+    let surfaceID = UUID()
+    var userClosed: [Set<UUID>] = []
+    host.onUserClosedSurfaces = { userClosed.append($0) }
+    host.onSurfacesClosed = { _ in }
+    host.markUserCloseIntent(for: [surfaceID])
+    host.removeUserCloseIntent(for: surfaceID)
+    host.cleanupSurfaceState(for: surfaceID)
+    #expect(userClosed.isEmpty)
+  }
+
+  @Test func deadNonexplicitConduitMarkAutomaticPreventsUserCloseAttribution() {
+    let worktree = Worktree(
+      id: "/tmp/repo", name: "repo", detail: "",
+      workingDirectory: URL(fileURLWithPath: "/tmp/repo"),
+      repositoryRootURL: URL(fileURLWithPath: "/tmp/repo")
+    )
+    let host = WorktreeContentHost(
+      worktree: worktree, runtime: ContentRuntime(),
+      clock: ImmediateClock(), runSetupScript: false
+    )
+    let surfaceID = UUID()
+    var userClosed: [Set<UUID>] = []
+    host.onUserClosedSurfaces = { userClosed.append($0) }
+    host.onSurfacesClosed = { _ in }
+    // Simulate stale intent set before the process died
+    host.markUserCloseIntent(for: [surfaceID])
+    // Conduit detects !isExplicit && !processAlive and marks automatic
+    host.markAutomaticClose(for: surfaceID)
+    // Subsequent markUserCloseIntent (from a concurrent path) also skips
+    host.markUserCloseIntent(for: [surfaceID])
+    host.cleanupSurfaceState(for: surfaceID)
+    #expect(userClosed.isEmpty)
+  }
+
+  @Test func explicitAndLiveProcessClosePreserveBehavior() {
+    let worktree = Worktree(
+      id: "/tmp/repo", name: "repo", detail: "",
+      workingDirectory: URL(fileURLWithPath: "/tmp/repo"),
+      repositoryRootURL: URL(fileURLWithPath: "/tmp/repo")
+    )
+    let host = WorktreeContentHost(
+      worktree: worktree, runtime: ContentRuntime(),
+      clock: ImmediateClock(), runSetupScript: false
+    )
+    let surfaceID = UUID()
+    var userClosed: [Set<UUID>] = []
+    host.onUserClosedSurfaces = { userClosed.append($0) }
+    host.onSurfacesClosed = { _ in }
+    host.markUserCloseIntent(for: [surfaceID])
+    host.cleanupSurfaceState(for: surfaceID)
+    #expect(userClosed == [[surfaceID]])
+  }
+
   @Test func killSessionSuppressesHarnessEndForKilledSurface() async {
     let surfaceID = UUID()
     let manager = withDependencies {

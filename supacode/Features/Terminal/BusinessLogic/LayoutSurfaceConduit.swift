@@ -149,6 +149,12 @@ struct LayoutSurfaceConduit {
       host.sendLayoutAction(.closeTab(id: tabID))
       return
     }
+    // Dead process, non-explicit: the process exited without user direction.
+    // Mark before contentRequestedClose so any stale user-close intent or a
+    // concurrent markUserCloseIntent call does not misattribute this close.
+    if !isExplicit && !processAlive {
+      host.markAutomaticClose(for: surfaceID)
+    }
     host.sendLayoutAction(.contentRequestedClose(content: contentID, scope: .tab))
   }
 

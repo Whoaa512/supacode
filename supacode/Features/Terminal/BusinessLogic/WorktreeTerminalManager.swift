@@ -976,6 +976,7 @@ final class WorktreeTerminalManager {
       guard let probe else {
         // Failed probe: never destroy on no signal; close but spare the session.
         self.sessionsToSpare.insert(surfaceID)
+        host.removeUserCloseIntent(for: surfaceID)
         self.sendLayout(worktreeID, .closeTab(id: tabID))
         return
       }
@@ -984,6 +985,7 @@ final class WorktreeTerminalManager {
         // Session already dead; the close's kill is local cleanup. The end
         // was not user-initiated, so a remote host-side session survives.
         self.sessionsToKillLocalOnly.insert(surfaceID)
+        host.removeUserCloseIntent(for: surfaceID)
         self.sendLayout(worktreeID, .closeTab(id: tabID))
         return
       }
@@ -1005,6 +1007,7 @@ final class WorktreeTerminalManager {
       }
       // Another client attached (or unknown count): close without killing.
       self.sessionsToSpare.insert(surfaceID)
+      host.removeUserCloseIntent(for: surfaceID)
       self.sendLayout(worktreeID, .closeTab(id: tabID))
     }
   }

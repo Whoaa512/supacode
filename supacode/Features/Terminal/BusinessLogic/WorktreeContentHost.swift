@@ -73,6 +73,9 @@ final class WorktreeContentHost {
   /// an unexpected zmx exit is never misread as explicit.
   @ObservationIgnored private(set) var pendingExplicitSurfaceCloseIDs: Set<UUID> = []
   @ObservationIgnored private var pendingUserCloseSurfaceIDs: Set<UUID> = []
+  /// Surfaces whose close was driven by an unexpected process exit or zmx probe,
+  /// not by an explicit user gesture; markUserCloseIntent skips these.
+  @ObservationIgnored private var automaticCloseSurfaceIDs: Set<UUID> = []
   /// Programmatic destroys (deeplink / CLI) that skip the alert.
   @ObservationIgnored private var bypassCloseConfirmationSurfaceIDs: Set<UUID> = []
   @ObservationIgnored private let dormantSessionWatchers = ZmxSessionWatcherRegistry()
@@ -1071,7 +1074,18 @@ final class WorktreeContentHost {
   // MARK: - Close bookkeeping.
 
   func markUserCloseIntent(for surfaceIDs: Set<UUID>) {
-    pendingUserCloseSurfaceIDs.formUnion(surfaceIDs)
+    let automatic = surfaceIDs.intersection(automaticCloseSurfaceIDs)
+    automaticCloseSurfaceIDs.subtract(automatic)
+    pendingUserCloseSurfaceIDs.formUnion(surfaceIDs.subtracting(automatic))
+  }
+
+  func removeUserCloseIntent(for surfaceID: UUID) {
+    pendingUserCloseSurfaceIDs.remove(surfaceID)
+  }
+
+  func markAutomaticClose(for surfaceID: UUID) {
+    automaticCloseSurfaceIDs.insert(surfaceID)
+    pendingUserCloseSurfaceIDs.remove(surfaceID)
   }
 
   /// Marks a programmatic destroy that skips the close-confirmation alert.
@@ -1159,6 +1173,7 @@ final class WorktreeContentHost {
     lastCustomNotificationAt.removeValue(forKey: surfaceID)
     pendingExplicitSurfaceCloseIDs.remove(surfaceID)
     pendingUserCloseSurfaceIDs.remove(surfaceID)
+    automaticCloseSurfaceIDs.remove(surfaceID)
     bypassCloseConfirmationSurfaceIDs.remove(surfaceID)
   }
 
