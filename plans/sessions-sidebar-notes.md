@@ -570,3 +570,87 @@ Corrected: the A1+A2 combined commit was a choice, not a constraint.
 - Logs /tmp/c{1,2,3,4}-{tests,lint,summary}*; final C3 tests3/summary3/lint-final, C2 lint-final. Final build /tmp/c1-c4-build.log; notes lint /tmp/c1-c4-notes-lint.log.
 - pgrep -fl xcodebuild before every test/build; waited without signals if needed. No full suite, new-file generation, app run/install/compare/open, protected-home writes or owner-process signaling. Untracked .worktrees/ and PAPERCUTS.md untouched; no unrelated tracked changes.
 - Unverified: live app/UI/installed pi lifecycle and filesystem failures outside TEMP fixtures. No implementation scope deviation; user prohibition overrides plan full-suite/manual QA instructions.
+
+## R1/R3 — live location check in finishResumeBranchProbe and startPreparedResume (5f1a2ac4)
+
+### Bug confirmed
+- finishResumeBranchProbe: after probe completes (async GitClient branchName), the code proceeded to
+  branch-history logic and potentially showed an alert or called startPreparedResume without first
+  checking whether the session had already become live (presence arrived during the async window).
+- startPreparedResume: called from confirmBranchMismatchResume (user taps Resume Anyway after alert
+  that could have been pending for seconds), also lacked the identity re-check. Both paths would
+  launch a duplicate tab instead of focusing the already-live surface.
+- The mismatch is a duplicate of a previously noted gap (R3); this note covers the combined fix.
+
+### Fix
+- finishResumeBranchProbe: after setting probing=false and before any branch logic, check
+  sessionItems[.session(key)].location; on hit: clear pendingSessionLaunch/pendingBranchMismatchResume/
+  alert, return focusTerminalSurface. Never launch.
+- startPreparedResume: same check immediately after the existing pendingSessionLaunch guard.
+  Called from both finishResumeBranchProbe (no-mismatch path) and confirmBranchMismatchResume.
+
+### Regressions added
+- identityArrivesWhileProbeInFlight: AsyncStream holds probe; sessionSnapshotsChanged reconciles
+  live location; probe completes; finishResumeBranchProbe focuses, no launch (focused.count==1).
+- identityArrivesWhileAlertPending: probe completes with mismatch, alert shown; sessionSnapshotsChanged
+  reconciles live location; user confirms; startPreparedResume focuses, no launch.
+
+### Build/test
+- make lint: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity.
+- Targeted make test supacodeFeatureTests/AppFeatureSessionsTests: exit 0, totalTestCount 62, failedTests 0.
+- make build-app: exit 0. pgrep -fl xcodebuild verified clear before all runs. Commit 5f1a2ac4.
+- Unverified: live app focus dispatch and OS window activation.
+
+## R2 — SessionSummary.isVerified and auto-settle safety (1c716e42)
+
+### Bug confirmed
+- PiSessionSource.sessions() seeds refreshed from cache.filter{...} (retained in-memory cache).
+  Files that change and become unreadable, malformed header after change, or directories that
+  fail listing: old summaries remain in refreshed with their cached messageCount/lastActivity.
+  autoSettleSessions receives these as a successful refresh result and operates on stale data.
+- Cache hit path used any stamp-matching entry regardless of whether previous attempt verified
+  the content; listing failures followed by a recovered directory would use cache hit for
+  unchanged-stamp files, never re-parsing them.
+- persist() wrote all entries including stale ones; on relaunch they loaded as isVerified=true.
+
+### Fix
+- SessionSummary.isVerified: Bool = true; excluded from CodingKeys (backward-compatible Codable);
+  synthesized Equatable (all stored properties including isVerified); equality differences on the
+  flag propagate to reducer state diffs and test assertions.
+- PiSessionSource.sessions(): seed all refreshed entries with isVerified=false via mapValues.
+  Cache hit only if hit.summary.isVerified (previous was verified); set true in result.
+  Fresh parse sets isVerified=true (default). persist() writes only verified entries.
+- autoSettleSessions: guard summary.isVerified else { continue } — skips both auto-settlement
+  and manual-hold release for any unverified (stale) summary.
+- failedReadsAndListingsPreserveCacheUntilConfirmedDeletion: data-preservation checks updated from
+  == original (would fail because stale entry isVerified=false) to .map(\.sessionID) == original.map(\.sessionID).
+
+### Tests
+- PiSessionSourceTests: unverifiedSummaryRetainedWhenChangedFileUnreadable (changed file chmod 0,
+  stale summary isVerified=false returned); retryReparsesUnverifiedEntryAfterListingRecovery
+  (listing fails → isVerified=false; restore → re-parses despite unchanged stamp, parsedFileCount=2).
+- RepositoriesFeatureAutoSettleTests: unverifiedSummaryFromFailedReadDoesNotAutoSettle
+  (row.isVerified=false sent via sessionsRefreshCompleted → no settle; row.isVerified=true → settles);
+  tempFixtureDrivesUnverifiedRetentionThenVerifiedSettlement — PiSessionSource TEMP fixture:
+  sessions() → verified baseline; mutate+chmod0 file → sessions() → unverified stale summary;
+  sessionsRestorationCompleted+sessionsRefreshCompleted(unverified) → sessionItems.count==1 (row
+  retained), sessions[key]==nil (not settled); restore chmod → sessions() → verified → sessionsRefreshCompleted
+  → sessions[key].settledAt==testNow. INDEX-TO-REDUCER integration coverage.
+
+### Build/test
+- make lint: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity.
+- Targeted make test supacodeFeatureTests/RepositoriesFeatureAutoSettleTests:
+  exit 0, totalTestCount 12, passedTests 12, failedTests 0.
+  Targeted make test supacodeTests/PiSessionSourceTests:
+  exit 0, all passed (25+ tests). SWIFT_VERSION=5 retained throughout.
+- make build-app: exit 0. pgrep -fl xcodebuild verified clear before all runs. Commit 9a4505a4.
+- Unverified: live app filesystem failures, relaunch disk-cache behavior, owner UI.
+
+### Parent final verification (R1/R2; R3 duplicates R1)
+- `make test LOCAL_XCODEBUILD_FLAGS='SWIFT_VERSION=5 -only-testing:supacodeFeatureTests/AppFeatureSessionsTests -only-testing:supacodeTests/PiSessionSourceTests -only-testing:supacodeFeatureTests/RepositoriesFeatureAutoSettleTests'`: exit 0.
+- `xcrun xcresulttool get test-results summary --path build/supacode-tests.xcresult`: exit 0; totalTestCount 89, failedTests 0.
+- `make build-app`: exit 0. Before both test/build: `while pgrep -fl xcodebuild; do sleep 10; done` (no other build; pgrep exit 1).
+- `make lint`: exit 2, only baseline complexity errors DeeplinkClient:26 and CommandPaletteFeature:1260. `git diff --check`: exit 0.
+- Logs: `/tmp/r1-r2-final-{tests,build,lint}.log`, `/tmp/r1-r2-final-summary.json`.
+- No full suite or live UI validation; no app open/install/compare, owner-process signals or protected-path writes. Untracked files untouched.
+- Deviation corrected before final verification: initial R2 reducer test synthesized the flag; added required real TEMP index-to-reducer regression and folded into R2 commit.
