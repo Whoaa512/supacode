@@ -284,3 +284,24 @@
 - make lint: exit 2; only baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations.
 - make build-app: exit 0. Build/test serialized with pgrep checks; no full make test.
 - Unverified: live app close UI, pi shutdown reason settlement, branch mismatch/CLI Slice 3 later parts.
+
+## Slice 3, step 3 — attributed harness ends and replacements
+- Optional validated shutdownReason flows through OSC, AgentSignal and AgentHookEvent JSON/memberwise; unknown/missing stays nil.
+- Generated pi extension emits shutdown sid + quit/reload/new/resume/fork reason, without the defensive idle; start/busy/normal idle unchanged.
+- App captures OLD presence before forwarding: attributed quit/new/resume/fork or changed sid on start/busy settles the old key.
+- Reload, app quit and TerminalClient suppression never settle; reasonless other-harness ends retain attributed settlement.
+- PresenceRecord tracks latest start/busy PID because pids accumulate; stale sid/PID ends cannot remove or rewrite current identity/diagnostics.
+- Conservative ambiguity: missing pi sid on an identified record, pid-less end of local record or multiple restored pids without current PID is ignored.
+- Compatibility cost: older pi shutdown emitters without sid/reason do not settle; local liveness or surface cleanup still clears them, remote cleanup waits for surface close.
+- New AgentSignalSessionReasonTests and PiExtensionSessionLifecycleTests; AppFeatureSessionsTests covers reasons, suppression, replacement and delayed stale ends.
+- Runtime fixture executes generated TS with node, mocks tty writes, then parses actual OSC through AgentSignal; no real tty/app/process signaling.
+- make generate-project: exit 0. Test attempt 1: exit 2, summary exit 0/count 73/failures 1 (hosted PATH lacked node).
+- Attempt 2: exit 0, summary exit 0/count 169/failures 0. Attempt 3: exit 2, summary exit 0/count 215/failures 1 (test skipped forwarded action).
+- Final targeted make test: exit 0, summary exit 0/totalTestCount 236/failedTests 0; every run retained SWIFT_VERSION=5 and verified nonzero count.
+- Final suites: AgentSignalSessionReasonTests, PiExtensionSessionLifecycleTests, AgentSessionResumeTests, AgentPresenceFeatureTests, AgentPresenceOSCTests, AgentHookSocketServerTests, AppFeatureSessionsTests.
+- make lint: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations; own line-length/conversion violations fixed.
+- make build-app: exit 0; git diff --check: exit 0. pgrep/wait serialized generation/tests/build; no full suite.
+- Logs: /tmp/slice3-step3-{generate,tests-1,tests-2,tests-final,tests-4,lint-final,build}.log; summary-{1,2,final,4}.json.
+- Implementation commit: c4832645; named files only on cj-main. Real hosted-PATH friction logged with papercut; untracked files preserved.
+- No branch-confirm/CLI/triage work, live-app launch/install/open or protected-home writes. No prerequisite refactor.
+- Unverified: installed extension/live pi lifecycle/UI and externally delivered OS signals; existing pi processes need extension reload/restart by owner.
