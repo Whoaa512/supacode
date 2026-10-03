@@ -190,3 +190,20 @@
 - Deviation: delegated worker ran unrequested build/test despite edit-only instruction; its checks are not relied on. Parent corrected implementation and owns final validation.
 - No full suite, owner-app open/install/signaling or protected-home writes requested/performed by parent; .worktrees/ and PAPERCUTS.md untouched.
 - Unverified: actual sidebar key handling/OS focus in owner UI; automated navigation/focus dispatch verified. New-session chords/picker remain out of scope.
+
+## Slice 2, step 2 — new-session chords and directory picker
+- Added AppShortcuts `newSession` ⌘⇧N and `newSessionInDirectory` ⌘⌥⇧N; checked no Supacode default duplicate for those displays and no Ghostty default match found by source search.
+- Terminal menu publishes FocusedAction wrappers for both commands; WorktreeDetailView sends AppFeature actions without closure-valued focused values.
+- New session launches literal `pi` via existing exact-cwd createTabWithInput path, runSetupScriptIfNew false, focusing true.
+- Cwd fallback order: focused session row, selected session row, selected worktree, home; missing/unreadable cwd no-ops.
+- Reuses PendingSessionLaunch/registerSessionFolder so unregistered exact directories take the same safe folder-registration path as dormant resume.
+- Palette browse gained `BrowsePurpose` defaulting to open-repository; new-session purpose delegates selected/typed directories to AppFeature and resets on selection/dismiss.
+- Native fallback in new-session browse resolves to the typed directory instead of leaking to repository-open behavior; repository browse path unchanged.
+- Tests added: AppFeature new-session cwd fallback/launch, CommandPaletteSessionDirectoryTests, SessionShortcutTests.
+- make generate-project: exit 0.
+- Targeted tests final: exit 0; xcresult totalTestCount 26, failedTests 0.
+- make lint: exit 2; only baseline DeeplinkClient:26 and CommandPaletteFeature complexity failures (line shifted by this edit).
+- make build-app: exit 0.
+- pgrep/xcodebuild serialization used before each build/test; no full make test run.
+- No app launch/install, no supacode/zmx/pi signaling, no writes to protected home dirs; .worktrees/ and PAPERCUTS.md untouched.
+- Unverified: actual menu/key handling in owner UI and real pi process startup.
