@@ -530,6 +530,7 @@ Corrected: the A1+A2 combined commit was a choice, not a constraint.
 - New feature regression: `twoMessageSessionWithRecentActivityIsNotAutoSettledAfterReload` — 2 messages, 30 min ago, not settled after restore+refresh.
 - RepositoriesFeatureAutoSettleTests: exit 0, 16 tests (was 10 before new test). SessionClassificationTests: exit 0, 16 tests (was 13).
 - Unverified: actual live pi reload scenario; classification logic fully covered by unit tests.
+- **Correction (821ba056)**: the existing test only exercised the RepositoriesFeature classification path in isolation. Added `piReloadEndThenTwoMessageRecentRefreshRemainsUnsettled` in AppFeatureSessionsTests which sends session_end reload → confirms no settle → sessionsRefreshCompleted with 2-message 30-min-recent session → asserts settledAt nil. Exercises the AppFeature reload-skip path AND the dormantInactivityThreshold guard in sequence.
 
 ### B2: unexpected zmx / dead-process close misattribution (d03b03cd)
 - `WorktreeContentHost.removeUserCloseIntent(for:)`: removes from pendingUserCloseSurfaceIDs only.
@@ -541,6 +542,7 @@ Corrected: the A1+A2 combined commit was a choice, not a constraint.
 - 3 new tests in WorktreeTerminalManagerSessionsTests: stale intent cleared by removeUserCloseIntent, markAutomaticClose prevents attribution + skips concurrent markUserCloseIntent, explicit/live-process path unaffected.
 - supacodeTerminalTests/WorktreeTerminalManagerSessionsTests: exit 0, 7 tests.
 - Unverified: live zmx session probe path; unit-level tests verify the bookkeeping logic.
+- **Correction (821ba056)**: the 3 original tests only called WorktreeContentHost methods directly and would pass if conduit routing was deleted. Added two conduit-path tests: `conduitRoutesDieingNonZmxSurfaceToMarkAutomaticAndContentRequestedClose` (non-zmx content → handleCloseRequest emits contentRequestedClose, no user-close event) and `conduitRoutesDyingZmxSurfaceToHandleUnexpectedZmxClose` (zmx content → exact view and processAlive=false forwarded to unexpectedZmxClose spy). Both wire a real LayoutSurfaceConduit via TeardownTestSupport content + ContentRuntime and trigger view.bridge.onCloseRequest(false). Fundamental limit: handleUnexpectedZmxClose's async zmx probe path (spawns a Task and calls zmxClient.listSessionsWithClients) cannot be exercised without a running zmx process; that path is covered by existing killSessionSuppressesHarnessEndForKilledSurface which mocks zmxClient.
 
 ### B3: per-directory provisional exemption + scoped unresolved presence (c24eddec)
 - `hasUnresolvedLivePresence` now iterates all mapped surface IDs (from loaded layouts) and returns true only for nil-sessionRef presences NOT in any layout. A nil-ref presence that IS in a layout becomes a provisional snapshot and blocks only its own directory. The global gate therefore only fires during the window between restoration and the first layout-covering sessionSnapshotsChanged; for typical restores this is a few hundred milliseconds.
@@ -548,3 +550,11 @@ Corrected: the A1+A2 combined commit was a choice, not a constraint.
 - New test `provisionalInDirABlocksOldDirAButOldDirBSettles`: snapshot provisional for /fixture; rowA.cwd=/fixture unsettled; rowB.cwd=/other settles.
 - AppFeatureSessionsTests: exit 0, 56 tests. RepositoriesFeatureAutoSettleTests: exit 0, 10 tests (was 9 before new test, + 1 new).
 - Unverified: actual live restoration with mixed-cwd worktrees; covered by existing TCA TestStore fixtures.
+- **Correction (821ba056)**: existing tests only confirmed the unmapped case (sessionsHasUnresolvedLivePresence=true). Added `mappedProvisionalInPersistedLayoutDoesNotHoldGlobalGate` in AppFeatureSessionsTests: uses state(restored:true) which sets persistedLayouts with the surface, sends restoreFromSnapshotChecked with nil-sessionRef presence, asserts sessionsHasUnresolvedLivePresence=false — confirming mapped surfaces in persistedLayouts do not hold the global gate. var rowA → let (never mutated).
+
+## B1-B3 follow-up regression coverage (821ba056)
+- AppFeatureSessionsTests: exit 0, 77/77 (was 75 before follow-up; +2 new tests: piReloadEndThenTwoMessageRecentRefreshRemainsUnsettled, mappedProvisionalInPersistedLayoutDoesNotHoldGlobalGate).
+- WorktreeTerminalManagerSessionsTests: exit 0, 9/9 (was 7; +2 new: conduitRoutesDieingNonZmxSurfaceToMarkAutomaticAndContentRequestedClose, conduitRoutesDyingZmxSurfaceToHandleUnexpectedZmxClose).
+- RepositoriesFeatureAutoSettleTests: exit 0, 10/10 (var rowA → let, no behavior change).
+- make lint: exit 2, only pre-existing DeeplinkClient:26 and CommandPaletteFeature:1260.
+- make build-app: exit 0.
