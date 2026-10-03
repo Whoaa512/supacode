@@ -2333,14 +2333,8 @@ struct AppFeature {
           : .send(.agentPresence(.surfacesClosed(ids)))
         return .merge(presenceEffect, ackEffect)
 
-      case .terminalEvent(.agentHookEventReceived(let event)):
-        let suppressEnd = event.eventName == .sessionEnd
-          && (state.isQuitting || terminalClient.isHarnessEndSuppressed(event.surfaceID))
-        let refresh: Effect<Action> =
-          !suppressEnd
-            && (event.eventName == .idle || event.eventName == .sessionStart || event.eventName == .sessionEnd)
-          ? .send(.repositories(.sessionsRefreshRequested)) : .none
-        return .merge(.send(.agentPresence(.hookEventReceived(event))), refresh)
+      case .terminalEvent(.agentHookEventReceived):
+        return .none
 
       // The user is looking at this surface, so whatever was parked on them there
       // is acknowledged. Scoped to the focused surface, so a broken session in

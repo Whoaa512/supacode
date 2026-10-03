@@ -1406,6 +1406,19 @@ struct AppFeatureSessionsTests {
     #expect(marked.value == [[surface, shell]])
   }
 
+  @Test(.dependencies) func hookIsForwardedAndRefreshRequestedExactlyOnce() async {
+    let clock = TestClock()
+    let store = TestStore(initialState: state()) { AppFeature() } withDependencies: {
+      $0.continuousClock = clock
+    }
+    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
+      agent: "pi", event: "session_end", surfaceID: surface, sessionRef: "unknown"))))
+    await store.receive(\.agentPresence.hookEventReceived)
+    await store.receive(\.repositories.sessionsRefreshRequested)
+    await store.send(.repositories(.sessionsStopped))
+    await store.finish()
+  }
+
   @Test(.dependencies) func suppressedSessionEndSkipsRefreshButNonEndEventsStillRefresh() async {
     let store = TestStore(initialState: state()) { AppFeature() } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 100)
