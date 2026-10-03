@@ -1109,4 +1109,53 @@ struct AppFeatureSessionsTests {
     await store.finish()
   }
 
+  @Test(.dependencies) func userClosedSurfaceSettlesBeforePresenceRemoval() async {
+    var initial = state()
+    let key = SessionKey(harness: .pi, sessionID: "real")
+    initial.agentPresence.records[
+      AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    ] = record(ref: "real")
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Session", cwd: "/workspace",
+        createdAt: .distantPast, location: location
+      )
+    ]
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = Date(timeIntervalSince1970: 100)
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.terminalEvent(.userClosedSurfaces(worktreeID: worktree.id, [surface])))
+    await store.receive(\.repositories.settleSession) { appState in
+      #expect(appState.repositories.sessions[key]?.settledAt == Date(timeIntervalSince1970: 100))
+    }
+    await store.send(.terminalEvent(.surfacesClosed(worktreeID: worktree.id, [surface])))
+    await store.receive(\.agentPresence.surfaceClosed)
+    await store.finish()
+  }
+
+  @Test(.dependencies) func directContentRequestedCloseMarksUserIntentSynchronously() async {
+    let marked = LockIsolated<[Set<UUID>]>([])
+    let initial = state()
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.terminalClient.markUserCloseIntent = { _, ids in marked.withValue { $0.append(ids) } }
+    }
+    store.exhaustivity = .off
+
+    await store.send(
+      .terminals(
+        .layouts(
+          .element(
+            id: worktree.id,
+            action: .contentRequestedClose(content: ContentID(rawValue: surface), scope: .allTabs)
+          )
+        )
+      )
+    )
+    #expect(marked.value == [[surface, shell]])
+  }
+
 }

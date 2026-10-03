@@ -27,6 +27,8 @@ final class WorktreeTerminalManager {
   /// Sessions closing without an explicit user action; the session killer
   /// consumes an entry to spare the remote host-side session.
   private var sessionsToKillLocalOnly: Set<UUID> = []
+  private var suppressedHarnessEndSurfaceIDs: Set<UUID> = []
+  private var isEndingAllSessions = false
   /// Worktrees with a deferred activity re-assert already queued, so a burst
   /// of layout actions (a divider drag) coalesces into one pass per tick.
   private var pendingActivityReasserts: Set<Worktree.ID> = []
@@ -381,12 +383,9 @@ final class WorktreeTerminalManager {
       }
     case .runBlockingScript(let worktree, let kind, let script, let focusing):
       runBlockingScript(in: worktree, kind: kind, script: script, focusing: focusing)
-    case .closeFocusedTab(let worktree):
+    case .closeFocusedTab(let worktree), .closeFocusedSurface(let worktree):
       guard let tab = host(for: worktree).focusedTab else { break }
-      sendLayout(worktree.id, .contentRequestedClose(content: tab.content.id, scope: .tab))
-    case .closeFocusedSurface(let worktree):
-      // One content per tab: closing the focused surface closes its tab.
-      guard let tab = host(for: worktree).focusedTab else { break }
+      markUserCloseIntent(worktreeID: worktree.id, surfaceIDs: [tab.content.id.rawValue])
       sendLayout(worktree.id, .contentRequestedClose(content: tab.content.id, scope: .tab))
     case .beginTabRename(let worktree, let tabID):
       guard let target = tabID ?? host(for: worktree).focusedTab?.id else { break }
@@ -433,6 +432,7 @@ final class WorktreeTerminalManager {
         break
       }
       _ = focusing
+      markUserCloseIntent(worktreeID: worktree.id, tabID: tabID)
       sendLayout(worktree.id, .closeTab(id: tabID))
       emit(.tabRemoved(worktreeID: worktree.id, tabID: tabID))
     case .destroySurface(let worktree, let tabID, let surfaceID, let focusing):
@@ -446,6 +446,7 @@ final class WorktreeTerminalManager {
         // ack watchdog instead.
         break
       }
+      markUserCloseIntent(worktreeID: worktree.id, surfaceIDs: [surfaceID])
       sendLayout(worktree.id, .wakeTab(id: owningTab))
       if focusing {
         sendLayout(worktree.id, .selectTab(id: owningTab))
@@ -768,7 +769,11 @@ final class WorktreeTerminalManager {
     host.isSelected = { [weak self] in
       self?.selectedWorktreeID == worktree.id
     }
+    host.onUserClosedSurfaces = { [weak self] ids in
+      self?.emit(.userClosedSurfaces(worktreeID: worktree.id, ids))
+    }
     host.onSurfacesClosed = { [weak self] ids in
+      self?.suppressedHarnessEndSurfaceIDs.subtract(ids)
       self?.handleSurfacesClosed(worktreeID: worktree.id, surfaceIDs: ids)
       // The last surface closing leaves no focus target, so no focus event
       // follows; fall back to the theme background here.
@@ -846,6 +851,7 @@ final class WorktreeTerminalManager {
   func handleLayoutChanged(for worktreeID: Worktree.ID) {
     markLayoutDirty(worktreeID: worktreeID)
     hosts[worktreeID]?.reconcileContentLifecycle()
+    pruneUserCloseIntentsAfterLayoutChange(worktreeID: worktreeID)
     // Zoom and selection changes flip which surfaces render; re-derive
     // occlusion and focus so hidden panes stop drawing.
     hosts[worktreeID]?.reassertSurfaceActivity()
@@ -866,6 +872,47 @@ final class WorktreeTerminalManager {
       self.pendingActivityReasserts.remove(worktreeID)
       self.hosts[worktreeID]?.reassertSurfaceActivity()
     }
+  }
+
+  func markUserCloseIntent(worktreeID: Worktree.ID, surfaceIDs: Set<UUID>) {
+    hosts[worktreeID]?.markUserCloseIntent(for: surfaceIDs)
+  }
+
+  private func markUserCloseIntent(worktreeID: Worktree.ID, tabID: TabID) {
+    guard let contentID = layoutState(for: worktreeID)?.layout.pane(containingTab: tabID)?
+      .tabs[id: tabID]?.content.id.rawValue
+    else { return }
+    markUserCloseIntent(worktreeID: worktreeID, surfaceIDs: [contentID])
+  }
+
+  func beginEndingAllSessions() {
+    isEndingAllSessions = true
+    suppressHarnessEnd(for: hosts.values.flatMap(\.allSurfaceIDs))
+  }
+
+  func isHarnessEndSuppressed(surfaceID: UUID) -> Bool {
+    isEndingAllSessions || suppressedHarnessEndSurfaceIDs.contains(surfaceID)
+  }
+
+  func suppressHarnessEnd(surfaceID: UUID) {
+    suppressedHarnessEndSurfaceIDs.insert(surfaceID)
+  }
+
+  func allowHarnessEnd(surfaceID: UUID) {
+    suppressedHarnessEndSurfaceIDs.remove(surfaceID)
+  }
+
+  private func suppressHarnessEnd(for surfaceIDs: some Sequence<UUID>) {
+    suppressedHarnessEndSurfaceIDs.formUnion(surfaceIDs)
+  }
+
+  private func pruneUserCloseIntentsAfterLayoutChange(worktreeID: Worktree.ID) {
+    guard let host = hosts[worktreeID], let state = layoutState(for: worktreeID) else { return }
+    guard state.alert != nil, let paneID = state.alertPaneID, let pane = state.layout.panes[id: paneID] else {
+      host.pruneStaleUserCloseIntents(retaining: [])
+      return
+    }
+    host.pruneStaleUserCloseIntents(retaining: Set(pane.tabs.map(\.content.id.rawValue)))
   }
 
   /// Consumes a spare decision for an unexpected-close content; the session
@@ -918,6 +965,7 @@ final class WorktreeTerminalManager {
   /// An unexpected zmx exit: probe the session, then spare, kill, or reattach.
   func handleUnexpectedZmxClose(_ view: GhosttySurfaceView, worktreeID: Worktree.ID) {
     let surfaceID = view.id
+    suppressHarnessEnd(for: [surfaceID])
     Task { @MainActor [weak self] in
       let probe = await self?.zmxClient.listSessionsWithClients()
       guard let self, let host = self.hosts[worktreeID], host.liveSurface(surfaceID) === view else { return }
@@ -942,6 +990,7 @@ final class WorktreeTerminalManager {
         // Reattachable: rebuild the same content at its persisted geometry.
         self.liveZmxSessionNames?.insert(sessionID)
         self.commitReportedTitle(of: ContentID(rawValue: surfaceID), worktreeID: worktreeID)
+        self.suppressHarnessEnd(for: [surfaceID])
         if let content = ContentRuntime.liveValue.content(for: ContentID(rawValue: surfaceID))
           as? TerminalContent
         {
@@ -1432,6 +1481,9 @@ final class WorktreeTerminalManager {
       terminalLogger.warning("closePane: pane token \(paneToken) not found in worktree \(worktree.id).")
       return
     }
+    if let pane = layoutState(for: worktree.id)?.layout.panes[id: paneID] {
+      markUserCloseIntent(worktreeID: worktree.id, surfaceIDs: Set(pane.tabs.map(\.content.id.rawValue)))
+    }
     sendLayout(worktree.id, .closePane(id: paneID))
   }
 
@@ -1894,6 +1946,9 @@ final class WorktreeTerminalManager {
     for entry in trackedByWorktree {
       commitReportedTitle(of: ContentID(rawValue: entry.surfaceID), worktreeID: entry.worktreeID)
     }
+    isEndingAllSessions = true
+    suppressHarnessEnd(for: trackedByWorktree.map(\.surfaceID))
+    defer { isEndingAllSessions = false }
     for host in hosts.values {
       host.tearDown()
     }

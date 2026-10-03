@@ -303,6 +303,8 @@ struct TerminalContentBuilder {
   var wireSurface: (GhosttySurfaceView, ContentRequest) -> Void
   /// Extra environment for a spawning surface (blocking-script markers).
   var environmentExtras: (ContentRequest) -> [String: String]
+  var onWillTearDown: (ContentRequest) -> Void = { _ in }
+  var onDidStart: (ContentRequest) -> Void = { _ in }
   /// Resolves a launch-restore disk replay after the live-zmx probe completes.
   var initialScrollbackPath: (UUID) -> String?
 
@@ -327,7 +329,7 @@ struct TerminalContentBuilder {
       return InertTabContent(id: request.contentID, state: request.content)
     }
     let lookUpWorktree = worktree
-    return TerminalContent(
+    let content = TerminalContent(
       id: request.contentID,
       makeSurface: { geometry, currentState, phase in
         // Re-resolve so a wake long after creation sees the current worktree;
@@ -390,6 +392,9 @@ struct TerminalContentBuilder {
       },
       initialState: terminalState
     )
+    content.onWillTearDown = { _ in onWillTearDown(request) }
+    content.onDidStart = { _ in onDidStart(request) }
+    return content
   }
 }
 

@@ -57,6 +57,7 @@ final class SupacodeAppDelegate: NSObject, NSApplicationDelegate {
     // The on-quit save embeds agent records so badges survive relaunch (agents
     // only emit session_start once per process lifetime), and a second concurrent
     // instance overwriting the file is an accepted dev-only last-writer-wins window.
+    terminalManager?.beginEndingAllSessions()
     terminalManager?.cancelPendingLayoutSaves()
     let agentsBySurface = appStore?.state.agentPresence.agentsBySurface() ?? [:]
     terminalManager?.saveLayoutsAndScrollback(agentsBySurface: agentsBySurface)
@@ -372,6 +373,12 @@ struct SupacodeApp: App {
         hasInflightBlockingScripts: {
           terminalManager.hasInflightBlockingScripts
         },
+        markUserCloseIntent: { worktreeID, surfaceIDs in
+          terminalManager.markUserCloseIntent(worktreeID: worktreeID, surfaceIDs: surfaceIDs)
+        },
+        isHarnessEndSuppressed: { surfaceID in
+          terminalManager.isHarnessEndSuppressed(surfaceID: surfaceID)
+        },
         terminateAllSessions: {
           await terminalManager.terminateAllSessions()
         },
@@ -428,6 +435,12 @@ struct SupacodeApp: App {
       environmentExtras: { [weak terminalManager] request in
         terminalManager?.hostIfExists(for: request.worktreeID)?
           .blockingScriptEnvironment(for: request.tabID) ?? [:]
+      },
+      onWillTearDown: { [weak terminalManager] request in
+        terminalManager?.suppressHarnessEnd(surfaceID: request.contentID.rawValue)
+      },
+      onDidStart: { [weak terminalManager] request in
+        terminalManager?.allowHarnessEnd(surfaceID: request.contentID.rawValue)
       },
       initialScrollbackPath: { [weak terminalManager] surfaceID in
         terminalManager?.initialScrollbackPath(for: surfaceID)

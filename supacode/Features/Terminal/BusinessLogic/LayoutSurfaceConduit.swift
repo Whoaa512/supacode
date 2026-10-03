@@ -122,11 +122,15 @@ struct LayoutSurfaceConduit {
     // close goes straight to the layout, never through the confirm mode.
     if host.consumeBypassCloseConfirmation(for: surfaceID) {
       _ = host.consumeExplicitClose(for: surfaceID)
+      host.confirmUserCloseIntent(for: surfaceID)
       guard let tabID = host.tabID(containing: surfaceID) else { return }
       host.sendLayoutAction(.closeTab(id: tabID))
       return
     }
     let isExplicit = host.consumeExplicitClose(for: surfaceID)
+    if isExplicit {
+      host.confirmUserCloseIntent(for: surfaceID)
+    }
     // A live zmx-backed content is exactly a hibernatable one.
     if Self.shouldProbeUnexpectedZmxClose(
       isExplicit: isExplicit,

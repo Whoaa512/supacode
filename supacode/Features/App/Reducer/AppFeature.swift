@@ -102,6 +102,7 @@ struct AppFeature {
     /// tab-bar views scope through `\.terminals` (narrow) instead of the full
     /// app store. Mirrors sidebar's `RepositoriesFeature` ownership pattern.
     var terminals = TerminalsFeature.State()
+    var isQuitting = false
     /// The selected worktree's repository's open action, read from the map the reducer
     /// resolves off the main actor. Derived, never stored: a stored copy refreshes a disk
     /// read after the selection moves, and opens the previous repository's editor until it
@@ -2264,6 +2265,11 @@ struct AppFeature {
         // The manager already detached the layout; nothing app-level remains.
         return .none
 
+      case .terminals(.layouts(.element(let worktreeID, .contentRequestedClose(let contentID, let scope)))):
+        let ids = closeTargetSurfaceIDs(worktreeID: worktreeID, contentID: contentID, scope: scope, state: state)
+        terminalClient.markUserCloseIntent(worktreeID, ids)
+        return .none
+
       case .terminals(.layouts(.element(let worktreeID, .wakeTab(let tabID)))):
         // A woken content is a fresh instance whose chrome missed any presence
         // fan-out that ran while the tab was unprovisioned (restored layouts);
@@ -2286,6 +2292,11 @@ struct AppFeature {
       case .terminals:
         return .none
 
+      case .terminalEvent(.userClosedSurfaces(_, let ids)):
+        let keys = sessionKeys(forSurfaceIDs: ids, state: state)
+        guard !keys.isEmpty else { return .none }
+        return .merge(keys.map { .send(.repositories(.settleSession($0))) })
+
       case .terminalEvent(.surfacesClosed(let worktreeID, let ids)):
         guard !ids.isEmpty else { return .none }
         let ackEffect = resolveCommandAcks(ok: true, state: &state) { match in
@@ -2301,6 +2312,9 @@ struct AppFeature {
         return .merge(presenceEffect, ackEffect)
 
       case .terminalEvent(.agentHookEventReceived(let event)):
+        if state.isQuitting || terminalClient.isHarnessEndSuppressed(event.surfaceID) {
+          return .send(.agentPresence(.hookEventReceived(event)))
+        }
         let refresh: Effect<Action> =
           event.eventName == .idle || event.eventName == .sessionStart || event.eventName == .sessionEnd
           ? .send(.repositories(.sessionsRefreshRequested)) : .none
@@ -2357,6 +2371,38 @@ struct AppFeature {
       state.recomputeWorktreeMenuSnapshotIfChanged()
       return .none
     }
+  }
+
+  private func sessionKeys(forSurfaceIDs ids: Set<UUID>, state: State) -> [SessionKey] {
+    var keys: Set<SessionKey> = []
+    for (presenceKey, record) in state.agentPresence.records where ids.contains(presenceKey.surfaceID) {
+      guard let sessionRef = record.sessionRef else { continue }
+      keys.insert(SessionKey(harness: presenceKey.agent, sessionID: sessionRef))
+    }
+    return Array(keys)
+  }
+
+  private func closeTargetSurfaceIDs(
+    worktreeID: Worktree.ID,
+    contentID: ContentID,
+    scope: LayoutFeature.CloseScope,
+    state: State
+  ) -> Set<UUID> {
+    guard let layout = state.terminals.layouts[id: worktreeID]?.layout,
+      let located = layout.tab(containingContent: contentID)
+    else { return [] }
+    let targets: [TabID] =
+      switch scope {
+      case .tab:
+        [located.tab.id]
+      case .otherTabs:
+        located.pane.tabs.ids.filter { $0 != located.tab.id }
+      case .tabsToTheRight:
+        located.pane.tabs.index(id: located.tab.id).map { located.pane.tabs.dropFirst($0 + 1).map(\.id) } ?? []
+      case .allTabs:
+        Array(located.pane.tabs.ids)
+      }
+    return Set(targets.compactMap { located.pane.tabs[id: $0]?.content.id.rawValue })
   }
 
   private func terminalGridOverview(
@@ -3804,6 +3850,7 @@ struct AppFeature {
   /// `terminateAllSessions` before calling `appLifecycleClient.terminate()`
   /// so the zmx daemon teardown completes inside the process lifetime.
   private func quitEffect(state: inout State, terminateSessions: Bool) -> Effect<Action> {
+    state.isQuitting = true
     analyticsClient.capture("app_quit", ["terminate_sessions": terminateSessions])
     let pendingFDEffect = drainPendingResponseFD(state: &state, error: "Supacode is quitting.")
     let pendingAcksEffect = drainAllCommandAcks(state: &state, error: "Supacode is quitting.")

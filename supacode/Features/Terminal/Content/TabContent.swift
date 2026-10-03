@@ -147,6 +147,8 @@ final class TerminalContent: TabContent {
   private var state: TerminalContentState
   private var surfaceView: GhosttySurfaceView?
   private var usesZmx = false
+  var onWillTearDown: ((UUID) -> Void)?
+  var onDidStart: ((UUID) -> Void)?
   private var hasSpawned = false
 
   init(
@@ -182,6 +184,7 @@ final class TerminalContent: TabContent {
     searchToolbar.surfaceView = spawned.view
     usesZmx = spawned.usesZmx
     hasSpawned = true
+    onDidStart?(id.rawValue)
   }
 
   func hibernate() {
@@ -197,6 +200,9 @@ final class TerminalContent: TabContent {
   }
 
   func tearDown(detachClients: Bool) {
+    if surfaceView != nil {
+      onWillTearDown?(id.rawValue)
+    }
     surfaceView?.closeSurface(detachClients: detachClients)
     surfaceView = nil
     searchToolbar.surfaceView = nil

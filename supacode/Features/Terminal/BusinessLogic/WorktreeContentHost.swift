@@ -39,6 +39,7 @@ final class WorktreeContentHost {
   @ObservationIgnored var onRunningScriptsChanged: (() -> Void)?
   @ObservationIgnored var onCommandPaletteToggle: (() -> Void)?
   @ObservationIgnored var onSetupScriptConsumed: (() -> Void)?
+  @ObservationIgnored var onUserClosedSurfaces: ((Set<UUID>) -> Void)?
   @ObservationIgnored var onSurfacesClosed: ((Set<UUID>) -> Void)?
   @ObservationIgnored var onSurfacesHibernated: ((Set<UUID>) -> Void)?
   @ObservationIgnored var onDormancyChanged: (() -> Void)?
@@ -71,6 +72,7 @@ final class WorktreeContentHost {
   /// Contents the user explicitly closed; consumed when the close completes so
   /// an unexpected zmx exit is never misread as explicit.
   @ObservationIgnored private(set) var pendingExplicitSurfaceCloseIDs: Set<UUID> = []
+  @ObservationIgnored private var pendingUserCloseSurfaceIDs: Set<UUID> = []
   /// Programmatic destroys (deeplink / CLI) that skip the alert.
   @ObservationIgnored private var bypassCloseConfirmationSurfaceIDs: Set<UUID> = []
   @ObservationIgnored private let dormantSessionWatchers = ZmxSessionWatcherRegistry()
@@ -1068,6 +1070,10 @@ final class WorktreeContentHost {
 
   // MARK: - Close bookkeeping.
 
+  func markUserCloseIntent(for surfaceIDs: Set<UUID>) {
+    pendingUserCloseSurfaceIDs.formUnion(surfaceIDs)
+  }
+
   /// Marks a programmatic destroy that skips the close-confirmation alert.
   func bypassCloseConfirmation(for surfaceID: UUID) {
     bypassCloseConfirmationSurfaceIDs.insert(surfaceID)
@@ -1081,8 +1087,17 @@ final class WorktreeContentHost {
     pendingExplicitSurfaceCloseIDs.remove(surfaceID) != nil
   }
 
+  func confirmUserCloseIntent(for surfaceID: UUID) {
+    pendingUserCloseSurfaceIDs.insert(surfaceID)
+  }
+
   func cancelExplicitClose(for surfaceID: UUID) {
     pendingExplicitSurfaceCloseIDs.remove(surfaceID)
+    pendingUserCloseSurfaceIDs.remove(surfaceID)
+  }
+
+  func pruneStaleUserCloseIntents(retaining retainedSurfaceIDs: Set<UUID>) {
+    pendingUserCloseSurfaceIDs.formIntersection(retainedSurfaceIDs)
   }
 
   /// A live content is going away: cancel its OSC bookkeeping, notify presence
@@ -1119,6 +1134,7 @@ final class WorktreeContentHost {
 
   func cleanupSurfaceState(for surfaceID: UUID) {
     let hadUnseen = hasUnseenNotification(forSurfaceID: surfaceID)
+    let wasUserClosed = pendingUserCloseSurfaceIDs.remove(surfaceID) != nil
     discardSurfaceBookkeeping(for: surfaceID)
     surfaceStates.removeValue(forKey: surfaceID)
     // The layout already dropped the tab; prune its cached progress display.
@@ -1126,6 +1142,9 @@ final class WorktreeContentHost {
     // Watchers must stop BEFORE the session dies, or a watcher poll races the
     // kill and logs a spurious dead-session error.
     reconcileDormantWatchers()
+    if wasUserClosed {
+      onUserClosedSurfaces?([surfaceID])
+    }
     onSurfacesClosed?([surfaceID])
     guard hadUnseen else { return }
     for index in notifications.indices where notifications[index].surfaceID == surfaceID {
@@ -1139,6 +1158,7 @@ final class WorktreeContentHost {
     pendingAgentOSCNotifications.removeValue(forKey: surfaceID)?.cancel()
     lastCustomNotificationAt.removeValue(forKey: surfaceID)
     pendingExplicitSurfaceCloseIDs.remove(surfaceID)
+    pendingUserCloseSurfaceIDs.remove(surfaceID)
     bypassCloseConfirmationSurfaceIDs.remove(surfaceID)
   }
 

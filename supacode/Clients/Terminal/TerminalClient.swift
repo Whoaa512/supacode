@@ -44,6 +44,8 @@ struct TerminalClient {
   /// Blocking scripts (setup / archive / delete / run) bypass zmx and die
   /// with the app, so the auto-mode quit confirmation needs to know.
   var hasInflightBlockingScripts: @MainActor @Sendable () -> Bool
+  var markUserCloseIntent: @MainActor @Sendable (Worktree.ID, Set<UUID>) -> Void = { _, _ in }
+  var isHarnessEndSuppressed: @MainActor @Sendable (UUID) -> Bool = { _ in false }
   /// Close every tracked surface and kill its zmx session in parallel.
   /// Awaited from the quit path so teardown completes before process exit.
   var terminateAllSessions: @MainActor @Sendable () async -> Void
@@ -163,6 +165,7 @@ struct TerminalClient {
     case tabRenamed(worktreeID: Worktree.ID, tabID: TabID, applied: Bool)
     /// The worktree's terminal state was torn down (prune path).
     case worktreeStateTornDown(worktreeID: Worktree.ID)
+    case userClosedSurfaces(worktreeID: Worktree.ID, Set<UUID>)
     /// Forwarded from the terminal manager when surfaces close (single or bulk).
     /// `AppFeature` translates this into `agentPresence(.surfaceClosed/surfacesClosed)`.
     /// `worktreeID` scopes the CLI close ack so a duplicate id elsewhere can't cross-resolve.
@@ -210,6 +213,8 @@ extension TerminalClient: DependencyKey {
     markNotificationRead: { _, _ in fatalError("TerminalClient.markNotificationRead not configured") },
     markAllNotificationsRead: { fatalError("TerminalClient.markAllNotificationsRead not configured") },
     hasInflightBlockingScripts: { fatalError("TerminalClient.hasInflightBlockingScripts not configured") },
+    markUserCloseIntent: { _, _ in fatalError("TerminalClient.markUserCloseIntent not configured") },
+    isHarnessEndSuppressed: { _ in fatalError("TerminalClient.isHarnessEndSuppressed not configured") },
     terminateAllSessions: { fatalError("TerminalClient.terminateAllSessions not configured") },
     persistAndTerminateAllSessions: { _ in
       fatalError("TerminalClient.persistAndTerminateAllSessions not configured")
@@ -244,6 +249,8 @@ extension TerminalClient: DependencyKey {
     markNotificationRead: unimplemented("TerminalClient.markNotificationRead"),
     markAllNotificationsRead: unimplemented("TerminalClient.markAllNotificationsRead"),
     hasInflightBlockingScripts: unimplemented("TerminalClient.hasInflightBlockingScripts", placeholder: false),
+    markUserCloseIntent: { _, _ in },
+    isHarnessEndSuppressed: { _ in false },
     terminateAllSessions: unimplemented("TerminalClient.terminateAllSessions"),
     persistAndTerminateAllSessions: unimplemented("TerminalClient.persistAndTerminateAllSessions"),
     reapOrphanSessions: unimplemented("TerminalClient.reapOrphanSessions"),
