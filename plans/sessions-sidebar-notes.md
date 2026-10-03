@@ -558,3 +558,15 @@ Corrected: the A1+A2 combined commit was a choice, not a constraint.
 - RepositoriesFeatureAutoSettleTests: exit 0, 10/10 (var rowA → let, no behavior change).
 - make lint: exit 2, only pre-existing DeeplinkClient:26 and CommandPaletteFeature:1260.
 - make build-app: exit 0.
+
+## C1–C4 — index resilience and single hook ownership
+- C1 5cf1f01f: preserve cached summaries on failed read/stat/parse or directory listing; prune only paths absent from successful listings. Root errors retain actor cache. TEMP chmod regressions cover unreadable file, child directory and root, malformed header, confirmed file/directory deletion.
+- C2 1137beb6: cache persistence is best-effort with SupaLogger warning; unwritable TEMP cache does not fail successful scan or absent-root scan.
+- C3 a57cccf9: nil-ref pi end uses existing PID rules; mismatched nonnil ref still rejected. Matcher, actual presence removal and App no-settlement regressions pass. App attribution still requires matching ref.
+- C4 9c8ec54b: core App hook is no-op; sessionsLinkReducer alone forwards/refreshes, retaining old-record settlement and branch capture. Strict exhaustive exactly-one-forward/refresh regression plus existing settlement/branch tests pass.
+- Targeted make test overrides always SWIFT_VERSION=5: C1/C2 supacodeTests/PiSessionSourceTests; C3 supacodeTests/AgentSignalSessionReasonTests + supacodeFeatureTests/AppFeatureSessionsTests; C4 supacodeFeatureTests/AppFeatureSessionsTests.
+- Final test exits 0; xcresult summary exits 0 with totalTestCount/failures C1 12/0, C2 13/0, C3 64/0, C4 60/0. C3 attempts 1–2 exited 2/count 0 (test receive case-path compile errors, corrected).
+- make lint before each commit: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity failures. C2 own line-length violation corrected before final lint. Final make build-app: exit 0; git diff --check: exit 0.
+- Logs /tmp/c{1,2,3,4}-{tests,lint,summary}*; final C3 tests3/summary3/lint-final, C2 lint-final. Final build /tmp/c1-c4-build.log; notes lint /tmp/c1-c4-notes-lint.log.
+- pgrep -fl xcodebuild before every test/build; waited without signals if needed. No full suite, new-file generation, app run/install/compare/open, protected-home writes or owner-process signaling. Untracked .worktrees/ and PAPERCUTS.md untouched; no unrelated tracked changes.
+- Unverified: live app/UI/installed pi lifecycle and filesystem failures outside TEMP fixtures. No implementation scope deviation; user prohibition overrides plan full-suite/manual QA instructions.
