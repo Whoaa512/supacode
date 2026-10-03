@@ -218,3 +218,9 @@
 - make lint: exit 2, only existing DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations; no new violations. make build-app: exit 0; git diff --check: exit 0.
 - Logs: /tmp/slice2-gate-fix-{tests,lint,build}.log; summary /tmp/slice2-gate-fix-summary.json. xcodebuild checked/serialized before tests and build.
 - No new files/generation required; full gate not rerun. No live-app launch/install/signaling or protected-home writes. No scope deviation; baseline failures and untracked files untouched.
+
+## Slice 2 gate fix 2 — deterministic remote-path timeout regression
+- Confirmed timeout test raced real 5-second probe sleep against 50-ms timeout; scheduling under full-suite load can let the probe win. Injected a Clock into resolveRemotePath (ContinuousClock default unchanged); test drives both branches with TestClock, no Task.sleep in this test.
+- Targeted RemotePathClassificationTests: exit 0; xcresult totalTestCount 17, failedTests 0. Initial compile attempt exited 2/count 0 after editing the wrong sleep occurrence; corrected before verification.
+- make build-app: exit 0; make lint: exit 2, only the same pre-existing DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations. Per “fix only your own violations,” those remain unchanged; both dispatch functions existed at 30ecc33c.
+- Logs: /tmp/slice2-gate-fix2-{tests,lint,build}.log; summary /tmp/slice2-gate-fix2-summary.json. No full suite rerun; builds/tests serialized with pgrep checks. No live-app/environment changes; untracked files untouched.

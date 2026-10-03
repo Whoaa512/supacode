@@ -267,7 +267,8 @@ extension RepositoriesFeature {
     _ path: String,
     host: RemoteHost,
     shell: ShellClient? = nil,
-    timeout: Duration = remoteResolveTimeout
+    timeout: Duration = remoteResolveTimeout,
+    clock: any Clock<Duration> = ContinuousClock()
   ) async -> String? {
     let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
@@ -302,7 +303,7 @@ extension RepositoriesFeature {
         }
       }
       group.addTask {
-        try? await Task.sleep(for: timeout)
+        try? await clock.sleep(for: timeout)
         return .timedOut
       }
       defer { group.cancelAll() }
