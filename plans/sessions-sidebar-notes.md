@@ -321,3 +321,11 @@
 - make build-app: exit 0. git diff --check: exit 0.
 - Builds/tests serialized with pgrep xcodebuild waits; no full tests, app launch/install/open, process signaling or protected-home writes.
 - Untracked .worktrees/ and PAPERCUTS.md preserved. Unverified: live app CLI socket/ack behavior beyond fixture/unit coverage.
+
+## Slice 3 review fix — reserve dormant resume before probing
+- One PendingSessionLaunch UUID now spans branch probe, mismatch confirmation, folder registration and launch completion. Probing/confirming reservations cannot launch on repositoriesChanged; duplicate activations/new-session requests are blocked.
+- Completion carries only request UUID and branch; saved reservation owns cwd/command/key. Stale or repeated completions cannot restore a cancelled alert or launch another request. Cancel clears the reservation; confirm reuses it without probing again.
+- Controlled AsyncStream regression covers duplicate activation, repository changes during probe, cancel/retry and stale completions both during a newer probe and after cancellation. Known-branch and confirmed-mismatch launch regressions retained.
+- Targeted AppFeatureSessionsTests: attempts exited 2/count 0 (test compile argument), 2/count 41/failures 1 (unrelated prune command in assertion), then 0/count 41/failures 0. Summaries checked after every run; SWIFT_VERSION=5 and pgrep/wait serialization retained.
+- make lint before commit: exit 2, only existing DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations; git diff --check exit 0. Logs /tmp/slice3-review-resume-{tests3,lint-final}.log and summary3.json.
+- Downstream contract: never release a reservation between probe/confirmation/registration/launch, nor launch a probing or awaiting-confirmation request. No live environment operations; final build follows the second narrow fix.

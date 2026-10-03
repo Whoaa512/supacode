@@ -8,6 +8,7 @@ struct PendingSessionLaunch: Equatable {
   let command: String
   let requestID: UUID
   var launched: Bool = false
+  var probing: Bool = false
 }
 
 struct PendingBranchMismatchResume: Equatable {
@@ -53,7 +54,7 @@ extension AppFeature {
           effects.append(.send(.repositories(.sessionSnapshotsChanged(snapshots))))
         }
         if let pending = state.pendingSessionLaunch,
-          !pending.launched,
+          !pending.launched, !pending.probing, state.pendingBranchMismatchResume == nil,
           case .repositories(.delegate(.repositoriesChanged)) = action,
           let effect = Self.launchPendingSessionIfReady(pending: pending, state: &state)
         {
@@ -65,9 +66,9 @@ extension AppFeature {
       case .repositories(.delegate(.resumeSession(let key))):
         return Self.handleResumeSession(key, state: &state)
 
-      case .resumeBranchProbeCompleted(let key, let cwd, let command, let currentBranch):
+      case .resumeBranchProbeCompleted(let requestID, let currentBranch):
         return Self.finishResumeBranchProbe(
-          key: key, cwd: cwd, command: command, currentBranch: currentBranch, state: &state)
+          requestID: requestID, currentBranch: currentBranch, state: &state)
 
       case .launchSessionCompleted(let requestID):
         guard let pending = state.pendingSessionLaunch, pending.requestID == requestID
@@ -215,7 +216,11 @@ extension AppFeature {
     guard shouldProbeBranchBeforeResume(key: key, state: state) else {
       return startPreparedResume(prepared, state: &state)
     }
-    return runResumeBranchProbe(key: key, cwd: prepared.cwd, command: prepared.command)
+    @Dependency(\.uuid) var uuid
+    let pending = PendingSessionLaunch(
+      key: key, cwd: prepared.cwd, command: prepared.command, requestID: uuid(), probing: true)
+    state.pendingSessionLaunch = pending
+    return runResumeBranchProbe(pending)
   }
 
   static func confirmBranchMismatchResume(state: inout State) -> Effect<Action> {
@@ -223,11 +228,12 @@ extension AppFeature {
     state.pendingBranchMismatchResume = nil
     return startPreparedResume(
       PreparedSessionResume(key: pending.key, cwd: pending.cwd, command: pending.command),
-      state: &state)
+      requestID: state.pendingSessionLaunch?.requestID, state: &state)
   }
 
   static func cancelBranchMismatchResume(state: inout State) -> Effect<Action> {
     state.pendingBranchMismatchResume = nil
+    state.pendingSessionLaunch = nil
     return .none
   }
 
@@ -259,29 +265,37 @@ extension AppFeature {
     return true
   }
 
-  private static func runResumeBranchProbe(key: SessionKey, cwd: URL, command: String) -> Effect<Action> {
+  private static func runResumeBranchProbe(_ pending: PendingSessionLaunch) -> Effect<Action> {
     @Dependency(GitClientDependency.self) var gitClient
     return .run { send in
-      let currentBranch = await gitClient.branchName(cwd)
-      await send(.resumeBranchProbeCompleted(key: key, cwd: cwd, command: command, currentBranch: currentBranch))
+      let currentBranch = await gitClient.branchName(pending.cwd)
+      await send(.resumeBranchProbeCompleted(requestID: pending.requestID, currentBranch: currentBranch))
     }
   }
 
   private static func finishResumeBranchProbe(
-    key: SessionKey,
-    cwd: URL,
-    command: String,
+    requestID: UUID,
     currentBranch: String?,
     state: inout State
   ) -> Effect<Action> {
+    guard let pending = state.pendingSessionLaunch,
+      pending.requestID == requestID, pending.probing
+    else { return .none }
+    state.pendingSessionLaunch?.probing = false
+    let key = pending.key
+    let cwd = pending.cwd
+    let command = pending.command
     guard let branches = state.repositories.sessions[key]?.branches, !branches.isEmpty else {
-      return startPreparedResume(PreparedSessionResume(key: key, cwd: cwd, command: command), state: &state)
+      return startPreparedResume(
+        PreparedSessionResume(key: key, cwd: cwd, command: command), requestID: requestID, state: &state)
     }
     guard let currentBranch, !currentBranch.isEmpty else {
-      return startPreparedResume(PreparedSessionResume(key: key, cwd: cwd, command: command), state: &state)
+      return startPreparedResume(
+        PreparedSessionResume(key: key, cwd: cwd, command: command), requestID: requestID, state: &state)
     }
     guard !branches.contains(currentBranch), let recordedBranch = branches.last else {
-      return startPreparedResume(PreparedSessionResume(key: key, cwd: cwd, command: command), state: &state)
+      return startPreparedResume(
+        PreparedSessionResume(key: key, cwd: cwd, command: command), requestID: requestID, state: &state)
     }
     state.pendingBranchMismatchResume = PendingBranchMismatchResume(
       key: key, cwd: cwd, command: command,
@@ -302,11 +316,13 @@ extension AppFeature {
 
   private static func startPreparedResume(
     _ prepared: PreparedSessionResume,
+    requestID reservedID: UUID? = nil,
     state: inout State
   ) -> Effect<Action> {
-    guard state.pendingSessionLaunch == nil else { return .none }
+    guard state.pendingSessionLaunch == nil || state.pendingSessionLaunch?.requestID == reservedID
+    else { return .none }
     @Dependency(\.uuid) var uuid
-    let requestID = uuid()
+    let requestID = reservedID ?? uuid()
     var pending = PendingSessionLaunch(
       key: prepared.key, cwd: prepared.cwd, command: prepared.command, requestID: requestID)
     if let worktree = worktreeForCwd(prepared.cwd, state: state) {

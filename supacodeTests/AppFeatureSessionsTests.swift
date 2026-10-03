@@ -362,6 +362,58 @@ struct AppFeatureSessionsTests {
     #expect(sent.value.count == 1)
   }
 
+  @Test(.dependencies) func resumeProbeReservationRejectsDuplicatesAndCancelledCompletions() async throws {
+    let directory = try temporaryDirectory(named: "controlled-probe")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let key = SessionKey(harness: .pi, sessionID: "controlled")
+    var initial = state()
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Controlled", cwd: directory.path, createdAt: .distantPast)
+    ]
+    initial.repositories.$sessions.withLock { $0[key] = SessionSidecarEntry(branches: ["old"]) }
+    let branches = AsyncStream<String>.makeStream()
+    let probes = LockIsolated(0)
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.uuid = .incrementing
+      $0[GitClientDependency.self].branchName = { _ in
+        probes.withValue { $0 += 1 }
+        for await branch in branches.stream { return branch }
+        return nil
+      }
+      $0.terminalClient.send = { command in
+        if case .createTabWithInput = command { sent.withValue { $0.append(command) } }
+      }
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.delegate(.resumeSession(key))))
+    #expect(store.state.pendingSessionLaunch?.probing == true)
+    await store.send(.repositories(.delegate(.resumeSession(key))))
+    await store.send(.repositories(.delegate(.repositoriesChanged(initial.repositories.repositories))))
+    #expect(sent.value.isEmpty)
+    branches.continuation.yield("different")
+    await store.receive(\.resumeBranchProbeCompleted)
+    #expect(probes.value == 1)
+    #expect(store.state.pendingBranchMismatchResume != nil)
+    await store.send(.alert(.presented(.cancelBranchMismatchResume)))
+    #expect(store.state.pendingSessionLaunch == nil)
+    await store.send(.repositories(.delegate(.resumeSession(key))))
+    #expect(store.state.pendingSessionLaunch?.requestID == UUID(1))
+    await store.send(.resumeBranchProbeCompleted(requestID: UUID(0), currentBranch: "old"))
+    #expect(store.state.pendingSessionLaunch?.probing == true)
+    #expect(store.state.pendingBranchMismatchResume == nil)
+    branches.continuation.yield("different")
+    await store.receive(\.resumeBranchProbeCompleted)
+    await store.send(.alert(.presented(.cancelBranchMismatchResume)))
+    await store.send(.resumeBranchProbeCompleted(requestID: UUID(1), currentBranch: "old"))
+    #expect(store.state.pendingSessionLaunch == nil)
+    #expect(store.state.pendingBranchMismatchResume == nil)
+    #expect(sent.value.isEmpty)
+    branches.continuation.finish()
+    await store.finish()
+  }
+
   @Test(.dependencies) func dormantResumeKnownBranchSkipsMismatchAlert() async throws {
     let tmpDir = try temporaryDirectory(named: "known-branch")
     defer { try? FileManager.default.removeItem(at: tmpDir) }

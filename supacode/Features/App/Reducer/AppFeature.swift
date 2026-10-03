@@ -388,7 +388,7 @@ struct AppFeature {
     case terminalEvent(TerminalClient.Event)
     case launchSessionCompleted(requestID: UUID)
     case branchCaptureProbeCompleted(key: SessionKey, branch: String?)
-    case resumeBranchProbeCompleted(key: SessionKey, cwd: URL, command: String, currentBranch: String?)
+    case resumeBranchProbeCompleted(requestID: UUID, currentBranch: String?)
   }
 
   enum Alert: Equatable {
