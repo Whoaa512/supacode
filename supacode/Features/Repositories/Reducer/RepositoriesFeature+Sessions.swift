@@ -15,13 +15,13 @@ extension RepositoriesFeature {
     Reduce { state, action in
       @Dependency(\.sessionIndex) var index
       @Dependency(\.continuousClock) var clock
-      @Dependency(\.date.now) var now
+      @Dependency(\.date) var date
       @Shared(.settingsFile) var settingsFile
       switch action {
       case .sessionsRestorationCompleted(let keys):
         state.sessionsRestorationFinished = true
         state.sessionsLiveKeys = keys
-        state.autoSettleSessions(now: now, idleDays: settingsFile.global.sessionIdleDays)
+        state.autoSettleSessions(now: date.now, idleDays: settingsFile.global.sessionIdleDays)
         return .none
 
       case .sessionsLiveKeysChanged(let keys):
@@ -62,7 +62,7 @@ extension RepositoriesFeature {
 
       case .sessionsCacheLoaded(let summaries):
         state.sessionSummaries = summaries
-        state.reconcileSessionItems(now: now)
+        state.reconcileSessionItems(now: date.now)
         return .none
 
       case .sessionsSidebarShown, .sessionsRefreshRequested:
@@ -85,8 +85,8 @@ extension RepositoriesFeature {
       case .sessionsRefreshCompleted(let summaries):
         state.sessionsRefreshSucceeded = true
         state.sessionSummaries = summaries
-        state.reconcileSessionItems(now: now)
-        state.autoSettleSessions(now: now, idleDays: settingsFile.global.sessionIdleDays)
+        state.reconcileSessionItems(now: date.now)
+        state.autoSettleSessions(now: date.now, idleDays: settingsFile.global.sessionIdleDays)
         return Self.finishSessionsRefresh(state: &state)
 
       case .sessionsRefreshFailed:
@@ -96,7 +96,7 @@ extension RepositoriesFeature {
       case .sessionSnapshotsChanged(let snapshots):
         guard state.sessionSnapshots != snapshots else { return .none }
         state.sessionSnapshots = snapshots
-        state.reconcileSessionItems(now: now)
+        state.reconcileSessionItems(now: date.now)
         return .send(.sessionsRefreshRequested)
 
       case .sessionSelectionChanged(let id):
@@ -108,7 +108,7 @@ extension RepositoriesFeature {
         state.sessionSelection = id
         if let location = row.location {
           if case .session(let key) = id, row.lifecycle == .settled {
-            state.applyUnsettle(key: key, summaries: state.sessionSummaries, now: now)
+            state.applyUnsettle(key: key, summaries: state.sessionSummaries, now: date.now)
           }
           return .send(.delegate(.focusSession(location)))
         }
@@ -118,13 +118,13 @@ extension RepositoriesFeature {
         return .none
 
       case .settleSession(let key):
-        state.applySettle(key: key, now: now)
-        state.reconcileSessionItems(now: now)
+        state.applySettle(key: key, now: date.now)
+        state.reconcileSessionItems(now: date.now)
         state.recomputeSessionsSidebarStructureIfChanged()
         return .none
 
       case .unsettleSession(let key):
-        state.applyUnsettle(key: key, summaries: state.sessionSummaries, now: now)
+        state.applyUnsettle(key: key, summaries: state.sessionSummaries, now: date.now)
         return .none
 
       case .sessionBranchCaptured(let key, let branch):
@@ -135,7 +135,7 @@ extension RepositoriesFeature {
           entry.recordBranch(branch)
           sidecar[key] = entry
         }
-        state.reconcileSessionItems(now: now)
+        state.reconcileSessionItems(now: date.now)
         return .none
 
       case .registerSessionFolder:

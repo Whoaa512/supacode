@@ -37,6 +37,13 @@ struct RepositoriesFeatureAutoSettleTests {
     return store
   }
 
+  @Test(.dependencies) func unrelatedActionsDoNotReadTheSessionClock() async {
+    let store = TestStore(initialState: state()) { RepositoriesFeature() }
+    await store.send(.sessionsLiveKeysChanged([]))
+    await store.send(.sessionsStopped)
+    await store.finish()
+  }
+
   @Test(.dependencies) func restoreGateAndRawLiveKeysProtectUnlinkedAgents() async {
     let row = summary()
     let store = store()
