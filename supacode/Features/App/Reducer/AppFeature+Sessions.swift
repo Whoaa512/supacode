@@ -84,9 +84,11 @@ extension AppFeature {
           requestID: requestID, currentBranch: currentBranch, state: &state)
 
       case .launchSessionCompleted(let requestID):
+        @Dependency(\.date) var date
         guard let pending = state.pendingSessionLaunch, pending.requestID == requestID
         else { return .none }
         let key = pending.key
+        state.recentSessionLaunchDate[key] = date.now
         state.pendingSessionLaunch = nil
         guard state.repositories.sessionItems[id: .session(key)]?.lifecycle == .settled
         else { return .none }
@@ -244,6 +246,8 @@ extension AppFeature {
       FileManager.default.isReadableFile(atPath: cwdPath)
     else {
       repositoriesLogger.warning("New session: cwd not found or not readable: \(cwdPath)")
+      let name = cwd.lastPathComponent.isEmpty ? cwdPath : cwd.lastPathComponent
+      state.alert = AlertState { TextState("Cannot start session: \"\(name)\" is not accessible.") }
       return .none
     }
     let requestID = uuid()
@@ -263,6 +267,24 @@ extension AppFeature {
   }
 
   private static func handleResumeSession(_ key: SessionKey, state: inout State) -> Effect<Action> {
+    @Dependency(\.date) var date
+    // A1: 10-second cooldown after any dispatched launch for the same key.
+    if let last = state.recentSessionLaunchDate[key],
+       date.now.timeIntervalSince(last) < 10 { return .none }
+    // A2: surface a visible alert when cwd is missing or unreadable before proceeding.
+    if state.pendingSessionLaunch == nil, state.pendingBranchMismatchResume == nil,
+       let item = state.repositories.sessionItems[id: .session(key)] {
+      let stdCwd = URL(fileURLWithPath: item.cwd).standardizedFileURL
+      let cwdPath = stdCwd.path(percentEncoded: false)
+      var isDir: ObjCBool = false
+      if !FileManager.default.fileExists(atPath: cwdPath, isDirectory: &isDir)
+          || !isDir.boolValue
+          || !FileManager.default.isReadableFile(atPath: cwdPath) {
+        let name = stdCwd.lastPathComponent.isEmpty ? cwdPath : stdCwd.lastPathComponent
+        state.alert = AlertState { TextState("Cannot resume: \"\(name)\" is not accessible.") }
+        return .none
+      }
+    }
     guard let prepared = prepareResumeSession(key, state: state) else { return .none }
     guard shouldProbeBranchBeforeResume(key: key, state: state) else {
       return startPreparedResume(prepared, state: &state)
