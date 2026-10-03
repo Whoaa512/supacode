@@ -68,7 +68,10 @@ extension AppFeature {
             && (event.eventName == .idle || event.eventName == .sessionStart || event.eventName == .sessionEnd)
           ? .send(.repositories(.sessionsRefreshRequested)) : .none
         let branchEffect = Self.enqueueBranchCapture(for: event, state: &state)
-        return .merge(.send(.agentPresence(.hookEventReceived(event))), refresh, branchEffect)
+        let settlement: Effect<Action> =
+          !state.isQuitting && !terminalClient.isHarnessEndSuppressed(event.surfaceID)
+          ? Self.settleReplacedOrEndedSession(event: event, state: state) : .none
+        return .merge(.send(.agentPresence(.hookEventReceived(event))), refresh, branchEffect, settlement)
 
       case .branchCaptureProbeCompleted(let key, let branch):
         state.branchCaptureInFlight = false
@@ -87,6 +90,25 @@ extension AppFeature {
         return .none
       }
     }
+  }
+
+  static func settleReplacedOrEndedSession(event: AgentHookEvent, state: State) -> Effect<Action> {
+    guard let agent = SkillAgent(rawValue: event.agent),
+      let record = state.agentPresence.records[
+        AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: event.surfaceID)],
+      let oldRef = record.sessionRef
+    else { return .none }
+    let key = SessionKey(harness: agent, sessionID: oldRef)
+    if event.eventName == .sessionStart || event.eventName == .busy {
+      guard let newRef = event.sessionRef, newRef != oldRef else { return .none }
+      return .send(.repositories(.settleSession(key)))
+    }
+    guard event.eventName == .sessionEnd, record.matchesSessionEnd(event) else { return .none }
+    if agent == .pi {
+      guard event.sessionRef == oldRef, let reason = event.shutdownReason, reason != "reload"
+      else { return .none }
+    }
+    return .send(.repositories(.settleSession(key)))
   }
 
   // MARK: - Launch orchestration

@@ -493,6 +493,7 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
   /// `AgentPresenceOSC.sanitizedSessionRef` on both the OSC and JSON paths,
   /// because it eventually reaches a terminal as part of a command line.
   let sessionRef: String?
+  let shutdownReason: String?
   /// Event-specific payload preserved as opaque JSON. Handlers decode with
   /// their own typed shape via `decodeData(_:)`, keeping this layer decoupled
   /// from per-event payload schemas.
@@ -522,6 +523,7 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
     case surfaceID = "surface_id"
     case timestamp = "ts"
     case sessionRef = "session_ref"
+    case shutdownReason = "reason"
   }
 
   init(from decoder: Decoder) throws {
@@ -556,6 +558,8 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
     }
     self.sessionRef = AgentPresenceOSC.sanitizedSessionRef(
       try container.decodeIfPresent(String.self, forKey: .sessionRef))
+    self.shutdownReason = AgentPresenceOSC.sanitizedShutdownReason(
+      try container.decodeIfPresent(String.self, forKey: .shutdownReason))
     self.data = try container.decodeIfPresent(JSONValue.self, forKey: .data)
   }
 
@@ -570,6 +574,7 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
     pid: pid_t? = nil,
     timestamp: Date? = nil,
     sessionRef: String? = nil,
+    shutdownReason: String? = nil,
     data: JSONValue? = nil
   ) {
     self.version = version
@@ -586,6 +591,7 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
     }
     self.timestamp = timestamp
     self.sessionRef = AgentPresenceOSC.sanitizedSessionRef(sessionRef)
+    self.shutdownReason = AgentPresenceOSC.sanitizedShutdownReason(shutdownReason)
     self.data = data
   }
 

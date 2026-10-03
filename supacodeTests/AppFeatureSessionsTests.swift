@@ -1219,6 +1219,145 @@ struct AppFeatureSessionsTests {
     await store.finish()
   }
 
+  @Test(.dependencies, arguments: ["quit", "new", "resume", "fork"])
+  func piShutdownSettlesOldSessionBeforePresenceRemoval(reason: String) async {
+    var initial = state()
+    let key = SessionKey(harness: .pi, sessionID: "real")
+    let presenceKey = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    initial.agentPresence.records[presenceKey] = record()
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = Date(timeIntervalSince1970: 100)
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+    }
+    store.exhaustivity = .off
+    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
+      agent: "pi", event: "session_end", surfaceID: surface,
+      sessionRef: "real", shutdownReason: reason))))
+    await store.receive(\.repositories.settleSession)
+    await store.finish()
+    #expect(store.state.repositories.sessions[key]?.settledAt == Date(timeIntervalSince1970: 100))
+    #expect(store.state.agentPresence.records[presenceKey] == nil)
+  }
+
+  @Test(
+    .dependencies,
+    arguments: ["reload", "unknown", "missing", "suppressed", "quitting", "staleSid", "stalePid", "missingSid"]
+  )
+  func piShutdownDoesNotSettleUnattributedOrAppOwnedEnd(scenario: String) async {
+    var initial = state()
+    let key = SessionKey(harness: .pi, sessionID: "real")
+    let presenceKey = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    initial.agentPresence.records[presenceKey] = AgentPresenceFeature.PresenceRecord(
+      pids: [11, 22], sessionRef: "real", currentSessionPID: 22)
+    initial.isQuitting = scenario == "quitting"
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = Date(timeIntervalSince1970: 100)
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+      $0.terminalClient.isHarnessEndSuppressed = { _ in scenario == "suppressed" }
+    }
+    store.exhaustivity = .off
+    let reason = scenario == "missing" ? nil : scenario == "reload" ? "reload"
+      : scenario == "unknown" ? "unknown" : "quit"
+    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
+      agent: "pi", event: "session_end", surfaceID: surface,
+      pid: scenario == "stalePid" ? 11 : 22,
+      sessionRef: scenario == "missingSid" ? nil : scenario == "staleSid" ? "previous" : "real",
+      shutdownReason: reason))))
+    await store.receive(\.agentPresence.hookEventReceived)
+    await store.finish()
+    #expect(store.state.repositories.sessions[key]?.settledAt == nil)
+    #expect(store.state.agentPresence.records[presenceKey]?.sessionRef == "real")
+    if scenario == "staleSid" || scenario == "stalePid" || scenario == "missingSid" {
+      #expect(store.state.agentPresence.records[presenceKey]?.pids == [11, 22])
+      #expect(store.state.agentPresence.records[presenceKey]?.lastEventName == nil)
+    }
+  }
+
+  @Test(.dependencies, arguments: ["session_start", "busy"])
+  func changedSidSettlesPreviousSessionButSameSidDoesNot(event: String) async {
+    var initial = state()
+    let presenceKey = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    initial.agentPresence.records[presenceKey] = record()
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = Date(timeIntervalSince1970: 100)
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+    }
+    store.exhaustivity = .off
+    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
+      agent: "pi", event: event, surfaceID: surface, sessionRef: "real"))))
+    await store.receive(\.agentPresence.hookEventReceived)
+    await store.finish()
+    #expect(store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "real")] == nil)
+    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
+      agent: "pi", event: event, surfaceID: surface, sessionRef: "replacement"))))
+    await store.receive(\.repositories.settleSession)
+    await store.finish()
+    #expect(store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "real")]?.settledAt != nil)
+    #expect(store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "replacement")] == nil)
+    #expect(store.state.agentPresence.records[presenceKey]?.sessionRef == "replacement")
+    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
+      agent: "pi", event: "session_end", surfaceID: surface,
+      sessionRef: "real", shutdownReason: "quit"))))
+    await store.receive(\.agentPresence.hookEventReceived)
+    await store.finish()
+    #expect(store.state.agentPresence.records[presenceKey]?.sessionRef == "replacement")
+    #expect(store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "replacement")] == nil)
+  }
+
+  @Test(.dependencies) func newProcessIdentityRejectsLateEndThenAcceptsCurrentEnd() async {
+    var initial = state()
+    let presenceKey = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    initial.agentPresence.records[presenceKey] = AgentPresenceFeature.PresenceRecord(
+      pids: [11], sessionRef: "real")
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = Date(timeIntervalSince1970: 100)
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+    }
+    store.exhaustivity = .off
+    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
+      agent: "pi", event: "session_start", surfaceID: surface, pid: 22, sessionRef: "replacement"))))
+    await store.receive(\.agentPresence.hookEventReceived)
+    await store.finish()
+    #expect(store.state.agentPresence.records[presenceKey]?.currentSessionPID == 22)
+    for ref in ["real", "replacement"] {
+      await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
+        agent: "pi", event: "session_end", surfaceID: surface, pid: 11,
+        sessionRef: ref, shutdownReason: "quit"))))
+      await store.receive(\.agentPresence.hookEventReceived)
+      await store.finish()
+      #expect(store.state.agentPresence.records[presenceKey]?.sessionRef == "replacement")
+      #expect(store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "replacement")] == nil)
+    }
+    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
+      agent: "pi", event: "session_end", surfaceID: surface, pid: 22,
+      sessionRef: "replacement", shutdownReason: "quit"))))
+    await store.receive(\.repositories.settleSession)
+    await store.finish()
+    #expect(store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "replacement")]?.settledAt != nil)
+  }
+
+  @Test(.dependencies) func legacyOtherHarnessEndStillSettlesWhenAttributed() async {
+    var initial = state()
+    let key = SessionKey(harness: .claude, sessionID: "real")
+    initial.agentPresence.records[
+      AgentPresenceFeature.PresenceKey(agent: .claude, surfaceID: surface)] = record()
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = Date(timeIntervalSince1970: 100)
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+    }
+    store.exhaustivity = .off
+    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
+      agent: "claude", event: "session_end", surfaceID: surface))))
+    await store.receive(\.repositories.settleSession)
+    await store.finish()
+    #expect(store.state.repositories.sessions[key]?.settledAt != nil)
+  }
+
   @Test(.dependencies) func terminateSessionsRequestIsGatedByTerminalSurfacePresence() async {
     var withoutSurface = state()
     withoutSurface.hasAnyTerminalSurface = false

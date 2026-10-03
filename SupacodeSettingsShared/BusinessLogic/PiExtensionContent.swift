@@ -29,7 +29,7 @@ nonisolated enum PiExtensionContent {
      *   Pi session_start   -> session_start + sid=<session id>  (early link)
      *   Pi agent_start      -> busy + sid=<session id>  (resume ref)
      *   Pi agent_end        -> idle + sid=<session id>  (sticky ref)
-     *   Pi session_shutdown -> session_end + idle (defensive activity reset)
+     *   Pi session_shutdown -> session_end + sid + reason
      */
 
     import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -119,9 +119,14 @@ nonisolated enum PiExtensionContent {
       return `;\(AgentPresenceOSC.sessionField)=${sessionRef}`;
     }
 
-    function emitPresence(event: string, sessionRef?: string): void {
+    function shutdownReasonSuffix(reason: unknown): string {
+      if (typeof reason !== "string" || !["quit", "reload", "new", "resume", "fork"].includes(reason)) return "";
+      return `;reason=${reason}`;
+    }
+
+    function emitPresence(event: string, sessionRef?: string, reason?: unknown): void {
       const action = event === "session_end" ? "end" : "start";
-      const meta = `event=${event}${localPidSuffix()}${sessionRefSuffix(sessionRef)}`;
+      const meta = `event=${event}${localPidSuffix()}${sessionRefSuffix(sessionRef)}${shutdownReasonSuffix(reason)}`;
       writeToTerminal(`\\x1b]3008;${action}=${AGENT};${meta}\\x1b\\\\`);
     }
 
@@ -200,9 +205,8 @@ nonisolated enum PiExtensionContent {
         emitNotification({ body: lastAssistantText(ctx) });
       });
 
-      pi.on("session_shutdown", (_event, _ctx) => {
-        emitPresence("session_end");
-        emitPresence("idle");
+      pi.on("session_shutdown", (event, ctx) => {
+        emitPresence("session_end", sessionRef(ctx), event.reason);
       });
     }
     """

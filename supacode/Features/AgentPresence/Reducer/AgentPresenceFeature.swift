@@ -91,6 +91,16 @@ struct AgentPresenceFeature {
     /// only thing that makes a dead session resumable after a relaunch. Sticky
     /// on purpose — an event without a ref never clears an established one.
     var sessionRef: String?
+    var currentSessionPID: pid_t?
+
+    func matchesSessionEnd(_ event: AgentHookEvent) -> Bool {
+      if event.agent == SkillAgent.pi.rawValue, let sessionRef, event.sessionRef != sessionRef { return false }
+      if let ref = event.sessionRef, let sessionRef, ref != sessionRef { return false }
+      guard let pid = event.pid else { return pids.isEmpty }
+      guard pids.contains(pid) else { return false }
+      if let currentSessionPID { return pid == currentSessionPID }
+      return pids.count == 1
+    }
   }
 
   /// A session whose process didn't survive: the record was persisted with pids,
@@ -297,6 +307,9 @@ struct AgentPresenceFeature {
   ) -> Set<UUID> {
     guard let agent = SkillAgent(rawValue: event.agent) else { return apply(event: event, into: &state) }
     let key = PresenceKey(agent: agent, surfaceID: event.surfaceID)
+    if event.eventName == .sessionEnd,
+      state.records[key]?.matchesSessionEnd(event) != true
+    { return [] }
     let before = state.records[key]?.activity
     let previousRef = state.records[key]?.sessionRef
     let changed = apply(event: event, into: &state)
@@ -312,6 +325,9 @@ struct AgentPresenceFeature {
     // Sticky: only a reported ref overwrites, so the events that don't carry one
     // (every tool call) can't erase the session we'd resume.
     if let sessionRef = event.sessionRef { record.sessionRef = sessionRef }
+    if event.eventName == .sessionStart || event.eventName == .busy {
+      record.currentSessionPID = event.pid
+    }
     state.records[key] = record
     return previousRef == record.sessionRef ? changed : changed.union([key.surfaceID])
   }

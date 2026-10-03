@@ -68,6 +68,7 @@ public nonisolated enum AgentPresenceOSC {
     /// charset- and length-validated by `sanitizedSessionRef`, because the app
     /// later splices it into a shell command line.
     public let sessionRef: String?
+    public let shutdownReason: String?
   }
 
   /// Byte cap for a session ref on the wire. Every agent we resume uses a UUID
@@ -95,6 +96,11 @@ public nonisolated enum AgentPresenceOSC {
     return isSafe ? raw : nil
   }
 
+  public static func sanitizedShutdownReason(_ raw: String?) -> String? {
+    guard let raw, ["quit", "reload", "new", "resume", "fork"].contains(raw) else { return nil }
+    return raw
+  }
+
   /// Parse the OSC 3008 context id + raw key=value metadata (as surfaced by
   /// libghostty) into a `Signal`. Returns nil for anything that isn't a
   /// well-formed presence signal with a known event.
@@ -110,6 +116,7 @@ public nonisolated enum AgentPresenceOSC {
       eventRawValue: String(rawEvent),
       pid: parsePid(fields[Substring(pidField)]),
       sessionRef: sanitizedSessionRef(fields[Substring(sessionField)].map(String.init)),
+      shutdownReason: sanitizedShutdownReason(fields["reason"].map(String.init)),
     )
   }
 
