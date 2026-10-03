@@ -207,6 +207,24 @@ struct AppFeatureSessionsTests {
     await store.finish()
   }
 
+  @Test(.dependencies) func mappedProvisionalInPersistedLayoutDoesNotHoldGlobalGate() async {
+    let store = TestStore(initialState: state(restored: true)) { AppFeature() } withDependencies: {
+      $0.date.now = .distantPast
+      $0.continuousClock = TestClock()
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+    }
+    store.exhaustivity = .off
+    let key = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    await store.send(.agentPresence(.restoreFromSnapshotChecked(
+      records: [key: AgentPresenceFeature.RestoredRecord(
+        alivePids: [123], activity: .idle, sessionRef: nil)], resumeCandidates: [:])))
+    await store.receive(\.repositories.sessionsRestorationCompleted)
+    #expect(store.state.repositories.sessionsRestorationFinished)
+    #expect(!store.state.repositories.sessionsHasUnresolvedLivePresence,
+      "surface is in persistedLayouts so presence is mapped; global gate must not fire")
+    await store.finish()
+  }
+
   @Test(.dependencies) func checkedRestoreLinksBeforeTurnAndDelayedIndexHydrates() async {
     let clock = TestClock()
     let store = TestStore(initialState: state(restored: true)) {
@@ -1465,6 +1483,38 @@ struct AppFeatureSessionsTests {
       #expect(store.state.agentPresence.records[presenceKey]?.pids == [11, 22])
       #expect(store.state.agentPresence.records[presenceKey]?.lastEventName == nil)
     }
+  }
+
+  @Test(.dependencies)
+  func piReloadEndThenTwoMessageRecentRefreshRemainsUnsettled() async {
+    let now = Date(timeIntervalSince1970: 100)
+    var initial = state()
+    let key = SessionKey(harness: .pi, sessionID: "real")
+    let presenceKey = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    initial.agentPresence.records[presenceKey] = AgentPresenceFeature.PresenceRecord(
+      pids: [42], sessionRef: "real", currentSessionPID: 42)
+    initial.repositories.sessionsRestorationFinished = true
+    initial.repositories.sessionsRefreshSucceeded = true
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = now
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+    }
+    store.exhaustivity = .off
+    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
+      agent: "pi", event: "session_end", surfaceID: surface,
+      pid: 42, sessionRef: "real", shutdownReason: "reload"))))
+    await store.receive(\.agentPresence.hookEventReceived)
+    await store.finish()
+    #expect(store.state.repositories.sessions[key]?.settledAt == nil)
+    let summary = SessionSummary(
+      harness: .pi, sessionID: "real",
+      createdAt: now.addingTimeInterval(-86_400), cwd: "/workspace",
+      title: "real", messageCount: 2,
+      lastActivity: now.addingTimeInterval(-1_800))
+    await store.send(.repositories(.sessionsRefreshCompleted([summary])))
+    await store.finish()
+    #expect(store.state.repositories.sessions[key]?.settledAt == nil)
   }
 
   @Test(.dependencies, arguments: ["session_start", "busy"])

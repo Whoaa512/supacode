@@ -108,8 +108,7 @@ struct RepositoriesFeatureAutoSettleTests {
   }
 
   @Test(.dependencies) func provisionalInDirABlocksOldDirAButOldDirBSettles() async {
-    // provisional in /a → old session in /a stays active; old session in /b settles
-    var rowA = summary("session-a")
+    let rowA = summary("session-a")
     var rowB = summary("session-b")
     rowB.cwd = "/other"
     let store = store()
