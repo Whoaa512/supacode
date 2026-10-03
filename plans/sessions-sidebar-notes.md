@@ -225,6 +225,28 @@
 - make build-app: exit 0; make lint: exit 2, only the same pre-existing DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations. Per “fix only your own violations,” those remain unchanged; both dispatch functions existed at 30ecc33c.
 - Logs: /tmp/slice2-gate-fix2-{tests,lint,build}.log; summary /tmp/slice2-gate-fix2-summary.json. No full suite rerun; builds/tests serialized with pgrep checks. No live-app/environment changes; untracked files untouched.
 
+## Slice 3, step 1 — manual settle/unsettle
+
+- settleSession(key): writes settledAt=now, clears manualUnsettledAtActivity; reconcileSessionItems+recompute fired immediately in reducer.
+- unsettleSession(key): clears settledAt, stamps manualUnsettledAtActivity=lastActivity from sessionSummaries (fallback: now); same recompute path.
+- applyUnsettle helper on RepositoriesFeature.State in SessionsSidebarStructure.swift (has $sessions access).
+- Activating settled live row: guard checks lifecycle==.settled before sending unsettleSession from RepositoriesFeature+Sessions.
+- dormant resume accepted (launchSessionCompleted): unsettles only if lifecycle==.settled at resolution time; non-settled launch is no-op.
+- settleSessionAndAdvance (AppFeature): captures sessionRowID(byOffset:1) BEFORE settle; if next is live, merges settleSession + focusTerminalSurface; no candidate = settle-only.
+- unsettleCurrentSession (AppFeature): resolves focused row via focusedSessionRowID then sessionSelection; falls back gracefully if no session row.
+- A6 audit: ⌘⌃E and ⌘⌃U are free in existing Supacode defaults and not in Ghostty known-default set; no collision, no fallback needed.
+- SidebarStructure.cacheInvalidations: settleSession/unsettleSession return .sessionsStructure (parallel call in reducer handles immediate recompute; invalidation ensures post-reduce hook also fires).
+- WorktreeMenuSnapshot: added settleSessionAndAdvance and unsettleCurrentSession to the pass-through array.
+- Context menu: SessionContextMenu private view; active rows show Settle, settled rows show Unsettle.
+- FocusedSceneAction published in WorktreeDetailView for both chords; TerminalCommands FocusedValue keys and menu items added with divider.
+- Deviations: SessionContextMenu is a @MainActor private struct in the view file (plan implied inline context menu but struct is cleaner). helpText shortened to fit 120-char lint limit.
+- Traps: SidebarStructure.cacheInvalidations exhaustive switch required new cases or compile error; must be kept in sync.
+- TerminalClient.focusSurface takes (Worktree, TabID, UUID), not (_, _); test mock requires 3 params.
+- Tests: SessionsPersistenceTests (supacodeTests, 9 tests); RepositoriesFeatureSessionsTests +7 settle/unsettle tests (supacodeFeatureTests, 30 total); AppFeatureSessionsTests +3 tests (supacodeFeatureTests, 27 total); SessionShortcutTests +2 tests (supacodeTests, 4 total).
+- make generate-project: exit 0 (new test file). make lint: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations. make build-app: exit 0.
+- Targeted tests: all bundles exit 0, counts verified >0.
+- Commit: 19765d99. Unverified: context menu UI render, chord dispatch in live app, settled live row visual in sidebar.
+
 ## Slice 2 review fix — native picker result routing
 - Confirmed presentation dismissal cleared new-session purpose before completion. setOpenPanelPresented now changes presentation only; openPanelCompleted([URL]?) consumes/resets purpose on success or cancellation/failure.
 - ContentView sends picker results to Repositories; newSessionDirectorySelected delegate routes through App's existing exact-cwd pi launch. Repository selection retains openRepositories routing; empty/cancel results launch nothing.
