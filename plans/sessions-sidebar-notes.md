@@ -416,3 +416,26 @@
 - Targeted AppFeatureSettingsChangedTests excluding only A2 baseline settingsChangedPropagatesRepositorySettings(): exit 0; xcresult totalTestCount 11, failedTests 0. First attempt failed compilation/count 0 because App Action is not Equatable; corrected to case-key-path receives.
 - make build-app: exit 0. make lint: exit 2, only unchanged baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations. git diff --check: exit 0.
 - Logs /tmp/slice4-postgate-{tests,lint,build}.log; summary /tmp/slice4-postgate-summary.json. Serialized builds/tests; no full suite or live-environment operations, no scope deviation. Untracked files preserved.
+
+## Fix A1–A3 — cooldown, missing-cwd alert, loading spinner
+
+### A1: 10-second dispatch cooldown (dcd6c256)
+- Added `recentSessionLaunchDate: [SessionKey: Date]` to AppFeature.State.
+- `launchSessionCompleted` now records `date.now` for the key before clearing `pendingSessionLaunch`; uses `@Dependency(\.date)` inline in the case to avoid touching tests that don't exercise the handler.
+- `handleResumeSession` gates on the cooldown first: if `date.now - lastLaunch < 10`, returns `.none`. Prevents the double-tab race where `pendingSessionLaunch` is nil but the new surface hasn't registered its session id yet.
+- Three existing tests that call `launchSessionCompleted` without a date override were updated to add `$0.date.now = .distantPast`; no behavior change.
+
+### A2: Visible alert for missing or unreadable cwd (dcd6c256)
+- `handleResumeSession` checks cwd accessibility before calling `prepareResumeSession` when no operation is already in flight. Shows `AlertState` naming the directory's `lastPathComponent`; clears without setting pending.
+- `handleNewSession` shows the same style alert when the resolved cwd is absent or not a readable directory, instead of the previous silent no-op with only a logger warning.
+
+### A3: ProgressView while refresh in flight (86da249c)
+- `SessionsSidebarListView` now shows a `ProgressView()` instead of "No sessions" when `store.sessionsRefreshInFlight` is true and the section list is empty. Covers the first-launch window (empty cache, disk refresh still running) and any subsequent empty-cache refresh cycle. Shows "No sessions" only after `sessionsRefreshInFlight` clears.
+
+### Tests (2961f1e9)
+- 7 new tests in AppFeatureSessionsTests and RepositoriesFeatureSessionsTests.
+- Targeted: `supacodeFeatureTests/AppFeatureSessionsTests` + `supacodeFeatureTests/RepositoriesFeatureSessionsTests`.
+- Final run: exit 0; xcresult totalTestCount 84, passedTests 84, failedTests 0.
+- make lint: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1260. make build-app: exit 0. git diff --check: exit 0.
+- Logs: /tmp/a1a2a3-{lint,build,tests4}.log; build /tmp/a1a2a3-final-build.log.
+- No full suite, live-app operations, process signals, or protected-home writes. Untracked .worktrees/ and PAPERCUTS.md preserved.
