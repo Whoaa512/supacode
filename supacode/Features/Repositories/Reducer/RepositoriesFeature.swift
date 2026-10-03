@@ -443,6 +443,7 @@ struct RepositoriesFeature {
     case agentsSidebarRowsChanged(AgentsSidebarSettings)
     case presentOpenPanel(OpenPanelPurpose)
     case setOpenPanelPresented(Bool)
+    case openPanelCompleted([URL]?)
     case requestAddRemoteRepository
     case requestEditRemoteRepository(Repository.ID)
     case remoteConnectionForm(PresentationAction<RemoteConnectionFormFeature.Action>)
@@ -743,6 +744,7 @@ struct RepositoriesFeature {
   enum Delegate: Equatable {
     case focusSession(SessionLocation)
     case resumeSession(SessionKey)
+    case newSessionDirectorySelected(URL)
     case selectedWorktreeChanged(Worktree?)
     case repositoriesChanged(IdentifiedArrayOf<Repository>)
     case openRepositorySettings(Repository.ID)
@@ -3711,10 +3713,19 @@ struct RepositoriesFeature {
 
       case .setOpenPanelPresented(let isPresented):
         state.isOpenPanelPresented = isPresented
-        if !isPresented {
-          state.openPanelPurpose = .openRepository
-        }
         return .none
+
+      case .openPanelCompleted(let urls):
+        let purpose = state.openPanelPurpose
+        state.isOpenPanelPresented = false
+        state.openPanelPurpose = .openRepository
+        guard let urls, !urls.isEmpty else { return .none }
+        switch purpose {
+        case .openRepository:
+          return .send(.openRepositories(urls))
+        case .newSession:
+          return .send(.delegate(.newSessionDirectorySelected(urls[0])))
+        }
 
       case .requestAddRemoteRepository, .requestEditRemoteRepository, .remoteConnectionForm:
         // Handled by `remoteConnectionFormReducer` so the form's child reducer

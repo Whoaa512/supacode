@@ -917,4 +917,57 @@ struct AppFeatureSessionsTests {
     }
     #expect(input == ["pi"])
   }
+  @Test(.dependencies) func nativeSessionPickerRetainsPurposeUntilCompletion() async throws {
+    let cwd = try temporaryDirectory(named: "native-picker")
+    defer { try? FileManager.default.removeItem(at: cwd) }
+    let pickedWorktree = Worktree(
+      id: Worktree.ID(cwd.path(percentEncoded: false)), name: "picked", detail: "",
+      workingDirectory: cwd, repositoryRootURL: cwd)
+    var initial = state()
+    initial.repositories.repositories = [
+      Repository(id: RepositoryID(cwd.path(percentEncoded: false)), rootURL: cwd,
+        name: "picked", worktrees: [pickedWorktree])
+    ]
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.uuid = .incrementing
+      $0.terminalClient.send = { command in sent.withValue { $0.append(command) } }
+    }
+    await store.send(.repositories(.presentOpenPanel(.newSession))) {
+      $0.repositories.isOpenPanelPresented = true
+      $0.repositories.openPanelPurpose = .newSession
+    }
+    await store.send(.repositories(.setOpenPanelPresented(false))) {
+      $0.repositories.isOpenPanelPresented = false
+    }
+    #expect(store.state.repositories.openPanelPurpose == .newSession)
+    store.exhaustivity = .off
+    await store.send(.repositories(.openPanelCompleted([cwd])))
+    await store.receive(\.repositories.delegate.newSessionDirectorySelected)
+    await store.receive(\.newSessionDirectorySelected)
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+    #expect(store.state.repositories.openPanelPurpose == .openRepository)
+    #expect(sent.value.count == 1)
+    guard case .createTabWithInput(let worktree, let input, _, _, _, _, _) = sent.value[0]
+    else { Issue.record("Expected exactly one session launch"); return }
+    #expect(worktree.workingDirectory == cwd)
+    #expect(input == "pi")
+  }
+
+  @Test(.dependencies) func nativeSessionPickerCancellationConsumesPurpose() async {
+    let store = TestStore(initialState: state()) { AppFeature() }
+    await store.send(.repositories(.presentOpenPanel(.newSession))) {
+      $0.repositories.isOpenPanelPresented = true
+      $0.repositories.openPanelPurpose = .newSession
+    }
+    await store.send(.repositories(.setOpenPanelPresented(false))) {
+      $0.repositories.isOpenPanelPresented = false
+    }
+    await store.send(.repositories(.openPanelCompleted(nil))) {
+      $0.repositories.openPanelPurpose = .openRepository
+    }
+    await store.finish()
+  }
+
 }

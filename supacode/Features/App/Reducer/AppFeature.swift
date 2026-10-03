@@ -582,6 +582,9 @@ struct AppFeature {
           return .merge(cancelEffects)
         }
 
+      case .repositories(.delegate(.newSessionDirectorySelected(let url))):
+        return .send(.newSessionDirectorySelected(url))
+
       case .repositories(.delegate(.focusSession(let location))):
         return .send(.focusTerminalSurface(
           worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID

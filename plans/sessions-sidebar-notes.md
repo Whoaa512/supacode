@@ -224,3 +224,10 @@
 - Targeted RemotePathClassificationTests: exit 0; xcresult totalTestCount 17, failedTests 0. Initial compile attempt exited 2/count 0 after editing the wrong sleep occurrence; corrected before verification.
 - make build-app: exit 0; make lint: exit 2, only the same pre-existing DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations. Per “fix only your own violations,” those remain unchanged; both dispatch functions existed at 30ecc33c.
 - Logs: /tmp/slice2-gate-fix2-{tests,lint,build}.log; summary /tmp/slice2-gate-fix2-summary.json. No full suite rerun; builds/tests serialized with pgrep checks. No live-app/environment changes; untracked files untouched.
+
+## Slice 2 review fix — native picker result routing
+- Confirmed presentation dismissal cleared new-session purpose before completion. setOpenPanelPresented now changes presentation only; openPanelCompleted([URL]?) consumes/resets purpose on success or cancellation/failure.
+- ContentView sends picker results to Repositories; newSessionDirectorySelected delegate routes through App's existing exact-cwd pi launch. Repository selection retains openRepositories routing; empty/cancel results launch nothing.
+- Regression covers present(newSession), dismiss(false), successful completion: one pi tab in selected fixture cwd; cancellation resets purpose with no effect.
+- Targeted AppFeatureSessionsTests + AppFeatureCommandPaletteTests: exit 0, xcresult totalTestCount 58, failedTests 0. Initial run caught delegate routing below the generic repositories catch-all; moved handling before it and reran successfully.
+- make build-app: exit 0. make lint: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations. Logs /tmp/slice2-review-{tests,summary,lint,build}.*. No scope deviation or live-app interaction; builds/tests serialized.
