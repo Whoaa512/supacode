@@ -82,7 +82,59 @@ extension AppFeature {
     }
   }
 
-  // MARK: - Resume orchestration
+  // MARK: - Launch orchestration
+
+  static func newSessionCwdFallback(state: State) -> URL {
+    if let focused = focusedSessionRowID(state: state),
+      let cwd = cwd(for: focused, state: state)
+    {
+      return cwd
+    }
+    if let selected = state.repositories.sessionSelection,
+      let cwd = cwd(for: selected, state: state)
+    {
+      return cwd
+    }
+    if let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) {
+      return worktree.workingDirectory.standardizedFileURL
+    }
+    return FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+  }
+
+  private static func cwd(for rowID: SessionRowID, state: State) -> URL? {
+    guard let item = state.repositories.sessionItems[id: rowID] else { return nil }
+    return URL(fileURLWithPath: item.cwd).standardizedFileURL
+  }
+
+  static func handleNewSession(directory: URL?, state: inout State) -> Effect<Action> {
+    guard state.pendingSessionLaunch == nil else { return .none }
+    @Dependency(\.uuid) var uuid
+    let cwd = (directory ?? newSessionCwdFallback(state: state)).standardizedFileURL
+    let cwdPath = cwd.path(percentEncoded: false)
+    var isDir: ObjCBool = false
+    guard
+      FileManager.default.fileExists(atPath: cwdPath, isDirectory: &isDir),
+      isDir.boolValue,
+      FileManager.default.isReadableFile(atPath: cwdPath)
+    else {
+      repositoriesLogger.warning("New session: cwd not found or not readable: \(cwdPath)")
+      return .none
+    }
+    let requestID = uuid()
+    var pending = PendingSessionLaunch(
+      key: SessionKey(harness: .pi, sessionID: "new:\(requestID.uuidString)"),
+      cwd: cwd,
+      command: "pi",
+      requestID: requestID
+    )
+    if let worktree = worktreeForCwd(cwd, state: state) {
+      pending.launched = true
+      state.pendingSessionLaunch = pending
+      return launchSessionTab(worktree: worktree, command: pending.command, requestID: requestID)
+    }
+    state.pendingSessionLaunch = pending
+    return .send(.repositories(.registerSessionFolder(cwd)))
+  }
 
   private static func handleResumeSession(_ key: SessionKey, state: inout State) -> Effect<Action> {
     guard let item = state.repositories.sessionItems[id: .session(key)] else { return .none }

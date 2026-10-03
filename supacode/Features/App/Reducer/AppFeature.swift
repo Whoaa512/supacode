@@ -335,6 +335,9 @@ struct AppFeature {
     case requestQuit
     case requestTerminateAllTerminalSessions
     case newTerminal
+    case newSession
+    case newSessionInDirectory
+    case newSessionDirectorySelected(URL)
     case renameSelectedTerminalTab
     case toggleWindowModeForFocusedPane
     case toggleSplitZoom
@@ -1123,6 +1126,19 @@ struct AppFeature {
         return .run { _ in
           await terminalClient.send(.createTab(worktree, runSetupScriptIfNew: shouldRunSetupScript))
         }
+
+      case .newSession:
+        return Self.handleNewSession(directory: nil, state: &state)
+
+      case .newSessionInDirectory:
+        return .send(
+          .commandPalette(
+            .enterBrowseMode(basePath: Self.newSessionCwdFallback(state: state), purpose: .newSession)
+          )
+        )
+
+      case .newSessionDirectorySelected(let url):
+        return Self.handleNewSession(directory: url, state: &state)
 
       case .renameSelectedTerminalTab:
         guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID),
@@ -1926,6 +1942,9 @@ struct AppFeature {
 
       case .commandPalette(.delegate(.browseSelectRepository(let url))):
         return .send(.repositories(.openRepositories([url])))
+
+      case .commandPalette(.delegate(.newSessionDirectorySelected(let url))):
+        return .send(.newSessionDirectorySelected(url))
 
       case .commandPalette(.delegate(.browseOpenNativePanel)):
         return .send(.repositories(.setOpenPanelPresented(true)))

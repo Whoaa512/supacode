@@ -370,6 +370,12 @@ struct WorktreeDetailView: View {
       .focusedSceneAction(\.newTerminalAction, enabled: hasActiveWorktree) {
         store.send(.newTerminal)
       }
+      .focusedSceneAction(\.newSessionAction, enabled: true) {
+        store.send(.newSession)
+      }
+      .focusedSceneAction(\.newSessionInDirectoryAction, enabled: true) {
+        store.send(.newSessionInDirectory)
+      }
       // Lock and validity are enforced by the terminal model, so this only gates on an active worktree.
       .focusedSceneAction(\.renameTabAction, enabled: hasActiveWorktree) {
         store.send(.renameSelectedTerminalTab)

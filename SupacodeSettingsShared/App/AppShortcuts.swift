@@ -18,7 +18,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
   case selectNextTab, selectPreviousTab
   case openWorktree, revealInFinder, openRepository, addRemoteRepository, cloneRepository, openPullRequest, copyPath
   case runScript, stopRunScript, renameTab, toggleWindowMode
-  case newTerminalTab, closeTab
+  case newTerminalTab, newSession, newSessionInDirectory, closeTab
   case splitRight, splitLeft, splitDown, splitUp
   case focusSplitLeft, focusSplitRight, focusSplitUp, focusSplitDown
   case focusNextPane, focusPreviousPane
@@ -84,6 +84,8 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     case .renameTab: "renameTab"
     case .toggleWindowMode: "toggleWindowMode"
     case .newTerminalTab: "newTerminalTab"
+    case .newSession: "newSession"
+    case .newSessionInDirectory: "newSessionInDirectory"
     case .closeTab: "closeTab"
     case .splitRight: "splitRight"
     case .splitLeft: "splitLeft"
@@ -144,6 +146,8 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     "renameTab": .renameTab,
     "toggleWindowMode": .toggleWindowMode,
     "newTerminalTab": .newTerminalTab,
+    "newSession": .newSession,
+    "newSessionInDirectory": .newSessionInDirectory,
     "closeTab": .closeTab,
     "splitRight": .splitRight,
     "splitLeft": .splitLeft,
@@ -227,6 +231,8 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     case .renameTab: "Rename Tab"
     case .toggleWindowMode: "Toggle Window Mode"
     case .newTerminalTab: "New Terminal Tab"
+    case .newSession: "New Session"
+    case .newSessionInDirectory: "New Session in Directory"
     case .closeTab: "Close Tab"
     case .splitRight: "Split Right"
     case .splitLeft: "Split Left"
@@ -564,6 +570,10 @@ public enum AppShortcuts {
   public static let renameTab = AppShortcut(id: .renameTab, key: "r", modifiers: [.control, .shift])
   public static let toggleWindowMode = AppShortcut(id: .toggleWindowMode, key: "m", modifiers: [.command, .shift])
   public static let newTerminalTab = AppShortcut(id: .newTerminalTab, key: "t", modifiers: .command)
+  public static let newSession = AppShortcut(id: .newSession, key: "n", modifiers: [.command, .shift])
+  public static let newSessionInDirectory = AppShortcut(
+    id: .newSessionInDirectory, key: "n", modifiers: [.command, .option, .shift]
+  )
   // Hardcoded to the platform's close chord: no settings row, and the
   // recorder refuses ⌘W for anything else.
   public static let closeTab = AppShortcut(id: .closeTab, key: "w", modifiers: .command, isCustomizable: false)
@@ -696,7 +706,7 @@ public enum AppShortcuts {
     ),
     AppShortcutGroup(
       category: .tabSelection,
-      shortcuts: [newTerminalTab, closeTab, renameTab]
+      shortcuts: [newTerminalTab, newSession, newSessionInDirectory, closeTab, renameTab]
         + tabSelection + [selectPreviousTab, selectNextTab]
         + [startSearch, findNext, findPrevious, useSelectionForFind]
     ),

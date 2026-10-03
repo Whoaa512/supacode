@@ -25,8 +25,14 @@ struct CommandPaletteFeature {
   /// `entries` is the listing of the directory that query points at, `searchResults` are
   /// depth-limited nested matches for the typed leaf, and `filteredEntries` is what the
   /// list renders (recomputed by the reducer so the view and the key monitor agree).
+  enum BrowsePurpose: Equatable, Sendable {
+    case openRepository
+    case newSession
+  }
+
   @ObservableState
   struct BrowseState: Equatable {
+    var purpose: BrowsePurpose = .openRepository
     var pathQuery = ""
     var entries: [DirectoryEntry] = []
     var searchResults: [DirectoryEntry] = []
@@ -82,7 +88,7 @@ struct CommandPaletteFeature {
     case moveSelection(SelectionMove, itemsCount: Int)
     case branchesLoaded([Repository.ID: [String]])
     case pruneRecency([CommandPaletteItem.ID])
-    case enterBrowseMode(basePath: URL?)
+    case enterBrowseMode(basePath: URL?, purpose: BrowsePurpose = .openRepository)
     case browsePathQueryChanged(String)
     case browseDirectoryLoaded(directory: URL, entries: [DirectoryEntry])
     case browseSearchResultsLoaded(directory: URL, query: String, results: [DirectoryEntry])
@@ -134,6 +140,7 @@ struct CommandPaletteFeature {
     /// focus" invariant.
     case dismissedWithoutSelection
     case browseSelectRepository(URL)
+    case newSessionDirectorySelected(URL)
     case browseOpenNativePanel
     #if DEBUG
       case debugTestToast(RepositoriesFeature.StatusToast)
@@ -254,12 +261,13 @@ struct CommandPaletteFeature {
 
       // MARK: - Browse mode
 
-      case .enterBrowseMode(let basePath):
+      case .enterBrowseMode(let basePath, let purpose):
         state.isPresented = true
         state.mode = .browse
         state.query = ""
         state.selectedIndex = nil
         state.browse = BrowseState()
+        state.browse.purpose = purpose
         // No base path means the home directory, which `~/` already denotes.
         let query = basePath.map {
           BrowsePath.descending(into: $0.path(percentEncoded: false), from: "~/")
@@ -409,14 +417,27 @@ struct CommandPaletteFeature {
         return .none
 
       case .browseSelectRepository(let url):
+        let purpose = state.browse.purpose
         state.isPresented = false
         state.resetForDismiss()
-        return .send(.delegate(.browseSelectRepository(url)))
+        switch purpose {
+        case .openRepository:
+          return .send(.delegate(.browseSelectRepository(url)))
+        case .newSession:
+          return .send(.delegate(.newSessionDirectorySelected(url)))
+        }
 
       case .browseOpenNativePanel:
+        let purpose = state.browse.purpose
+        let directory = state.browse.directoryURL
         state.isPresented = false
         state.resetForDismiss()
-        return .send(.delegate(.browseOpenNativePanel))
+        switch purpose {
+        case .openRepository:
+          return .send(.delegate(.browseOpenNativePanel))
+        case .newSession:
+          return .send(.delegate(.newSessionDirectorySelected(directory)))
+        }
 
       case .delegate:
         return .none

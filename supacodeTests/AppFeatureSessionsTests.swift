@@ -70,6 +70,13 @@ struct AppFeatureSessionsTests {
     AgentPresenceFeature.PresenceRecord(pids: [], sessionRef: ref)
   }
 
+  private func temporaryDirectory(named name: String) throws -> URL {
+    let url = FileManager.default.temporaryDirectory
+      .appendingPathComponent("supacode-tests-\(UUID().uuidString)-\(name)", isDirectory: true)
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    return url.standardizedFileURL
+  }
+
   // MARK: - Live click focuses exact surface; dormant click without location is no-op
 
   @Test(.dependencies) func liveClickFocusesExactSurfaceIDAndWorktree() async {
@@ -832,5 +839,82 @@ struct AppFeatureSessionsTests {
     #expect(store.state.repositories.sessions[key2]?.branches == ["feat/two"])
     #expect(probeOrder.value.count == 2)
     #expect(store.state.branchCaptureQueue.isEmpty)
+  }
+
+  @Test(.dependencies) func newSessionUsesFocusedSessionCwdBeforeSelection() async throws {
+    let focusedCwd = try temporaryDirectory(named: "focused-new-session")
+    let selectedCwd = try temporaryDirectory(named: "selected-new-session")
+    let focusedWorktree = Worktree(
+      id: Worktree.ID(focusedCwd.path(percentEncoded: false)), name: "focused", detail: "",
+      workingDirectory: focusedCwd, repositoryRootURL: focusedCwd)
+    var initial = state()
+    initial.terminals.selectedWorktreeID = worktree.id
+    initial.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = tab
+    initial.repositories.repositories.append(
+      Repository(
+        id: RepositoryID(focusedCwd.path(percentEncoded: false)), rootURL: focusedCwd,
+        name: "focused", worktrees: [focusedWorktree])
+    )
+    let focusedKey = SessionKey(harness: .pi, sessionID: "focused")
+    let selectedKey = SessionKey(harness: .pi, sessionID: "selected")
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(focusedKey), title: "Focused", cwd: focusedCwd.path(percentEncoded: false),
+        createdAt: .distantPast, location: location),
+      SessionSidebarItemFeature.State(
+        id: .session(selectedKey), title: "Selected", cwd: selectedCwd.path(percentEncoded: false),
+        createdAt: .distantPast, location: nil),
+    ]
+    initial.repositories.sessionSelection = .session(selectedKey)
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.uuid = .incrementing
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.send = { command in sent.withValue { $0.append(command) } }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.newSession)
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    let launches = sent.value.compactMap { command -> (String, String)? in
+      guard case .createTabWithInput(let worktree, let input, _, _, _, _, _) = command else { return nil }
+      return (worktree.workingDirectory.path(percentEncoded: false), input)
+    }
+    #expect(launches.count == 1)
+    #expect(launches.first?.0 == focusedCwd.path(percentEncoded: false))
+    #expect(launches.first?.1 == "pi")
+  }
+
+  @Test(.dependencies) func newSessionFallsBackToSelectedWorktreeWhenNoSessionCwd() async throws {
+    let cwd = try temporaryDirectory(named: "selected-worktree-new-session")
+    let selectedWorktree = Worktree(
+      id: Worktree.ID(cwd.path(percentEncoded: false)), name: "selected", detail: "",
+      workingDirectory: cwd, repositoryRootURL: cwd)
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    var initial = state()
+    initial.repositories.repositories = [
+      Repository(
+        id: RepositoryID(cwd.path(percentEncoded: false)), rootURL: cwd,
+        name: "selected", worktrees: [selectedWorktree])
+    ]
+    initial.repositories.selection = .worktree(selectedWorktree.id)
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.uuid = .incrementing
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.send = { command in sent.withValue { $0.append(command) } }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.newSession)
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    let input = sent.value.compactMap { command -> String? in
+      if case .createTabWithInput(_, let input, _, _, _, _, _) = command { return input }
+      return nil
+    }
+    #expect(input == ["pi"])
   }
 }

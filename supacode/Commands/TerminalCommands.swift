@@ -7,6 +7,8 @@ struct TerminalCommands: Commands {
   @Shared(.settingsFile) private var settingsFile
   @FocusedValue(\.toggleTerminalGridAction) private var toggleTerminalGridAction
   @FocusedValue(\.newTerminalAction) private var newTerminalAction
+  @FocusedValue(\.newSessionAction) private var newSessionAction
+  @FocusedValue(\.newSessionInDirectoryAction) private var newSessionInDirectoryAction
   @FocusedValue(\.renameTabAction) private var renameTabAction
   @FocusedValue(\.splitTerminalAction) private var splitTerminalAction
   @FocusedValue(\.toggleWindowModeAction) private var toggleWindowModeAction
@@ -30,6 +32,22 @@ struct TerminalCommands: Commands {
       }
       .appKeyboardShortcut(AppShortcuts.newTerminalTab.effective(from: overrides))
       .disabled(newTerminalAction?.isEnabled != true)
+
+      Button("New Session", systemImage: "sparkles.terminal") {
+        newSessionAction?()
+      }
+      .appKeyboardShortcut(AppShortcuts.newSession.effective(from: overrides))
+      .disabled(newSessionAction?.isEnabled != true)
+      .help("New Session (\(AppShortcuts.newSession.effective(from: overrides)?.display ?? "none"))")
+
+      Button("New Session in Directory…", systemImage: "folder.badge.plus") {
+        newSessionInDirectoryAction?()
+      }
+      .appKeyboardShortcut(AppShortcuts.newSessionInDirectory.effective(from: overrides))
+      .disabled(newSessionInDirectoryAction?.isEnabled != true)
+      .help(
+        "New Session in Directory (\(AppShortcuts.newSessionInDirectory.effective(from: overrides)?.display ?? "none"))"
+      )
 
       Button("Rename Tab", systemImage: "pencil") {
         renameTabAction?()
@@ -224,6 +242,14 @@ private struct NewTerminalActionKey: FocusedValueKey {
   typealias Value = FocusedAction<Void>
 }
 
+private struct NewSessionActionKey: FocusedValueKey {
+  typealias Value = FocusedAction<Void>
+}
+
+private struct NewSessionInDirectoryActionKey: FocusedValueKey {
+  typealias Value = FocusedAction<Void>
+}
+
 private struct ToggleTerminalGridActionKey: FocusedValueKey {
   typealias Value = FocusedAction<Void>
 }
@@ -237,6 +263,16 @@ extension FocusedValues {
   var newTerminalAction: FocusedAction<Void>? {
     get { self[NewTerminalActionKey.self] }
     set { self[NewTerminalActionKey.self] = newValue }
+  }
+
+  var newSessionAction: FocusedAction<Void>? {
+    get { self[NewSessionActionKey.self] }
+    set { self[NewSessionActionKey.self] = newValue }
+  }
+
+  var newSessionInDirectoryAction: FocusedAction<Void>? {
+    get { self[NewSessionInDirectoryActionKey.self] }
+    set { self[NewSessionInDirectoryActionKey.self] = newValue }
   }
 }
 
