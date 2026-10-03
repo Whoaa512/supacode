@@ -520,3 +520,31 @@ Corrected: the A1+A2 combined commit was a choice, not a constraint.
 - make build-app: exit 0
 - Logs: /tmp/a1-correction-tests.log, /tmp/a1-correction-build.log
 - Commit: fd04221f
+
+## Fix B1–B3 — settle safety fixes
+
+### B1: dormantInactivityThreshold (3ff82fcf)
+- Added `SessionClassification.dormantInactivityThreshold: TimeInterval = 3_600`.
+- Under-4 rule now requires BOTH messageCount < 4 AND inactivity >= 3600s. Previously it fired on any low-count session regardless of how recently it was active, which would incorrectly settle a 2-message session seconds after a reload.
+- Existing `AutoCase(count: 3, age: 0, settled: true)` updated to `settled: false` (no inactivity) + new case with 2h inactivity. `newerActivityReleasesManualHold` and `manualHoldPersistsUntilNewMessageActivityNotRename` updated to use 7200s inactivity so released hold + under-4 can still settle.
+- New feature regression: `twoMessageSessionWithRecentActivityIsNotAutoSettledAfterReload` — 2 messages, 30 min ago, not settled after restore+refresh.
+- RepositoriesFeatureAutoSettleTests: exit 0, 16 tests (was 10 before new test). SessionClassificationTests: exit 0, 16 tests (was 13).
+- Unverified: actual live pi reload scenario; classification logic fully covered by unit tests.
+
+### B2: unexpected zmx / dead-process close misattribution (d03b03cd)
+- `WorktreeContentHost.removeUserCloseIntent(for:)`: removes from pendingUserCloseSurfaceIDs only.
+- `WorktreeContentHost.markAutomaticClose(for:)`: adds to automaticCloseSurfaceIDs AND removes from pendingUserCloseSurfaceIDs.
+- `WorktreeContentHost.markUserCloseIntent(for:)`: consumes/skips any IDs present in automaticCloseSurfaceIDs (removes from automatic, does NOT add to pending).
+- `WorktreeTerminalManager.handleUnexpectedZmxClose`: calls `host.removeUserCloseIntent(for: surfaceID)` immediately before each of 3 `.closeTab` sends (failed probe, dead session, multi-client spare paths).
+- `LayoutSurfaceConduit.handleCloseRequest`: calls `host.markAutomaticClose(for: surfaceID)` before `contentRequestedClose` when `!isExplicit && !processAlive` (dead non-zmx process).
+- discardSurfaceBookkeeping also clears automaticCloseSurfaceIDs on surface removal.
+- 3 new tests in WorktreeTerminalManagerSessionsTests: stale intent cleared by removeUserCloseIntent, markAutomaticClose prevents attribution + skips concurrent markUserCloseIntent, explicit/live-process path unaffected.
+- supacodeTerminalTests/WorktreeTerminalManagerSessionsTests: exit 0, 7 tests.
+- Unverified: live zmx session probe path; unit-level tests verify the bookkeeping logic.
+
+### B3: per-directory provisional exemption + scoped unresolved presence (c24eddec)
+- `hasUnresolvedLivePresence` now iterates all mapped surface IDs (from loaded layouts) and returns true only for nil-sessionRef presences NOT in any layout. A nil-ref presence that IS in a layout becomes a provisional snapshot and blocks only its own directory. The global gate therefore only fires during the window between restoration and the first layout-covering sessionSnapshotsChanged; for typical restores this is a few hundred milliseconds.
+- `autoSettleSessions` drops the global provisional guard. Instead it builds `provisionalCwds` (standardized paths of all provisional snapshots) and `continue`s only for summaries whose cwd matches. A provisional in /a no longer delays settling of idle sessions in /b.
+- New test `provisionalInDirABlocksOldDirAButOldDirBSettles`: snapshot provisional for /fixture; rowA.cwd=/fixture unsettled; rowB.cwd=/other settles.
+- AppFeatureSessionsTests: exit 0, 56 tests. RepositoriesFeatureAutoSettleTests: exit 0, 10 tests (was 9 before new test, + 1 new).
+- Unverified: actual live restoration with mixed-cwd worktrees; covered by existing TCA TestStore fixtures.
