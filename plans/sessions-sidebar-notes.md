@@ -173,3 +173,20 @@
 - Targeted PiSessionSourceTests + AppFeatureSessionsTests: exit 0; xcresult totalTestCount 24, failedTests 0 (32 parameterized runs).
 - Final make build-app: exit 0. make lint: exit 2, only the two existing complexity violations; git diff --check: exit 0.
 - All builds/tests serialized via pgrep checks. No owner-app launch/install/signaling or protected-home writes; full suite not rerun for this narrow fix step.
+
+## Slice 2, step 1 — Sessions navigation
+- Existing next/previous worktree chords wrap structure.liveIDs, including settled live rows; no dormant resume path.
+- App resolves the focused content surface before the repositories reducer walks the list; stored selection is fallback.
+- Existing selectWorktree slots and configurable hints use nth live row; selectTab digit routing is unchanged (A3).
+- Sidebar arrows wrap all visible rows selection-only; Return retains explicit focus/resume activation.
+- Production change reuses existing focus delegate, selection action and shortcut display; no new launch commands/settings.
+- Extended both Sessions test suites: live-only wrapping/slots, no selection/empty, focused precedence, exact single focus, no resume-tab command, settled/all-visible selection and terminal digit routing.
+- Parent targeted command: make test LOCAL_XCODEBUILD_FLAGS='SWIFT_VERSION=5 -only-testing:supacodeFeatureTests/RepositoriesFeatureSessionsTests -only-testing:supacodeFeatureTests/AppFeatureSessionsTests'.
+- Parent attempts 1–2: exit 2, xcresult totalTestCount 0 (test compile errors corrected); attempt 3: exit 2, count 43 (fixture/expectation failures corrected).
+- Parent attempt 4: exit 0, count 43; final: exit 0, totalTestCount 44, failedTests 0. xcresult summary verified after every parent run.
+- Final make lint: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1245 complexity violations; earlier own identifier violations corrected.
+- Final make build-app: exit 0; git diff --check: exit 0. Parent checked pgrep -fl xcodebuild and waited before every test/build.
+- Implementation commit: c92e8d57. Logs: /tmp/slice2-step1-{tests,lint,build}-final.log.
+- Deviation: delegated worker ran unrequested build/test despite edit-only instruction; its checks are not relied on. Parent corrected implementation and owns final validation.
+- No full suite, owner-app open/install/signaling or protected-home writes requested/performed by parent; .worktrees/ and PAPERCUTS.md untouched.
+- Unverified: actual sidebar key handling/OS focus in owner UI; automated navigation/focus dispatch verified. New-session chords/picker remain out of scope.
