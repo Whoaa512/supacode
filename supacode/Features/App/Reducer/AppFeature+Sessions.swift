@@ -10,6 +10,20 @@ struct PendingSessionLaunch: Equatable {
   var launched: Bool = false
 }
 
+struct PendingBranchMismatchResume: Equatable {
+  let key: SessionKey
+  let cwd: URL
+  let command: String
+  let recordedBranch: String
+  let currentBranch: String
+}
+
+struct PreparedSessionResume: Equatable {
+  let key: SessionKey
+  let cwd: URL
+  let command: String
+}
+
 struct BranchCaptureRequest: Equatable {
   let key: SessionKey
   let cwd: URL
@@ -50,6 +64,10 @@ extension AppFeature {
 
       case .repositories(.delegate(.resumeSession(let key))):
         return Self.handleResumeSession(key, state: &state)
+
+      case .resumeBranchProbeCompleted(let key, let cwd, let command, let currentBranch):
+        return Self.finishResumeBranchProbe(
+          key: key, cwd: cwd, command: command, currentBranch: currentBranch, state: &state)
 
       case .launchSessionCompleted(let requestID):
         guard let pending = state.pendingSessionLaunch, pending.requestID == requestID
@@ -193,16 +211,35 @@ extension AppFeature {
   }
 
   private static func handleResumeSession(_ key: SessionKey, state: inout State) -> Effect<Action> {
-    guard let item = state.repositories.sessionItems[id: .session(key)] else { return .none }
-    guard state.pendingSessionLaunch == nil else { return .none }
+    guard let prepared = prepareResumeSession(key, state: state) else { return .none }
+    guard shouldProbeBranchBeforeResume(key: key, state: state) else {
+      return startPreparedResume(prepared, state: &state)
+    }
+    return runResumeBranchProbe(key: key, cwd: prepared.cwd, command: prepared.command)
+  }
+
+  static func confirmBranchMismatchResume(state: inout State) -> Effect<Action> {
+    guard let pending = state.pendingBranchMismatchResume else { return .none }
+    state.pendingBranchMismatchResume = nil
+    return startPreparedResume(
+      PreparedSessionResume(key: pending.key, cwd: pending.cwd, command: pending.command),
+      state: &state)
+  }
+
+  static func cancelBranchMismatchResume(state: inout State) -> Effect<Action> {
+    state.pendingBranchMismatchResume = nil
+    return .none
+  }
+
+  private static func prepareResumeSession(
+    _ key: SessionKey,
+    state: State
+  ) -> PreparedSessionResume? {
+    guard state.pendingSessionLaunch == nil, state.pendingBranchMismatchResume == nil else { return nil }
+    guard let item = state.repositories.sessionItems[id: .session(key)] else { return nil }
     let rawParts = key.rawValue.split(separator: ":", maxSplits: 1).map(String.init)
-    guard rawParts.count == 2,
-      let harness = SkillAgent(rawValue: rawParts[0])
-    else { return .none }
-    let sessionID = rawParts[1]
-    guard let command = AgentResumeCommand.command(agent: harness, sessionRef: sessionID)
-    else { return .none }
-    @Dependency(\.uuid) var uuid
+    guard rawParts.count == 2, let harness = SkillAgent(rawValue: rawParts[0]) else { return nil }
+    guard let command = AgentResumeCommand.command(agent: harness, sessionRef: rawParts[1]) else { return nil }
     let standardCwd = URL(fileURLWithPath: item.cwd).standardizedFileURL
     let cwdPath = standardCwd.path(percentEncoded: false)
     var isDir: ObjCBool = false
@@ -212,18 +249,73 @@ extension AppFeature {
       FileManager.default.isReadableFile(atPath: cwdPath)
     else {
       repositoriesLogger.warning("Session resume: cwd not found or not readable: \(item.cwd)")
-      return .none
+      return nil
     }
+    return PreparedSessionResume(key: key, cwd: standardCwd, command: command)
+  }
+
+  private static func shouldProbeBranchBeforeResume(key: SessionKey, state: State) -> Bool {
+    guard let branches = state.repositories.sessions[key]?.branches, !branches.isEmpty else { return false }
+    return true
+  }
+
+  private static func runResumeBranchProbe(key: SessionKey, cwd: URL, command: String) -> Effect<Action> {
+    @Dependency(GitClientDependency.self) var gitClient
+    return .run { send in
+      let currentBranch = await gitClient.branchName(cwd)
+      await send(.resumeBranchProbeCompleted(key: key, cwd: cwd, command: command, currentBranch: currentBranch))
+    }
+  }
+
+  private static func finishResumeBranchProbe(
+    key: SessionKey,
+    cwd: URL,
+    command: String,
+    currentBranch: String?,
+    state: inout State
+  ) -> Effect<Action> {
+    guard let branches = state.repositories.sessions[key]?.branches, !branches.isEmpty else {
+      return startPreparedResume(PreparedSessionResume(key: key, cwd: cwd, command: command), state: &state)
+    }
+    guard let currentBranch, !currentBranch.isEmpty else {
+      return startPreparedResume(PreparedSessionResume(key: key, cwd: cwd, command: command), state: &state)
+    }
+    guard !branches.contains(currentBranch), let recordedBranch = branches.last else {
+      return startPreparedResume(PreparedSessionResume(key: key, cwd: cwd, command: command), state: &state)
+    }
+    state.pendingBranchMismatchResume = PendingBranchMismatchResume(
+      key: key, cwd: cwd, command: command,
+      recordedBranch: recordedBranch, currentBranch: currentBranch)
+    state.alert = AlertState {
+      TextState("Resume on different branch?")
+    } actions: {
+      ButtonState(role: .cancel, action: .cancelBranchMismatchResume) { TextState("Cancel") }
+      ButtonState(action: .confirmBranchMismatchResume) { TextState("Resume") }
+    } message: {
+      TextState(
+        "This session last worked on \(recordedBranch), but this folder is on \(currentBranch). "
+          + "Supacode will not checkout branches for you."
+      )
+    }
+    return .none
+  }
+
+  private static func startPreparedResume(
+    _ prepared: PreparedSessionResume,
+    state: inout State
+  ) -> Effect<Action> {
+    guard state.pendingSessionLaunch == nil else { return .none }
+    @Dependency(\.uuid) var uuid
     let requestID = uuid()
     var pending = PendingSessionLaunch(
-      key: key, cwd: standardCwd, command: command, requestID: requestID)
-    if let worktree = worktreeForCwd(standardCwd, state: state) {
+      key: prepared.key, cwd: prepared.cwd, command: prepared.command, requestID: requestID)
+    if let worktree = worktreeForCwd(prepared.cwd, state: state) {
       pending.launched = true
       state.pendingSessionLaunch = pending
       return launchSessionTab(worktree: worktree, command: pending.command, requestID: requestID)
     }
     state.pendingSessionLaunch = pending
-    return .send(.repositories(.registerSessionFolder(standardCwd)))
+    return .send(.repositories(.registerSessionFolder(prepared.cwd)))
   }
 
   private static func launchPendingSessionIfReady(

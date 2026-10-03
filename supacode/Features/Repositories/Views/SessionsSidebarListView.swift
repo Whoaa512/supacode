@@ -103,12 +103,18 @@ private struct SessionSidebarRowView: View {
           Text(store.title)
             .font(.body)
             .lineLimit(1)
-          Text(URL(fileURLWithPath: store.cwd).lastPathComponent)
-            .font(.caption)
-            .monospaced()
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .help(store.cwd)
+          HStack(spacing: 4) {
+            Text(URL(fileURLWithPath: store.cwd).lastPathComponent)
+            if let branch = store.branchAnnotation {
+              Text(branch)
+                .foregroundStyle(.tertiary)
+            }
+          }
+          .font(.caption)
+          .monospaced()
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+          .help(store.cwd)
         }
         Spacer()
         if let hint = shortcutHint {

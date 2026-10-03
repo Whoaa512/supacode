@@ -71,7 +71,8 @@ extension RepositoriesFeature.State {
           id: .session(summary.id), title: summary.title, cwd: summary.cwd,
           createdAt: summary.createdAt,
           lifecycle: SessionClassification.classify(isLive: false, sidecar: sessions[summary.id])
-            .lifecycle
+            .lifecycle,
+          branchAnnotation: branchAnnotation(for: summary.id, cwd: summary.cwd)
         ))
     }
     for row in previous where row.isSynthetic {
@@ -79,7 +80,7 @@ extension RepositoriesFeature.State {
       rows.append(
         SessionSidebarItemFeature.State(
           id: row.id, title: row.title, cwd: row.cwd, createdAt: row.createdAt,
-          lifecycle: row.lifecycle, isSynthetic: true
+          lifecycle: row.lifecycle, branchAnnotation: row.branchAnnotation, isSynthetic: true
         ))
     }
     for snapshot in sessionSnapshots.sorted(by: {
@@ -98,6 +99,7 @@ extension RepositoriesFeature.State {
       if case .session(let key) = id {
         rows[id: id]?.lifecycle =
           SessionClassification.classify(isLive: true, sidecar: sessions[key]).lifecycle
+        rows[id: id]?.branchAnnotation = branchAnnotation(for: key, cwd: snapshot.cwd)
       }
       let preferred = previous[id: id]?.location
       if rows[id: id]?.location == nil || snapshot.location == preferred {
@@ -113,6 +115,23 @@ extension RepositoriesFeature.State {
     if let selection = sessionSelection, sessionItems[id: selection] == nil {
       sessionSelection = nil
     }
+  }
+
+  private func branchAnnotation(for key: SessionKey, cwd: String) -> String? {
+    guard let lastBranch = sessions[key]?.branches.last, !lastBranch.isEmpty else { return nil }
+    guard currentBranch(forSessionCwd: cwd) != lastBranch else { return nil }
+    return lastBranch
+  }
+
+  private func currentBranch(forSessionCwd cwd: String) -> String? {
+    let url = URL(fileURLWithPath: cwd).standardizedFileURL
+    for repository in repositories {
+      for worktree in repository.worktrees where worktree.workingDirectory.standardizedFileURL == url {
+        let branch = sidebarItems[id: worktree.id]?.branchName
+        return branch?.isEmpty == false ? branch : nil
+      }
+    }
+    return nil
   }
 
   mutating func applyUnsettle(key: SessionKey, summaries: [SessionSummary], now: Date) {

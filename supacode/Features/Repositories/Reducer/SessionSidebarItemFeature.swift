@@ -44,6 +44,7 @@ struct SessionSidebarItemFeature {
     var createdAt: Date
     var lifecycle: SessionClassification.Lifecycle = .active
     var location: SessionLocation?
+    var branchAnnotation: String?
     var isSynthetic = false
 
     var isLive: Bool { location != nil }
@@ -54,6 +55,7 @@ struct SessionSidebarItemFeature {
       createdAt = row.createdAt
       lifecycle = row.lifecycle
       location = row.location
+      branchAnnotation = row.branchAnnotation
       isSynthetic = row.isSynthetic
     }
   }

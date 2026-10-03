@@ -198,6 +198,7 @@ struct AppFeature {
     /// One-at-a-time dormant session resume request waiting for folder
     /// registration or cwd validation to complete before launching.
     var pendingSessionLaunch: PendingSessionLaunch?
+    var pendingBranchMismatchResume: PendingBranchMismatchResume?
     var branchCaptureQueue: [BranchCaptureRequest] = []
     var branchCaptureInFlight: Bool = false
 
@@ -387,10 +388,13 @@ struct AppFeature {
     case terminalEvent(TerminalClient.Event)
     case launchSessionCompleted(requestID: UUID)
     case branchCaptureProbeCompleted(key: SessionKey, branch: String?)
+    case resumeBranchProbeCompleted(key: SessionKey, cwd: URL, command: String, currentBranch: String?)
   }
 
   enum Alert: Equatable {
     case dismiss
+    case confirmBranchMismatchResume
+    case cancelBranchMismatchResume
     case confirmQuit
     case confirmQuitAndTerminate
     case confirmTerminateAllTerminalSessions
@@ -1637,6 +1641,14 @@ struct AppFeature {
         state.alert = nil
         return .none
 
+      case .alert(.presented(.confirmBranchMismatchResume)):
+        state.alert = nil
+        return Self.confirmBranchMismatchResume(state: &state)
+
+      case .alert(.presented(.cancelBranchMismatchResume)):
+        state.alert = nil
+        return Self.cancelBranchMismatchResume(state: &state)
+
       case .alert:
         return .none
 
@@ -2330,7 +2342,7 @@ struct AppFeature {
       case .terminalEvent:
         return .none
 
-      case .launchSessionCompleted, .branchCaptureProbeCompleted:
+      case .launchSessionCompleted, .branchCaptureProbeCompleted, .resumeBranchProbeCompleted:
         return .none
       }
     }
@@ -2673,6 +2685,13 @@ struct AppFeature {
     case .agent(let worktreeID, let rawAgent, let agentAction):
       return handleAgentDeeplink(
         worktreeID: worktreeID, agent: rawAgent, action: agentAction, state: &state)
+    case .session(let key, let action):
+      switch action {
+      case .settle:
+        return .send(.repositories(.settleSession(key)))
+      case .unsettle:
+        return .send(.repositories(.unsettleSession(key)))
+      }
     case .repoOpen(let path):
       return .send(.repositories(.openRepositories([path])))
     case .repoWorktreeNew(

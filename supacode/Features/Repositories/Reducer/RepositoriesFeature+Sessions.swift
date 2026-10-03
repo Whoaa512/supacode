@@ -104,6 +104,7 @@ extension RepositoriesFeature {
           entry.recordBranch(branch)
           sidecar[key] = entry
         }
+        state.reconcileSessionItems(now: now)
         return .none
 
       case .registerSessionFolder:

@@ -71,6 +71,12 @@ nonisolated enum DeeplinkURLBuilder {
     return "\(url)?\(params.joined(separator: "&"))"
   }
 
+  // MARK: - Session.
+
+  static func sessionAction(id: String, action: String) -> String {
+    "supacode://session/\(percentEncodePathSegment(id))/\(action)"
+  }
+
   // MARK: - Script.
 
   static func scriptRun(worktreeID: String, scriptID: String) -> String {
@@ -235,6 +241,11 @@ nonisolated enum DeeplinkURLBuilder {
   }
 
   // MARK: - Helpers.
+
+  private static func percentEncodePathSegment(_ value: String) -> String {
+    let allowed = CharacterSet.urlPathAllowed.subtracting(.init(charactersIn: "/"))
+    return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+  }
 
   private static func percentEncodeQueryValue(_ value: String) -> String {
     var allowed = CharacterSet.urlQueryAllowed

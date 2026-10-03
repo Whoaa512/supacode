@@ -305,3 +305,19 @@
 - Implementation commit: c4832645; named files only on cj-main. Real hosted-PATH friction logged with papercut; untracked files preserved.
 - No branch-confirm/CLI/triage work, live-app launch/install/open or protected-home writes. No prerequisite refactor.
 - Unverified: installed extension/live pi lifecycle/UI and externally delivered OS signals; existing pi processes need extension reload/restart by owner.
+
+## Slice 3, step 4 — branch confirm, annotation and session CLI
+- Added dormant-resume branch probe using GitClient before launch when sidecar has branch history.
+- Mismatch shows one alert; confirm resumes saved request without re-probing/checking out; cancel clears pending and does nothing.
+- Session leaves compute branch annotation per row when last recorded branch differs from current exact worktree branch.
+- Added `supacode session list|settle|unsettle`, sessions query response and `supacode://session/<id>/<action>` deeplinks.
+- CLI defaults settle/unsettle target from SUPACODE_SURFACE_ID by querying current session rows; missing/ambiguous surfaces emit actionable ValidationError.
+- App query routing uses existing socket/FD query response path; deeplink settle/unsettle routes to existing reducer mutations/acks.
+- make generate-project: exit 0.
+- SessionCLITests: exit 0; xcresult totalTestCount 2, failedTests 0.
+- AppFeatureSessionsTests: exit 0; xcresult totalTestCount 40, failedTests 0.
+- RepositoriesFeatureSessionsTests: exit 0; xcresult totalTestCount 30, failedTests 0.
+- make lint: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations.
+- make build-app: exit 0. git diff --check: exit 0.
+- Builds/tests serialized with pgrep xcodebuild waits; no full tests, app launch/install/open, process signaling or protected-home writes.
+- Untracked .worktrees/ and PAPERCUTS.md preserved. Unverified: live app CLI socket/ack behavior beyond fixture/unit coverage.

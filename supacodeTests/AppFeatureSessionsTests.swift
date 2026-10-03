@@ -309,6 +309,94 @@ struct AppFeatureSessionsTests {
     #expect(store.state.pendingSessionLaunch == nil)
   }
 
+  @Test(.dependencies) func dormantResumeBranchMismatchConfirmsOnceBeforeLaunch() async throws {
+    let tmpDir = try temporaryDirectory(named: "branch-mismatch")
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    var initial = state()
+    let worktree = Worktree(
+      id: WorktreeID(tmpDir.path), name: "branch-mismatch", detail: "",
+      workingDirectory: tmpDir, repositoryRootURL: tmpDir)
+    initial.repositories.repositories.append(
+      Repository(id: RepositoryID(tmpDir.path), rootURL: tmpDir, name: "branch-mismatch", worktrees: [worktree]))
+    let key = SessionKey(harness: .pi, sessionID: "mismatch")
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Dormant", cwd: tmpDir.path, createdAt: .distantPast)
+    ]
+    initial.repositories.$sessions.withLock { $0[key] = SessionSidecarEntry(branches: ["old-branch"]) }
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = .distantPast
+      $0.uuid = .incrementing
+      $0[GitClientDependency.self].branchName = { _ in "new-branch" }
+      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\.repositories.delegate.resumeSession)
+    await store.receive(\.resumeBranchProbeCompleted) {
+      $0.pendingBranchMismatchResume = PendingBranchMismatchResume(
+        key: key, cwd: tmpDir, command: "pi --session mismatch",
+        recordedBranch: "old-branch", currentBranch: "new-branch")
+      $0.alert = AlertState {
+        TextState("Resume on different branch?")
+      } actions: {
+        ButtonState(role: .cancel, action: .cancelBranchMismatchResume) { TextState("Cancel") }
+        ButtonState(action: .confirmBranchMismatchResume) { TextState("Resume") }
+      } message: {
+        TextState(
+          "This session last worked on old-branch, but this folder is on new-branch. "
+            + "Supacode will not checkout branches for you."
+        )
+      }
+    }
+    #expect(sent.value.isEmpty)
+    await store.send(.alert(.presented(.confirmBranchMismatchResume))) {
+      $0.alert = nil
+      $0.pendingBranchMismatchResume = nil
+      $0.pendingSessionLaunch = PendingSessionLaunch(
+        key: key, cwd: tmpDir, command: "pi --session mismatch", requestID: UUID(0), launched: true)
+    }
+    await store.receive(\.launchSessionCompleted) { $0.pendingSessionLaunch = nil }
+    await store.finish()
+    #expect(sent.value.count == 1)
+  }
+
+  @Test(.dependencies) func dormantResumeKnownBranchSkipsMismatchAlert() async throws {
+    let tmpDir = try temporaryDirectory(named: "known-branch")
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    var initial = state()
+    let worktree = Worktree(
+      id: WorktreeID(tmpDir.path), name: "known-branch", detail: "",
+      workingDirectory: tmpDir, repositoryRootURL: tmpDir)
+    initial.repositories.repositories.append(
+      Repository(id: RepositoryID(tmpDir.path), rootURL: tmpDir, name: "known-branch", worktrees: [worktree]))
+    let key = SessionKey(harness: .pi, sessionID: "known")
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Dormant", cwd: tmpDir.path, createdAt: .distantPast)
+    ]
+    initial.repositories.$sessions.withLock { $0[key] = SessionSidecarEntry(branches: ["main", "feature"]) }
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = .distantPast
+      $0.uuid = .incrementing
+      $0[GitClientDependency.self].branchName = { _ in "main" }
+      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\.repositories.delegate.resumeSession)
+    await store.receive(\.resumeBranchProbeCompleted) {
+      $0.pendingSessionLaunch = PendingSessionLaunch(
+        key: key, cwd: tmpDir, command: "pi --session known", requestID: UUID(0), launched: true)
+    }
+    await store.receive(\.launchSessionCompleted) { $0.pendingSessionLaunch = nil }
+    await store.finish()
+    #expect(sent.value.count == 1)
+    #expect(store.state.alert == nil)
+  }
+
   // MARK: - Sessions navigation with focused surface precedence
 
   @Test(.dependencies) func selectNextWorktreeOnSessionsUsesLiveRows() async {

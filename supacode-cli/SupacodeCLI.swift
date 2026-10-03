@@ -12,6 +12,7 @@ struct SupacodeCLI: ParsableCommand {
       TabCommand.self,
       SurfaceCommand.self,
       AgentCommand.self,
+      SessionCommand.self,
       TerminalCommand.self,
       RepoCommand.self,
       SettingsCommand.self,

@@ -148,7 +148,7 @@ extension AppFeature.Action {
       .deeplink, .commandAckTimedOut, .deeplinkConfirmationTimedOut,
       .deeplinkReferenceOpened, .settingsRelocationDidNotFinish, .settingsStoreUnreadable,
       .alert, .deeplinkInputConfirmation,
-      .launchSessionCompleted, .branchCaptureProbeCompleted:
+      .launchSessionCompleted, .branchCaptureProbeCompleted, .resumeBranchProbeCompleted:
       return false
     }
   }

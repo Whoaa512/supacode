@@ -56,6 +56,8 @@ private nonisolated enum DeeplinkParser {
       return parseRepo(pathSegments: pathSegments, queryItems: queryItems)
     case "agent":
       return parseAgent(pathSegments: pathSegments, queryItems: queryItems)
+    case "session":
+      return parseSession(pathSegments: pathSegments)
     case "help":
       return .help
     case "settings":
@@ -103,6 +105,28 @@ private nonisolated enum DeeplinkParser {
       logger.warning("Ignoring unrecognized \(name) value: \(item.value ?? "nil")")
     }
     return false
+  }
+
+  // MARK: - Session.
+
+  private static func parseSession(pathSegments: [String]) -> Deeplink? {
+    guard pathSegments.count >= 2 else {
+      logger.warning("Session deeplink missing session id or action")
+      return nil
+    }
+    guard let rawKey = pathSegments[0].removingPercentEncoding, !rawKey.isEmpty else {
+      logger.warning("Failed to percent-decode session id")
+      return nil
+    }
+    let action: Deeplink.SessionAction
+    switch pathSegments[1] {
+    case "settle": action = .settle
+    case "unsettle": action = .unsettle
+    default:
+      logger.warning("Unrecognized session action: \(pathSegments[1])")
+      return nil
+    }
+    return .session(key: SessionKey(rawValue: rawKey), action: action)
   }
 
   // MARK: - Agent.

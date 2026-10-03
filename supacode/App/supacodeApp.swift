@@ -541,7 +541,7 @@ struct SupacodeApp: App {
       handleWorktreeStatusQuery(params: params, repos: repos, clientFD: clientFD, store: store)
     case "worktreeAppearance":
       handleWorktreeAppearanceQuery(params: params, repos: repos, clientFD: clientFD, store: store)
-    case "agents", "agentRead", "agentExplain", "agentResumeCandidates":
+    case "agents", "agentRead", "agentExplain", "agentResumeCandidates", "sessions":
       handleAgentQuery(
         resource: resource, params: params, clientFD: clientFD,
         terminalManager: terminalManager, store: store)
@@ -599,6 +599,9 @@ struct SupacodeApp: App {
         data: AgentResumeCandidateQueryResponse.rows(
           presence: store.agentPresence, repositories: store.repositories)
       )
+    case "sessions":
+      AgentHookSocketServer.sendQueryResponse(
+        clientFD: clientFD, data: SessionQueryResponse.rows(repositories: store.repositories))
     default:
       AgentHookSocketServer.sendQueryResponse(
         clientFD: clientFD,

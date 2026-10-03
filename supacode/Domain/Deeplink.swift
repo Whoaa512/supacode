@@ -22,6 +22,7 @@ enum Deeplink: Equatable, Sendable {
   /// `agent/<worktree-id>/<agent-kind>/<action>`. The kind stays a raw string so
   /// the parser doesn't have to know the `SkillAgent` roster.
   case agent(worktreeID: Worktree.ID, agent: String, action: AgentAction)
+  case session(key: SessionKey, action: SessionAction)
   case settings(section: DeeplinkSettingsSection?)
   case settingsRepo(repositoryID: Repository.ID)
   case settingsRepoScripts(repositoryID: Repository.ID)
@@ -41,6 +42,11 @@ enum Deeplink: Equatable, Sendable {
     /// dead session. Refused when the agent is running, so it can never fork a
     /// live session.
     case resume
+  }
+
+  enum SessionAction: Equatable, Sendable {
+    case settle
+    case unsettle
   }
 
   enum WorktreeAction: Equatable, Sendable {
