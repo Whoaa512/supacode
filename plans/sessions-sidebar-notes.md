@@ -371,3 +371,23 @@
 - make lint: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations; log `/tmp/slice4-triage-fix-lint.log`.
 - make build-app: exit 0; log `/tmp/slice4-triage-fix-build.log`. git diff --check: exit 0.
 - Builds/tests serialized with pgrep xcodebuild waits; no full suite, live app launch/install/signaling or protected-home writes.
+
+## Slice 4 — conservative automatic settling
+- Commit e23ae21f on cj-main; auto-settle only, no additional sidebar feature scope.
+- SessionClassification.classify(summary:...) applies explicit > live > manual hold > under-4 > idle-days; default 3, exact threshold, future activity stays active.
+- GlobalSettings.sessionIdleDays decodes missing as 3; 0 disables both automatic rules. SettingsFeature loads/persists it; DeveloperSettingsView exposes a 0...365 stepper.
+- Repositories State.autoSettleSessions uses the same applySettle sidecar mutation as manual settling, persisting settledAt and clearing hold; no harness-file writes.
+- Manual holds survive rename/equal activity; genuinely newer indexed messages or timestamped busy/idle release the marker. Explicit settlement never auto-unsettles.
+- AgentPresence always emits checked restore completion, including empty/all-dead restores; App passes raw live SessionKeys, protecting agents not yet mapped into repository layouts.
+- Cache publication never auto-settles; checked restore AND successful refresh required. Refresh failure preserves rows and revokes successful-refresh evidence.
+- Injected continuousClock runs one cancellable 15-minute loop; quit cancels timer/refresh/debounce. Appearance, activation and settings changes request fresh classification via refresh.
+- Conservative deviations: timer classification waits for successful refresh instead of aging stale cache; any provisional linked row pauses all auto-settle; unreadable persisted layouts keep restore gate closed for that launch.
+- Tests: SessionClassificationTests table/default/roundtrip; RepositoriesFeatureAutoSettleTests restore/live/hold/provisional/zero/timer/error/recovery/cancellation; SettingsFeatureTests binding; AppFeatureSessionsTests unmapped restore identity.
+- make generate-project: exit 0. Final targeted make test: exit 0; xcresulttool summary exit 0, totalTestCount 260, passedTests 260, failedTests 0.
+- Final suites: supacodeFeatureTests/{RepositoriesFeatureAutoSettleTests,RepositoriesFeatureSessionsTests,AppFeatureSessionsTests}; supacodeTests/{SessionClassificationTests,SettingsFeatureTests,AgentPresenceFeatureTests}.
+- Every test override retained SWIFT_VERSION=5; pgrep -x xcodebuild/wait ran before each build/test. No full suite.
+- Earlier attempts: tests 1–3/6 exited 2 with count 0 (pattern/date compile fixes); 4 exited 2/count 86/failure 1 (existing startup fixture lacked injected clock); 5 exited 0/count 87; 7 exited 2/count 259/failure 1 (settings fixture needed settingsLoaded).
+- Selector trap: individual Swift Testing settings selector matched no test; switched to entire SettingsFeatureTests and verified named test in final log.
+- make lint: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations; own parameter/tuple violations fixed. make build-app: exit 0. git diff --check: exit 0.
+- Logs: /tmp/slice4-auto-{generate,lint3,tests8,build}.log and /tmp/slice4-auto-summary8.json.
+- Unverified: owner UI stepper/visual section movement, installed app timer behavior and live OS lifecycle. No app launch/open/install, owner-process signaling, or protected-home writes; untracked .worktrees/ and PAPERCUTS.md preserved.
