@@ -210,3 +210,11 @@
 - pgrep/xcodebuild serialization used before each build/test; no full make test run.
 - No app launch/install, no supacode/zmx/pi signaling, no writes to protected home dirs; .worktrees/ and PAPERCUTS.md untouched.
 - Unverified: actual menu/key handling in owner UI and real pi process startup.
+
+## Slice 2 gate fix 1 — Worktrees navigation test context
+- Confirmed all ten reported failures: old Worktrees navigation tests inherited the Sessions default, so the reducer correctly took the Sessions branch instead of emitting selectWorktree.
+- Explicitly select Worktrees in isolated `.dependencies` contexts for all thirteen next/previous Worktrees tests, including the three no-op tests that otherwise passed for the wrong reason. No production routing/default changes; one focused fix for the shared cause.
+- Targeted RepositoriesFeatureTests + RepositoriesFeatureSessionsTests: exit 0; xcresult totalTestCount 381, failedTests 0, expectedFailures 2. SWIFT_VERSION=5 retained.
+- make lint: exit 2, only existing DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations; no new violations. make build-app: exit 0; git diff --check: exit 0.
+- Logs: /tmp/slice2-gate-fix-{tests,lint,build}.log; summary /tmp/slice2-gate-fix-summary.json. xcodebuild checked/serialized before tests and build.
+- No new files/generation required; full gate not rerun. No live-app launch/install/signaling or protected-home writes. No scope deviation; baseline failures and untracked files untouched.

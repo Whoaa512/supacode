@@ -8446,7 +8446,9 @@ struct RepositoriesFeatureTests {
 
   // MARK: - Select Next/Previous Worktree
 
-  @Test func selectNextWorktreeWrapsForward() async {
+  @Test(.dependencies) func selectNextWorktreeWrapsForward() async {
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.worktrees.rawValue }
     let wt1 = makeWorktree(id: "/tmp/wt1", name: "alpha")
     let wt2 = makeWorktree(id: "/tmp/wt2", name: "beta")
     let repository = makeRepository(id: "/tmp/repo", worktrees: [wt1, wt2])
@@ -8471,7 +8473,9 @@ struct RepositoriesFeatureTests {
     }
   }
 
-  @Test func selectPreviousWorktreeWrapsBackward() async {
+  @Test(.dependencies) func selectPreviousWorktreeWrapsBackward() async {
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.worktrees.rawValue }
     let wt1 = makeWorktree(id: "/tmp/wt1", name: "alpha")
     let wt2 = makeWorktree(id: "/tmp/wt2", name: "beta")
     let repository = makeRepository(id: "/tmp/repo", worktrees: [wt1, wt2])
@@ -8496,7 +8500,9 @@ struct RepositoriesFeatureTests {
     }
   }
 
-  @Test func selectNextWorktreeWithNoSelectionSelectsFirst() async {
+  @Test(.dependencies) func selectNextWorktreeWithNoSelectionSelectsFirst() async {
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.worktrees.rawValue }
     let wt1 = makeWorktree(id: "/tmp/wt1", name: "alpha")
     let wt2 = makeWorktree(id: "/tmp/wt2", name: "beta")
     let repository = makeRepository(id: "/tmp/repo", worktrees: [wt1, wt2])
@@ -8519,7 +8525,9 @@ struct RepositoriesFeatureTests {
     }
   }
 
-  @Test func selectNextWorktreeCollapsesSidebarSelectionToSingleWorktree() async {
+  @Test(.dependencies) func selectNextWorktreeCollapsesSidebarSelectionToSingleWorktree() async {
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.worktrees.rawValue }
     let wt1 = makeWorktree(id: "/tmp/wt1", name: "alpha")
     let wt2 = makeWorktree(id: "/tmp/wt2", name: "beta")
     let wt3 = makeWorktree(id: "/tmp/wt3", name: "gamma")
@@ -8546,7 +8554,9 @@ struct RepositoriesFeatureTests {
     }
   }
 
-  @Test func selectPreviousWorktreeWithNoSelectionSelectsLast() async {
+  @Test(.dependencies) func selectPreviousWorktreeWithNoSelectionSelectsLast() async {
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.worktrees.rawValue }
     let wt1 = makeWorktree(id: "/tmp/wt1", name: "alpha")
     let wt2 = makeWorktree(id: "/tmp/wt2", name: "beta")
     let repository = makeRepository(id: "/tmp/repo", worktrees: [wt1, wt2])
@@ -8569,7 +8579,9 @@ struct RepositoriesFeatureTests {
     }
   }
 
-  @Test func selectNextWorktreeFollowsSidebarOrderNotRawWorktreeList() async {
+  @Test(.dependencies) func selectNextWorktreeFollowsSidebarOrderNotRawWorktreeList() async {
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.worktrees.rawValue }
     let repoRoot = "/tmp/repo"
     let main = makeWorktree(id: repoRoot, name: "main", repoRoot: repoRoot)
     let feature = makeWorktree(id: "/tmp/repo/feature", name: "feature", repoRoot: repoRoot)
@@ -8602,7 +8614,9 @@ struct RepositoriesFeatureTests {
     }
   }
 
-  @Test func selectNextWorktreeWithEmptyRowsIsNoOp() async {
+  @Test(.dependencies) func selectNextWorktreeWithEmptyRowsIsNoOp() async {
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.worktrees.rawValue }
     let store = TestStore(initialState: RepositoriesFeature.State()) {
       RepositoriesFeature()
     }
@@ -8610,7 +8624,9 @@ struct RepositoriesFeatureTests {
     await store.send(.selectNextWorktree)
   }
 
-  @Test func selectNextWorktreeSingleWorktreeReturnsSame() async {
+  @Test(.dependencies) func selectNextWorktreeSingleWorktreeReturnsSame() async {
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.worktrees.rawValue }
     let worktree = makeWorktree(id: "/tmp/wt", name: "solo")
     let repository = makeRepository(id: "/tmp/repo", worktrees: [worktree])
     var state = makeState(repositories: [repository])
@@ -8633,7 +8649,9 @@ struct RepositoriesFeatureTests {
     }
   }
 
-  @Test func selectNextWorktreeSkipsCollapsedRepository() async {
+  @Test(.dependencies) func selectNextWorktreeSkipsCollapsedRepository() async {
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.worktrees.rawValue }
     let wt1 = makeWorktree(id: "/tmp/repo1/wt1", name: "alpha", repoRoot: "/tmp/repo1")
     let wt2 = makeWorktree(id: "/tmp/repo2/wt2", name: "beta", repoRoot: "/tmp/repo2")
     let wt3 = makeWorktree(id: "/tmp/repo3/wt3", name: "gamma", repoRoot: "/tmp/repo3")
@@ -8664,7 +8682,9 @@ struct RepositoriesFeatureTests {
     }
   }
 
-  @Test func selectPreviousWorktreeSkipsCollapsedRepository() async {
+  @Test(.dependencies) func selectPreviousWorktreeSkipsCollapsedRepository() async {
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.worktrees.rawValue }
     let wt1 = makeWorktree(id: "/tmp/repo1/wt1", name: "alpha", repoRoot: "/tmp/repo1")
     let wt2 = makeWorktree(id: "/tmp/repo2/wt2", name: "beta", repoRoot: "/tmp/repo2")
     let wt3 = makeWorktree(id: "/tmp/repo3/wt3", name: "gamma", repoRoot: "/tmp/repo3")
@@ -8695,7 +8715,9 @@ struct RepositoriesFeatureTests {
     }
   }
 
-  @Test func selectNextWorktreeAllCollapsedIsNoOp() async {
+  @Test(.dependencies) func selectNextWorktreeAllCollapsedIsNoOp() async {
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.worktrees.rawValue }
     let wt1 = makeWorktree(id: "/tmp/repo1/wt1", name: "alpha", repoRoot: "/tmp/repo1")
     let repo1 = makeRepository(id: "/tmp/repo1", worktrees: [wt1])
     var state = makeState(repositories: [repo1])
@@ -8711,7 +8733,9 @@ struct RepositoriesFeatureTests {
     await store.send(.selectNextWorktree)
   }
 
-  @Test func selectPreviousWorktreeAllCollapsedIsNoOp() async {
+  @Test(.dependencies) func selectPreviousWorktreeAllCollapsedIsNoOp() async {
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.worktrees.rawValue }
     let wt1 = makeWorktree(id: "/tmp/repo1/wt1", name: "alpha", repoRoot: "/tmp/repo1")
     let repo1 = makeRepository(id: "/tmp/repo1", worktrees: [wt1])
     var state = makeState(repositories: [repo1])
@@ -8727,7 +8751,9 @@ struct RepositoriesFeatureTests {
     await store.send(.selectPreviousWorktree)
   }
 
-  @Test func selectNextWorktreeWrapsAroundSkippingCollapsedRepo() async {
+  @Test(.dependencies) func selectNextWorktreeWrapsAroundSkippingCollapsedRepo() async {
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.worktrees.rawValue }
     let wt1 = makeWorktree(id: "/tmp/repo1/wt1", name: "alpha", repoRoot: "/tmp/repo1")
     let wt2 = makeWorktree(id: "/tmp/repo2/wt2", name: "beta", repoRoot: "/tmp/repo2")
     let wt3 = makeWorktree(id: "/tmp/repo3/wt3", name: "gamma", repoRoot: "/tmp/repo3")
