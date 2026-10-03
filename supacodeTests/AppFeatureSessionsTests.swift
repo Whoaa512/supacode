@@ -391,7 +391,7 @@ struct AppFeatureSessionsTests {
         TextState("Resume on different branch?")
       } actions: {
         ButtonState(role: .cancel, action: .cancelBranchMismatchResume) { TextState("Cancel") }
-        ButtonState(action: .confirmBranchMismatchResume) { TextState("Resume") }
+        ButtonState(action: .confirmBranchMismatchResume) { TextState("Resume Anyway") }
       } message: {
         TextState(
           "This session last worked on old-branch, but this folder is on new-branch. "
@@ -1707,8 +1707,6 @@ struct AppFeatureSessionsTests {
     await store.finish()
   }
 
-  // MARK: - A1: 10-second cooldown after dispatched launch
-
   @Test(.dependencies) func launchCompletedRecordsCooldownDate() async throws {
     let tmpDir = try temporaryDirectory(named: "cooldown-record")
     defer { try? FileManager.default.removeItem(at: tmpDir) }
@@ -1790,8 +1788,6 @@ struct AppFeatureSessionsTests {
     #expect(sent.value.count == 1, "should launch after cooldown expires")
   }
 
-  // MARK: - A2: visible alert for missing or unreadable cwd
-
   @Test(.dependencies) func resumeDormantMissingCwdShowsAlert() async {
     let key = SessionKey(harness: .pi, sessionID: "missing")
     var initial = state()
@@ -1811,21 +1807,149 @@ struct AppFeatureSessionsTests {
     await store.finish()
   }
 
-  @Test(.dependencies) func newSessionMissingCwdShowsAlert() async {
+  // MARK: - Provisional conflict: same harness + cwd + nil sessionRef
+
+  @Test(.dependencies) func probeCompletionShowsProvisionalConfirmWhenSameHarnessCwdPresent() async throws {
+    let tmpDir = try temporaryDirectory(named: "provisional-confirm")
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+    let key = SessionKey(harness: .pi, sessionID: "dormant1")
     var initial = state()
+    let worktree = Worktree(
+      id: WorktreeID(tmpDir.path), name: "provisional", detail: "",
+      workingDirectory: tmpDir, repositoryRootURL: tmpDir)
+    initial.repositories.repositories.append(
+      Repository(id: RepositoryID(tmpDir.path), rootURL: tmpDir, name: "provisional",
+        worktrees: [worktree]))
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
+        createdAt: .distantPast)
+    ]
+    let surfaceID = UUID()
+    initial.repositories.sessionSnapshots = [
+      SessionLiveSnapshot(
+        harness: .pi, sessionRef: nil,
+        cwd: tmpDir.path(percentEncoded: false),
+        location: SessionLocation(
+          worktreeID: worktree.id, tabID: TabID(), surfaceID: surfaceID))
+    ]
     let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
       $0.date.now = .distantPast
+      $0.uuid = .incrementing
     }
     store.exhaustivity = .off
-    // Override the cwd fallback by setting a session item in a nonexistent cwd.
-    // handleNewSession uses newSessionCwdFallback which checks focused/selected session.
-    // The simplest way: route through newSessionDirectorySelected with a bad path.
-    await store.send(.newSessionDirectorySelected(URL(fileURLWithPath: "/nonexistent/absent-dir"))) {
-      appState in
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\..repositories.delegate.resumeSession)
+    await store.receive(\.resumeBranchProbeCompleted) { appState in
+      #expect(appState.pendingBranchMismatchResume?.isProvisionalConflict == true)
+      #expect(appState.pendingBranchMismatchResume?.recordedBranch == "")
+      #expect(appState.alert != nil)
+      #expect(appState.pendingSessionLaunch?.probing == false)
+    }
+    await store.finish()
+  }
+
+  @Test(.dependencies) func provisionalConfirmCancelClearsReservation() async throws {
+    let tmpDir = try temporaryDirectory(named: "provisional-cancel")
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+    let key = SessionKey(harness: .pi, sessionID: "dormant2")
+    var initial = state()
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
+        createdAt: .distantPast)
+    ]
+    let surfaceID = UUID()
+    initial.repositories.sessionSnapshots = [
+      SessionLiveSnapshot(
+        harness: .pi, sessionRef: nil,
+        cwd: tmpDir.path(percentEncoded: false),
+        location: SessionLocation(
+          worktreeID: WorktreeID(tmpDir.path), tabID: TabID(), surfaceID: surfaceID))
+    ]
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = .distantPast
+      $0.uuid = .incrementing
+      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\..repositories.delegate.resumeSession)
+    await store.receive(\.resumeBranchProbeCompleted)
+    await store.send(.alert(.presented(.cancelBranchMismatchResume))) { appState in
+      #expect(appState.pendingSessionLaunch == nil)
+      #expect(appState.pendingBranchMismatchResume == nil)
+    }
+    await store.finish()
+    #expect(sent.value.isEmpty)
+  }
+
+  @Test(.dependencies) func probeCompletionCombinesProvisionalAndBranchMismatchInOneAlert() async throws {
+    let tmpDir = try temporaryDirectory(named: "combined-conflict")
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+    let key = SessionKey(harness: .pi, sessionID: "dormant3")
+    var initial = state()
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
+        createdAt: .distantPast)
+    ]
+    initial.repositories.$sessions.withLock { $0[key] = SessionSidecarEntry(branches: ["old-branch"]) }
+    let surfaceID = UUID()
+    initial.repositories.sessionSnapshots = [
+      SessionLiveSnapshot(
+        harness: .pi, sessionRef: nil,
+        cwd: tmpDir.path(percentEncoded: false),
+        location: SessionLocation(
+          worktreeID: WorktreeID(tmpDir.path), tabID: TabID(), surfaceID: surfaceID))
+    ]
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = .distantPast
+      $0.uuid = .incrementing
+      $0[GitClientDependency.self].branchName = { _ in "new-branch" }
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\..repositories.delegate.resumeSession)
+    await store.receive(\.resumeBranchProbeCompleted) { appState in
+      #expect(appState.pendingBranchMismatchResume?.isProvisionalConflict == true)
+      #expect(appState.pendingBranchMismatchResume?.recordedBranch == "old-branch")
+      #expect(appState.pendingBranchMismatchResume?.currentBranch == "new-branch")
+      #expect(appState.alert != nil)
+    }
+    await store.finish()
+  }
+
+  // MARK: - A2 regression: nil branch probe with history must alert, not launch
+
+  @Test(.dependencies) func failedBranchProbeWithHistoryAlertsAndClearsReservation() async throws {
+    let tmpDir = try temporaryDirectory(named: "probe-fail")
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+    let key = SessionKey(harness: .pi, sessionID: "probefail")
+    var initial = state()
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
+        createdAt: .distantPast)
+    ]
+    initial.repositories.$sessions.withLock { $0[key] = SessionSidecarEntry(branches: ["main"]) }
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = .distantPast
+      $0.uuid = .incrementing
+      $0[GitClientDependency.self].branchName = { _ in nil }
+      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\..repositories.delegate.resumeSession)
+    await store.receive(\.resumeBranchProbeCompleted) { appState in
       #expect(appState.alert != nil)
       #expect(appState.pendingSessionLaunch == nil)
     }
     await store.finish()
+    #expect(sent.value.isEmpty)
   }
 
 }

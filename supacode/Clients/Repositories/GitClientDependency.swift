@@ -327,6 +327,7 @@ extension GitClientDependency: DependencyKey {
     value.cloneStream = { _, _, _, _ in
       AsyncThrowingStream { $0.finish() }
     }
+    value.branchName = { _ in nil }
     return value
   }
 }

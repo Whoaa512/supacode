@@ -17,6 +17,7 @@ struct PendingBranchMismatchResume: Equatable {
   let command: String
   let recordedBranch: String
   let currentBranch: String
+  var isProvisionalConflict: Bool = false
 }
 
 struct PreparedSessionResume: Equatable {
@@ -246,8 +247,6 @@ extension AppFeature {
       FileManager.default.isReadableFile(atPath: cwdPath)
     else {
       repositoriesLogger.warning("New session: cwd not found or not readable: \(cwdPath)")
-      let name = cwd.lastPathComponent.isEmpty ? cwdPath : cwd.lastPathComponent
-      state.alert = AlertState { TextState("Cannot start session: \"\(name)\" is not accessible.") }
       return .none
     }
     let requestID = uuid()
@@ -268,27 +267,9 @@ extension AppFeature {
 
   private static func handleResumeSession(_ key: SessionKey, state: inout State) -> Effect<Action> {
     @Dependency(\.date) var date
-    // A1: 10-second cooldown after any dispatched launch for the same key.
     if let last = state.recentSessionLaunchDate[key],
        date.now.timeIntervalSince(last) < 10 { return .none }
-    // A2: surface a visible alert when cwd is missing or unreadable before proceeding.
-    if state.pendingSessionLaunch == nil, state.pendingBranchMismatchResume == nil,
-       let item = state.repositories.sessionItems[id: .session(key)] {
-      let stdCwd = URL(fileURLWithPath: item.cwd).standardizedFileURL
-      let cwdPath = stdCwd.path(percentEncoded: false)
-      var isDir: ObjCBool = false
-      if !FileManager.default.fileExists(atPath: cwdPath, isDirectory: &isDir)
-          || !isDir.boolValue
-          || !FileManager.default.isReadableFile(atPath: cwdPath) {
-        let name = stdCwd.lastPathComponent.isEmpty ? cwdPath : stdCwd.lastPathComponent
-        state.alert = AlertState { TextState("Cannot resume: \"\(name)\" is not accessible.") }
-        return .none
-      }
-    }
-    guard let prepared = prepareResumeSession(key, state: state) else { return .none }
-    guard shouldProbeBranchBeforeResume(key: key, state: state) else {
-      return startPreparedResume(prepared, state: &state)
-    }
+    guard let prepared = prepareResumeSession(key, state: &state) else { return .none }
     @Dependency(\.uuid) var uuid
     let pending = PendingSessionLaunch(
       key: key, cwd: prepared.cwd, command: prepared.command, requestID: uuid(), probing: true)
@@ -312,7 +293,7 @@ extension AppFeature {
 
   private static func prepareResumeSession(
     _ key: SessionKey,
-    state: State
+    state: inout State
   ) -> PreparedSessionResume? {
     guard state.pendingSessionLaunch == nil, state.pendingBranchMismatchResume == nil else { return nil }
     guard let item = state.repositories.sessionItems[id: .session(key)] else { return nil }
@@ -328,14 +309,11 @@ extension AppFeature {
       FileManager.default.isReadableFile(atPath: cwdPath)
     else {
       repositoriesLogger.warning("Session resume: cwd not found or not readable: \(item.cwd)")
+      let name = standardCwd.lastPathComponent.isEmpty ? cwdPath : standardCwd.lastPathComponent
+      state.alert = AlertState { TextState("Cannot resume: \"\(name)\" is not accessible.") }
       return nil
     }
     return PreparedSessionResume(key: key, cwd: standardCwd, command: command)
-  }
-
-  private static func shouldProbeBranchBeforeResume(key: SessionKey, state: State) -> Bool {
-    guard let branches = state.repositories.sessions[key]?.branches, !branches.isEmpty else { return false }
-    return true
   }
 
   private static func runResumeBranchProbe(_ pending: PendingSessionLaunch) -> Effect<Action> {
@@ -358,33 +336,72 @@ extension AppFeature {
     let key = pending.key
     let cwd = pending.cwd
     let command = pending.command
-    guard let branches = state.repositories.sessions[key]?.branches, !branches.isEmpty else {
-      return startPreparedResume(
-        PreparedSessionResume(key: key, cwd: cwd, command: command), requestID: requestID, state: &state)
+    let branches = state.repositories.sessions[key]?.branches ?? []
+    let hasBranchHistory = !branches.isEmpty
+    let resolvedBranch: String?
+    if let branch = currentBranch, !branch.isEmpty {
+      resolvedBranch = branch
+    } else if hasBranchHistory {
+      state.pendingSessionLaunch = nil
+      state.alert = AlertState {
+        TextState("Cannot resume: branch probe failed at \"\(cwd.path(percentEncoded: false))\".") }
+      return .none
+    } else {
+      resolvedBranch = nil
     }
-    guard let currentBranch, !currentBranch.isEmpty else {
+    let recordedBranch = hasBranchHistory && resolvedBranch.map({ !branches.contains($0) }) == true
+      ? branches.last : nil
+    let isProvisional = hasProvisionalSameHarnessCwd(key: key, cwd: cwd, state: state)
+    let isMismatch = recordedBranch != nil
+    guard isProvisional || isMismatch else {
       return startPreparedResume(
-        PreparedSessionResume(key: key, cwd: cwd, command: command), requestID: requestID, state: &state)
-    }
-    guard !branches.contains(currentBranch), let recordedBranch = branches.last else {
-      return startPreparedResume(
-        PreparedSessionResume(key: key, cwd: cwd, command: command), requestID: requestID, state: &state)
+        PreparedSessionResume(key: key, cwd: cwd, command: command),
+        requestID: requestID, state: &state)
     }
     state.pendingBranchMismatchResume = PendingBranchMismatchResume(
       key: key, cwd: cwd, command: command,
-      recordedBranch: recordedBranch, currentBranch: currentBranch)
+      recordedBranch: recordedBranch ?? "",
+      currentBranch: resolvedBranch ?? "",
+      isProvisionalConflict: isProvisional)
+    let title: String
+    let message: String
+    if isProvisional && isMismatch {
+      title = "Session conflict"
+      message =
+        "pi is connecting to a session at \(cwd.path(percentEncoded: false)) and this folder is "
+        + "on \(resolvedBranch ?? ""). The session last worked on \(recordedBranch ?? ""). "
+        + "Supacode will not checkout branches for you."
+    } else if isProvisional {
+      title = "Session already starting"
+      message =
+        "pi is connecting to a session at \(cwd.path(percentEncoded: false)). "
+        + "Resume anyway to open a second session."
+    } else {
+      title = "Resume on different branch?"
+      message =
+        "This session last worked on \(recordedBranch ?? ""), but this folder is "
+        + "on \(resolvedBranch ?? ""). Supacode will not checkout branches for you."
+    }
     state.alert = AlertState {
-      TextState("Resume on different branch?")
+      TextState(title)
     } actions: {
       ButtonState(role: .cancel, action: .cancelBranchMismatchResume) { TextState("Cancel") }
-      ButtonState(action: .confirmBranchMismatchResume) { TextState("Resume") }
+      ButtonState(action: .confirmBranchMismatchResume) { TextState("Resume Anyway") }
     } message: {
-      TextState(
-        "This session last worked on \(recordedBranch), but this folder is on \(currentBranch). "
-          + "Supacode will not checkout branches for you."
-      )
+      TextState(message)
     }
     return .none
+  }
+
+  private static func hasProvisionalSameHarnessCwd(
+    key: SessionKey, cwd: URL, state: State
+  ) -> Bool {
+    let rawParts = key.rawValue.split(separator: ":", maxSplits: 1).map(String.init)
+    guard let harness = SkillAgent(rawValue: rawParts.first ?? "") else { return false }
+    let cwdPath = cwd.path(percentEncoded: false)
+    return state.repositories.sessionSnapshots.contains { snap in
+      snap.harness == harness && snap.sessionRef == nil && snap.cwd == cwdPath
+    }
   }
 
   private static func startPreparedResume(
@@ -518,7 +535,7 @@ extension AppFeature {
             let id = tab.content.id.rawValue
             locations[id] = (
               SessionLocation(worktreeID: worktree.id, tabID: tab.id, surfaceID: id),
-              worktree.workingDirectory.path
+              worktree.workingDirectory.path(percentEncoded: false)
             )
           }
         }
