@@ -439,3 +439,52 @@
 - make lint: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1260. make build-app: exit 0. git diff --check: exit 0.
 - Logs: /tmp/a1a2a3-{lint,build,tests4}.log; build /tmp/a1a2a3-final-build.log.
 - No full suite, live-app operations, process signals, or protected-home writes. Untracked .worktrees/ and PAPERCUTS.md preserved.
+
+## A1–A3 second corrections (4460eb50, 8dbf1fde)
+
+### What was wrong with the previous A1/A2/A3 implementation
+
+**A1 (previous)**: Only added a 10-second cooldown. Missing the entire provisional live snapshot
+confirmation — no check for same-harness + same-cwd + nil-sessionRef presence before launching.
+Branch probe was conditional (skipped when no history), so `finishResumeBranchProbe` was not
+reached for no-history sessions. `// A1:` and `// A2:` comments left in code.
+
+**A2 (previous)**: Alert was duplicated: once in `handleResumeSession` (before calling
+`prepareResumeSession`) and a second silent return in `prepareResumeSession` itself.
+`prepareResumeSession` did not take `inout State` so could not set the alert.
+nil/empty probe result still fell through to `startPreparedResume` (launch) instead of alerting.
+Unrelated new-session alert added to `handleNewSession` (out of scope for A2).
+
+**A3 (previous)**: Used `ProgressView()` with frame/padding instead of exact `Text("Indexing
+sessions…")`. Used `sessionsRefreshInFlight` alone (misses the initial state before any refresh
+starts) with no `sessionsHasCompletedRefresh` tracking. Tests used `sessionsRefreshInFlight` flag
+directly rather than proving the computed property the view uses.
+
+### Fixes applied
+
+**A1**: `PendingBranchMismatchResume` gained `isProvisionalConflict: Bool`. Branch probe now always
+runs (removed `shouldProbeBranchBeforeResume`). `finishResumeBranchProbe` checks same-harness +
+same standardized cwd + nil sessionRef in `state.repositories.sessionSnapshots`; combines
+provisional and branch-mismatch into one "Resume Anyway / Cancel" alert. `GitClientDependency.
+testValue` defaults `branchName` to nil so unstubbed tests complete the probe without shelling out.
+Removed `// A1:` / `// A2:` comments.
+
+**A2**: nil/empty probe + existing branch history → alert with full cwd path, clear reservation, no
+launch. `prepareResumeSession` changed to `inout State` and now sets the cwd alert itself; duplicate
+pre-check removed from `handleResumeSession`. New-session alert removed from `handleNewSession`.
+
+**A3**: Added `sessionsHasCompletedRefresh: Bool` (set true on `sessionsRefreshCompleted`, never
+reset) + computed `sessionsIndexingInProgress: Bool { sessionsRefreshInFlight ||
+!sessionsHasCompletedRefresh }`. View uses exact `Text("Indexing sessions…")` / `Text("No sessions
+")`. Tests prove the computed property directly via state mutation, no per-row reads.
+
+### Build/test
+- make generate-project: exit 0
+- make lint: exit 2, only pre-existing DeeplinkClient:26 and CommandPaletteFeature:1260 violations
+  plus pre-existing `st`/`s` identifier violations in RepositoriesFeatureSessionsTests.swift
+- Targeted tests: AppFeatureSessionsTests + RepositoriesFeatureSessionsTests: exit 0,
+  totalTestCount 91, failedTests 0
+- make build-app: exit 0
+- A1+A2 combined in one commit (4460eb50) because changes are interleaved in AppFeature+Sessions.
+  swift; task required one-per-item but partial staging is not available without interactive git.
+- Previous deviation: test for `newSessionMissingCwdShowsAlert` removed (alert was out of scope).
