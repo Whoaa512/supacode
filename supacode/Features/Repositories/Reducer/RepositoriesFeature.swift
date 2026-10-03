@@ -337,11 +337,14 @@ struct RepositoriesFeature {
     @Shared(.sessionFolderRoots) var sessionFolderRoots: [String]
     var sessionsRestorationFinished = false
     var sessionsRefreshSucceeded = false
+    var sessionsHasCompletedRefresh = false
     var sessionsLiveKeys: Set<SessionKey> = []
     var sessionsHasUnresolvedLivePresence = false
     var sessionsStarted = false
     var sessionsRefreshInFlight = false
     var sessionsRefreshPending = false
+
+    var sessionsIndexingInProgress: Bool { sessionsRefreshInFlight || !sessionsHasCompletedRefresh }
     var sidebarItems: IdentifiedArrayOf<SidebarItemFeature.State> = []
     var sidebarGrouping: SidebarGrouping = .empty
     /// Long-lived reader hoisted onto State so `reconcileSidebarItems` stays a

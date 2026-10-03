@@ -44,10 +44,9 @@ struct SessionsSidebarListView: View {
       )
     ) {
       if store.sessionsSidebarStructure.sections.isEmpty {
-        if store.sessionsRefreshInFlight {
-          ProgressView()
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding()
+        if store.sessionsIndexingInProgress {
+          Text("Indexing sessions\u{2026}")
+            .foregroundStyle(.secondary)
         } else {
           Text("No sessions")
             .foregroundStyle(.secondary)

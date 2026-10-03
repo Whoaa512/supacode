@@ -764,4 +764,36 @@ struct RepositoriesFeatureSessionsTests {
     await store.send(.sessionsStopped)
     await store.finish()
   }
+
+  // MARK: - sessionsIndexingInProgress computed property
+
+  @Test func sessionsIndexingInProgressTrueWhenNoRefreshCompletedYet() {
+    var repo = RepositoriesFeature.State()
+    repo.sessionsRefreshInFlight = false
+    repo.sessionsHasCompletedRefresh = false
+    #expect(repo.sessionsIndexingInProgress == true)
+  }
+
+  @Test func sessionsIndexingInProgressTrueWhileRefreshInFlight() {
+    var repo = RepositoriesFeature.State()
+    repo.sessionsRefreshInFlight = true
+    repo.sessionsHasCompletedRefresh = true
+    #expect(repo.sessionsIndexingInProgress == true)
+  }
+
+  @Test func sessionsIndexingInProgressFalseAfterRefreshCompletedAndNotInFlight() {
+    var repo = RepositoriesFeature.State()
+    repo.sessionsRefreshInFlight = false
+    repo.sessionsHasCompletedRefresh = true
+    #expect(repo.sessionsIndexingInProgress == false)
+  }
+
+  @Test func sessionsIndexingInProgressFalseAfterSuccessThenSubsequentFailure() {
+    var repo = RepositoriesFeature.State()
+    repo.sessionsHasCompletedRefresh = true
+    repo.sessionsRefreshSucceeded = false
+    repo.sessionsRefreshInFlight = false
+    #expect(repo.sessionsIndexingInProgress == false,
+      "once completed, indexing stays false even if a later refresh fails")
+  }
 }

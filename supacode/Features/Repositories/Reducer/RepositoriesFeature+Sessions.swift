@@ -86,6 +86,7 @@ extension RepositoriesFeature {
 
       case .sessionsRefreshCompleted(let summaries):
         state.sessionsRefreshSucceeded = true
+        state.sessionsHasCompletedRefresh = true
         state.sessionSummaries = summaries
         state.reconcileSessionItems(now: date.now)
         state.autoSettleSessions(now: date.now, idleDays: settingsFile.global.sessionIdleDays)
