@@ -84,7 +84,7 @@ struct RepositoriesFeatureAutoSettleTests {
     await store.send(.sessionsRefreshCompleted([row]))
     #expect(store.state.sessions[row.id]?.manualUnsettledAtActivity == row.lastActivity)
     #expect(store.state.sessions[row.id]?.settledAt == nil)
-    row.lastActivity = now
+    row.lastActivity = now.addingTimeInterval(-7_200)
     await store.send(.sessionsRefreshCompleted([row]))
     #expect(store.state.sessions[row.id]?.manualUnsettledAtActivity == nil)
     #expect(store.state.sessions[row.id]?.settledAt == now)
@@ -126,6 +126,17 @@ struct RepositoriesFeatureAutoSettleTests {
     @Shared(.settingsFile) var settingsFile
     $settingsFile.withLock { $0.global.sessionIdleDays = 0 }
     let row = summary(count: 0)
+    let store = store()
+    await store.send(.sessionsRestorationCompleted([]))
+    await store.send(.sessionsRefreshCompleted([row]))
+    #expect(store.state.sessions[row.id] == nil)
+    await store.finish()
+  }
+
+  @Test(.dependencies)
+  func twoMessageSessionWithRecentActivityIsNotAutoSettledAfterReload() async {
+    var row = summary(count: 2)
+    row.lastActivity = now.addingTimeInterval(-1_800)
     let store = store()
     await store.send(.sessionsRestorationCompleted([]))
     await store.send(.sessionsRefreshCompleted([row]))

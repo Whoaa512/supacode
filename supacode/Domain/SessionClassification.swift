@@ -22,6 +22,9 @@ nonisolated enum SessionClassification {
     )
   }
 
+  /// Dormant sessions with fewer than 4 messages settle after this many seconds of inactivity.
+  static let dormantInactivityThreshold: TimeInterval = 3_600
+
   static func classify(
     summary: SessionSummary, isLive: Bool, sidecar: SessionSidecarEntry? = nil,
     now: Date, idleDays: Int = 3
@@ -33,8 +36,9 @@ nonisolated enum SessionClassification {
       return Classification(lifecycle: .active, runtime: runtime)
     }
     guard idleDays > 0 else { return Classification(lifecycle: .active, runtime: runtime) }
-    let settled = summary.messageCount < 4
-      || now.timeIntervalSince(summary.lastActivity) >= Double(idleDays) * 86_400
+    let inactivity = now.timeIntervalSince(summary.lastActivity)
+    let settled = (summary.messageCount < 4 && inactivity >= dormantInactivityThreshold)
+      || inactivity >= Double(idleDays) * 86_400
     return Classification(lifecycle: settled ? .settled : .active, runtime: runtime)
   }
 

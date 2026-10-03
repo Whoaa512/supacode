@@ -58,11 +58,17 @@ struct SessionClassificationTests {
     AutoCase(explicit: true, live: true, settled: true),
     AutoCase(live: true, count: 0),
     AutoCase(hold: true, count: 0),
-    AutoCase(count: 3, age: 0, settled: true),
+    // under-4 rule requires inactivity >= 3600 s
+    AutoCase(count: 3, age: 0),
+    AutoCase(count: 3, age: 2.0 / 24.0, settled: true),
+    // idle-days rule
     AutoCase(age: 3, settled: true),
     AutoCase(age: 2.999),
     AutoCase(age: -1),
     AutoCase(count: 0, days: 0),
+    // 2-message boundary checks
+    AutoCase(count: 2, age: 5.0 / 1440.0),
+    AutoCase(count: 2, age: 2.0 / 24.0, settled: true),
   ])
   func autoClassificationPrecedence(_ value: AutoCase) {
     let now = Date(timeIntervalSince1970: 1_000_000)
@@ -80,13 +86,20 @@ struct SessionClassificationTests {
     let now = Date(timeIntervalSince1970: 1_000_000)
     var row = summary("hold", created: 0)
     row.messageCount = 3
-    row.lastActivity = now
-    let entry = SessionSidecarEntry(manualUnsettledAtActivity: now.addingTimeInterval(-1))
+    // lastActivity 2 hours ago satisfies dormantInactivityThreshold once hold is released
+    row.lastActivity = now.addingTimeInterval(-7_200)
+    let entry = SessionSidecarEntry(manualUnsettledAtActivity: row.lastActivity.addingTimeInterval(-1))
     #expect(SessionClassification.classify(
       summary: row, isLive: false, sidecar: entry, now: now
     ).lifecycle == .settled)
     #expect(SessionClassification.classify(
       summary: row, isLive: true, sidecar: entry, now: now
+    ).lifecycle == .active)
+    // recent activity (< threshold) after hold release stays active
+    row.lastActivity = now.addingTimeInterval(-60)
+    let freshEntry = SessionSidecarEntry(manualUnsettledAtActivity: row.lastActivity.addingTimeInterval(-1))
+    #expect(SessionClassification.classify(
+      summary: row, isLive: false, sidecar: freshEntry, now: now
     ).lifecycle == .active)
   }
 
