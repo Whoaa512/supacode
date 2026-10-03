@@ -253,3 +253,12 @@
 - Regression covers present(newSession), dismiss(false), successful completion: one pi tab in selected fixture cwd; cancellation resets purpose with no effect.
 - Targeted AppFeatureSessionsTests + AppFeatureCommandPaletteTests: exit 0, xcresult totalTestCount 58, failedTests 0. Initial run caught delegate routing below the generic repositories catch-all; moved handling before it and reran successfully.
 - make build-app: exit 0. make lint: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations. Logs /tmp/slice2-review-{tests,summary,lint,build}.*. No scope deviation or live-app interaction; builds/tests serialized.
+
+## Slice 3, step 2 — context menu arch fix + advance-unsettle gap
+
+- SessionContextMenu arch violation: was reading store.sessionItems[id:id]?.lifecycle in body (parent collection read). Fix: accepts StoreOf<SessionSidebarItemFeature> (already scoped at call site) + onSettle/onUnsettle closures; reads lifecycle from leaf. Call site gates contextMenu on .session case, captures key in closures.
+- settleSessionAndAdvance gap: handleSettleSessionAndAdvance used focusTerminalSurface directly, bypassing activateSession unsettle guard. Fix: if advance target lifecycle==.settled, merge .repositories(.unsettleSession(targetKey)) into effects.
+- First-review concern (locked scope / manually settled live rows): confirmed DISPROVEN. sessionRowID(byOffset:) iterates liveIDs which filters by location!=nil, not lifecycle; settled live rows remain in liveIDs. No filter change needed.
+- New test: settleSessionAndAdvanceUnsettlesSettledDestination — second row settled+live; advance unsettles it. Passed.
+- make lint: exit 2, only baseline violations (unchanged). make build-app: exit 0. Targeted supacodeFeatureTests/AppFeatureSessionsTests: exit 0, totalTestCount=28, failedTests=0. Logs: /tmp/slice3-step2-{lint,tests-feature,build}.log. No live-app interaction; live app was running (pgrep exit 0) but build-app does not launch it.
+- Commit: de0e401e. Named files: SessionsSidebarListView.swift, AppFeature+Sessions.swift, AppFeatureSessionsTests.swift.
