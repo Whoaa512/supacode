@@ -410,3 +410,9 @@
 - Regression projects real error presence through snapshots/reconciliation and asserts no focus or selection. Existing awaiting-input/done-unseen navigation and per-leaf observation tests remain green.
 - Targeted AppFeatureSessionsTests + RepositoriesFeatureSessionsTests + SessionsSidebarObservationTests: exit 0, totalTestCount 80, failedTests 0. Final make build-app: exit 0. make lint before both commits: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations; git diff --check: exit 0.
 - Builds/tests serialized with pgrep checks; logs /tmp/slice4-fix{1,2}-{tests,lint}.log, summaries /tmp/slice4-fix{1,2}-summary.json, build /tmp/slice4-review-final-build.log. No live-app operations, full suite, protected-home writes or scope deviations; untracked files preserved.
+
+## Slice 4 post-review gate fix 1 — exhaustive presence expectations
+- Both reported failures confirmed: nil-sessionRef presence now correctly emits sessionsLiveKeysChanged with unresolved=true; strict chrome/fan-out tests had omitted that action. Added explicit receives and state assertions; production safety gate and test exhaustivity unchanged.
+- Targeted AppFeatureSettingsChangedTests excluding only A2 baseline settingsChangedPropagatesRepositorySettings(): exit 0; xcresult totalTestCount 11, failedTests 0. First attempt failed compilation/count 0 because App Action is not Equatable; corrected to case-key-path receives.
+- make build-app: exit 0. make lint: exit 2, only unchanged baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations. git diff --check: exit 0.
+- Logs /tmp/slice4-postgate-{tests,lint,build}.log; summary /tmp/slice4-postgate-summary.json. Serialized builds/tests; no full suite or live-environment operations, no scope deviation. Untracked files preserved.

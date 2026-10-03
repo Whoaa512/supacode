@@ -151,6 +151,9 @@ struct AppFeatureSettingsChangedTests {
         isWorking: true
       )
     }
+    await store.receive(\.repositories.sessionsLiveKeysChanged) {
+      $0.repositories.sessionsHasUnresolvedLivePresence = true
+    }
     await clock.advance(by: .seconds(1))
     await store.finish()
   }
@@ -179,6 +182,9 @@ struct AppFeatureSettingsChangedTests {
     }
 
     await store.send(.agentPresence(.delegate(.surfacesChanged([surfaceID]))))
+    await store.receive(\.repositories.sessionsLiveKeysChanged) {
+      $0.repositories.sessionsHasUnresolvedLivePresence = true
+    }
     await clock.advance(by: .seconds(1))
     await store.finish()
     #expect(content.terminalChrome.agents == [.init(agent: .claude, activity: .busy)])
