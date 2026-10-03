@@ -11,6 +11,7 @@ struct TerminalCommands: Commands {
   @FocusedValue(\.newSessionInDirectoryAction) private var newSessionInDirectoryAction
   @FocusedValue(\.settleSessionAndAdvanceAction) private var settleSessionAndAdvanceAction
   @FocusedValue(\.unsettleSessionAction) private var unsettleSessionAction
+  @FocusedValue(\.nextSessionNeedsMeAction) private var nextSessionNeedsMeAction
   @FocusedValue(\.renameTabAction) private var renameTabAction
   @FocusedValue(\.splitTerminalAction) private var splitTerminalAction
   @FocusedValue(\.toggleWindowModeAction) private var toggleWindowModeAction
@@ -67,6 +68,15 @@ struct TerminalCommands: Commands {
       .appKeyboardShortcut(AppShortcuts.unsettleSession.effective(from: overrides))
       .disabled(unsettleSessionAction?.isEnabled != true)
       .help("Unsettle current session (\(AppShortcuts.unsettleSession.effective(from: overrides)?.display ?? "none"))")
+
+      Button("Next Session That Needs Me") {
+        nextSessionNeedsMeAction?()
+      }
+      .appKeyboardShortcut(AppShortcuts.nextSessionNeedsMe.effective(from: overrides))
+      .disabled(nextSessionNeedsMeAction?.isEnabled != true)
+      .help(
+        "Next session that needs me (\(AppShortcuts.nextSessionNeedsMe.effective(from: overrides)?.display ?? "none"))"
+      )
 
       Button("Rename Tab", systemImage: "pencil") {
         renameTabAction?()
@@ -277,6 +287,10 @@ private struct UnsettleSessionActionKey: FocusedValueKey {
   typealias Value = FocusedAction<Void>
 }
 
+private struct NextSessionNeedsMeActionKey: FocusedValueKey {
+  typealias Value = FocusedAction<Void>
+}
+
 private struct ToggleTerminalGridActionKey: FocusedValueKey {
   typealias Value = FocusedAction<Void>
 }
@@ -310,6 +324,11 @@ extension FocusedValues {
   var unsettleSessionAction: FocusedAction<Void>? {
     get { self[UnsettleSessionActionKey.self] }
     set { self[UnsettleSessionActionKey.self] = newValue }
+  }
+
+  var nextSessionNeedsMeAction: FocusedAction<Void>? {
+    get { self[NextSessionNeedsMeActionKey.self] }
+    set { self[NextSessionNeedsMeActionKey.self] = newValue }
   }
 }
 

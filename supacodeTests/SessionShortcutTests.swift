@@ -35,8 +35,10 @@ struct SessionShortcutTests {
   @Test func settleAndUnsettleDefaultChordsAreRegisteredAndUnique() {
     #expect(AppShortcuts.settleSessionAndAdvance.display == "⌘⌃E")
     #expect(AppShortcuts.unsettleSession.display == "⌘⌃U")
+    #expect(AppShortcuts.nextSessionNeedsMe.display == "⌘⌃N")
     #expect(AppShortcuts.all.contains { $0.id == .settleSessionAndAdvance })
     #expect(AppShortcuts.all.contains { $0.id == .unsettleSession })
+    #expect(AppShortcuts.all.contains { $0.id == .nextSessionNeedsMe })
 
     let duplicates = Dictionary(grouping: AppShortcuts.all.filter(\.isEnabledByDefault), by: \.display)
       .filter { $0.value.count > 1 }
@@ -53,7 +55,9 @@ struct SessionShortcutTests {
     ])
     #expect(AppShortcuts.settleSessionAndAdvance.ghosttyKeybind == "ctrl+super+e")
     #expect(AppShortcuts.unsettleSession.ghosttyKeybind == "ctrl+super+u")
+    #expect(AppShortcuts.nextSessionNeedsMe.ghosttyKeybind == "ctrl+super+n")
     #expect(!knownGhosttyDefaults.contains(AppShortcuts.settleSessionAndAdvance.ghosttyKeybind))
     #expect(!knownGhosttyDefaults.contains(AppShortcuts.unsettleSession.ghosttyKeybind))
+    #expect(!knownGhosttyDefaults.contains(AppShortcuts.nextSessionNeedsMe.ghosttyKeybind))
   }
 }

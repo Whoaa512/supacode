@@ -132,6 +132,7 @@ extension AppFeature.Action {
       .openWorktree, .openWorktreeFailed, .openFile, .openFileFromExplorer, .requestQuit,
       .requestTerminateAllTerminalSessions, .newTerminal, .newSession, .newSessionInDirectory,
       .newSessionDirectorySelected, .settleSessionAndAdvance, .unsettleCurrentSession,
+      .nextSessionNeedsMe,
       .renameSelectedTerminalTab,
       .selectTerminalTabAtIndex, .selectNextTerminalTab, .selectPreviousTerminalTab,
       .splitTerminal, .toggleWindowModeForFocusedPane, .toggleSplitZoom,

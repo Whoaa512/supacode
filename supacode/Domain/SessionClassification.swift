@@ -3,6 +3,12 @@ import Foundation
 nonisolated enum SessionClassification {
   enum Lifecycle: String, Equatable, Sendable { case active, settled }
   enum Runtime: String, Equatable, Sendable { case live, dormant }
+  enum Status: String, Equatable, Sendable {
+    case needsYou = "needs-you"
+    case working
+    case doneUnseen = "done-unseen"
+    case idle
+  }
 
   struct Classification: Equatable, Sendable {
     var lifecycle: Lifecycle

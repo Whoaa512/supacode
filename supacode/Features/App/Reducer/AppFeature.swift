@@ -342,6 +342,7 @@ struct AppFeature {
     case newSessionDirectorySelected(URL)
     case settleSessionAndAdvance
     case unsettleCurrentSession
+    case nextSessionNeedsMe
     case renameSelectedTerminalTab
     case toggleWindowModeForFocusedPane
     case toggleSplitZoom
@@ -1156,6 +1157,9 @@ struct AppFeature {
 
       case .unsettleCurrentSession:
         return Self.handleUnsettleCurrentSession(state: &state)
+
+      case .nextSessionNeedsMe:
+        return Self.handleNextSessionNeedsMe(state: &state)
 
       case .renameSelectedTerminalTab:
         guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID),

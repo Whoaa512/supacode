@@ -2,7 +2,7 @@ import Foundation
 import IdentifiedCollections
 import Sharing
 
-nonisolated struct SessionsSidebarStructure: Equatable, Sendable {
+struct SessionsSidebarStructure: Equatable, Sendable {
   struct Section: Equatable, Identifiable, Sendable {
     var id: SessionClassification.Lifecycle
     var rowIDs: [SessionRowID]
@@ -21,6 +21,18 @@ nonisolated struct SessionsSidebarStructure: Equatable, Sendable {
       return offset > 0 ? ids.first : ids.last
     }
     return ids[(index + offset + ids.count) % ids.count]
+  }
+
+  func nextNeedingAttention(
+    from current: SessionRowID?, items: IdentifiedArrayOf<SessionSidebarItemFeature.State>
+  ) -> SessionRowID? {
+    let targets = liveIDs.filter {
+      guard let status = items[id: $0]?.status else { return false }
+      return status == .needsYou || status == .doneUnseen
+    }
+    guard !targets.isEmpty else { return nil }
+    guard let current, let index = targets.firstIndex(of: current) else { return targets.first }
+    return targets[(index + 1) % targets.count]
   }
 }
 
@@ -72,6 +84,7 @@ extension RepositoriesFeature.State {
           createdAt: summary.createdAt,
           lifecycle: SessionClassification.classify(isLive: false, sidecar: sessions[summary.id])
             .lifecycle,
+          status: nil,
           branchAnnotation: branchAnnotation(for: summary.id, cwd: summary.cwd)
         ))
     }
@@ -80,7 +93,7 @@ extension RepositoriesFeature.State {
       rows.append(
         SessionSidebarItemFeature.State(
           id: row.id, title: row.title, cwd: row.cwd, createdAt: row.createdAt,
-          lifecycle: row.lifecycle, branchAnnotation: row.branchAnnotation, isSynthetic: true
+          lifecycle: row.lifecycle, status: nil, branchAnnotation: row.branchAnnotation, isSynthetic: true
         ))
     }
     for snapshot in sessionSnapshots.sorted(by: {
@@ -93,6 +106,7 @@ extension RepositoriesFeature.State {
           SessionSidebarItemFeature.State(
             id: id, title: "New session", cwd: snapshot.cwd,
             createdAt: previous[id: id]?.createdAt ?? previous[id: provisionalID]?.createdAt ?? now,
+            status: snapshot.status,
             isSynthetic: true
           ))
       }
@@ -101,6 +115,7 @@ extension RepositoriesFeature.State {
           SessionClassification.classify(isLive: true, sidecar: sessions[key]).lifecycle
         rows[id: id]?.branchAnnotation = branchAnnotation(for: key, cwd: snapshot.cwd)
       }
+      rows[id: id]?.status = snapshot.status
       let preferred = previous[id: id]?.location
       if rows[id: id]?.location == nil || snapshot.location == preferred {
         rows[id: id]?.location = snapshot.location

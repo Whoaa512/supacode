@@ -202,6 +202,15 @@ extension AppFeature {
     return .send(.repositories(.unsettleSession(key)))
   }
 
+  static func handleNextSessionNeedsMe(state: inout State) -> Effect<Action> {
+    let currentID = focusedSessionRowID(state: state) ?? state.repositories.sessionSelection
+    guard let id = state.repositories.sessionsSidebarStructure.nextNeedingAttention(
+      from: currentID, items: state.repositories.sessionItems
+    ) else { return .none }
+    return RepositoriesFeature.focusSessionNavigation(state: &state.repositories, id: id)
+      .map(Action.repositories)
+  }
+
   static func handleNewSession(directory: URL?, state: inout State) -> Effect<Action> {
     guard state.pendingSessionLaunch == nil else { return .none }
     @Dependency(\.uuid) var uuid
@@ -465,12 +474,26 @@ extension AppFeature {
     return state.agentPresence.records.compactMap { key, record in
       guard let (location, cwd) = locations[key.surfaceID] else { return nil }
       return SessionLiveSnapshot(
-        harness: key.agent, sessionRef: record.sessionRef, cwd: cwd, location: location)
+        harness: key.agent, sessionRef: record.sessionRef, cwd: cwd, location: location,
+        status: sessionStatus(for: record))
     }.sorted {
       if $0.location.surfaceID != $1.location.surfaceID {
         return $0.location.surfaceID.uuidString < $1.location.surfaceID.uuidString
       }
       return $0.harness.rawValue < $1.harness.rawValue
+    }
+  }
+
+  private static func sessionStatus(
+    for record: AgentPresenceFeature.PresenceRecord
+  ) -> SessionClassification.Status {
+    switch record.activity {
+    case .awaitingInput, .error:
+      return .needsYou
+    case .busy, .compacting:
+      return .working
+    case .idle:
+      return record.isDoneUnseen ? .doneUnseen : .idle
     }
   }
 }

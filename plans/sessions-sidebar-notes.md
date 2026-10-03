@@ -344,3 +344,20 @@
 - Fixture now closes its original pipe writer before dispatch and polls the retained reader for POLLHUP after effects finish. This proves the response writer closed without inspecting a recyclable FD number; error JSON and no-mutation assertions remain.
 - Targeted SessionCLITests: exit 0, xcresult totalTestCount 4, 11 parameterized/device runs, failedTests 0. make build-app: exit 0. make lint: exit 2, only existing DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations; unchanged per A10. git diff --check: exit 0.
 - Logs: /tmp/slice3-gate-fix1-{tests,lint,build}.log and summary.json. No new file/generation needed; full gate not rerun. Builds/tests serialized with pgrep checks; no live-app operations or protected-home writes. No scope deviation; baseline failures and untracked files preserved.
+
+## Slice 4, steps 1-2 + A6 audit — live status and next-needs-me
+- Status derives from existing presence only: awaitingInput/error needs-you, busy/compacting working, idle+doneUnseen done-unseen, else idle.
+- SessionLiveSnapshot carries status into the leaf; structure still stores ids/order/liveIDs only.
+- Row rendering adds a live status glyph with system colors; dormant rows have nil status.
+- `nextSessionNeedsMe` is ⌘⌃N; A6 audit found no Supacode default duplicate or known Ghostty default collision.
+- Action filters live rows with needs-you or done-unseen only; circular from focused row/selection; no target no-ops.
+- CLI session list now reports the live status raw value.
+- Added App navigation tests for wrap/no-target and shortcut tests for ⌘⌃N.
+- Added SessionsSidebarObservationTests proving status mutation invalidates own leaf only, not sibling/structure.
+- No auto-settle/settings/coarse timer work included; deferred to later Slice 4.
+- make generate-project: exit 0.
+- Targeted tests final: exit 0; xcresult totalTestCount 79, failedTests 0.
+- make lint: exit 2, baseline DeeplinkClient:26 and CommandPaletteFeature:1260 only.
+- make build-app: exit 0.
+- pgrep xcodebuild checked before every build/test; no full tests run.
+- Unverified: live UI glyph appearance and actual menu shortcut dispatch in owner app.

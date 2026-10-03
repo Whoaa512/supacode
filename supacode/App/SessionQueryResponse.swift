@@ -1,7 +1,7 @@
 import Foundation
 import IdentifiedCollections
 
-nonisolated enum SessionQueryResponse {
+enum SessionQueryResponse {
   enum Key {
     static let id = "id"
     static let title = "title"
@@ -25,7 +25,7 @@ nonisolated enum SessionQueryResponse {
         Key.cwd: item.cwd,
         Key.lifecycle: item.lifecycle == .active ? "active" : "settled",
         Key.live: item.isLive ? "1" : "",
-        Key.status: "",
+        Key.status: item.status?.rawValue ?? "",
         Key.branch: item.branchAnnotation ?? repositories.sessions[key]?.branches.last ?? "",
         Key.surfaceID: item.location?.surfaceID.uuidString ?? "",
       ]

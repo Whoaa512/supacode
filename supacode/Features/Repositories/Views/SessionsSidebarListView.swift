@@ -99,6 +99,11 @@ private struct SessionSidebarRowView: View {
       HStack {
         Image(systemName: store.isLive ? "terminal" : "moon")
           .accessibilityLabel(store.isLive ? "Live session" : "Dormant session")
+        if let status = store.status {
+          Image(systemName: status.systemImage)
+            .foregroundStyle(status.tint)
+            .accessibilityLabel(status.accessibilityLabel)
+        }
         VStack(alignment: .leading, spacing: 2) {
           Text(store.title)
             .font(.body)
@@ -129,5 +134,34 @@ private struct SessionSidebarRowView: View {
     .buttonStyle(.plain)
     .help(
       store.isLive ? "Focus this session (Return when selected)" : "Dormant session — \(store.cwd)")
+  }
+}
+
+private extension SessionClassification.Status {
+  var systemImage: String {
+    switch self {
+    case .needsYou: "exclamationmark.circle.fill"
+    case .working: "gearshape.fill"
+    case .doneUnseen: "checkmark.circle.fill"
+    case .idle: "circle"
+    }
+  }
+
+  var tint: AnyShapeStyle {
+    switch self {
+    case .needsYou: AnyShapeStyle(.orange)
+    case .working: AnyShapeStyle(.blue)
+    case .doneUnseen: AnyShapeStyle(.green)
+    case .idle: AnyShapeStyle(.secondary)
+    }
+  }
+
+  var accessibilityLabel: String {
+    switch self {
+    case .needsYou: "Needs you"
+    case .working: "Working"
+    case .doneUnseen: "Done unseen"
+    case .idle: "Idle"
+    }
   }
 }
