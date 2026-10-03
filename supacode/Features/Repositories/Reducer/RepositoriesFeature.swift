@@ -7304,19 +7304,26 @@ extension RepositoriesFeature {
     _ folderRoots: [String],
     into repositories: [Repository]
   ) -> [Repository] {
-    let existingRootIDs = Set(repositories.map(\.id))
-    let existingWorktreeRoots = Set(
-      repositories.flatMap(\.worktrees)
-        .map { $0.workingDirectory.standardizedFileURL.path(percentEncoded: false) }
-    )
     var merged = repositories
     for path in folderRoots {
       let url = URL(fileURLWithPath: path).standardizedFileURL
-      let repoID = RepositoryID(url.path(percentEncoded: false))
-      guard !existingRootIDs.contains(repoID),
-        !existingWorktreeRoots.contains(url.path(percentEncoded: false))
-      else { continue }
-      merged.append(makeFolderRepository(for: url))
+      let urlPath = url.path(percentEncoded: false)
+      let repoID = RepositoryID(urlPath)
+      let folderRepo = makeFolderRepository(for: url)
+      if let idx = merged.firstIndex(where: { $0.id == repoID }) {
+        merged[idx] = folderRepo
+        continue
+      }
+      let worktreeMatchIdx = merged.firstIndex { repo in
+        repo.worktrees.contains {
+          $0.workingDirectory.standardizedFileURL.path(percentEncoded: false) == urlPath
+        }
+      }
+      if let idx = worktreeMatchIdx {
+        merged[idx] = folderRepo
+        continue
+      }
+      merged.append(folderRepo)
     }
     return merged
   }

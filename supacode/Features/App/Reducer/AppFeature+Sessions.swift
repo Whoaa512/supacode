@@ -7,6 +7,12 @@ struct PendingSessionLaunch: Equatable {
   let cwd: URL
   let command: String
   let requestID: UUID
+  var launched: Bool = false
+}
+
+struct BranchCaptureRequest: Equatable {
+  let key: SessionKey
+  let cwd: URL
 }
 
 extension AppFeature {
@@ -21,6 +27,7 @@ extension AppFeature {
           effects.append(.send(.repositories(.sessionSnapshotsChanged(snapshots))))
         }
         if let pending = state.pendingSessionLaunch,
+          !pending.launched,
           case .repositories(.delegate(.repositoriesChanged)) = action,
           let effect = Self.launchPendingSessionIfReady(pending: pending, state: &state)
         {
@@ -32,12 +39,31 @@ extension AppFeature {
       case .repositories(.delegate(.resumeSession(let key))):
         return Self.handleResumeSession(key, state: &state)
 
+      case .launchSessionCompleted(let requestID):
+        if state.pendingSessionLaunch?.requestID == requestID {
+          state.pendingSessionLaunch = nil
+        }
+        return .none
+
       case .terminalEvent(.agentHookEventReceived(let event)):
         let refresh: Effect<Action> =
           event.eventName == .idle || event.eventName == .sessionStart || event.eventName == .sessionEnd
           ? .send(.repositories(.sessionsRefreshRequested)) : .none
-        let branchEffect = Self.branchCaptureEffect(for: event, state: state)
+        let branchEffect = Self.enqueueBranchCapture(for: event, state: &state)
         return .merge(.send(.agentPresence(.hookEventReceived(event))), refresh, branchEffect)
+
+      case .branchCaptureProbeCompleted(let key, let branch):
+        state.branchCaptureInFlight = false
+        var effects: [Effect<Action>] = []
+        if let branch, !branch.isEmpty {
+          effects.append(.send(.repositories(.sessionBranchCaptured(key: key, branch: branch))))
+        }
+        if let next = state.branchCaptureQueue.first {
+          state.branchCaptureQueue.removeFirst()
+          state.branchCaptureInFlight = true
+          effects.append(Self.runBranchProbe(key: next.key, cwd: next.cwd))
+        }
+        return effects.isEmpty ? .none : .merge(effects)
 
       default:
         return .none
@@ -69,13 +95,15 @@ extension AppFeature {
       repositoriesLogger.warning("Session resume: cwd not found or not readable: \(item.cwd)")
       return .none
     }
-    let pending = PendingSessionLaunch(
-      key: key, cwd: standardCwd, command: command, requestID: uuid())
-    state.pendingSessionLaunch = pending
+    let requestID = uuid()
+    var pending = PendingSessionLaunch(
+      key: key, cwd: standardCwd, command: command, requestID: requestID)
     if let worktree = worktreeForCwd(standardCwd, state: state) {
-      state.pendingSessionLaunch = nil
-      return launchSessionTab(worktree: worktree, command: pending.command)
+      pending.launched = true
+      state.pendingSessionLaunch = pending
+      return launchSessionTab(worktree: worktree, command: pending.command, requestID: requestID)
     }
+    state.pendingSessionLaunch = pending
     return .send(.repositories(.registerSessionFolder(standardCwd)))
   }
 
@@ -84,8 +112,8 @@ extension AppFeature {
     state: inout State
   ) -> Effect<Action>? {
     guard let worktree = worktreeForCwd(pending.cwd, state: state) else { return nil }
-    state.pendingSessionLaunch = nil
-    return launchSessionTab(worktree: worktree, command: pending.command)
+    state.pendingSessionLaunch?.launched = true
+    return launchSessionTab(worktree: worktree, command: pending.command, requestID: pending.requestID)
   }
 
   private static func worktreeForCwd(_ cwd: URL, state: State) -> Worktree? {
@@ -96,9 +124,11 @@ extension AppFeature {
     }
   }
 
-  private static func launchSessionTab(worktree: Worktree, command: String) -> Effect<Action> {
+  private static func launchSessionTab(
+    worktree: Worktree, command: String, requestID: UUID
+  ) -> Effect<Action> {
     @Dependency(TerminalClient.self) var terminalClient
-    return .run { _ in
+    return .run { send in
       await terminalClient.send(
         .createTabWithInput(
           worktree,
@@ -109,37 +139,43 @@ extension AppFeature {
           anchor: nil
         )
       )
+      await send(.launchSessionCompleted(requestID: requestID))
     }
   }
 
-  nonisolated enum BranchCaptureCancelID: Hashable { case probe }
+  // MARK: - Branch capture (FIFO queue, one in-flight at a time)
 
-  // MARK: - Branch capture
-
-  private static func branchCaptureEffect(for event: AgentHookEvent, state: State) -> Effect<Action> {
+  private static func enqueueBranchCapture(
+    for event: AgentHookEvent, state: inout State
+  ) -> Effect<Action> {
     guard event.eventName == .busy || event.eventName == .idle else { return .none }
-    let agent: SkillAgent? = SkillAgent(rawValue: event.agent)
-    guard let agent else { return .none }
+    guard let agent = SkillAgent(rawValue: event.agent) else { return .none }
     let presenceKey = AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: event.surfaceID)
     let ref: String? = event.sessionRef ?? state.agentPresence.records[presenceKey]?.sessionRef
     guard let ref, !ref.isEmpty else { return .none }
     let sessionKey = SessionKey(harness: agent, sessionID: ref)
-    let worktreeID = worktreeIDForSurface(event.surfaceID, state: state)
-    guard let worktreeID else { return .none }
-    if let branch = state.repositories.sidebarItems[id: worktreeID]?.branchName,
-      !branch.isEmpty
-    {
+    guard let worktreeID = worktreeIDForSurface(event.surfaceID, state: state) else { return .none }
+    if let branch = state.repositories.sidebarItems[id: worktreeID]?.branchName, !branch.isEmpty {
       return .send(.repositories(.sessionBranchCaptured(key: sessionKey, branch: branch)))
     }
     guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
-    let cwd = worktree.workingDirectory
+    let request = BranchCaptureRequest(key: sessionKey, cwd: worktree.workingDirectory)
+    if state.branchCaptureInFlight {
+      state.branchCaptureQueue.append(request)
+      return .none
+    }
+    state.branchCaptureInFlight = true
+    return runBranchProbe(key: request.key, cwd: request.cwd)
+  }
+
+  nonisolated enum BranchCaptureCancelID: Hashable { case probe }
+
+  static func runBranchProbe(key: SessionKey, cwd: URL) -> Effect<Action> {
     @Dependency(GitClientDependency.self) var gitClient
     return .run { send in
-      if let branch = await gitClient.branchName(cwd), !branch.isEmpty {
-        await send(.repositories(.sessionBranchCaptured(key: sessionKey, branch: branch)))
-      }
+      let branch = await gitClient.branchName(cwd)
+      await send(.branchCaptureProbeCompleted(key: key, branch: branch))
     }
-    .cancellable(id: BranchCaptureCancelID.probe, cancelInFlight: true)
   }
 
   private static func worktreeIDForSurface(_ surfaceID: UUID, state: State) -> Worktree.ID? {

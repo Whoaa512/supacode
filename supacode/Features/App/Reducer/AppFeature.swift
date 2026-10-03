@@ -197,6 +197,8 @@ struct AppFeature {
     /// One-at-a-time dormant session resume request waiting for folder
     /// registration or cwd validation to complete before launching.
     var pendingSessionLaunch: PendingSessionLaunch?
+    var branchCaptureQueue: [BranchCaptureRequest] = []
+    var branchCaptureInFlight: Bool = false
 
     init(
       repositories: RepositoriesFeature.State = .init(),
@@ -377,6 +379,8 @@ struct AppFeature {
     case alert(PresentationAction<Alert>)
     case deeplinkInputConfirmation(PresentationAction<DeeplinkInputConfirmationFeature.Action>)
     case terminalEvent(TerminalClient.Event)
+    case launchSessionCompleted(requestID: UUID)
+    case branchCaptureProbeCompleted(key: SessionKey, branch: String?)
   }
 
   enum Alert: Equatable {
@@ -2266,6 +2270,9 @@ struct AppFeature {
         return .send(.agentPresence(.clearAttention(surfaces: [surfaceID])))
 
       case .terminalEvent:
+        return .none
+
+      case .launchSessionCompleted, .branchCaptureProbeCompleted:
         return .none
       }
     }

@@ -289,4 +289,42 @@ struct RepositoriesFeatureSessionsTests {
     #expect(!syntheticChanged.value)
     #expect(ownChanged.value)
   }
+
+  // MARK: - mergeSessionFolderRepositories overrides git-classified roots
+
+  @Test func mergeSessionFolderOverridesGitRootWithSameID() {
+    let path = "/tmp/supacode-merge-test-\(UUID())"
+    let url = URL(fileURLWithPath: path).standardizedFileURL
+    let repoID = RepositoryID(url.path(percentEncoded: false))
+    let gitWorktree = Worktree(
+      id: WorktreeID(url.path(percentEncoded: false)), name: "git", detail: "",
+      workingDirectory: url, repositoryRootURL: url)
+    let gitRepo = Repository(
+      id: repoID, rootURL: url, name: "git",
+      worktrees: [gitWorktree], isGitRepository: true)
+    let result = RepositoriesFeature.mergeSessionFolderRepositories(
+      [path], into: [gitRepo])
+    #expect(result.count == 1)
+    #expect(result[0].isGitRepository == false)
+    #expect(result[0].id == repoID)
+  }
+
+  @Test func mergeSessionFolderDoesNotDuplicateWhenAlreadyFolderRepo() {
+    let path = "/tmp/supacode-merge-dedup-\(UUID())"
+    let url = URL(fileURLWithPath: path).standardizedFileURL
+    let repoID = RepositoryID(url.path(percentEncoded: false))
+    let folderRepo = RepositoriesFeature.makeFolderRepository(for: url)
+    let result = RepositoriesFeature.mergeSessionFolderRepositories(
+      [path], into: [folderRepo])
+    #expect(result.count == 1)
+    #expect(result[0].id == repoID)
+  }
+
+  @Test func mergeSessionFolderAppendsNewRoots() {
+    let path = "/tmp/supacode-merge-new-\(UUID())"
+    let result = RepositoriesFeature.mergeSessionFolderRepositories(
+      [path], into: [])
+    #expect(result.count == 1)
+    #expect(result[0].isGitRepository == false)
+  }
 }

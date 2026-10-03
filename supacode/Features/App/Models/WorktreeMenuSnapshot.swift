@@ -145,7 +145,8 @@ extension AppFeature.Action {
       .systemNotificationsPermissionFailed, .deeplinkReceived,
       .deeplink, .commandAckTimedOut, .deeplinkConfirmationTimedOut,
       .deeplinkReferenceOpened, .settingsRelocationDidNotFinish, .settingsStoreUnreadable,
-      .alert, .deeplinkInputConfirmation:
+      .alert, .deeplinkInputConfirmation,
+      .launchSessionCompleted, .branchCaptureProbeCompleted:
       return false
     }
   }
