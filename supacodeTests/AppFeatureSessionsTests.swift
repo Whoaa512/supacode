@@ -1012,6 +1012,48 @@ struct AppFeatureSessionsTests {
     await store.receive(\..focusTerminalSurface)
   }
 
+  @Test(.dependencies) func settleSessionAndAdvanceUnsettlesSettledDestination() async throws {
+    var initial = state()
+    let key = SessionKey(harness: .pi, sessionID: "real")
+    let key2 = SessionKey(harness: .pi, sessionID: "next")
+    let surface2 = UUID(uuidString: "00000000-0000-0000-0000-000000000099")!
+    let location2 = SessionLocation(
+      worktreeID: worktree.id,
+      tabID: TabID(rawValue: surface2),
+      surfaceID: surface2
+    )
+    initial.repositories.sessionsStarted = true
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Session 1", cwd: "/workspace",
+        createdAt: Date(timeIntervalSince1970: 20),
+        location: location
+      ),
+      SessionSidebarItemFeature.State(
+        id: .session(key2), title: "Session 2", cwd: "/workspace",
+        createdAt: Date(timeIntervalSince1970: 10),
+        lifecycle: .settled, location: location2
+      ),
+    ]
+    initial.repositories.recomputeSessionsSidebarStructureIfChanged()
+    initial.repositories.sessionSelection = .session(key)
+    initial.agentPresence.records[
+      AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    ] = AgentPresenceFeature.PresenceRecord(pids: [], sessionRef: "real")
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = Date(timeIntervalSince1970: 100)
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.focusSurface = { _, _, _ in }
+    }
+    store.exhaustivity = .off
+    await store.send(.settleSessionAndAdvance) { appState in
+      #expect(appState.repositories.sessions[key]?.settledAt != nil)
+    }
+    await store.receive(\.repositories.unsettleSession) { appState in
+      #expect(appState.repositories.sessions[key2]?.settledAt == nil)
+    }
+  }
+
   @Test(.dependencies) func settleSessionAndAdvanceWithNoNextIsNoOp() async {
     var initial = state()
     let key = SessionKey(harness: .pi, sessionID: "real")

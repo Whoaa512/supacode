@@ -115,10 +115,19 @@ extension AppFeature {
     let nextID = state.repositories.sessionRowID(byOffset: 1, focusedRowID: currentID)
     let advanceTarget = nextID != currentID ? nextID : nil
     let settleEffect = Effect<Action>.send(.repositories(.settleSession(key)))
-    guard let target = advanceTarget, let location = state.repositories.sessionItems[id: target]?.location
+    guard let target = advanceTarget,
+      let targetItem = state.repositories.sessionItems[id: target],
+      let location = targetItem.location
     else { return settleEffect }
-    return .merge(settleEffect, .send(.focusTerminalSurface(
-      worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID)))
+    var effects: [Effect<Action>] = [
+      settleEffect,
+      .send(.focusTerminalSurface(
+        worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID)),
+    ]
+    if case .session(let targetKey) = target, targetItem.lifecycle == .settled {
+      effects.append(.send(.repositories(.unsettleSession(targetKey))))
+    }
+    return .merge(effects)
   }
 
   static func handleUnsettleCurrentSession(state: inout State) -> Effect<Action> {

@@ -5,17 +5,15 @@ import SwiftUI
 
 @MainActor
 private struct SessionContextMenu: View {
-  let store: StoreOf<RepositoriesFeature>
-  let id: SessionRowID
+  let store: StoreOf<SessionSidebarItemFeature>
+  let onSettle: () -> Void
+  let onUnsettle: () -> Void
 
   var body: some View {
-    if case .session(let key) = id {
-      let lifecycle = store.sessionItems[id: id]?.lifecycle ?? .active
-      if lifecycle == .active {
-        Button("Settle") { store.send(.settleSession(key)) }
-      } else {
-        Button("Unsettle") { store.send(.unsettleSession(key)) }
-      }
+    if store.lifecycle == .active {
+      Button("Settle") { onSettle() }
+    } else {
+      Button("Unsettle") { onUnsettle() }
     }
   }
 }
@@ -57,7 +55,15 @@ struct SessionsSidebarListView: View {
             {
               SessionSidebarRowView(store: rowStore, shortcutHint: shortcutHintByID[id])
                 .tag(id)
-                .contextMenu { SessionContextMenu(store: store, id: id) }
+                .contextMenu {
+                  if case .session(let key) = id {
+                    SessionContextMenu(
+                      store: rowStore,
+                      onSettle: { store.send(.settleSession(key)) },
+                      onUnsettle: { store.send(.unsettleSession(key)) }
+                    )
+                  }
+                }
             }
           }
         }
