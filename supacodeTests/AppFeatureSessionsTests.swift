@@ -1058,6 +1058,7 @@ struct AppFeatureSessionsTests {
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
       $0.uuid = .incrementing
+      $0.date.now = .distantPast
       $0.continuousClock = ImmediateClock()
       $0.terminalClient.send = { command in sent.withValue { $0.append(command) } }
     }
@@ -1091,6 +1092,7 @@ struct AppFeatureSessionsTests {
     initial.repositories.selection = .worktree(selectedWorktree.id)
     let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
       $0.uuid = .incrementing
+      $0.date.now = .distantPast
       $0.continuousClock = ImmediateClock()
       $0.terminalClient.send = { command in sent.withValue { $0.append(command) } }
     }
@@ -1120,6 +1122,7 @@ struct AppFeatureSessionsTests {
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
       $0.uuid = .incrementing
+      $0.date.now = .distantPast
       $0.terminalClient.send = { command in sent.withValue { $0.append(command) } }
     }
     await store.send(.repositories(.presentOpenPanel(.newSession))) {
@@ -1701,6 +1704,127 @@ struct AppFeatureSessionsTests {
     store.exhaustivity = .off
 
     await store.send(.nextSessionNeedsMe)
+    await store.finish()
+  }
+
+  // MARK: - A1: 10-second cooldown after dispatched launch
+
+  @Test(.dependencies) func launchCompletedRecordsCooldownDate() async throws {
+    let tmpDir = try temporaryDirectory(named: "cooldown-record")
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+    let key = SessionKey(harness: .pi, sessionID: "cool")
+    let reqID = UUID(uuidString: "DDDDDDDD-0000-0000-0000-000000000001")!
+    let launchTime = Date(timeIntervalSince1970: 1_000)
+    var initial = state()
+    initial.pendingSessionLaunch = PendingSessionLaunch(
+      key: key, cwd: tmpDir, command: "pi --session cool", requestID: reqID, launched: true)
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = launchTime
+    }
+    store.exhaustivity = .off
+    await store.send(.launchSessionCompleted(requestID: reqID)) {
+      $0.pendingSessionLaunch = nil
+      $0.recentSessionLaunchDate[key] = launchTime
+    }
+    await store.finish()
+  }
+
+  @Test(.dependencies) func resumeBlockedWithinCooldownWindow() async throws {
+    let tmpDir = try temporaryDirectory(named: "cooldown-block")
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+    let key = SessionKey(harness: .pi, sessionID: "block")
+    var initial = state()
+    let worktree = Worktree(
+      id: WorktreeID(tmpDir.path), name: "cooldown-block", detail: "",
+      workingDirectory: tmpDir, repositoryRootURL: tmpDir)
+    initial.repositories.repositories.append(
+      Repository(id: RepositoryID(tmpDir.path), rootURL: tmpDir, name: "cooldown-block", worktrees: [worktree]))
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Block", cwd: tmpDir.path, createdAt: .distantPast)
+    ]
+    let launchTime = Date(timeIntervalSince1970: 1_000)
+    initial.recentSessionLaunchDate[key] = launchTime
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = Date(timeIntervalSince1970: 1_005)  // 5 s after launch
+      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\..repositories.delegate.resumeSession)
+    await store.finish()
+    #expect(sent.value.isEmpty, "should not launch within 10 s cooldown")
+    #expect(store.state.pendingSessionLaunch == nil)
+  }
+
+  @Test(.dependencies) func resumeAllowedAfterCooldownExpires() async throws {
+    let tmpDir = try temporaryDirectory(named: "cooldown-allow")
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+    let key = SessionKey(harness: .pi, sessionID: "allow")
+    var initial = state()
+    let worktree = Worktree(
+      id: WorktreeID(tmpDir.path), name: "cooldown-allow", detail: "",
+      workingDirectory: tmpDir, repositoryRootURL: tmpDir)
+    initial.repositories.repositories.append(
+      Repository(id: RepositoryID(tmpDir.path), rootURL: tmpDir, name: "cooldown-allow", worktrees: [worktree]))
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Allow", cwd: tmpDir.path, createdAt: .distantPast)
+    ]
+    let launchTime = Date(timeIntervalSince1970: 1_000)
+    initial.recentSessionLaunchDate[key] = launchTime
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.uuid = .incrementing
+      $0.date.now = Date(timeIntervalSince1970: 1_015)  // 15 s after — cooldown expired
+      $0.terminalClient.send = { cmd in
+        if case .createTabWithInput = cmd { sent.withValue { $0.append(cmd) } }
+      }
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\..repositories.delegate.resumeSession)
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+    #expect(sent.value.count == 1, "should launch after cooldown expires")
+  }
+
+  // MARK: - A2: visible alert for missing or unreadable cwd
+
+  @Test(.dependencies) func resumeDormantMissingCwdShowsAlert() async {
+    let key = SessionKey(harness: .pi, sessionID: "missing")
+    var initial = state()
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Missing", cwd: "/nonexistent/dir/absent", createdAt: .distantPast)
+    ]
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = .distantPast
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\..repositories.delegate.resumeSession) { appState in
+      #expect(appState.alert != nil)
+      #expect(appState.pendingSessionLaunch == nil)
+    }
+    await store.finish()
+  }
+
+  @Test(.dependencies) func newSessionMissingCwdShowsAlert() async {
+    var initial = state()
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = .distantPast
+    }
+    store.exhaustivity = .off
+    // Override the cwd fallback by setting a session item in a nonexistent cwd.
+    // handleNewSession uses newSessionCwdFallback which checks focused/selected session.
+    // The simplest way: route through newSessionDirectorySelected with a bad path.
+    await store.send(.newSessionDirectorySelected(URL(fileURLWithPath: "/nonexistent/absent-dir"))) {
+      appState in
+      #expect(appState.alert != nil)
+      #expect(appState.pendingSessionLaunch == nil)
+    }
     await store.finish()
   }
 

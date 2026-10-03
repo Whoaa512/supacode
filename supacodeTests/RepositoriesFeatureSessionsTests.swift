@@ -701,4 +701,67 @@ struct RepositoriesFeatureSessionsTests {
     #expect(gitCallCount.value == 0, "isGitRepository must not be called for forced folder path")
     await store.finish()
   }
+
+  // MARK: - A3: sessionsRefreshInFlight tracks loading so the view can show a spinner
+
+  @Test(.dependencies) func refreshInFlightTrueWhileLoadingFalseAfterCompletion() async {
+    let clock = TestClock()
+    var initial = state()
+    initial.sessionsStarted = false
+    let refreshCalled = LockIsolated(false)
+    let store = TestStore(initialState: initial) {
+      RepositoriesFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.continuousClock = clock
+      $0.sessionIndex.cached = { [] }
+      $0.sessionIndex.refresh = {
+        refreshCalled.withValue { $0 = true }
+        return []
+      }
+      $0.defaultAppStorage = .inMemory
+    }
+    store.exhaustivity = .off
+    #expect(!store.state.sessionsRefreshInFlight, "should be false before start")
+
+    await store.send(.sessionsStarted) { st in
+      #expect(st.sessionsStarted)
+      #expect(st.sessionsRefreshInFlight, "should be true immediately after start")
+    }
+    await store.receive(\.sessionsCacheLoaded)
+    await store.receive(\.sessionsRefreshCompleted) { st in
+      #expect(!st.sessionsRefreshInFlight, "should clear after refresh completes")
+    }
+    #expect(refreshCalled.value)
+    await store.send(.sessionsStopped)
+    await store.finish()
+  }
+
+  @Test(.dependencies) func refreshInFlightRemainsAfterCacheLoadBeforeRefreshCompletes() async {
+    let clock = TestClock()
+    var initial = state()
+    initial.sessionsStarted = false
+    let refreshGate = AsyncStream<[SessionSummary]>.makeStream()
+    let store = TestStore(initialState: initial) {
+      RepositoriesFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.continuousClock = clock
+      $0.sessionIndex.cached = { [] }
+      $0.sessionIndex.refresh = { for await s in refreshGate.stream { return s }; return [] }
+      $0.defaultAppStorage = .inMemory
+    }
+    store.exhaustivity = .off
+    await store.send(.sessionsStarted)
+    await store.receive(\.sessionsCacheLoaded) { st in
+      #expect(st.sessionsRefreshInFlight, "still in flight while disk refresh runs")
+    }
+    refreshGate.continuation.yield([])
+    refreshGate.continuation.finish()
+    await store.receive(\.sessionsRefreshCompleted) { st in
+      #expect(!st.sessionsRefreshInFlight)
+    }
+    await store.send(.sessionsStopped)
+    await store.finish()
+  }
 }
