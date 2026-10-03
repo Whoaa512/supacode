@@ -173,6 +173,7 @@ extension RepositoriesFeature.State {
       }
     }
     for summary in sessionSummaries {
+      guard summary.isVerified else { continue }
       let live = sessionsLiveKeys.contains(summary.id)
         || sessionSnapshots.contains { $0.id == .session(summary.id) }
       if let hold = sessions[summary.id]?.manualUnsettledAtActivity, summary.lastActivity > hold {

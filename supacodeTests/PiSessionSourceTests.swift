@@ -188,15 +188,15 @@ struct PiSessionSourceTests {
     let source = fixture.source()
     let original = try await source.sessions()
     try fixture.write("invalid header\n")
-    #expect(try await source.sessions() == original)
+    #expect(try await source.sessions().map(\.sessionID) == original.map(\.sessionID))
     try fixture.write(Self.header() + Self.user + Self.user)
     try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: file.path)
     defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path) }
-    #expect(try await source.sessions() == original)
+    #expect(try await source.sessions().map(\.sessionID) == original.map(\.sessionID))
     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
     try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: fixture.directory.path)
     defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fixture.directory.path) }
-    #expect(try await source.sessions() == original)
+    #expect(try await source.sessions().map(\.sessionID) == original.map(\.sessionID))
     try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fixture.directory.path)
     try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: fixture.root.path)
     defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fixture.root.path) }
@@ -204,7 +204,7 @@ struct PiSessionSourceTests {
       _ = try await source.sessions()
       Issue.record("Unreadable root listing must fail")
     } catch {}
-    #expect(await source.cachedSessions() == original)
+    #expect(await source.cachedSessions().map(\.sessionID) == original.map(\.sessionID))
     try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fixture.root.path)
     try FileManager.default.removeItem(at: file)
     #expect(try await source.sessions().isEmpty)
@@ -236,5 +236,46 @@ struct PiSessionSourceTests {
     let source = PiSessionSource(root: URL(fileURLWithPath: "/unused"), cacheURL: URL(fileURLWithPath: "/unused/cache"))
     #expect(source.resumeCommand(sessionID: "abc-123") == "pi --session abc-123")
     #expect(source.resumeCommand(sessionID: "bad;command") == nil)
+  }
+
+  @Test func unverifiedSummaryRetainedWhenChangedFileUnreadable() async throws {
+    let fixture = try Fixture()
+    defer { fixture.clean() }
+    let file = try fixture.write(Self.header() + Self.user)
+    let source = fixture.source()
+    let original = try await source.sessions()
+    #expect(original.first?.isVerified == true)
+    try fixture.write(Self.header() + Self.user + Self.user)
+    try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: file.path)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path) }
+    let stale = try await source.sessions()
+    #expect(stale.count == 1)
+    #expect(stale.first?.isVerified == false)
+    #expect(stale.first?.messageCount == 1, "stale summary retained")
+  }
+
+  @Test func retryReparsesUnverifiedEntryAfterListingRecovery() async throws {
+    let fixture = try Fixture()
+    defer { fixture.clean() }
+    try fixture.write(Self.header() + Self.user)
+    let source = fixture.source()
+    let original = try await source.sessions()
+    #expect(original.first?.isVerified == true)
+    #expect(await source.parsedFileCount == 1)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0], ofItemAtPath: fixture.directory.path)
+    defer {
+      try? FileManager.default.setAttributes(
+        [.posixPermissions: 0o700], ofItemAtPath: fixture.directory.path)
+    }
+    let stale = try await source.sessions()
+    #expect(stale.count == 1)
+    #expect(stale.first?.isVerified == false)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o700], ofItemAtPath: fixture.directory.path)
+    let recovered = try await source.sessions()
+    #expect(recovered.count == 1)
+    #expect(recovered.first?.isVerified == true)
+    #expect(await source.parsedFileCount == 2, "re-parses unverified entry despite unchanged stamp")
   }
 }

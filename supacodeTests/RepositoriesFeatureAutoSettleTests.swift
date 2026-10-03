@@ -152,6 +152,81 @@ struct RepositoriesFeatureAutoSettleTests {
     await store.finish()
   }
 
+  @Test(.dependencies) func unverifiedSummaryFromFailedReadDoesNotAutoSettle() async {
+    var row = summary()
+    row.isVerified = false
+    let store = store()
+    await store.send(.sessionsRestorationCompleted([]))
+    await store.send(.sessionsRefreshCompleted([row]))
+    #expect(store.state.sessions[row.id] == nil, "unverified stale summary must not auto-settle")
+    row.isVerified = true
+    await store.send(.sessionsRefreshCompleted([row]))
+    #expect(store.state.sessions[row.id]?.settledAt == now, "verified summary settles after 3 idle days")
+    await store.finish()
+  }
+
+  @Test(.dependencies) func tempFixtureDrivesUnverifiedRetentionThenVerifiedSettlement() async throws {
+    let base = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    let root = base.appending(path: "sessions")
+    let dir = root.appending(path: "project")
+    let cacheURL = base.appending(path: "state/index.json")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: base) }
+
+    let hdr = "{\"type\":\"session\",\"id\":\"abcfix\","
+      + "\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"/fixtures\"}"
+    let msg = "{\"type\":\"message\",\"timestamp\":\"2026-01-02T00:00:00.000Z\","
+      + "\"message\":{\"role\":\"user\",\"content\":\"hello\"}}"
+    let content = hdr + "\n" + String(repeating: msg + "\n", count: 5)
+    let file = dir.appending(path: "one.jsonl")
+    try Data(content.utf8).write(to: file)
+
+    let testNow = ISO8601DateFormatter().date(from: "2026-01-06T00:00:00Z")!
+    let source = PiSessionSource(root: root, cacheURL: cacheURL)
+
+    // First sessions() → verified; populates internal cache
+    let baseline = try await source.sessions()
+    #expect(baseline.count == 1)
+    #expect(baseline.first?.isVerified == true)
+
+    // Mutate file then chmod0 → source cannot re-parse; returns stale unverified entry
+    try Data((content + msg + "\n").utf8).write(to: file)
+    try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: file.path)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path) }
+    let staleSummaries = try await source.sessions()
+    #expect(staleSummaries.count == 1)
+    #expect(staleSummaries.first?.isVerified == false)
+
+    var initial = RepositoriesFeature.State()
+    initial.$sessions = Shared(value: [:])
+    initial.$sidebar = Shared(value: SidebarState())
+    initial.$persistedLayouts = SharedReader(value: LayoutsFile(worktrees: [:]))
+    initial.sessionsStarted = true
+    let testStore = TestStore(initialState: initial) { RepositoriesFeature() } withDependencies: {
+      $0.date.now = testNow
+      $0.continuousClock = TestClock()
+      $0.defaultAppStorage = .inMemory
+    }
+    testStore.exhaustivity = .off
+
+    // Open restore gate then send unverified summaries → row visible, not settled
+    let key = staleSummaries[0].id
+    await testStore.send(.sessionsRestorationCompleted([]))
+    await testStore.send(.sessionsRefreshCompleted(staleSummaries))
+    #expect(testStore.state.sessions[key] == nil, "unverified must not auto-settle")
+    #expect(testStore.state.sessionItems.count == 1, "row retained in sidebar")
+
+    // Restore readability → sessions() re-parses → verified
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    let recovered = try await source.sessions()
+    #expect(recovered.first?.isVerified == true)
+
+    // Send verified summaries → reducer settles
+    await testStore.send(.sessionsRefreshCompleted(recovered))
+    #expect(testStore.state.sessions[key]?.settledAt == testNow, "verified summary settles")
+    await testStore.finish()
+  }
+
   @Test(.dependencies)
   func twoMessageSessionWithRecentActivityIsNotAutoSettledAfterReload() async {
     var row = summary(count: 2)

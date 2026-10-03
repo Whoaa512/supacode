@@ -30,6 +30,12 @@ nonisolated struct SessionSummary: Equatable, Codable, Sendable, Identifiable {
   var title: String
   var messageCount: Int
   var lastActivity: Date
+  var isVerified: Bool = true
 
   var id: SessionKey { SessionKey(harness: harness, sessionID: sessionID) }
+
+  private enum CodingKeys: String, CodingKey {
+    case harness, sessionID, createdAt, cwd, title, messageCount, lastActivity
+  }
+
 }

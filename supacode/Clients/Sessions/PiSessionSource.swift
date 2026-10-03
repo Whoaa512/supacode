@@ -98,6 +98,10 @@ actor PiSessionSource: SessionSource {
     let directoryPaths = Set(directories.map(\.path))
     var refreshed = cache.filter {
       directoryPaths.contains(URL(fileURLWithPath: $0.key).deletingLastPathComponent().path)
+    }.mapValues { file in
+      var unverified = file
+      unverified.summary.isVerified = false
+      return unverified
     }
     var failures = 0
     for directory in directories {
@@ -116,8 +120,10 @@ actor PiSessionSource: SessionSource {
         else { continue }
         do {
           let before = try stamp(file)
-          if let hit = cache[file.path], hit.stamp == before {
-            refreshed[file.path] = hit
+          if let hit = cache[file.path], hit.stamp == before, hit.summary.isVerified {
+            var verified = hit
+            verified.summary.isVerified = true
+            refreshed[file.path] = verified
             continue
           }
           parsedFileCount += 1
@@ -145,10 +151,11 @@ actor PiSessionSource: SessionSource {
   }
 
   private func persist() {
+    let verified = cache.filter { $0.value.summary.isVerified }
     do {
       try FileManager.default.createDirectory(
         at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-      try JSONEncoder().encode(cache).write(to: cacheURL, options: .atomic)
+      try JSONEncoder().encode(verified).write(to: cacheURL, options: .atomic)
     } catch {
       Self.logger.warning("Could not persist session cache: \(error)")
     }
