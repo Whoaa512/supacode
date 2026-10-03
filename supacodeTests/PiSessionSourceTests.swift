@@ -75,6 +75,29 @@ struct PiSessionSourceTests {
     #expect(await fixture.source().cachedSessions().isEmpty)
   }
 
+  @Test func cacheLoadsOnFirstActorAccessNotInitialization() async throws {
+    let fixture = try Fixture()
+    defer { fixture.clean() }
+    try fixture.write(Self.header() + Self.user)
+    let initializedBeforeCacheExists = fixture.source()
+    let original = try await fixture.source().sessions()
+    #expect(await initializedBeforeCacheExists.cachedSessions() == original)
+    try FileManager.default.removeItem(at: fixture.cache)
+    #expect(await initializedBeforeCacheExists.cachedSessions() == original)
+    #expect(try await initializedBeforeCacheExists.sessions() == original)
+    #expect(await initializedBeforeCacheExists.parsedFileCount == 0)
+  }
+
+  @Test func refreshFirstLoadsPersistedCacheWithoutParsing() async throws {
+    let fixture = try Fixture()
+    defer { fixture.clean() }
+    try fixture.write(Self.header() + Self.user)
+    let original = try await fixture.source().sessions()
+    let restarted = fixture.source()
+    #expect(try await restarted.sessions() == original)
+    #expect(await restarted.parsedFileCount == 0)
+  }
+
   @Test func sameSizeRewriteInvalidatesOnModificationDate() async throws {
     let fixture = try Fixture()
     defer { fixture.clean() }

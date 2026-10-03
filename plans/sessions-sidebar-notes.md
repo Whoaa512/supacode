@@ -166,3 +166,10 @@
 - Refresh and fresh-state persisted load regression: RepositoriesFeatureSessionsTests, 14 tests, 0 failures; fixture-only IO.
 - make lint: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1245; git diff --check: exit 0.
 - No scope deviation; forced-folder override remains classification metadata, not a substitute for persisted roots.
+
+## Slice 1 review fix — actor-isolated cache loading
+- Confirmed PiSessionSource.init read/decoded the cache synchronously on its caller. Init is now IO-free; cachedSessions and refresh lazily load once on the actor.
+- Regression tests cover cache created after initialization, one-time loading, and refresh-first persisted cache reuse without transcript parsing.
+- Targeted PiSessionSourceTests + AppFeatureSessionsTests: exit 0; xcresult totalTestCount 24, failedTests 0 (32 parameterized runs).
+- Final make build-app: exit 0. make lint: exit 2, only the two existing complexity violations; git diff --check: exit 0.
+- All builds/tests serialized via pgrep checks. No owner-app launch/install/signaling or protected-home writes; full suite not rerun for this narrow fix step.

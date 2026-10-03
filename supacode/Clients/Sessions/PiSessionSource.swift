@@ -56,7 +56,8 @@ actor PiSessionSource: SessionSource {
   private let root: URL
   private let cacheURL: URL
   private let chunkSize: Int
-  private var cache: [String: CachedFile]
+  private var cache: [String: CachedFile] = [:]
+  private var cacheLoaded = false
   private(set) var parsedFileCount = 0
   private static let logger = SupaLogger("Sessions")
 
@@ -64,11 +65,17 @@ actor PiSessionSource: SessionSource {
     self.root = root.standardizedFileURL
     self.cacheURL = cacheURL
     self.chunkSize = max(1, chunkSize)
-    cache = (try? JSONDecoder().decode([String: CachedFile].self, from: Data(contentsOf: cacheURL))) ?? [:]
   }
 
   func cachedSessions() -> [SessionSummary] {
-    SessionClassification.ordered(cache.values.map(\.summary))
+    loadCacheIfNeeded()
+    return SessionClassification.ordered(cache.values.map(\.summary))
+  }
+
+  private func loadCacheIfNeeded() {
+    guard !cacheLoaded else { return }
+    cacheLoaded = true
+    cache = (try? JSONDecoder().decode([String: CachedFile].self, from: Data(contentsOf: cacheURL))) ?? [:]
   }
 
   nonisolated func resumeCommand(sessionID: String) -> String? {
@@ -77,6 +84,7 @@ actor PiSessionSource: SessionSource {
 
   func sessions() async throws -> [SessionSummary] {
     await Task.yield()
+    loadCacheIfNeeded()
     let manager = FileManager.default
     guard manager.fileExists(atPath: root.path) else {
       cache = [:]
