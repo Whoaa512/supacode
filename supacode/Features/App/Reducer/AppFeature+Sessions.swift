@@ -336,6 +336,13 @@ extension AppFeature {
     let key = pending.key
     let cwd = pending.cwd
     let command = pending.command
+    if let location = state.repositories.sessionItems[id: .session(key)]?.location {
+      state.pendingSessionLaunch = nil
+      state.pendingBranchMismatchResume = nil
+      state.alert = nil
+      return .send(.focusTerminalSurface(
+        worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID))
+    }
     let branches = state.repositories.sessions[key]?.branches ?? []
     let hasBranchHistory = !branches.isEmpty
     let resolvedBranch: String?
@@ -413,6 +420,13 @@ extension AppFeature {
   ) -> Effect<Action> {
     guard state.pendingSessionLaunch == nil || state.pendingSessionLaunch?.requestID == reservedID
     else { return .none }
+    if let location = state.repositories.sessionItems[id: .session(prepared.key)]?.location {
+      state.pendingSessionLaunch = nil
+      state.pendingBranchMismatchResume = nil
+      state.alert = nil
+      return .send(.focusTerminalSurface(
+        worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID))
+    }
     @Dependency(\.uuid) var uuid
     let requestID = reservedID ?? uuid()
     var pending = PendingSessionLaunch(

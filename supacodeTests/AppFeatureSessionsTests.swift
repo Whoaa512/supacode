@@ -2083,4 +2083,117 @@ struct AppFeatureSessionsTests {
     #expect(sent.value.isEmpty)
   }
 
+  // MARK: - R1/R3: live location check in finishResumeBranchProbe and startPreparedResume
+
+  @Test(.dependencies) func identityArrivesWhileProbeInFlight() async throws {
+    let tmpDir = try temporaryDirectory(named: "identity-probe-inflight")
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+    let key = SessionKey(harness: .pi, sessionID: "arrives-during-probe")
+    var initial = state()
+    let worktreeA = Worktree(
+      id: WorktreeID(tmpDir.path), name: "arrives-probe", detail: "",
+      workingDirectory: tmpDir, repositoryRootURL: tmpDir)
+    initial.repositories.repositories.append(
+      Repository(id: RepositoryID(tmpDir.path), rootURL: tmpDir, name: "arrives-probe",
+        worktrees: [worktreeA]))
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
+        createdAt: .distantPast)
+    ]
+    let branches = AsyncStream<String?>.makeStream()
+    let focused = LockIsolated<[SessionLocation]>([])
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = .distantPast
+      $0.uuid = .incrementing
+      $0.continuousClock = ImmediateClock()
+      $0[GitClientDependency.self].branchName = { _ in
+        for await branch in branches.stream { return branch }
+        return nil
+      }
+      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
+      $0.terminalClient.focusSurface = { targetWorktree, targetTab, surf in
+        let loc = SessionLocation(worktreeID: targetWorktree.id, tabID: targetTab, surfaceID: surf)
+        focused.withValue { $0.append(loc) }
+      }
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\.repositories.delegate.resumeSession)
+    #expect(store.state.pendingSessionLaunch?.probing == true)
+    let surfaceID = UUID()
+    let snapshot = SessionLiveSnapshot(
+      harness: .pi, sessionRef: "arrives-during-probe",
+      cwd: tmpDir.path(percentEncoded: false),
+      location: SessionLocation(worktreeID: worktreeA.id, tabID: TabID(), surfaceID: surfaceID))
+    await store.send(.repositories(.sessionSnapshotsChanged([snapshot])))
+    #expect(store.state.repositories.sessionItems[id: .session(key)]?.location != nil)
+    branches.continuation.yield("main")
+    await store.receive(\.resumeBranchProbeCompleted) { appState in
+      #expect(appState.pendingSessionLaunch == nil)
+      #expect(appState.pendingBranchMismatchResume == nil)
+      #expect(appState.alert == nil)
+    }
+    branches.continuation.finish()
+    await store.finish()
+    #expect(focused.value.count == 1)
+    #expect(focused.value.first?.surfaceID == surfaceID)
+    #expect(!sent.value.contains { if case .createTabWithInput = $0 { return true }; return false })
+  }
+
+  @Test(.dependencies) func identityArrivesWhileAlertPending() async throws {
+    let tmpDir = try temporaryDirectory(named: "identity-alert-pending")
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+    let key = SessionKey(harness: .pi, sessionID: "arrives-during-alert")
+    var initial = state()
+    let worktreeB = Worktree(
+      id: WorktreeID(tmpDir.path), name: "arrives-alert", detail: "",
+      workingDirectory: tmpDir, repositoryRootURL: tmpDir)
+    initial.repositories.repositories.append(
+      Repository(id: RepositoryID(tmpDir.path), rootURL: tmpDir, name: "arrives-alert",
+        worktrees: [worktreeB]))
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
+        createdAt: .distantPast)
+    ]
+    initial.repositories.$sessions.withLock { $0[key] = SessionSidecarEntry(branches: ["old-branch"]) }
+    let focused = LockIsolated<[SessionLocation]>([])
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = .distantPast
+      $0.uuid = .incrementing
+      $0.continuousClock = ImmediateClock()
+      $0[GitClientDependency.self].branchName = { _ in "new-branch" }
+      $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
+      $0.terminalClient.focusSurface = { targetWorktree, targetTab, surf in
+        let loc = SessionLocation(worktreeID: targetWorktree.id, tabID: targetTab, surfaceID: surf)
+        focused.withValue { $0.append(loc) }
+      }
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\.repositories.delegate.resumeSession)
+    await store.receive(\.resumeBranchProbeCompleted) { appState in
+      #expect(appState.alert != nil)
+      #expect(appState.pendingBranchMismatchResume != nil)
+    }
+    let surfaceID = UUID()
+    let snapshot = SessionLiveSnapshot(
+      harness: .pi, sessionRef: "arrives-during-alert",
+      cwd: tmpDir.path(percentEncoded: false),
+      location: SessionLocation(worktreeID: worktreeB.id, tabID: TabID(), surfaceID: surfaceID))
+    await store.send(.repositories(.sessionSnapshotsChanged([snapshot])))
+    await store.send(.alert(.presented(.confirmBranchMismatchResume))) { appState in
+      #expect(appState.pendingSessionLaunch == nil)
+      #expect(appState.pendingBranchMismatchResume == nil)
+      #expect(appState.alert == nil)
+    }
+    await store.finish()
+    #expect(focused.value.count == 1)
+    #expect(focused.value.first?.surfaceID == surfaceID)
+    #expect(!sent.value.contains { if case .createTabWithInput = $0 { return true }; return false })
+  }
+
 }
