@@ -175,6 +175,27 @@ extension AppFeature {
     return .merge(effects)
   }
 
+  static func handleSessionDeeplink(
+    key: SessionKey, action: Deeplink.SessionAction, state: inout State
+  ) -> Effect<Action> {
+    guard key.isValid else {
+      state.alert = AlertState { TextState("Invalid session id. Expected harness:id.") }
+      return .none
+    }
+    let indexed = state.repositories.sessionSummaries.contains { $0.id == key }
+    let live = state.repositories.sessionItems[id: .session(key)]?.location != nil
+    guard indexed || live else {
+      state.alert = AlertState {
+        TextState("Session not found. Run `supacode session list` to choose one.")
+      }
+      return .none
+    }
+    switch action {
+    case .settle: return .send(.repositories(.settleSession(key)))
+    case .unsettle: return .send(.repositories(.unsettleSession(key)))
+    }
+  }
+
   static func handleUnsettleCurrentSession(state: inout State) -> Effect<Action> {
     let currentID = focusedSessionRowID(state: state) ?? state.repositories.sessionSelection
     guard let currentID, case .session(let key) = currentID else { return .none }

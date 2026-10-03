@@ -2686,12 +2686,7 @@ struct AppFeature {
       return handleAgentDeeplink(
         worktreeID: worktreeID, agent: rawAgent, action: agentAction, state: &state)
     case .session(let key, let action):
-      switch action {
-      case .settle:
-        return .send(.repositories(.settleSession(key)))
-      case .unsettle:
-        return .send(.repositories(.unsettleSession(key)))
-      }
+      return Self.handleSessionDeeplink(key: key, action: action, state: &state)
     case .repoOpen(let path):
       return .send(.repositories(.openRepositories([path])))
     case .repoWorktreeNew(
