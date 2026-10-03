@@ -44,8 +44,14 @@ struct SessionsSidebarListView: View {
       )
     ) {
       if store.sessionsSidebarStructure.sections.isEmpty {
-        Text("No sessions")
-          .foregroundStyle(.secondary)
+        if store.sessionsRefreshInFlight {
+          ProgressView()
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding()
+        } else {
+          Text("No sessions")
+            .foregroundStyle(.secondary)
+        }
       }
       ForEach(store.sessionsSidebarStructure.sections) { section in
         Section(section.title) {
