@@ -43,14 +43,15 @@ struct SessionsSidebarListView: View {
         set: { store.send(.sessionSelectionChanged($0)) }
       )
     ) {
-      if store.sessionsSidebarStructure.sections.isEmpty {
-        if store.sessionsIndexingInProgress {
-          Text("Indexing sessions\u{2026}")
-            .foregroundStyle(.secondary)
-        } else {
-          Text("No sessions")
-            .foregroundStyle(.secondary)
-        }
+      // Running agents show up as rows before the first scan lands, so the
+      // list is rarely empty while history is still loading.
+      let isEmpty = store.sessionsSidebarStructure.sections.isEmpty
+      if !store.sessionsHasCompletedRefresh || (isEmpty && store.sessionsIndexingInProgress) {
+        Text("Indexing sessions\u{2026}")
+          .foregroundStyle(.secondary)
+      } else if isEmpty {
+        Text("No sessions")
+          .foregroundStyle(.secondary)
       }
       ForEach(store.sessionsSidebarStructure.sections) { section in
         Section(section.title) {
