@@ -404,3 +404,9 @@
 - Confirmed nil-ref raw restored presence was invisible to both live keys and mapped snapshots. `sessionsHasUnresolvedLivePresence` now blocks auto-settle independently of layouts; restoration and subsequent raw-presence deltas carry it alongside live keys.
 - Regression restores an alive nil-ref record with no repositories/layouts and an old under-4 indexed session; restoration and fresh indexing leave the sidecar untouched.
 - Targeted AppFeatureSessionsTests + RepositoriesFeatureAutoSettleTests: exit 0, totalTestCount 54, failedTests 0. make lint: baseline complexity failures only. No scope deviation or live-environment operations.
+
+## Slice 4 triage fix — visual attention versus navigation
+- Confirmed error-only presence became an eligible needs-you target. Snapshots/leaves now carry `allowsAttentionNavigation` separately from visual status; App derives it from awaitingInput or done-unseen. Navigation still requires a live needs-you/done-unseen row, preserving error styling without focusing error-only targets.
+- Regression projects real error presence through snapshots/reconciliation and asserts no focus or selection. Existing awaiting-input/done-unseen navigation and per-leaf observation tests remain green.
+- Targeted AppFeatureSessionsTests + RepositoriesFeatureSessionsTests + SessionsSidebarObservationTests: exit 0, totalTestCount 80, failedTests 0. Final make build-app: exit 0. make lint before both commits: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations; git diff --check: exit 0.
+- Builds/tests serialized with pgrep checks; logs /tmp/slice4-fix{1,2}-{tests,lint}.log, summaries /tmp/slice4-fix{1,2}-summary.json, build /tmp/slice4-review-final-build.log. No live-app operations, full suite, protected-home writes or scope deviations; untracked files preserved.

@@ -1664,6 +1664,25 @@ struct AppFeatureSessionsTests {
     await store.receive(\.repositories.delegate.focusSession)
   }
 
+  @Test(.dependencies) func nextSessionNeedsMeDoesNotFocusAnErrorOnlySurface() async {
+    var initial = state()
+    initial.agentPresence.records[
+      AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    ] = AgentPresenceFeature.PresenceRecord(activity: .error, pids: [], sessionRef: "real")
+    initial.repositories.sessionSnapshots = AppFeature.sessionSnapshots(state: initial)
+    initial.repositories.reconcileSessionItems(now: .distantPast)
+    initial.repositories.recomputeSessionsSidebarStructureIfChanged()
+    #expect(initial.repositories.sessionItems.first?.status == .needsYou)
+    let focused = LockIsolated<[UUID]>([])
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.terminalClient.focusSurface = { _, _, surfaceID in focused.withValue { $0.append(surfaceID) } }
+    }
+    await store.send(.nextSessionNeedsMe)
+    await store.finish()
+    #expect(focused.value.isEmpty)
+    #expect(store.state.repositories.sessionSelection == nil)
+  }
+
   @Test(.dependencies) func nextSessionNeedsMeNoopsWhenOnlyDormantBusyOrIdle() async {
     var initial = state()
     let busy = SessionKey(harness: .pi, sessionID: "busy")

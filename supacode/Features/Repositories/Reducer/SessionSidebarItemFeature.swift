@@ -26,6 +26,7 @@ nonisolated struct SessionLiveSnapshot: Equatable, Sendable {
   var cwd: String
   var location: SessionLocation
   var status: SessionClassification.Status = .idle
+  var allowsAttentionNavigation = true
 
   var id: SessionRowID {
     if let ref = AgentPresenceOSC.sanitizedSessionRef(sessionRef) {
@@ -46,6 +47,7 @@ struct SessionSidebarItemFeature {
     var lifecycle: SessionClassification.Lifecycle = .active
     var location: SessionLocation?
     var status: SessionClassification.Status?
+    var allowsAttentionNavigation = true
     var branchAnnotation: String?
     var isSynthetic = false
 
@@ -58,6 +60,7 @@ struct SessionSidebarItemFeature {
       lifecycle = row.lifecycle
       location = row.location
       status = row.status
+      allowsAttentionNavigation = row.allowsAttentionNavigation
       branchAnnotation = row.branchAnnotation
       isSynthetic = row.isSynthetic
     }

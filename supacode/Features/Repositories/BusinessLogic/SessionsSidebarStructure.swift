@@ -30,7 +30,8 @@ struct SessionsSidebarStructure: Equatable, Sendable {
     let startIndex = current.flatMap { liveIDs.firstIndex(of: $0) }.map { $0 + 1 } ?? 0
     for offset in liveIDs.indices {
       let id = liveIDs[(startIndex + offset) % liveIDs.count]
-      guard let status = items[id: id]?.status else { continue }
+      guard let item = items[id: id], item.allowsAttentionNavigation, let status = item.status
+      else { continue }
       if status == .needsYou || status == .doneUnseen { return id }
     }
     return nil
@@ -117,6 +118,7 @@ extension RepositoriesFeature.State {
         rows[id: id]?.branchAnnotation = branchAnnotation(for: key, cwd: snapshot.cwd)
       }
       rows[id: id]?.status = snapshot.status
+      rows[id: id]?.allowsAttentionNavigation = snapshot.allowsAttentionNavigation
       let preferred = previous[id: id]?.location
       if rows[id: id]?.location == nil || snapshot.location == preferred {
         rows[id: id]?.location = snapshot.location

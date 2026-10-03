@@ -506,7 +506,8 @@ extension AppFeature {
       guard let (location, cwd) = locations[key.surfaceID] else { return nil }
       return SessionLiveSnapshot(
         harness: key.agent, sessionRef: record.sessionRef, cwd: cwd, location: location,
-        status: sessionStatus(for: record))
+        status: sessionStatus(for: record),
+        allowsAttentionNavigation: record.activity == .awaitingInput || record.isDoneUnseen)
     }.sorted {
       if $0.location.surfaceID != $1.location.surfaceID {
         return $0.location.surfaceID.uuidString < $1.location.surfaceID.uuidString
