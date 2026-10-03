@@ -399,3 +399,8 @@
 - Initial targeted runs exited 2/counts 79 and 80 with only that allowed baseline failure. Selector without () did not exclude it; unescaped () failed shell parsing before a test run (summary was stale, not verification). Tool friction logged via papercut.
 - make build-app exit 0; make lint before each fix commit exit 2, only unchanged baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations. git diff --check exit 0. Logs /tmp/slice4-gate-fix-{tests4,lint,lint2,build}.log; final summary /tmp/slice4-gate-fix-summary4.json.
 - No scope deviation beyond making lifecycle refresh conditional on startup; no full suite rerun, live-app launch/install/signaling or protected-home writes. Builds/tests serialized with pgrep -fl xcodebuild; untracked files remain unstaged.
+
+## Slice 4 triage fix — unmapped provisional restoration
+- Confirmed nil-ref raw restored presence was invisible to both live keys and mapped snapshots. `sessionsHasUnresolvedLivePresence` now blocks auto-settle independently of layouts; restoration and subsequent raw-presence deltas carry it alongside live keys.
+- Regression restores an alive nil-ref record with no repositories/layouts and an old under-4 indexed session; restoration and fresh indexing leave the sidecar untouched.
+- Targeted AppFeatureSessionsTests + RepositoriesFeatureAutoSettleTests: exit 0, totalTestCount 54, failedTests 0. make lint: baseline complexity failures only. No scope deviation or live-environment operations.

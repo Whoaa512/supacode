@@ -18,14 +18,16 @@ extension RepositoriesFeature {
       @Dependency(\.date) var date
       @Shared(.settingsFile) var settingsFile
       switch action {
-      case .sessionsRestorationCompleted(let keys):
+      case .sessionsRestorationCompleted(let keys, let unresolved):
         state.sessionsRestorationFinished = true
         state.sessionsLiveKeys = keys
+        state.sessionsHasUnresolvedLivePresence = unresolved
         state.autoSettleSessions(now: date.now, idleDays: settingsFile.global.sessionIdleDays)
         return .none
 
-      case .sessionsLiveKeysChanged(let keys):
+      case .sessionsLiveKeysChanged(let keys, let unresolved):
         state.sessionsLiveKeys = keys
+        state.sessionsHasUnresolvedLivePresence = unresolved
         return .none
 
       case .sessionActivityObserved(let key, let activity):

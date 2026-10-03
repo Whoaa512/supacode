@@ -338,6 +338,7 @@ struct RepositoriesFeature {
     var sessionsRestorationFinished = false
     var sessionsRefreshSucceeded = false
     var sessionsLiveKeys: Set<SessionKey> = []
+    var sessionsHasUnresolvedLivePresence = false
     var sessionsStarted = false
     var sessionsRefreshInFlight = false
     var sessionsRefreshPending = false
@@ -401,8 +402,8 @@ struct RepositoriesFeature {
 
   enum Action {
     case sessionItems(IdentifiedActionOf<SessionSidebarItemFeature>)
-    case sessionsRestorationCompleted(Set<SessionKey>)
-    case sessionsLiveKeysChanged(Set<SessionKey>)
+    case sessionsRestorationCompleted(Set<SessionKey>, hasUnresolvedLivePresence: Bool = false)
+    case sessionsLiveKeysChanged(Set<SessionKey>, hasUnresolvedLivePresence: Bool = false)
     case sessionActivityObserved(SessionKey, Date)
     case sessionsCoarseClockFired
     case sessionsStopped

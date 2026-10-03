@@ -49,14 +49,18 @@ extension AppFeature {
       case .agentPresence(.restoreFromSnapshotChecked):
         return .concatenate(
           .send(.repositories(.sessionSnapshotsChanged(Self.sessionSnapshots(state: state)))),
-          .send(.repositories(.sessionsRestorationCompleted(Self.liveSessionKeys(state: state)))))
+          .send(.repositories(.sessionsRestorationCompleted(Self.liveSessionKeys(state: state),
+            hasUnresolvedLivePresence: Self.hasUnresolvedLivePresence(state: state)))))
 
       case .agentPresence(.delegate(.surfacesChanged)), .terminals,
         .repositories(.delegate(.repositoriesChanged)):
         var effects: [Effect<Action>] = []
         let keys = Self.liveSessionKeys(state: state)
-        if keys != state.repositories.sessionsLiveKeys {
-          effects.append(.send(.repositories(.sessionsLiveKeysChanged(keys))))
+        let unresolved = Self.hasUnresolvedLivePresence(state: state)
+        if keys != state.repositories.sessionsLiveKeys
+          || unresolved != state.repositories.sessionsHasUnresolvedLivePresence
+        {
+          effects.append(.send(.repositories(.sessionsLiveKeysChanged(keys, hasUnresolvedLivePresence: unresolved))))
         }
         let snapshots = Self.sessionSnapshots(state: state)
         if snapshots != state.repositories.sessionSnapshots {
@@ -468,6 +472,10 @@ extension AppFeature {
   }
 
   // MARK: - Snapshot helper
+
+  static func hasUnresolvedLivePresence(state: State) -> Bool {
+    state.agentPresence.records.values.contains { $0.sessionRef == nil }
+  }
 
   static func liveSessionKeys(state: State) -> Set<SessionKey> {
     Set(state.agentPresence.records.compactMap { key, record in

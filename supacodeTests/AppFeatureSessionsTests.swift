@@ -177,6 +177,36 @@ struct AppFeatureSessionsTests {
     await store.finish()
   }
 
+  @Test(.dependencies) func unmappedProvisionalRestoreBlocksAutomaticSettlement() async {
+    var initial = state()
+    initial.repositories.repositories = []
+    initial.terminals.layouts = []
+    initial.repositories.$persistedLayouts = SharedReader(value: LayoutsFile(worktrees: [:]))
+    let summary = SessionSummary(
+      harness: .pi, sessionID: "old", createdAt: .distantPast, cwd: "/fixture",
+      title: "Old", messageCount: 1, lastActivity: .distantPast)
+    initial.repositories.sessionSummaries = [summary]
+    initial.repositories.sessionsRefreshSucceeded = true
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = Date(timeIntervalSince1970: 1_000_000)
+      $0.continuousClock = TestClock()
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+    }
+    store.exhaustivity = .off
+    let key = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    await store.send(.agentPresence(.restoreFromSnapshotChecked(
+      records: [key: AgentPresenceFeature.RestoredRecord(
+        alivePids: [123], activity: .idle, sessionRef: nil)], resumeCandidates: [:])))
+    await store.receive(\.repositories.sessionsRestorationCompleted)
+    #expect(store.state.repositories.sessionsRestorationFinished)
+    #expect(store.state.repositories.sessionsHasUnresolvedLivePresence)
+    #expect(store.state.repositories.sessionSnapshots.isEmpty)
+    #expect(store.state.repositories.sessionsLiveKeys.isEmpty)
+    await store.send(.repositories(.sessionsRefreshCompleted([summary])))
+    #expect(store.state.repositories.sessions[summary.id] == nil)
+    await store.finish()
+  }
+
   @Test(.dependencies) func checkedRestoreLinksBeforeTurnAndDelayedIndexHydrates() async {
     let clock = TestClock()
     let store = TestStore(initialState: state(restored: true)) {

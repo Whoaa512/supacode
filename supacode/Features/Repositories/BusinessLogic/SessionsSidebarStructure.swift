@@ -160,7 +160,7 @@ extension RepositoriesFeature.State {
   }
 
   mutating func autoSettleSessions(now: Date, idleDays: Int) {
-    guard sessionsRestorationFinished, sessionsRefreshSucceeded,
+    guard sessionsRestorationFinished, sessionsRefreshSucceeded, !sessionsHasUnresolvedLivePresence,
       !sessionSnapshots.contains(where: { if case .provisional = $0.id { return true }; return false })
     else { return }
     for summary in sessionSummaries {
