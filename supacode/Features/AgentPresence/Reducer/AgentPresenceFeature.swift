@@ -94,7 +94,6 @@ struct AgentPresenceFeature {
     var currentSessionPID: pid_t?
 
     func matchesSessionEnd(_ event: AgentHookEvent) -> Bool {
-      if event.agent == SkillAgent.pi.rawValue, let sessionRef, event.sessionRef != sessionRef { return false }
       if let ref = event.sessionRef, let sessionRef, ref != sessionRef { return false }
       guard let pid = event.pid else { return pids.isEmpty }
       guard pids.contains(pid) else { return false }

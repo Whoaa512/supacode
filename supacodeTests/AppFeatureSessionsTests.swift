@@ -1479,10 +1479,32 @@ struct AppFeatureSessionsTests {
     await store.finish()
     #expect(store.state.repositories.sessions[key]?.settledAt == nil)
     #expect(store.state.agentPresence.records[presenceKey]?.sessionRef == "real")
-    if scenario == "staleSid" || scenario == "stalePid" || scenario == "missingSid" {
+    if scenario == "missingSid" {
+      #expect(store.state.agentPresence.records[presenceKey]?.pids == [11])
+    }
+    if scenario == "staleSid" || scenario == "stalePid" {
       #expect(store.state.agentPresence.records[presenceKey]?.pids == [11, 22])
       #expect(store.state.agentPresence.records[presenceKey]?.lastEventName == nil)
     }
+  }
+
+  @Test(.dependencies) func barePiEndRemovesPresenceWithoutSettling() async {
+    var initial = state()
+    let presenceKey = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    initial.agentPresence.records[presenceKey] = AgentPresenceFeature.PresenceRecord(
+      pids: [22], sessionRef: "real", currentSessionPID: 22)
+    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+      $0.date.now = Date(timeIntervalSince1970: 100)
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+    }
+    store.exhaustivity = .off
+    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
+      agent: "pi", event: "session_end", surfaceID: surface, pid: 22, shutdownReason: "quit"))))
+    await store.receive(\.agentPresence.hookEventReceived)
+    await store.finish()
+    #expect(store.state.agentPresence.records[presenceKey] == nil)
+    #expect(store.state.repositories.sessions.isEmpty)
   }
 
   @Test(.dependencies)

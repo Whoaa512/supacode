@@ -1,3 +1,4 @@
+import ComposableArchitecture
 import Foundation
 import Testing
 
@@ -42,6 +43,27 @@ struct AgentSignalSessionReasonTests {
       agent: "pi", event: "session_end", surfaceID: surface, sessionRef: "current")))
     #expect(!record.matchesSessionEnd(AgentHookEvent(
       agent: "pi", event: "session_end", surfaceID: surface, pid: 33, sessionRef: "current")))
+  }
+
+  @Test @MainActor func barePiEndUsesPIDMatchingAndRemovesPresence() async {
+    let surface = UUID()
+    let key = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    let record = AgentPresenceFeature.PresenceRecord(pids: [22], sessionRef: "current", currentSessionPID: 22)
+    let end = AgentHookEvent(agent: "pi", event: "session_end", surfaceID: surface, pid: 22)
+    #expect(record.matchesSessionEnd(end))
+    #expect(!record.matchesSessionEnd(AgentHookEvent(
+      agent: "pi", event: "session_end", surfaceID: surface, pid: 11)))
+    #expect(!record.matchesSessionEnd(AgentHookEvent(
+      agent: "pi", event: "session_end", surfaceID: surface, pid: 22, sessionRef: "other")))
+    var initial = AgentPresenceFeature.State()
+    initial.records[key] = record
+    let store = TestStore(initialState: initial) { AgentPresenceFeature() }
+    await store.send(.hookEventReceived(end)) {
+      $0.records.removeValue(forKey: key)
+    }
+    await store.receive(\.delegate)
+    await store.finish()
+    #expect(store.state.records[key] == nil)
   }
 
   @Test func missingOrUnknownOSCReasonStaysNil() throws {
