@@ -391,3 +391,11 @@
 - make lint: exit 2, only baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations; own parameter/tuple violations fixed. make build-app: exit 0. git diff --check: exit 0.
 - Logs: /tmp/slice4-auto-{generate,lint3,tests8,build}.log and /tmp/slice4-auto-summary8.json.
 - Unverified: owner UI stepper/visual section movement, installed app timer behavior and live OS lifecycle. No app launch/open/install, owner-process signaling, or protected-home writes; untracked .worktrees/ and PAPERCUTS.md preserved.
+
+## Slice 4 gate fix 1 — isolate session clock and startup ownership
+- Confirmed all 20 reported failures. 9ddebd41 defers date.now until a session action actually needs time; unrelated App/Repositories actions no longer touch the test date dependency.
+- 458a0d14 gates activation/settings refresh requests on repositories.sessionsStarted. Launch and sidebar appearance retain startup ownership; running index still refreshes on activation/settings. Regression covers pre-start lifecycle and post-start activation with TestClock.
+- Final targeted suites: RepositoriesFeatureAutoSettleTests, AppFeatureLifecycleTelemetryTests, AppFeatureDefaultEditorTests, AppFeatureMenuBarNotificationsTests, AppFeatureSystemNotificationTests, AppFeatureRunScriptTests, AppFeatureSettingsChangedTests. Exit 0; xcresult totalTestCount 79, failedTests 0; excluded only baseline settingsChangedPropagatesRepositorySettings via escaped exact identifier with ().
+- Initial targeted runs exited 2/counts 79 and 80 with only that allowed baseline failure. Selector without () did not exclude it; unescaped () failed shell parsing before a test run (summary was stale, not verification). Tool friction logged via papercut.
+- make build-app exit 0; make lint before each fix commit exit 2, only unchanged baseline DeeplinkClient:26 and CommandPaletteFeature:1260 complexity violations. git diff --check exit 0. Logs /tmp/slice4-gate-fix-{tests4,lint,lint2,build}.log; final summary /tmp/slice4-gate-fix-summary4.json.
+- No scope deviation beyond making lifecycle refresh conditional on startup; no full suite rerun, live-app launch/install/signaling or protected-home writes. Builds/tests serialized with pgrep -fl xcodebuild; untracked files remain unstaged.
