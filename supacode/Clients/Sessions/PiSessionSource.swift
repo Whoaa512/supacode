@@ -86,15 +86,19 @@ actor PiSessionSource: SessionSource {
     await Task.yield()
     loadCacheIfNeeded()
     let manager = FileManager.default
-    guard manager.fileExists(atPath: root.path) else {
+    do {
+      _ = try manager.attributesOfItem(atPath: root.path)
+    } catch CocoaError.fileReadNoSuchFile {
       cache = [:]
       try persist()
       return []
     }
     let keys: Set<URLResourceKey> = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
     let directories = try manager.contentsOfDirectory(at: root, includingPropertiesForKeys: Array(keys))
-    var refreshed: [String: CachedFile] = [:]
-    var summaries: [SessionSummary] = []
+    let directoryPaths = Set(directories.map(\.path))
+    var refreshed = cache.filter {
+      directoryPaths.contains(URL(fileURLWithPath: $0.key).deletingLastPathComponent().path)
+    }
     var failures = 0
     for directory in directories {
       guard let values = try? directory.resourceValues(forKeys: keys),
@@ -102,6 +106,10 @@ actor PiSessionSource: SessionSource {
       else { continue }
       guard let files = try? manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys))
       else { continue }
+      let filePaths = Set(files.map(\.path))
+      refreshed = refreshed.filter {
+        URL(fileURLWithPath: $0.key).deletingLastPathComponent().path != directory.path || filePaths.contains($0.key)
+      }
       for file in files where file.pathExtension == "jsonl" {
         guard let values = try? file.resourceValues(forKeys: keys),
           values.isRegularFile == true, values.isSymbolicLink != true
@@ -110,12 +118,10 @@ actor PiSessionSource: SessionSource {
           let before = try stamp(file)
           if let hit = cache[file.path], hit.stamp == before {
             refreshed[file.path] = hit
-            summaries.append(hit.summary)
             continue
           }
           parsedFileCount += 1
           guard let summary = try parse(file) else { continue }
-          summaries.append(summary)
           if try stamp(file) == before {
             refreshed[file.path] = CachedFile(stamp: before, summary: summary)
           }
@@ -127,7 +133,7 @@ actor PiSessionSource: SessionSource {
     if failures > 0 { Self.logger.warning("Could not read \(failures) session files") }
     cache = refreshed
     try persist()
-    return SessionClassification.ordered(summaries)
+    return SessionClassification.ordered(cache.values.map(\.summary))
   }
 
   private func stamp(_ url: URL) throws -> Stamp {

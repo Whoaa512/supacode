@@ -181,6 +181,39 @@ struct PiSessionSourceTests {
     #expect(try await fixture.source().sessions().isEmpty)
   }
 
+  @Test func failedReadsAndListingsPreserveCacheUntilConfirmedDeletion() async throws {
+    let fixture = try Fixture()
+    defer { fixture.clean() }
+    let file = try fixture.write(Self.header() + Self.user)
+    let source = fixture.source()
+    let original = try await source.sessions()
+    try fixture.write("invalid header\n")
+    #expect(try await source.sessions() == original)
+    try fixture.write(Self.header() + Self.user + Self.user)
+    try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: file.path)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path) }
+    #expect(try await source.sessions() == original)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: fixture.directory.path)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fixture.directory.path) }
+    #expect(try await source.sessions() == original)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fixture.directory.path)
+    try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: fixture.root.path)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fixture.root.path) }
+    do {
+      _ = try await source.sessions()
+      Issue.record("Unreadable root listing must fail")
+    } catch {}
+    #expect(await source.cachedSessions() == original)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fixture.root.path)
+    try FileManager.default.removeItem(at: file)
+    #expect(try await source.sessions().isEmpty)
+    try fixture.write(Self.header())
+    #expect(try await source.sessions().count == 1)
+    try FileManager.default.removeItem(at: fixture.directory)
+    #expect(try await source.sessions().isEmpty)
+  }
+
   @Test func resumeValidatesIdentity() {
     let source = PiSessionSource(root: URL(fileURLWithPath: "/unused"), cacheURL: URL(fileURLWithPath: "/unused/cache"))
     #expect(source.resumeCommand(sessionID: "abc-123") == "pi --session abc-123")
