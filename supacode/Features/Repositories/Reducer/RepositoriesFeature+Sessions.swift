@@ -87,9 +87,10 @@ extension RepositoriesFeature {
       case .sessionsRefreshCompleted(let summaries):
         state.sessionsRefreshSucceeded = true
         state.sessionsHasCompletedRefresh = true
-        if state.sessionSummaries != summaries {
+        let hasEndedPlaceholder = state.sessionItems.contains { $0.isSynthetic && !$0.isLive }
+        if state.sessionSummaries != summaries || hasEndedPlaceholder {
           state.sessionSummaries = summaries
-          state.reconcileSessionItems(now: date.now)
+          state.reconcileSessionItems(now: date.now, droppingUnindexedEnded: true)
         }
         state.autoSettleSessions(now: date.now, idleDays: settingsFile.global.sessionIdleDays)
         return Self.finishSessionsRefresh(state: &state)

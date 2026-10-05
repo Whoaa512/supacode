@@ -82,7 +82,10 @@ extension RepositoriesFeature.State {
     if sessionsSidebarStructure != structure { sessionsSidebarStructure = structure }
   }
 
-  mutating func reconcileSessionItems(now: Date) {
+  /// `droppingUnindexedEnded` is set once a scan has finished: a session that
+  /// ended and still has no file on disk never had a turn and cannot be
+  /// resumed, so its placeholder row goes away instead of lingering.
+  mutating func reconcileSessionItems(now: Date, droppingUnindexedEnded: Bool = false) {
     // One sidecar read and one branch lookup per directory: this runs on the
     // main thread for every agent status flip, over the whole index.
     let sidecar = sessions
@@ -117,7 +120,7 @@ extension RepositoriesFeature.State {
           branchAnnotation: branchAnnotation(for: summary.id, cwd: summary.cwd)))
     }
     // A session that ended before the index caught up keeps its row.
-    for row in sessionItems where row.isSynthetic {
+    for row in sessionItems where row.isSynthetic && !droppingUnindexedEnded {
       guard case .session = row.id, indexByID[row.id] == nil else { continue }
       append(
         SessionRowDraft(

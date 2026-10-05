@@ -209,6 +209,21 @@ struct RepositoriesFeatureSessionsTests {
     await store.finish()
   }
 
+  @Test(.dependencies) func sessionKilledBeforeAnyTurnLosesItsRowAfterTheNextScan() async {
+    let clock = TestClock()
+    let store = store(clock: clock)
+    await store.send(.sessionSnapshotsChanged([snapshot(UUID(), ref: "never-saved")]))
+    await store.receive(\.sessionsRefreshRequested)
+    await store.send(.sessionSnapshotsChanged([]))
+    await store.receive(\.sessionsRefreshRequested)
+    #expect(store.state.sessionItems.count == 1, "kept until the scan confirms nothing was saved")
+    await clock.advance(by: .milliseconds(500))
+    await store.receive(\.sessionsRefreshCompleted)
+    #expect(store.state.sessionItems.isEmpty)
+    #expect(store.state.sessionsSidebarStructure.sections.isEmpty)
+    await store.finish()
+  }
+
   @Test(.dependencies) func statusFlipUpdatesRowWithoutRescanningTheIndex() async {
     let clock = TestClock()
     let calls = LockIsolated(0)
