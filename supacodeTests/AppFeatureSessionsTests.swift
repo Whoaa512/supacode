@@ -160,16 +160,22 @@ struct AppFeatureSessionsTests {
 
   @Test(.dependencies) func checkedRestoreReleasesAutoSettleGateWithUnmappedLiveIdentity() async {
     let clock = TestClock()
-    let store = TestStore(initialState: state()) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: state()) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = .distantPast
       $0.continuousClock = clock
       $0.terminalClient.saveLayoutsWithAgents = { _ in }
     }
     store.exhaustivity = .off
     let key = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: UUID())
-    await store.send(.agentPresence(.restoreFromSnapshotChecked(
-      records: [key: AgentPresenceFeature.RestoredRecord(
-        alivePids: [123], activity: .idle, sessionRef: "unmapped")], resumeCandidates: [:])))
+    await store.send(
+      .agentPresence(
+        .restoreFromSnapshotChecked(
+          records: [
+            key: AgentPresenceFeature.RestoredRecord(
+              alivePids: [123], activity: .idle, sessionRef: "unmapped")
+          ], resumeCandidates: [:])))
     await store.receive(\.repositories.sessionsRestorationCompleted)
     #expect(store.state.repositories.sessionsRestorationFinished)
     #expect(store.state.repositories.sessionsLiveKeys.contains(SessionKey(harness: .pi, sessionID: "unmapped")))
@@ -187,16 +193,22 @@ struct AppFeatureSessionsTests {
       title: "Old", messageCount: 1, lastActivity: .distantPast)
     initial.repositories.sessionSummaries = [summary]
     initial.repositories.sessionsRefreshSucceeded = true
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 1_000_000)
       $0.continuousClock = TestClock()
       $0.terminalClient.saveLayoutsWithAgents = { _ in }
     }
     store.exhaustivity = .off
     let key = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
-    await store.send(.agentPresence(.restoreFromSnapshotChecked(
-      records: [key: AgentPresenceFeature.RestoredRecord(
-        alivePids: [123], activity: .idle, sessionRef: nil)], resumeCandidates: [:])))
+    await store.send(
+      .agentPresence(
+        .restoreFromSnapshotChecked(
+          records: [
+            key: AgentPresenceFeature.RestoredRecord(
+              alivePids: [123], activity: .idle, sessionRef: nil)
+          ], resumeCandidates: [:])))
     await store.receive(\.repositories.sessionsRestorationCompleted)
     #expect(store.state.repositories.sessionsRestorationFinished)
     #expect(store.state.repositories.sessionsHasUnresolvedLivePresence)
@@ -208,19 +220,26 @@ struct AppFeatureSessionsTests {
   }
 
   @Test(.dependencies) func mappedProvisionalInPersistedLayoutDoesNotHoldGlobalGate() async {
-    let store = TestStore(initialState: state(restored: true)) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: state(restored: true)) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = .distantPast
       $0.continuousClock = TestClock()
       $0.terminalClient.saveLayoutsWithAgents = { _ in }
     }
     store.exhaustivity = .off
     let key = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
-    await store.send(.agentPresence(.restoreFromSnapshotChecked(
-      records: [key: AgentPresenceFeature.RestoredRecord(
-        alivePids: [123], activity: .idle, sessionRef: nil)], resumeCandidates: [:])))
+    await store.send(
+      .agentPresence(
+        .restoreFromSnapshotChecked(
+          records: [
+            key: AgentPresenceFeature.RestoredRecord(
+              alivePids: [123], activity: .idle, sessionRef: nil)
+          ], resumeCandidates: [:])))
     await store.receive(\.repositories.sessionsRestorationCompleted)
     #expect(store.state.repositories.sessionsRestorationFinished)
-    #expect(!store.state.repositories.sessionsHasUnresolvedLivePresence,
+    #expect(
+      !store.state.repositories.sessionsHasUnresolvedLivePresence,
       "surface is in persistedLayouts so presence is mapped; global gate must not fire")
     await store.finish()
   }
@@ -392,7 +411,9 @@ struct AppFeatureSessionsTests {
         id: .session(key), title: "Dormant", cwd: tmpDir.path, createdAt: .distantPast)
     ]
     initial.repositories.$sessions.withLock { $0[key] = SessionSidecarEntry(branches: ["old-branch"]) }
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = .distantPast
       $0.uuid = .incrementing
       $0[GitClientDependency.self].branchName = { _ in "new-branch" }
@@ -442,7 +463,9 @@ struct AppFeatureSessionsTests {
     let branches = AsyncStream<String>.makeStream()
     let probes = LockIsolated(0)
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.uuid = .incrementing
       $0[GitClientDependency.self].branchName = { _ in
         probes.withValue { $0 += 1 }
@@ -497,7 +520,9 @@ struct AppFeatureSessionsTests {
         id: .session(key), title: "Dormant", cwd: tmpDir.path, createdAt: .distantPast)
     ]
     initial.repositories.$sessions.withLock { $0[key] = SessionSidecarEntry(branches: ["main", "feature"]) }
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = .distantPast
       $0.uuid = .incrementing
       $0[GitClientDependency.self].branchName = { _ in "main" }
@@ -528,13 +553,14 @@ struct AppFeatureSessionsTests {
     let surface2 = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
     let tab2 = TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!)
     let layout = initial.terminals.layouts[id: worktree.id]!.layout
-    let newTabs = layout.panes[0].tabs + [
-      TabItem(
-        id: tab2, title: "Agent2",
-        content: ContentSnapshot(
-          id: ContentID(rawValue: surface2),
-          state: .terminal(TerminalContentState(workingDirectory: "/workspace"))))
-    ]
+    let newTabs =
+      layout.panes[0].tabs + [
+        TabItem(
+          id: tab2, title: "Agent2",
+          content: ContentSnapshot(
+            id: ContentID(rawValue: surface2),
+            state: .terminal(TerminalContentState(workingDirectory: "/workspace"))))
+      ]
     initial.terminals.layouts[id: worktree.id]?.layout.panes[0].tabs = IdentifiedArray(uniqueElements: newTabs)
     let presenceKey1 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     initial.agentPresence.records[presenceKey1] = record(ref: "sess1")
@@ -565,7 +591,11 @@ struct AppFeatureSessionsTests {
       $0.repositories.sessionSelection = .session(key2)
     }
     await store.finish()
-    #expect(!sent.value.contains { if case .createTabWithInput = $0 { return true }; return false })
+    #expect(
+      !sent.value.contains {
+        if case .createTabWithInput = $0 { return true }
+        return false
+      })
     #expect(focused.value == [initial.repositories.sessionItems[id: .session(key2)]!.location!])
   }
 
@@ -579,13 +609,14 @@ struct AppFeatureSessionsTests {
     let surface2 = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
     let tab2 = TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!)
     let layout = initial.terminals.layouts[id: worktree.id]!.layout
-    let newTabs = layout.panes[0].tabs + [
-      TabItem(
-        id: tab2, title: "Agent2",
-        content: ContentSnapshot(
-          id: ContentID(rawValue: surface2),
-          state: .terminal(TerminalContentState(workingDirectory: "/workspace"))))
-    ]
+    let newTabs =
+      layout.panes[0].tabs + [
+        TabItem(
+          id: tab2, title: "Agent2",
+          content: ContentSnapshot(
+            id: ContentID(rawValue: surface2),
+            state: .terminal(TerminalContentState(workingDirectory: "/workspace"))))
+      ]
     initial.terminals.layouts[id: worktree.id]?.layout.panes[0].tabs = IdentifiedArray(uniqueElements: newTabs)
     let presenceKey1 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     initial.agentPresence.records[presenceKey1] = record(ref: "sess1")
@@ -616,7 +647,11 @@ struct AppFeatureSessionsTests {
       $0.repositories.sessionSelection = .session(key2)
     }
     await store.finish()
-    #expect(!sent.value.contains { if case .createTabWithInput = $0 { return true }; return false })
+    #expect(
+      !sent.value.contains {
+        if case .createTabWithInput = $0 { return true }
+        return false
+      })
     #expect(focused.value == [initial.repositories.sessionItems[id: .session(key2)]!.location!])
   }
 
@@ -630,13 +665,14 @@ struct AppFeatureSessionsTests {
     let surface2 = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
     let tab2 = TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!)
     let layout = initial.terminals.layouts[id: worktree.id]!.layout
-    let newTabs = layout.panes[0].tabs + [
-      TabItem(
-        id: tab2, title: "Agent2",
-        content: ContentSnapshot(
-          id: ContentID(rawValue: surface2),
-          state: .terminal(TerminalContentState(workingDirectory: "/workspace"))))
-    ]
+    let newTabs =
+      layout.panes[0].tabs + [
+        TabItem(
+          id: tab2, title: "Agent2",
+          content: ContentSnapshot(
+            id: ContentID(rawValue: surface2),
+            state: .terminal(TerminalContentState(workingDirectory: "/workspace"))))
+      ]
     initial.terminals.layouts[id: worktree.id]?.layout.panes[0].tabs = IdentifiedArray(uniqueElements: newTabs)
     let presenceKey1 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     initial.agentPresence.records[presenceKey1] = record(ref: "sess1")
@@ -666,7 +702,11 @@ struct AppFeatureSessionsTests {
       $0.repositories.sessionSelection = .session(key2)
     }
     await store.finish()
-    #expect(!sent.value.contains { if case .createTabWithInput = $0 { return true }; return false })
+    #expect(
+      !sent.value.contains {
+        if case .createTabWithInput = $0 { return true }
+        return false
+      })
     #expect(focused.value == [initial.repositories.sessionItems[id: .session(key2)]!.location!])
   }
 
@@ -700,13 +740,14 @@ struct AppFeatureSessionsTests {
     let surface2 = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
     let tab2 = TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!)
     let layout = initial.terminals.layouts[id: worktree.id]!.layout
-    let newTabs = layout.panes[0].tabs + [
-      TabItem(
-        id: tab2, title: "Agent2",
-        content: ContentSnapshot(
-          id: ContentID(rawValue: surface2),
-          state: .terminal(TerminalContentState(workingDirectory: "/workspace"))))
-    ]
+    let newTabs =
+      layout.panes[0].tabs + [
+        TabItem(
+          id: tab2, title: "Agent2",
+          content: ContentSnapshot(
+            id: ContentID(rawValue: surface2),
+            state: .terminal(TerminalContentState(workingDirectory: "/workspace"))))
+      ]
     initial.terminals.layouts[id: worktree.id]?.layout.panes[0].tabs = IdentifiedArray(uniqueElements: newTabs)
     initial.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = tab2
     let presenceKey1 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
@@ -737,7 +778,11 @@ struct AppFeatureSessionsTests {
       $0.repositories.sessionSelection = .session(key1)
     }
     await store.finish()
-    #expect(!sent.value.contains { if case .createTabWithInput = $0 { return true }; return false })
+    #expect(
+      !sent.value.contains {
+        if case .createTabWithInput = $0 { return true }
+        return false
+      })
     #expect(focused.value == [initial.repositories.sessionItems[id: .session(key1)]!.location!])
   }
 
@@ -1074,7 +1119,9 @@ struct AppFeatureSessionsTests {
     ]
     initial.repositories.sessionSelection = .session(selectedKey)
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.uuid = .incrementing
       $0.date.now = .distantPast
       $0.continuousClock = ImmediateClock()
@@ -1108,7 +1155,9 @@ struct AppFeatureSessionsTests {
         name: "selected", worktrees: [selectedWorktree])
     ]
     initial.repositories.selection = .worktree(selectedWorktree.id)
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.uuid = .incrementing
       $0.date.now = .distantPast
       $0.continuousClock = ImmediateClock()
@@ -1134,11 +1183,14 @@ struct AppFeatureSessionsTests {
       workingDirectory: cwd, repositoryRootURL: cwd)
     var initial = state()
     initial.repositories.repositories = [
-      Repository(id: RepositoryID(cwd.path(percentEncoded: false)), rootURL: cwd,
+      Repository(
+        id: RepositoryID(cwd.path(percentEncoded: false)), rootURL: cwd,
         name: "picked", worktrees: [pickedWorktree])
     ]
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.uuid = .incrementing
       $0.date.now = .distantPast
       $0.terminalClient.send = { command in sent.withValue { $0.append(command) } }
@@ -1160,7 +1212,10 @@ struct AppFeatureSessionsTests {
     #expect(store.state.repositories.openPanelPurpose == .openRepository)
     #expect(sent.value.count == 1)
     guard case .createTabWithInput(let worktree, let input, _, _, _, _, _) = sent.value[0]
-    else { Issue.record("Expected exactly one session launch"); return }
+    else {
+      Issue.record("Expected exactly one session launch")
+      return
+    }
     #expect(worktree.workingDirectory == cwd)
     #expect(input == "pi")
   }
@@ -1210,7 +1265,9 @@ struct AppFeatureSessionsTests {
     initial.agentPresence.records[
       AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     ] = AgentPresenceFeature.PresenceRecord(pids: [], sessionRef: "real")
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 100)
       $0.continuousClock = ImmediateClock()
       $0.terminalClient.focusSurface = { _, _, _ in }
@@ -1219,7 +1276,7 @@ struct AppFeatureSessionsTests {
     await store.send(.settleSessionAndAdvance) { appState in
       #expect(appState.repositories.sessions[key]?.settledAt != nil)
     }
-    await store.receive(\..focusTerminalSurface)
+    await store.receive(\ .. focusTerminalSurface)
   }
 
   @Test(.dependencies) func settleSessionAndAdvanceUnsettlesSettledDestination() async throws {
@@ -1250,7 +1307,9 @@ struct AppFeatureSessionsTests {
     initial.agentPresence.records[
       AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     ] = AgentPresenceFeature.PresenceRecord(pids: [], sessionRef: "real")
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 100)
       $0.continuousClock = ImmediateClock()
       $0.terminalClient.focusSurface = { _, _, _ in }
@@ -1280,7 +1339,9 @@ struct AppFeatureSessionsTests {
     initial.agentPresence.records[
       AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     ] = AgentPresenceFeature.PresenceRecord(pids: [], sessionRef: "real")
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 100)
       $0.continuousClock = ImmediateClock()
     }
@@ -1308,7 +1369,9 @@ struct AppFeatureSessionsTests {
     initial.agentPresence.records[
       AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     ] = AgentPresenceFeature.PresenceRecord(pids: [], sessionRef: "real")
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 100)
       $0.continuousClock = ImmediateClock()
     }
@@ -1331,7 +1394,9 @@ struct AppFeatureSessionsTests {
         createdAt: .distantPast, location: location
       )
     ]
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 100)
       $0.continuousClock = ImmediateClock()
       $0.terminalClient.saveLayoutsWithAgents = { _ in }
@@ -1368,7 +1433,9 @@ struct AppFeatureSessionsTests {
         location: SessionLocation(worktreeID: worktree.id, tabID: TabID(rawValue: shell), surfaceID: shell)
       ),
     ]
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 100)
       $0.continuousClock = ImmediateClock()
       $0.terminalClient.saveLayoutsWithAgents = { _ in }
@@ -1388,7 +1455,9 @@ struct AppFeatureSessionsTests {
   @Test(.dependencies) func directContentRequestedCloseMarksUserIntentSynchronously() async {
     let marked = LockIsolated<[Set<UUID>]>([])
     let initial = state()
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.terminalClient.markUserCloseIntent = { _, ids in marked.withValue { $0.append(ids) } }
     }
     store.exhaustivity = .off
@@ -1408,11 +1477,16 @@ struct AppFeatureSessionsTests {
 
   @Test(.dependencies) func hookIsForwardedAndRefreshRequestedExactlyOnce() async {
     let clock = TestClock()
-    let store = TestStore(initialState: state()) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: state()) {
+      AppFeature()
+    } withDependencies: {
       $0.continuousClock = clock
     }
-    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
-      agent: "pi", event: "session_end", surfaceID: surface, sessionRef: "unknown"))))
+    await store.send(
+      .terminalEvent(
+        .agentHookEventReceived(
+          AgentHookEvent(
+            agent: "pi", event: "session_end", surfaceID: surface, sessionRef: "unknown"))))
     await store.receive(\.agentPresence.hookEventReceived)
     await store.receive(\.repositories.sessionsRefreshRequested)
     await store.send(.repositories(.sessionsStopped))
@@ -1420,7 +1494,9 @@ struct AppFeatureSessionsTests {
   }
 
   @Test(.dependencies) func suppressedSessionEndSkipsRefreshButNonEndEventsStillRefresh() async {
-    let store = TestStore(initialState: state()) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: state()) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 100)
       $0.continuousClock = ImmediateClock()
       $0.terminalClient.saveLayoutsWithAgents = { _ in }
@@ -1448,15 +1524,20 @@ struct AppFeatureSessionsTests {
     let key = SessionKey(harness: .pi, sessionID: "real")
     let presenceKey = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     initial.agentPresence.records[presenceKey] = record()
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 100)
       $0.continuousClock = ImmediateClock()
       $0.terminalClient.saveLayoutsWithAgents = { _ in }
     }
     store.exhaustivity = .off
-    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
-      agent: "pi", event: "session_end", surfaceID: surface,
-      sessionRef: "real", shutdownReason: reason))))
+    await store.send(
+      .terminalEvent(
+        .agentHookEventReceived(
+          AgentHookEvent(
+            agent: "pi", event: "session_end", surfaceID: surface,
+            sessionRef: "real", shutdownReason: reason))))
     await store.receive(\.repositories.settleSession)
     await store.finish()
     #expect(store.state.repositories.sessions[key]?.settledAt == Date(timeIntervalSince1970: 100))
@@ -1474,20 +1555,29 @@ struct AppFeatureSessionsTests {
     initial.agentPresence.records[presenceKey] = AgentPresenceFeature.PresenceRecord(
       pids: [11, 22], sessionRef: "real", currentSessionPID: 22)
     initial.isQuitting = scenario == "quitting"
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 100)
       $0.continuousClock = ImmediateClock()
       $0.terminalClient.saveLayoutsWithAgents = { _ in }
       $0.terminalClient.isHarnessEndSuppressed = { _ in scenario == "suppressed" }
     }
     store.exhaustivity = .off
-    let reason = scenario == "missing" ? nil : scenario == "reload" ? "reload"
-      : scenario == "unknown" ? "unknown" : "quit"
-    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
-      agent: "pi", event: "session_end", surfaceID: surface,
-      pid: scenario == "stalePid" ? 11 : 22,
-      sessionRef: scenario == "missingSid" ? nil : scenario == "staleSid" ? "previous" : "real",
-      shutdownReason: reason))))
+    let reason =
+      scenario == "missing"
+      ? nil
+      : scenario == "reload"
+        ? "reload"
+        : scenario == "unknown" ? "unknown" : "quit"
+    await store.send(
+      .terminalEvent(
+        .agentHookEventReceived(
+          AgentHookEvent(
+            agent: "pi", event: "session_end", surfaceID: surface,
+            pid: scenario == "stalePid" ? 11 : 22,
+            sessionRef: scenario == "missingSid" ? nil : scenario == "staleSid" ? "previous" : "real",
+            shutdownReason: reason))))
     await store.receive(\.agentPresence.hookEventReceived)
     await store.finish()
     #expect(store.state.repositories.sessions[key]?.settledAt == nil)
@@ -1506,14 +1596,19 @@ struct AppFeatureSessionsTests {
     let presenceKey = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     initial.agentPresence.records[presenceKey] = AgentPresenceFeature.PresenceRecord(
       pids: [22], sessionRef: "real", currentSessionPID: 22)
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 100)
       $0.continuousClock = ImmediateClock()
       $0.terminalClient.saveLayoutsWithAgents = { _ in }
     }
     store.exhaustivity = .off
-    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
-      agent: "pi", event: "session_end", surfaceID: surface, pid: 22, shutdownReason: "quit"))))
+    await store.send(
+      .terminalEvent(
+        .agentHookEventReceived(
+          AgentHookEvent(
+            agent: "pi", event: "session_end", surfaceID: surface, pid: 22, shutdownReason: "quit"))))
     await store.receive(\.agentPresence.hookEventReceived)
     await store.finish()
     #expect(store.state.agentPresence.records[presenceKey] == nil)
@@ -1530,15 +1625,20 @@ struct AppFeatureSessionsTests {
       pids: [42], sessionRef: "real", currentSessionPID: 42)
     initial.repositories.sessionsRestorationFinished = true
     initial.repositories.sessionsRefreshSucceeded = true
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = now
       $0.continuousClock = ImmediateClock()
       $0.terminalClient.saveLayoutsWithAgents = { _ in }
     }
     store.exhaustivity = .off
-    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
-      agent: "pi", event: "session_end", surfaceID: surface,
-      pid: 42, sessionRef: "real", shutdownReason: "reload"))))
+    await store.send(
+      .terminalEvent(
+        .agentHookEventReceived(
+          AgentHookEvent(
+            agent: "pi", event: "session_end", surfaceID: surface,
+            pid: 42, sessionRef: "real", shutdownReason: "reload"))))
     await store.receive(\.agentPresence.hookEventReceived)
     await store.finish()
     #expect(store.state.repositories.sessions[key]?.settledAt == nil)
@@ -1557,27 +1657,38 @@ struct AppFeatureSessionsTests {
     var initial = state()
     let presenceKey = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     initial.agentPresence.records[presenceKey] = record()
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 100)
       $0.continuousClock = ImmediateClock()
       $0.terminalClient.saveLayoutsWithAgents = { _ in }
     }
     store.exhaustivity = .off
-    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
-      agent: "pi", event: event, surfaceID: surface, sessionRef: "real"))))
+    await store.send(
+      .terminalEvent(
+        .agentHookEventReceived(
+          AgentHookEvent(
+            agent: "pi", event: event, surfaceID: surface, sessionRef: "real"))))
     await store.receive(\.agentPresence.hookEventReceived)
     await store.finish()
     #expect(store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "real")] == nil)
-    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
-      agent: "pi", event: event, surfaceID: surface, sessionRef: "replacement"))))
+    await store.send(
+      .terminalEvent(
+        .agentHookEventReceived(
+          AgentHookEvent(
+            agent: "pi", event: event, surfaceID: surface, sessionRef: "replacement"))))
     await store.receive(\.repositories.settleSession)
     await store.finish()
     #expect(store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "real")]?.settledAt != nil)
     #expect(store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "replacement")] == nil)
     #expect(store.state.agentPresence.records[presenceKey]?.sessionRef == "replacement")
-    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
-      agent: "pi", event: "session_end", surfaceID: surface,
-      sessionRef: "real", shutdownReason: "quit"))))
+    await store.send(
+      .terminalEvent(
+        .agentHookEventReceived(
+          AgentHookEvent(
+            agent: "pi", event: "session_end", surfaceID: surface,
+            sessionRef: "real", shutdownReason: "quit"))))
     await store.receive(\.agentPresence.hookEventReceived)
     await store.finish()
     #expect(store.state.agentPresence.records[presenceKey]?.sessionRef == "replacement")
@@ -1589,29 +1700,40 @@ struct AppFeatureSessionsTests {
     let presenceKey = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     initial.agentPresence.records[presenceKey] = AgentPresenceFeature.PresenceRecord(
       pids: [11], sessionRef: "real")
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 100)
       $0.continuousClock = ImmediateClock()
       $0.terminalClient.saveLayoutsWithAgents = { _ in }
     }
     store.exhaustivity = .off
-    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
-      agent: "pi", event: "session_start", surfaceID: surface, pid: 22, sessionRef: "replacement"))))
+    await store.send(
+      .terminalEvent(
+        .agentHookEventReceived(
+          AgentHookEvent(
+            agent: "pi", event: "session_start", surfaceID: surface, pid: 22, sessionRef: "replacement"))))
     await store.receive(\.agentPresence.hookEventReceived)
     await store.finish()
     #expect(store.state.agentPresence.records[presenceKey]?.currentSessionPID == 22)
     for ref in ["real", "replacement"] {
-      await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
-        agent: "pi", event: "session_end", surfaceID: surface, pid: 11,
-        sessionRef: ref, shutdownReason: "quit"))))
+      await store.send(
+        .terminalEvent(
+          .agentHookEventReceived(
+            AgentHookEvent(
+              agent: "pi", event: "session_end", surfaceID: surface, pid: 11,
+              sessionRef: ref, shutdownReason: "quit"))))
       await store.receive(\.agentPresence.hookEventReceived)
       await store.finish()
       #expect(store.state.agentPresence.records[presenceKey]?.sessionRef == "replacement")
       #expect(store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "replacement")] == nil)
     }
-    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
-      agent: "pi", event: "session_end", surfaceID: surface, pid: 22,
-      sessionRef: "replacement", shutdownReason: "quit"))))
+    await store.send(
+      .terminalEvent(
+        .agentHookEventReceived(
+          AgentHookEvent(
+            agent: "pi", event: "session_end", surfaceID: surface, pid: 22,
+            sessionRef: "replacement", shutdownReason: "quit"))))
     await store.receive(\.repositories.settleSession)
     await store.finish()
     #expect(store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "replacement")]?.settledAt != nil)
@@ -1622,14 +1744,19 @@ struct AppFeatureSessionsTests {
     let key = SessionKey(harness: .claude, sessionID: "real")
     initial.agentPresence.records[
       AgentPresenceFeature.PresenceKey(agent: .claude, surfaceID: surface)] = record()
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 100)
       $0.continuousClock = ImmediateClock()
       $0.terminalClient.saveLayoutsWithAgents = { _ in }
     }
     store.exhaustivity = .off
-    await store.send(.terminalEvent(.agentHookEventReceived(AgentHookEvent(
-      agent: "claude", event: "session_end", surfaceID: surface))))
+    await store.send(
+      .terminalEvent(
+        .agentHookEventReceived(
+          AgentHookEvent(
+            agent: "claude", event: "session_end", surfaceID: surface))))
     await store.receive(\.repositories.settleSession)
     await store.finish()
     #expect(store.state.repositories.sessions[key]?.settledAt != nil)
@@ -1679,7 +1806,9 @@ struct AppFeatureSessionsTests {
     ]
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
     initial.repositories.sessionSelection = .session(needs)
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.terminalClient.focusSurface = { _, _, _ in }
     }
     store.exhaustivity = .off
@@ -1733,7 +1862,9 @@ struct AppFeatureSessionsTests {
     ]
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
     initial.repositories.sessionSelection = .session(idle)
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.terminalClient.focusSurface = { _, _, _ in }
     }
     store.exhaustivity = .off
@@ -1762,7 +1893,9 @@ struct AppFeatureSessionsTests {
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
     #expect(initial.repositories.sessionItems.first?.status == .needsYou)
     let focused = LockIsolated<[UUID]>([])
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.terminalClient.focusSurface = { _, _, surfaceID in focused.withValue { $0.append(surfaceID) } }
     }
     await store.send(.nextSessionNeedsMe)
@@ -1801,7 +1934,9 @@ struct AppFeatureSessionsTests {
     var initial = state()
     initial.pendingSessionLaunch = PendingSessionLaunch(
       key: key, cwd: tmpDir, command: "pi --session cool", requestID: reqID, launched: true)
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = launchTime
     }
     store.exhaustivity = .off
@@ -1829,13 +1964,15 @@ struct AppFeatureSessionsTests {
     let launchTime = Date(timeIntervalSince1970: 1_000)
     initial.recentSessionLaunchDate[key] = launchTime
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 1_005)  // 5 s after launch
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
     }
     store.exhaustivity = .off
     await store.send(.repositories(.activateSession(.session(key))))
-    await store.receive(\..repositories.delegate.resumeSession)
+    await store.receive(\ .. repositories.delegate.resumeSession)
     await store.finish()
     #expect(sent.value.isEmpty, "should not launch within 10 s cooldown")
     #expect(store.state.pendingSessionLaunch == nil)
@@ -1858,7 +1995,9 @@ struct AppFeatureSessionsTests {
     let launchTime = Date(timeIntervalSince1970: 1_000)
     initial.recentSessionLaunchDate[key] = launchTime
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.uuid = .incrementing
       $0.date.now = Date(timeIntervalSince1970: 1_015)  // 15 s after — cooldown expired
       $0.terminalClient.send = { cmd in
@@ -1867,7 +2006,7 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
     await store.send(.repositories(.activateSession(.session(key))))
-    await store.receive(\..repositories.delegate.resumeSession)
+    await store.receive(\ .. repositories.delegate.resumeSession)
     await store.receive(\.launchSessionCompleted)
     await store.finish()
     #expect(sent.value.count == 1, "should launch after cooldown expires")
@@ -1880,12 +2019,14 @@ struct AppFeatureSessionsTests {
       SessionSidebarItemFeature.State(
         id: .session(key), title: "Missing", cwd: "/nonexistent/dir/absent", createdAt: .distantPast)
     ]
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = .distantPast
     }
     store.exhaustivity = .off
     await store.send(.repositories(.activateSession(.session(key))))
-    await store.receive(\..repositories.delegate.resumeSession) { appState in
+    await store.receive(\ .. repositories.delegate.resumeSession) { appState in
       #expect(appState.alert != nil)
       #expect(appState.pendingSessionLaunch == nil)
     }
@@ -1903,7 +2044,8 @@ struct AppFeatureSessionsTests {
       id: WorktreeID(tmpDir.path), name: "provisional", detail: "",
       workingDirectory: tmpDir, repositoryRootURL: tmpDir)
     initial.repositories.repositories.append(
-      Repository(id: RepositoryID(tmpDir.path), rootURL: tmpDir, name: "provisional",
+      Repository(
+        id: RepositoryID(tmpDir.path), rootURL: tmpDir, name: "provisional",
         worktrees: [worktree]))
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
@@ -1918,13 +2060,15 @@ struct AppFeatureSessionsTests {
         location: SessionLocation(
           worktreeID: worktree.id, tabID: TabID(), surfaceID: surfaceID))
     ]
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = .distantPast
       $0.uuid = .incrementing
     }
     store.exhaustivity = .off
     await store.send(.repositories(.activateSession(.session(key))))
-    await store.receive(\..repositories.delegate.resumeSession)
+    await store.receive(\ .. repositories.delegate.resumeSession)
     await store.receive(\.resumeBranchProbeCompleted) { appState in
       #expect(appState.pendingBranchMismatchResume?.isProvisionalConflict == true)
       #expect(appState.pendingBranchMismatchResume?.recordedBranch == "")
@@ -1953,14 +2097,16 @@ struct AppFeatureSessionsTests {
           worktreeID: WorktreeID(tmpDir.path), tabID: TabID(), surfaceID: surfaceID))
     ]
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = .distantPast
       $0.uuid = .incrementing
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
     }
     store.exhaustivity = .off
     await store.send(.repositories(.activateSession(.session(key))))
-    await store.receive(\..repositories.delegate.resumeSession)
+    await store.receive(\ .. repositories.delegate.resumeSession)
     await store.receive(\.resumeBranchProbeCompleted)
     await store.send(.alert(.presented(.cancelBranchMismatchResume))) { appState in
       #expect(appState.pendingSessionLaunch == nil)
@@ -1989,14 +2135,16 @@ struct AppFeatureSessionsTests {
         location: SessionLocation(
           worktreeID: WorktreeID(tmpDir.path), tabID: TabID(), surfaceID: surfaceID))
     ]
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = .distantPast
       $0.uuid = .incrementing
       $0[GitClientDependency.self].branchName = { _ in "new-branch" }
     }
     store.exhaustivity = .off
     await store.send(.repositories(.activateSession(.session(key))))
-    await store.receive(\..repositories.delegate.resumeSession)
+    await store.receive(\ .. repositories.delegate.resumeSession)
     await store.receive(\.resumeBranchProbeCompleted) { appState in
       #expect(appState.pendingBranchMismatchResume?.isProvisionalConflict == true)
       #expect(appState.pendingBranchMismatchResume?.recordedBranch == "old-branch")
@@ -2017,7 +2165,8 @@ struct AppFeatureSessionsTests {
       id: WorktreeID(tmpDir.path), name: "nonstandard", detail: "",
       workingDirectory: tmpDir, repositoryRootURL: tmpDir)
     initial.repositories.repositories.append(
-      Repository(id: RepositoryID(tmpDir.path), rootURL: tmpDir, name: "nonstandard",
+      Repository(
+        id: RepositoryID(tmpDir.path), rootURL: tmpDir, name: "nonstandard",
         worktrees: [worktree]))
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
@@ -2034,13 +2183,15 @@ struct AppFeatureSessionsTests {
         location: SessionLocation(
           worktreeID: worktree.id, tabID: TabID(), surfaceID: surfaceID))
     ]
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = .distantPast
       $0.uuid = .incrementing
     }
     store.exhaustivity = .off
     await store.send(.repositories(.activateSession(.session(key))))
-    await store.receive(\..repositories.delegate.resumeSession)
+    await store.receive(\ .. repositories.delegate.resumeSession)
     await store.receive(\.resumeBranchProbeCompleted) { appState in
       #expect(appState.pendingBranchMismatchResume?.isProvisionalConflict == true)
       #expect(appState.alert != nil)
@@ -2066,7 +2217,9 @@ struct AppFeatureSessionsTests {
     ]
     initial.repositories.$sessions.withLock { $0[key] = SessionSidecarEntry(branches: ["main"]) }
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = .distantPast
       $0.uuid = .incrementing
       $0[GitClientDependency.self].branchName = { _ in nil }
@@ -2074,7 +2227,7 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
     await store.send(.repositories(.activateSession(.session(key))))
-    await store.receive(\..repositories.delegate.resumeSession)
+    await store.receive(\ .. repositories.delegate.resumeSession)
     await store.receive(\.resumeBranchProbeCompleted) { appState in
       #expect(appState.alert != nil)
       #expect(appState.pendingSessionLaunch == nil)
@@ -2094,7 +2247,8 @@ struct AppFeatureSessionsTests {
       id: WorktreeID(tmpDir.path), name: "arrives-probe", detail: "",
       workingDirectory: tmpDir, repositoryRootURL: tmpDir)
     initial.repositories.repositories.append(
-      Repository(id: RepositoryID(tmpDir.path), rootURL: tmpDir, name: "arrives-probe",
+      Repository(
+        id: RepositoryID(tmpDir.path), rootURL: tmpDir, name: "arrives-probe",
         worktrees: [worktreeA]))
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
@@ -2104,7 +2258,9 @@ struct AppFeatureSessionsTests {
     let branches = AsyncStream<String?>.makeStream()
     let focused = LockIsolated<[SessionLocation]>([])
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = .distantPast
       $0.uuid = .incrementing
       $0.continuousClock = ImmediateClock()
@@ -2139,7 +2295,11 @@ struct AppFeatureSessionsTests {
     await store.finish()
     #expect(focused.value.count == 1)
     #expect(focused.value.first?.surfaceID == surfaceID)
-    #expect(!sent.value.contains { if case .createTabWithInput = $0 { return true }; return false })
+    #expect(
+      !sent.value.contains {
+        if case .createTabWithInput = $0 { return true }
+        return false
+      })
   }
 
   @Test(.dependencies) func identityArrivesWhileAlertPending() async throws {
@@ -2151,7 +2311,8 @@ struct AppFeatureSessionsTests {
       id: WorktreeID(tmpDir.path), name: "arrives-alert", detail: "",
       workingDirectory: tmpDir, repositoryRootURL: tmpDir)
     initial.repositories.repositories.append(
-      Repository(id: RepositoryID(tmpDir.path), rootURL: tmpDir, name: "arrives-alert",
+      Repository(
+        id: RepositoryID(tmpDir.path), rootURL: tmpDir, name: "arrives-alert",
         worktrees: [worktreeB]))
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
@@ -2161,7 +2322,9 @@ struct AppFeatureSessionsTests {
     initial.repositories.$sessions.withLock { $0[key] = SessionSidecarEntry(branches: ["old-branch"]) }
     let focused = LockIsolated<[SessionLocation]>([])
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = .distantPast
       $0.uuid = .incrementing
       $0.continuousClock = ImmediateClock()
@@ -2193,7 +2356,11 @@ struct AppFeatureSessionsTests {
     await store.finish()
     #expect(focused.value.count == 1)
     #expect(focused.value.first?.surfaceID == surfaceID)
-    #expect(!sent.value.contains { if case .createTabWithInput = $0 { return true }; return false })
+    #expect(
+      !sent.value.contains {
+        if case .createTabWithInput = $0 { return true }
+        return false
+      })
   }
 
 }

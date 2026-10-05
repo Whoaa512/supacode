@@ -50,8 +50,11 @@ extension AppFeature {
       case .agentPresence(.restoreFromSnapshotChecked):
         return .concatenate(
           .send(.repositories(.sessionSnapshotsChanged(Self.sessionSnapshots(state: state)))),
-          .send(.repositories(.sessionsRestorationCompleted(Self.liveSessionKeys(state: state),
-            hasUnresolvedLivePresence: Self.hasUnresolvedLivePresence(state: state)))))
+          .send(
+            .repositories(
+              .sessionsRestorationCompleted(
+                Self.liveSessionKeys(state: state),
+                hasUnresolvedLivePresence: Self.hasUnresolvedLivePresence(state: state)))))
 
       case .agentPresence(.delegate(.surfacesChanged)), .terminals,
         .repositories(.delegate(.repositoriesChanged)):
@@ -96,7 +99,8 @@ extension AppFeature {
         return .send(.repositories(.unsettleSession(key)))
 
       case .terminalEvent(.agentHookEventReceived(let event)):
-        let suppressEnd = event.eventName == .sessionEnd
+        let suppressEnd =
+          event.eventName == .sessionEnd
           && (state.isQuitting || terminalClient.isHarnessEndSuppressed(event.surfaceID))
         let refresh: Effect<Action> =
           !suppressEnd
@@ -111,8 +115,10 @@ extension AppFeature {
           let agent = SkillAgent(rawValue: event.agent), let ref = event.sessionRef,
           let timestamp = event.timestamp
         {
-          activity = .send(.repositories(.sessionActivityObserved(
-            SessionKey(harness: agent, sessionID: ref), timestamp)))
+          activity = .send(
+            .repositories(
+              .sessionActivityObserved(
+                SessionKey(harness: agent, sessionID: ref), timestamp)))
         }
         return .merge(.send(.agentPresence(.hookEventReceived(event))), refresh, branchEffect, settlement, activity)
 
@@ -190,8 +196,9 @@ extension AppFeature {
     else { return settleEffect }
     var effects: [Effect<Action>] = [
       settleEffect,
-      .send(.focusTerminalSurface(
-        worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID)),
+      .send(
+        .focusTerminalSurface(
+          worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID)),
     ]
     if case .session(let targetKey) = target, targetItem.lifecycle == .settled {
       effects.append(.send(.repositories(.unsettleSession(targetKey))))
@@ -228,9 +235,11 @@ extension AppFeature {
 
   static func handleNextSessionNeedsMe(state: inout State) -> Effect<Action> {
     let currentID = focusedSessionRowID(state: state) ?? state.repositories.sessionSelection
-    guard let id = state.repositories.sessionsSidebarStructure.nextNeedingAttention(
-      from: currentID, items: state.repositories.sessionItems
-    ) else { return .none }
+    guard
+      let id = state.repositories.sessionsSidebarStructure.nextNeedingAttention(
+        from: currentID, items: state.repositories.sessionItems
+      )
+    else { return .none }
     return RepositoriesFeature.focusSessionNavigation(state: &state.repositories, id: id)
       .map(Action.repositories)
   }
@@ -268,7 +277,10 @@ extension AppFeature {
   private static func handleResumeSession(_ key: SessionKey, state: inout State) -> Effect<Action> {
     @Dependency(\.date) var date
     if let last = state.recentSessionLaunchDate[key],
-       date.now.timeIntervalSince(last) < 10 { return .none }
+      date.now.timeIntervalSince(last) < 10
+    {
+      return .none
+    }
     guard let prepared = prepareResumeSession(key, state: &state) else { return .none }
     @Dependency(\.uuid) var uuid
     let pending = PendingSessionLaunch(
@@ -340,8 +352,9 @@ extension AppFeature {
       state.pendingSessionLaunch = nil
       state.pendingBranchMismatchResume = nil
       state.alert = nil
-      return .send(.focusTerminalSurface(
-        worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID))
+      return .send(
+        .focusTerminalSurface(
+          worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID))
     }
     let branches = state.repositories.sessions[key]?.branches ?? []
     let hasBranchHistory = !branches.isEmpty
@@ -351,12 +364,14 @@ extension AppFeature {
     } else if hasBranchHistory {
       state.pendingSessionLaunch = nil
       state.alert = AlertState {
-        TextState("Cannot resume: branch probe failed at \"\(cwd.path(percentEncoded: false))\".") }
+        TextState("Cannot resume: branch probe failed at \"\(cwd.path(percentEncoded: false))\".")
+      }
       return .none
     } else {
       resolvedBranch = nil
     }
-    let recordedBranch = hasBranchHistory && resolvedBranch.map({ !branches.contains($0) }) == true
+    let recordedBranch =
+      hasBranchHistory && resolvedBranch.map({ !branches.contains($0) }) == true
       ? branches.last : nil
     let isProvisional = hasProvisionalSameHarnessCwd(key: key, cwd: cwd, state: state)
     let isMismatch = recordedBranch != nil
@@ -424,8 +439,9 @@ extension AppFeature {
       state.pendingSessionLaunch = nil
       state.pendingBranchMismatchResume = nil
       state.alert = nil
-      return .send(.focusTerminalSurface(
-        worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID))
+      return .send(
+        .focusTerminalSurface(
+          worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID))
     }
     @Dependency(\.uuid) var uuid
     let requestID = reservedID ?? uuid()
@@ -532,7 +548,8 @@ extension AppFeature {
     var mappedSurfaceIDs: Set<UUID> = []
     for repository in state.repositories.repositories {
       for worktree in repository.worktrees {
-        let layout = state.terminals.layouts[id: worktree.id]?.layout
+        let layout =
+          state.terminals.layouts[id: worktree.id]?.layout
           ?? state.repositories.persistedLayouts.worktrees[worktree.id.rawValue]?.layout
         guard let layout else { continue }
         for pane in layout.panes {
@@ -548,9 +565,10 @@ extension AppFeature {
   }
 
   static func liveSessionKeys(state: State) -> Set<SessionKey> {
-    Set(state.agentPresence.records.compactMap { key, record in
-      record.sessionRef.map { SessionKey(harness: key.agent, sessionID: $0) }
-    })
+    Set(
+      state.agentPresence.records.compactMap { key, record in
+        record.sessionRef.map { SessionKey(harness: key.agent, sessionID: $0) }
+      })
   }
 
   static func sessionSnapshots(state: State) -> [SessionLiveSnapshot] {
