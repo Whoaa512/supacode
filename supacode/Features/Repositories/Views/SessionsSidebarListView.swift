@@ -11,7 +11,7 @@ private struct SessionContextMenu: View {
 
   var body: some View {
     if store.lifecycle == .active {
-      Button("Settle") { onSettle() }
+      Button("Settle and Close Tab") { onSettle() }
     } else {
       Button("Unsettle") { onUnsettle() }
     }
@@ -86,7 +86,7 @@ struct SessionsSidebarListView: View {
             if case .session(let key) = id {
               SessionContextMenu(
                 store: rowStore,
-                onSettle: { store.send(.settleSession(key)) },
+                onSettle: { store.send(.settleSessionRequested(key)) },
                 onUnsettle: { store.send(.unsettleSession(key)) }
               )
             }

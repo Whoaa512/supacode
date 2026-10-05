@@ -1309,6 +1309,33 @@ struct AppFeatureSessionsTests {
     await store.receive(\.focusTerminalSurface)
   }
 
+  @Test(.dependencies) func manualSettleAlsoRequestsClosingTheSessionsTab() async {
+    var initial = state()
+    let key = SessionKey(harness: .pi, sessionID: "real")
+    // A surface outside the fixture layout: this covers the wiring, and the
+    // close itself is the Cmd-W path with its own coverage.
+    let detached = UUID(uuidString: "00000000-0000-0000-0000-0000000000D1")!
+    initial.repositories.sessionSnapshots = [
+      SessionLiveSnapshot(
+        harness: .pi, sessionRef: "real", cwd: "/workspace",
+        location: SessionLocation(
+          worktreeID: worktree.id, tabID: TabID(rawValue: detached), surfaceID: detached))
+    ]
+    initial.repositories.reconcileSessionItems(now: .distantPast)
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = Date(timeIntervalSince1970: 100)
+      $0.continuousClock = ImmediateClock()
+    }
+    store.exhaustivity = .off
+    await store.send(.repositories(.settleSessionRequested(key)))
+    await store.receive(\.repositories.settleSession)
+    await store.receive(\.terminals.layouts[id: worktree.id].contentRequestedClose) {
+      #expect($0.repositories.sessions[key]?.settledAt != nil)
+    }
+  }
+
   @Test(.dependencies) func settleSessionAndAdvanceUnsettlesSettledDestination() async throws {
     var initial = state()
     let key = SessionKey(harness: .pi, sessionID: "real")

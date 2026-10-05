@@ -421,6 +421,8 @@ struct RepositoriesFeature {
     case sessionSelectionChanged(SessionRowID?)
     case activateSession(SessionRowID)
     case settleSession(SessionKey)
+    /// A manual settle from the sidebar: also closes the session's tabs.
+    case settleSessionRequested(SessionKey)
     case unsettleSession(SessionKey)
     case registerSessionFolder(URL)
     case sessionBranchCaptured(key: SessionKey, branch: String)
@@ -758,6 +760,7 @@ struct RepositoriesFeature {
   enum Delegate: Equatable {
     case focusSession(SessionLocation)
     case resumeSession(SessionKey)
+    case settleAndCloseSession(SessionKey)
     case newSessionDirectorySelected(URL)
     case selectedWorktreeChanged(Worktree?)
     case repositoriesChanged(IdentifiedArrayOf<Repository>)
@@ -5002,7 +5005,7 @@ struct RepositoriesFeature {
         .sessionItems, .sessionsStarted, .sessionsCacheLoaded, .sessionsSidebarShown,
         .sessionsRefreshRequested, .sessionsRefreshDebounced, .sessionsRefreshCompleted,
         .sessionsRefreshFailed, .sessionSnapshotsChanged, .sessionSelectionChanged, .activateSession,
-        .settleSession, .unsettleSession, .sessionBranchCaptured:
+        .settleSession, .settleSessionRequested, .unsettleSession, .sessionBranchCaptured:
         return .none
 
       case .registerSessionFolder(let url):

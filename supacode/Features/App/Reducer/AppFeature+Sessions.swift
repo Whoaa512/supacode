@@ -99,6 +99,9 @@ extension AppFeature {
         guard !effects.isEmpty else { return .none }
         return .merge(effects)
 
+      case .repositories(.delegate(.settleAndCloseSession(let key))):
+        return Self.settleAndCloseSession(key, state: state)
+
       case .repositories(.delegate(.resumeSession(let key))):
         return Self.handleResumeSession(key, state: &state)
 
@@ -203,12 +206,27 @@ extension AppFeature {
     return URL(fileURLWithPath: item.cwd).standardizedFileURL
   }
 
+  /// A manual settle means "done with this": close its tabs the way Cmd-W
+  /// would, so the close-confirmation setting still guards a busy agent.
+  static func settleAndCloseSession(_ key: SessionKey, state: State) -> Effect<Action> {
+    let closes = state.repositories.sessionSnapshots.filter { $0.id == .session(key) }.map {
+      Effect<Action>.send(
+        .terminals(
+          .layouts(
+            .element(
+              id: $0.location.worktreeID,
+              action: .contentRequestedClose(
+                content: ContentID(rawValue: $0.location.surfaceID), scope: .tab)))))
+    }
+    return .merge([.send(.repositories(.settleSession(key)))] + closes)
+  }
+
   static func handleSettleSessionAndAdvance(state: inout State) -> Effect<Action> {
     let currentID = focusedSessionRowID(state: state) ?? state.repositories.sessionSelection
     guard let currentID, case .session(let key) = currentID else { return .none }
     let nextID = state.repositories.sessionRowID(byOffset: 1, focusedRowID: currentID)
     let advanceTarget = nextID != currentID ? nextID : nil
-    let settleEffect = Effect<Action>.send(.repositories(.settleSession(key)))
+    let settleEffect = settleAndCloseSession(key, state: state)
     guard let target = advanceTarget,
       let targetItem = state.repositories.sessionItems[id: target],
       let location = targetItem.location

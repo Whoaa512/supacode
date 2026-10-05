@@ -131,6 +131,9 @@ extension RepositoriesFeature {
         state.recomputeSessionsSidebarStructureIfChanged()
         return .none
 
+      case .settleSessionRequested(let key):
+        return .send(.delegate(.settleAndCloseSession(key)))
+
       case .unsettleSession(let key):
         state.applyUnsettle(key: key, summaries: state.sessionSummaries, now: date.now)
         return .none
