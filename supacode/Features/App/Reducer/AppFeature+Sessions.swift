@@ -32,15 +32,29 @@ struct BranchCaptureRequest: Equatable {
 }
 
 extension AppFeature {
+  static func focusedSurfaceID(state: State) -> UUID? {
+    guard let selectedWorktreeID = state.terminals.selectedWorktreeID,
+      let layout = state.terminals.layouts[id: selectedWorktreeID]?.layout,
+      let focusedPane = layout.panes.first(where: { $0.id == layout.focusedPaneID }),
+      let selectedTab = focusedPane.tabs.first(where: { $0.id == focusedPane.selectedTabID })
+    else { return nil }
+    return selectedTab.content.id.rawValue
+  }
+
   static func focusedSessionRowID(state: State) -> SessionRowID? {
-    guard let selectedWorktreeID = state.terminals.selectedWorktreeID else { return nil }
-    guard let layout = state.terminals.layouts[id: selectedWorktreeID] else { return nil }
-    guard let focusedPane = layout.layout.panes.first(where: { $0.id == layout.layout.focusedPaneID })
-    else { return nil }
-    guard let selectedTab = focusedPane.tabs.first(where: { $0.id == focusedPane.selectedTabID })
-    else { return nil }
-    let surfaceID = selectedTab.content.id.rawValue
-    return state.repositories.sessionItems.first(where: { $0.location?.surfaceID == surfaceID })?.id
+    guard let surfaceID = focusedSurfaceID(state: state) else { return nil }
+    return state.repositories.sessionSnapshots.first { $0.location.surfaceID == surfaceID }?.id
+  }
+
+  /// The sidebar highlight follows the focused tab. It only moves when the
+  /// focused session does, so arrowing through dormant rows is not yanked back.
+  static func syncSessionSelectionToFocus(state: inout State) {
+    let rowID = focusedSessionRowID(state: state)
+    // Until the row exists nothing is recorded, so the next pass retries.
+    if let rowID, state.repositories.sessionItems[id: rowID] == nil { return }
+    guard rowID != state.lastFocusedSessionRowID else { return }
+    state.lastFocusedSessionRowID = rowID
+    if state.repositories.sessionSelection != rowID { state.repositories.sessionSelection = rowID }
   }
 
   var sessionsLinkReducer: some Reducer<State, Action> {
@@ -56,8 +70,13 @@ extension AppFeature {
                 Self.liveSessionKeys(state: state),
                 hasUnresolvedLivePresence: Self.hasUnresolvedLivePresence(state: state)))))
 
+      case .repositories(.sessionSnapshotsChanged):
+        Self.syncSessionSelectionToFocus(state: &state)
+        return .none
+
       case .agentPresence(.delegate(.surfacesChanged)), .terminals,
         .repositories(.delegate(.repositoriesChanged)):
+        Self.syncSessionSelectionToFocus(state: &state)
         var effects: [Effect<Action>] = []
         let keys = Self.liveSessionKeys(state: state)
         let unresolved = Self.hasUnresolvedLivePresence(state: state)

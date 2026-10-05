@@ -198,6 +198,7 @@ struct AppFeature {
     /// One-at-a-time dormant session resume request waiting for folder
     /// registration or cwd validation to complete before launching.
     var pendingSessionLaunch: PendingSessionLaunch?
+    var lastFocusedSessionRowID: SessionRowID?
     var pendingBranchMismatchResume: PendingBranchMismatchResume?
     /// Tracks when each key last launched a tab; prevents re-launch within 10 s of dispatch.
     var recentSessionLaunchDate: [SessionKey: Date] = [:]

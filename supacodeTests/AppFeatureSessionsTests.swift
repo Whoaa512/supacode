@@ -724,6 +724,32 @@ struct AppFeatureSessionsTests {
     #expect(resolved == .session(key))
   }
 
+  @Test(.dependencies) func sidebarSelectionFollowsFocusedTabOnlyWhenFocusMoves() {
+    var state = state()
+    state.terminals.selectedWorktreeID = worktree.id
+    state.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = tab
+    let key = SessionKey(harness: .pi, sessionID: "real")
+    state.repositories.sessionSnapshots = [
+      SessionLiveSnapshot(harness: .pi, sessionRef: "real", cwd: "/workspace", location: location)
+    ]
+    AppFeature.syncSessionSelectionToFocus(state: &state)
+    #expect(state.repositories.sessionSelection == nil, "row not reconciled yet; retried later")
+    state.repositories.reconcileSessionItems(now: .distantPast)
+    AppFeature.syncSessionSelectionToFocus(state: &state)
+    #expect(state.repositories.sessionSelection == .session(key))
+
+    state.repositories.sessionSelection = nil
+    AppFeature.syncSessionSelectionToFocus(state: &state)
+    #expect(state.repositories.sessionSelection == nil, "a manual selection survives until focus moves")
+
+    state.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = TabID(rawValue: shell)
+    AppFeature.syncSessionSelectionToFocus(state: &state)
+    #expect(state.repositories.sessionSelection == nil)
+    state.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = tab
+    AppFeature.syncSessionSelectionToFocus(state: &state)
+    #expect(state.repositories.sessionSelection == .session(key))
+  }
+
   @Test(.dependencies) func focusedSurfaceWithNoPresenceReturnsNil() {
     let state = state()
     let resolved = AppFeature.focusedSessionRowID(state: state)
@@ -1116,6 +1142,10 @@ struct AppFeatureSessionsTests {
       SessionSidebarItemFeature.State(
         id: .session(selectedKey), title: "Selected", cwd: selectedCwd.path(percentEncoded: false),
         createdAt: .distantPast, location: nil),
+    ]
+    initial.repositories.sessionSnapshots = [
+      SessionLiveSnapshot(
+        harness: .pi, sessionRef: "focused", cwd: focusedCwd.path(percentEncoded: false), location: location)
     ]
     initial.repositories.sessionSelection = .session(selectedKey)
     let sent = LockIsolated<[TerminalClient.Command]>([])
