@@ -1306,7 +1306,7 @@ struct AppFeatureSessionsTests {
     await store.send(.settleSessionAndAdvance) { appState in
       #expect(appState.repositories.sessions[key]?.settledAt != nil)
     }
-    await store.receive(\ .. focusTerminalSurface)
+    await store.receive(\.focusTerminalSurface)
   }
 
   @Test(.dependencies) func settleSessionAndAdvanceUnsettlesSettledDestination() async throws {
@@ -2002,7 +2002,7 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
     await store.send(.repositories(.activateSession(.session(key))))
-    await store.receive(\ .. repositories.delegate.resumeSession)
+    await store.receive(\.repositories.delegate.resumeSession)
     await store.finish()
     #expect(sent.value.isEmpty, "should not launch within 10 s cooldown")
     #expect(store.state.pendingSessionLaunch == nil)
@@ -2036,7 +2036,7 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
     await store.send(.repositories(.activateSession(.session(key))))
-    await store.receive(\ .. repositories.delegate.resumeSession)
+    await store.receive(\.repositories.delegate.resumeSession)
     await store.receive(\.launchSessionCompleted)
     await store.finish()
     #expect(sent.value.count == 1, "should launch after cooldown expires")
@@ -2056,7 +2056,7 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
     await store.send(.repositories(.activateSession(.session(key))))
-    await store.receive(\ .. repositories.delegate.resumeSession) { appState in
+    await store.receive(\.repositories.delegate.resumeSession) { appState in
       #expect(appState.alert != nil)
       #expect(appState.pendingSessionLaunch == nil)
     }
@@ -2098,7 +2098,7 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
     await store.send(.repositories(.activateSession(.session(key))))
-    await store.receive(\ .. repositories.delegate.resumeSession)
+    await store.receive(\.repositories.delegate.resumeSession)
     await store.receive(\.resumeBranchProbeCompleted) { appState in
       #expect(appState.pendingBranchMismatchResume?.isProvisionalConflict == true)
       #expect(appState.pendingBranchMismatchResume?.recordedBranch == "")
@@ -2136,7 +2136,7 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
     await store.send(.repositories(.activateSession(.session(key))))
-    await store.receive(\ .. repositories.delegate.resumeSession)
+    await store.receive(\.repositories.delegate.resumeSession)
     await store.receive(\.resumeBranchProbeCompleted)
     await store.send(.alert(.presented(.cancelBranchMismatchResume))) { appState in
       #expect(appState.pendingSessionLaunch == nil)
@@ -2174,7 +2174,7 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
     await store.send(.repositories(.activateSession(.session(key))))
-    await store.receive(\ .. repositories.delegate.resumeSession)
+    await store.receive(\.repositories.delegate.resumeSession)
     await store.receive(\.resumeBranchProbeCompleted) { appState in
       #expect(appState.pendingBranchMismatchResume?.isProvisionalConflict == true)
       #expect(appState.pendingBranchMismatchResume?.recordedBranch == "old-branch")
@@ -2221,7 +2221,7 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
     await store.send(.repositories(.activateSession(.session(key))))
-    await store.receive(\ .. repositories.delegate.resumeSession)
+    await store.receive(\.repositories.delegate.resumeSession)
     await store.receive(\.resumeBranchProbeCompleted) { appState in
       #expect(appState.pendingBranchMismatchResume?.isProvisionalConflict == true)
       #expect(appState.alert != nil)
@@ -2257,7 +2257,7 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
     await store.send(.repositories(.activateSession(.session(key))))
-    await store.receive(\ .. repositories.delegate.resumeSession)
+    await store.receive(\.repositories.delegate.resumeSession)
     await store.receive(\.resumeBranchProbeCompleted) { appState in
       #expect(appState.alert != nil)
       #expect(appState.pendingSessionLaunch == nil)
