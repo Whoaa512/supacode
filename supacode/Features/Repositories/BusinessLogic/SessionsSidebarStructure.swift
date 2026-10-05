@@ -14,8 +14,10 @@ struct SessionsSidebarStructure: Equatable, Sendable {
   var liveIDs: [SessionRowID] = []
   var allIDs: [SessionRowID] { sections.flatMap(\.rowIDs) }
 
-  func selection(byOffset offset: Int, from current: SessionRowID?) -> SessionRowID? {
-    let ids = allIDs
+  func selection(
+    byOffset offset: Int, from current: SessionRowID?, includingSettled: Bool = true
+  ) -> SessionRowID? {
+    let ids = includingSettled ? allIDs : sections.filter { $0.id == .active }.flatMap(\.rowIDs)
     guard !ids.isEmpty else { return nil }
     guard let current, let index = ids.firstIndex(of: current) else {
       return offset > 0 ? ids.first : ids.last
@@ -61,84 +63,107 @@ extension RepositoriesFeature.State {
   }
 
   mutating func recomputeSessionsSidebarStructureIfChanged() {
-    let ordered = sessionItems.sorted {
-      if $0.createdAt != $1.createdAt { return $0.createdAt > $1.createdAt }
-      return $0.id.sortKey < $1.id.sortKey
+    // Plain tuples: sorting the observable rows directly pays an observation
+    // access per comparison, which dominates at a few thousand rows.
+    let ordered = sessionItems.map { (id: $0.id, createdAt: $0.createdAt, lifecycle: $0.lifecycle, isLive: $0.isLive) }
+      .sorted {
+        if $0.createdAt != $1.createdAt { return $0.createdAt > $1.createdAt }
+        return $0.id.sortKey < $1.id.sortKey
+      }
+    var sections: [SessionsSidebarStructure.Section] = []
+    var liveIDs: [SessionRowID] = []
+    for lifecycle in [SessionClassification.Lifecycle.active, .settled] {
+      let rows = ordered.filter { $0.lifecycle == lifecycle }
+      guard !rows.isEmpty else { continue }
+      sections.append(SessionsSidebarStructure.Section(id: lifecycle, rowIDs: rows.map(\.id)))
+      liveIDs.append(contentsOf: rows.filter(\.isLive).map(\.id))
     }
-    let sections = [SessionClassification.Lifecycle.active, .settled].compactMap { lifecycle in
-      let ids = ordered.filter { $0.lifecycle == lifecycle }.map(\.id)
-      return ids.isEmpty ? nil : SessionsSidebarStructure.Section(id: lifecycle, rowIDs: ids)
-    }
-    let structure = SessionsSidebarStructure(
-      sections: sections,
-      liveIDs: sections.flatMap(\.rowIDs).filter { sessionItems[id: $0]?.isLive == true }
-    )
+    let structure = SessionsSidebarStructure(sections: sections, liveIDs: liveIDs)
     if sessionsSidebarStructure != structure { sessionsSidebarStructure = structure }
   }
 
   mutating func reconcileSessionItems(now: Date) {
-    let previous = sessionItems
-    var rows = IdentifiedArrayOf<SessionSidebarItemFeature.State>()
-    for summary in sessionSummaries where rows[id: .session(summary.id)] == nil {
-      rows.append(
-        SessionSidebarItemFeature.State(
-          id: .session(summary.id), title: summary.title, cwd: summary.cwd,
-          createdAt: summary.createdAt,
-          lifecycle: SessionClassification.classify(isLive: false, sidecar: sessions[summary.id])
-            .lifecycle,
-          status: nil,
-          branchAnnotation: branchAnnotation(for: summary.id, cwd: summary.cwd)
-        ))
+    // One sidecar read and one branch lookup per directory: this runs on the
+    // main thread for every agent status flip, over the whole index.
+    let sidecar = sessions
+    var currentBranchByCwd: [String: String?] = [:]
+    func branchAnnotation(for key: SessionKey, cwd: String) -> String? {
+      guard let lastBranch = sidecar[key]?.branches.last, !lastBranch.isEmpty else { return nil }
+      let current: String?
+      if let cached = currentBranchByCwd[cwd] {
+        current = cached
+      } else {
+        current = currentBranch(forSessionCwd: cwd)
+        currentBranchByCwd[cwd] = current
+      }
+      return current == lastBranch ? nil : lastBranch
     }
-    for row in previous where row.isSynthetic {
-      guard case .session = row.id, rows[id: row.id] == nil else { continue }
-      rows.append(
-        SessionSidebarItemFeature.State(
-          id: row.id, title: row.title, cwd: row.cwd, createdAt: row.createdAt,
-          lifecycle: row.lifecycle, status: nil, branchAnnotation: row.branchAnnotation, isSynthetic: true
-        ))
+    func lifecycle(for key: SessionKey) -> SessionClassification.Lifecycle {
+      sidecar[key]?.settledAt == nil ? .active : .settled
+    }
+
+    var drafts: [SessionRowDraft] = []
+    var indexByID: [SessionRowID: Int] = [:]
+    drafts.reserveCapacity(sessionSummaries.count + sessionSnapshots.count)
+    func append(_ draft: SessionRowDraft) {
+      indexByID[draft.id] = drafts.count
+      drafts.append(draft)
+    }
+    for summary in sessionSummaries where indexByID[.session(summary.id)] == nil {
+      append(
+        SessionRowDraft(
+          id: .session(summary.id), title: summary.title, cwd: summary.cwd, createdAt: summary.createdAt,
+          lifecycle: lifecycle(for: summary.id),
+          branchAnnotation: branchAnnotation(for: summary.id, cwd: summary.cwd)))
+    }
+    // A session that ended before the index caught up keeps its row.
+    for row in sessionItems where row.isSynthetic {
+      guard case .session = row.id, indexByID[row.id] == nil else { continue }
+      append(
+        SessionRowDraft(
+          id: row.id, title: row.title, cwd: row.cwd, createdAt: row.createdAt, lifecycle: row.lifecycle,
+          branchAnnotation: row.branchAnnotation, isSynthetic: true))
     }
     for snapshot in sessionSnapshots.sorted(by: {
       $0.location.surfaceID.uuidString < $1.location.surfaceID.uuidString
     }) {
       let id = snapshot.id
       let provisionalID = SessionRowID.provisional(snapshot.harness, snapshot.location.surfaceID)
-      if rows[id: id] == nil {
-        rows.append(
-          SessionSidebarItemFeature.State(
+      if indexByID[id] == nil {
+        append(
+          SessionRowDraft(
             id: id, title: "New session", cwd: snapshot.cwd,
-            createdAt: previous[id: id]?.createdAt ?? previous[id: provisionalID]?.createdAt ?? now,
-            status: snapshot.status,
-            isSynthetic: true
-          ))
+            createdAt: sessionItems[id: id]?.createdAt ?? sessionItems[id: provisionalID]?.createdAt ?? now,
+            isSynthetic: true))
       }
+      guard let index = indexByID[id] else { continue }
       if case .session(let key) = id {
-        rows[id: id]?.lifecycle =
-          SessionClassification.classify(isLive: true, sidecar: sessions[key]).lifecycle
-        rows[id: id]?.branchAnnotation = branchAnnotation(for: key, cwd: snapshot.cwd)
+        drafts[index].lifecycle = lifecycle(for: key)
+        drafts[index].branchAnnotation = branchAnnotation(for: key, cwd: snapshot.cwd)
       }
-      rows[id: id]?.status = snapshot.status
-      rows[id: id]?.allowsAttentionNavigation = snapshot.allowsAttentionNavigation
-      let preferred = previous[id: id]?.location
-      if rows[id: id]?.location == nil || snapshot.location == preferred {
-        rows[id: id]?.location = snapshot.location
+      drafts[index].status = snapshot.status
+      drafts[index].allowsAttentionNavigation = snapshot.allowsAttentionNavigation
+      if drafts[index].location == nil || snapshot.location == sessionItems[id: id]?.location {
+        drafts[index].location = snapshot.location
       }
       if sessionSelection == provisionalID, id != provisionalID { sessionSelection = id }
     }
-    for row in rows {
-      if sessionItems[id: row.id] == nil { sessionItems.append(row) }
-      if sessionItems[id: row.id] != row { sessionItems[id: row.id]?.update(from: row) }
+
+    if sessionItems.count != drafts.count || sessionItems.contains(where: { indexByID[$0.id] == nil }) {
+      sessionItems.removeAll { indexByID[$0.id] == nil }
     }
-    sessionItems.removeAll { rows[id: $0.id] == nil }
+    // Reads only: every write through `sessionItems` costs a pass over the
+    // whole collection, so unchanged rows must not be touched.
+    for draft in drafts {
+      guard let existing = sessionItems[id: draft.id] else {
+        sessionItems.append(SessionSidebarItemFeature.State(draft))
+        continue
+      }
+      if !existing.matches(draft) { sessionItems[id: draft.id]?.apply(draft) }
+    }
     if let selection = sessionSelection, sessionItems[id: selection] == nil {
       sessionSelection = nil
     }
-  }
-
-  private func branchAnnotation(for key: SessionKey, cwd: String) -> String? {
-    guard let lastBranch = sessions[key]?.branches.last, !lastBranch.isEmpty else { return nil }
-    guard currentBranch(forSessionCwd: cwd) != lastBranch else { return nil }
-    return lastBranch
   }
 
   private func currentBranch(forSessionCwd cwd: String) -> String? {
@@ -164,30 +189,51 @@ extension RepositoriesFeature.State {
   mutating func autoSettleSessions(now: Date, idleDays: Int) {
     guard sessionsRestorationFinished, sessionsRefreshSucceeded, !sessionsHasUnresolvedLivePresence
     else { return }
-    // Collect cwds covered by a provisional snapshot; only block auto-settle
-    // for sessions in the same directory, not globally.
+    // A provisional agent may be any session in its directory, so it only
+    // blocks auto-settle there, not globally.
+    var liveKeys = sessionsLiveKeys
     var provisionalCwds: Set<String> = []
-    for snap in sessionSnapshots {
-      if case .provisional = snap.id {
-        provisionalCwds.insert(URL(fileURLWithPath: snap.cwd).standardizedFileURL.path)
+    var standardizedByCwd: [String: String] = [:]
+    func standardized(_ cwd: String) -> String {
+      if let cached = standardizedByCwd[cwd] { return cached }
+      let path = URL(fileURLWithPath: cwd).standardizedFileURL.path
+      standardizedByCwd[cwd] = path
+      return path
+    }
+    for snapshot in sessionSnapshots {
+      switch snapshot.id {
+      case .session(let key): liveKeys.insert(key)
+      case .provisional: provisionalCwds.insert(standardized(snapshot.cwd))
       }
     }
-    for summary in sessionSummaries {
-      guard summary.isVerified else { continue }
-      let live = sessionsLiveKeys.contains(summary.id)
-        || sessionSnapshots.contains { $0.id == .session(summary.id) }
-      if let hold = sessions[summary.id]?.manualUnsettledAtActivity, summary.lastActivity > hold {
-        $sessions.withLock { $0[summary.id]?.manualUnsettledAtActivity = nil }
+    let sidecar = sessions
+    var releasedHolds: [SessionKey] = []
+    var settled: [SessionKey] = []
+    for summary in sessionSummaries where summary.isVerified {
+      var entry = sidecar[summary.id]
+      if let hold = entry?.manualUnsettledAtActivity, summary.lastActivity > hold {
+        entry?.manualUnsettledAtActivity = nil
+        releasedHolds.append(summary.id)
       }
-      let summaryCwd = URL(fileURLWithPath: summary.cwd).standardizedFileURL.path
-      guard !provisionalCwds.contains(summaryCwd) else { continue }
-      guard sessions[summary.id]?.settledAt == nil,
+      guard entry?.settledAt == nil, !provisionalCwds.contains(standardized(summary.cwd)),
         SessionClassification.classify(
-          summary: summary, isLive: live, sidecar: sessions[summary.id], now: now, idleDays: idleDays
+          summary: summary, isLive: liveKeys.contains(summary.id), sidecar: entry, now: now,
+          idleDays: idleDays
         ).lifecycle == .settled
       else { continue }
-      applySettle(key: summary.id, now: now)
+      settled.append(summary.id)
     }
+    guard !releasedHolds.isEmpty || !settled.isEmpty else { return }
+    $sessions.withLock { sidecar in
+      for key in releasedHolds { sidecar[key]?.manualUnsettledAtActivity = nil }
+      for key in settled {
+        var entry = sidecar[key] ?? SessionSidecarEntry()
+        entry.settledAt = now
+        entry.manualUnsettledAtActivity = nil
+        sidecar[key] = entry
+      }
+    }
+    guard !settled.isEmpty else { return }
     reconcileSessionItems(now: now)
     recomputeSessionsSidebarStructureIfChanged()
   }

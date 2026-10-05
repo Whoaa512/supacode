@@ -34,6 +34,28 @@ nonisolated struct SessionLiveSnapshot: Equatable, Sendable {
     }
     return .provisional(harness, location.surfaceID)
   }
+
+  var withoutStatus: Self {
+    var copy = self
+    copy.status = .idle
+    copy.allowsAttentionNavigation = true
+    return copy
+  }
+}
+
+/// The row a reconcile pass wants, as a plain value: building observable row
+/// state for every indexed session on each pass is what made it slow.
+nonisolated struct SessionRowDraft: Equatable, Sendable {
+  var id: SessionRowID
+  var title: String
+  var cwd: String
+  var createdAt: Date
+  var lifecycle: SessionClassification.Lifecycle = .active
+  var location: SessionLocation?
+  var status: SessionClassification.Status?
+  var allowsAttentionNavigation = true
+  var branchAnnotation: String?
+  var isSynthetic = false
 }
 
 @Reducer
@@ -53,16 +75,23 @@ struct SessionSidebarItemFeature {
 
     var isLive: Bool { location != nil }
 
-    mutating func update(from row: Self) {
-      title = row.title
-      cwd = row.cwd
-      createdAt = row.createdAt
-      lifecycle = row.lifecycle
-      location = row.location
-      status = row.status
-      allowsAttentionNavigation = row.allowsAttentionNavigation
-      branchAnnotation = row.branchAnnotation
-      isSynthetic = row.isSynthetic
+    func matches(_ draft: SessionRowDraft) -> Bool {
+      title == draft.title && cwd == draft.cwd && createdAt == draft.createdAt
+        && lifecycle == draft.lifecycle && location == draft.location && status == draft.status
+        && allowsAttentionNavigation == draft.allowsAttentionNavigation
+        && branchAnnotation == draft.branchAnnotation && isSynthetic == draft.isSynthetic
+    }
+
+    mutating func apply(_ draft: SessionRowDraft) {
+      title = draft.title
+      cwd = draft.cwd
+      createdAt = draft.createdAt
+      lifecycle = draft.lifecycle
+      location = draft.location
+      status = draft.status
+      allowsAttentionNavigation = draft.allowsAttentionNavigation
+      branchAnnotation = draft.branchAnnotation
+      isSynthetic = draft.isSynthetic
     }
   }
 
@@ -70,5 +99,16 @@ struct SessionSidebarItemFeature {
 
   var body: some Reducer<State, Action> {
     Reduce { _, _ in .none }
+  }
+}
+
+extension SessionSidebarItemFeature.State {
+  // In an extension so the memberwise initializer survives.
+  init(_ draft: SessionRowDraft) {
+    self.init(
+      id: draft.id, title: draft.title, cwd: draft.cwd, createdAt: draft.createdAt,
+      lifecycle: draft.lifecycle, location: draft.location, status: draft.status,
+      allowsAttentionNavigation: draft.allowsAttentionNavigation,
+      branchAnnotation: draft.branchAnnotation, isSynthetic: draft.isSynthetic)
   }
 }

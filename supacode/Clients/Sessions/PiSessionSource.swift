@@ -7,7 +7,7 @@ actor PiSessionSource: SessionSource {
     var size: Int
   }
 
-  private nonisolated struct CachedFile: Codable {
+  private nonisolated struct CachedFile: Codable, Equatable {
     var stamp: Stamp
     var summary: SessionSummary
   }
@@ -58,6 +58,7 @@ actor PiSessionSource: SessionSource {
   private let chunkSize: Int
   private var cache: [String: CachedFile] = [:]
   private var cacheLoaded = false
+  private var persisted: [String: CachedFile]?
   private(set) var parsedFileCount = 0
   private static let logger = SupaLogger("Sessions")
 
@@ -100,7 +101,8 @@ actor PiSessionSource: SessionSource {
   private func loadCacheIfNeeded() {
     guard !cacheLoaded else { return }
     cacheLoaded = true
-    cache = (try? JSONDecoder().decode([String: CachedFile].self, from: Data(contentsOf: cacheURL))) ?? [:]
+    persisted = try? JSONDecoder().decode([String: CachedFile].self, from: Data(contentsOf: cacheURL))
+    cache = persisted ?? [:]
   }
 
   nonisolated func resumeCommand(sessionID: String) -> String? {
@@ -182,10 +184,13 @@ actor PiSessionSource: SessionSource {
 
   private func persist() {
     let verified = cache.filter { $0.value.summary.isVerified }
+    // Most refreshes find nothing new; skip rewriting the whole index.
+    guard verified != persisted else { return }
     do {
       try FileManager.default.createDirectory(
         at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
       try JSONEncoder().encode(verified).write(to: cacheURL, options: .atomic)
+      persisted = verified
     } catch {
       Self.logger.warning("Could not persist session cache: \(error)")
     }

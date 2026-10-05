@@ -87,8 +87,10 @@ extension RepositoriesFeature {
       case .sessionsRefreshCompleted(let summaries):
         state.sessionsRefreshSucceeded = true
         state.sessionsHasCompletedRefresh = true
-        state.sessionSummaries = summaries
-        state.reconcileSessionItems(now: date.now)
+        if state.sessionSummaries != summaries {
+          state.sessionSummaries = summaries
+          state.reconcileSessionItems(now: date.now)
+        }
         state.autoSettleSessions(now: date.now, idleDays: settingsFile.global.sessionIdleDays)
         return Self.finishSessionsRefresh(state: &state)
 
@@ -98,9 +100,12 @@ extension RepositoriesFeature {
 
       case .sessionSnapshotsChanged(let snapshots):
         guard state.sessionSnapshots != snapshots else { return .none }
+        // A status flip (busy, idle, needs-you) writes nothing the index
+        // reads, so only a change in which sessions are live rescans.
+        let needsRefresh = state.sessionSnapshots.map(\.withoutStatus) != snapshots.map(\.withoutStatus)
         state.sessionSnapshots = snapshots
         state.reconcileSessionItems(now: date.now)
-        return .send(.sessionsRefreshRequested)
+        return needsRefresh ? .send(.sessionsRefreshRequested) : .none
 
       case .sessionSelectionChanged(let id):
         state.sessionSelection = id.flatMap { state.sessionItems[id: $0] == nil ? nil : $0 }

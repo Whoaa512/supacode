@@ -105,7 +105,6 @@ struct SessionsSidebarObservationTests {
         snapshot("first", surface: firstSurface, status: .needsYou),
         snapshot("second", surface: secondSurface, status: .idle),
       ]))
-    await store.receive(\.sessionsRefreshRequested)
 
     #expect(firstInvalidated)
     #expect(!secondInvalidated)

@@ -209,6 +209,36 @@ struct RepositoriesFeatureSessionsTests {
     await store.finish()
   }
 
+  @Test(.dependencies) func statusFlipUpdatesRowWithoutRescanningTheIndex() async {
+    let clock = TestClock()
+    let calls = LockIsolated(0)
+    var initial = state()
+    initial.sessionsStarted = true
+    let store = TestStore(initialState: initial) {
+      RepositoriesFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.continuousClock = clock
+      $0.sessionIndex.refresh = {
+        calls.withValue { $0 += 1 }
+        return []
+      }
+    }
+    store.exhaustivity = .off
+    var live = snapshot(UUID(), ref: "real")
+    await store.send(.sessionSnapshotsChanged([live]))
+    await store.receive(\.sessionsRefreshRequested)
+    await clock.advance(by: .milliseconds(500))
+    await store.receive(\.sessionsRefreshCompleted)
+    #expect(calls.value == 1)
+    live.status = .working
+    await store.send(.sessionSnapshotsChanged([live]))
+    #expect(store.state.sessionItems.first?.status == .working)
+    await clock.advance(by: .milliseconds(500))
+    await store.finish()
+    #expect(calls.value == 1)
+  }
+
   @Test(.dependencies) func debouncesEventsAndQueuesOneRefreshWithoutOverlap() async {
     let clock = TestClock()
     let calls = LockIsolated(0)
@@ -654,9 +684,10 @@ struct RepositoriesFeatureSessionsTests {
     let key1 = SessionKey(harness: .pi, sessionID: "s1")
     let key2 = SessionKey(harness: .pi, sessionID: "s2")
     let key3 = SessionKey(harness: .pi, sessionID: "s3")
-    await store.send(.sessionsRefreshCompleted([
-      summary("s1", created: 30), summary("s2", created: 20), summary("s3", created: 10),
-    ]))
+    await store.send(
+      .sessionsRefreshCompleted([
+        summary("s1", created: 30), summary("s2", created: 20), summary("s3", created: 10),
+      ]))
     await store.send(.settleSession(key2)) { state in
       let sections = state.sessionsSidebarStructure.sections
       #expect(sections.map(\.id) == [.active, .settled])
@@ -748,7 +779,10 @@ struct RepositoriesFeatureSessionsTests {
       $0.date.now = .distantPast
       $0.continuousClock = clock
       $0.sessionIndex.cached = { [] }
-      $0.sessionIndex.refresh = { for await item in refreshGate.stream { return item }; return [] }
+      $0.sessionIndex.refresh = {
+        for await item in refreshGate.stream { return item }
+        return []
+      }
       $0.defaultAppStorage = .inMemory
     }
     store.exhaustivity = .off
@@ -793,7 +827,8 @@ struct RepositoriesFeatureSessionsTests {
     repo.sessionsHasCompletedRefresh = true
     repo.sessionsRefreshSucceeded = false
     repo.sessionsRefreshInFlight = false
-    #expect(repo.sessionsIndexingInProgress == false,
+    #expect(
+      repo.sessionsIndexingInProgress == false,
       "once completed, indexing stays false even if a later refresh fails")
   }
 }
