@@ -22,6 +22,7 @@ struct SessionsSidebarListView: View {
   let store: StoreOf<RepositoriesFeature>
   @Environment(CommandKeyObserver.self) private var commandKeyObserver
   @Shared(.settingsFile) private var settingsFile
+  @State private var isSettledExpanded = false
 
   var body: some View {
     let shortcutHintByID: [SessionRowID: String]
@@ -54,23 +55,13 @@ struct SessionsSidebarListView: View {
           .foregroundStyle(.secondary)
       }
       ForEach(store.sessionsSidebarStructure.sections) { section in
-        Section(section.title) {
-          ForEach(section.rowIDs, id: \.self) { id in
-            if let rowStore = store.scope(
-              state: \.sessionItems[id: id], action: \.sessionItems[id: id])
-            {
-              SessionSidebarRowView(store: rowStore, shortcutHint: shortcutHintByID[id])
-                .tag(id)
-                .contextMenu {
-                  if case .session(let key) = id {
-                    SessionContextMenu(
-                      store: rowStore,
-                      onSettle: { store.send(.settleSession(key)) },
-                      onUnsettle: { store.send(.unsettleSession(key)) }
-                    )
-                  }
-                }
-            }
+        if section.id == .active {
+          Section(section.title) { rows(section.rowIDs, shortcutHintByID: shortcutHintByID) }
+        } else {
+          // Settled is the whole history, thousands of rows; they are only
+          // built while the section is open.
+          Section("\(section.title) (\(section.rowIDs.count))", isExpanded: $isSettledExpanded) {
+            if isSettledExpanded { rows(section.rowIDs, shortcutHintByID: shortcutHintByID) }
           }
         }
       }
@@ -86,8 +77,28 @@ struct SessionsSidebarListView: View {
     }
   }
 
+  private func rows(_ ids: [SessionRowID], shortcutHintByID: [SessionRowID: String]) -> some View {
+    ForEach(ids, id: \.self) { id in
+      if let rowStore = store.scope(state: \.sessionItems[id: id], action: \.sessionItems[id: id]) {
+        SessionSidebarRowView(store: rowStore, shortcutHint: shortcutHintByID[id])
+          .tag(id)
+          .contextMenu {
+            if case .session(let key) = id {
+              SessionContextMenu(
+                store: rowStore,
+                onSettle: { store.send(.settleSession(key)) },
+                onUnsettle: { store.send(.unsettleSession(key)) }
+              )
+            }
+          }
+      }
+    }
+  }
+
   private func moveSelection(by offset: Int) -> KeyPress.Result {
-    guard let id = store.sessionsSidebarStructure.selection(byOffset: offset, from: store.sessionSelection)
+    guard
+      let id = store.sessionsSidebarStructure.selection(
+        byOffset: offset, from: store.sessionSelection, includingSettled: isSettledExpanded)
     else { return .ignored }
     store.send(.sessionSelectionChanged(id))
     return .handled
@@ -143,8 +154,8 @@ private struct SessionSidebarRowView: View {
   }
 }
 
-private extension SessionClassification.Status {
-  var systemImage: String {
+extension SessionClassification.Status {
+  fileprivate var systemImage: String {
     switch self {
     case .needsYou: "exclamationmark.circle.fill"
     case .working: "gearshape.fill"
@@ -153,7 +164,7 @@ private extension SessionClassification.Status {
     }
   }
 
-  var tint: AnyShapeStyle {
+  fileprivate var tint: AnyShapeStyle {
     switch self {
     case .needsYou: AnyShapeStyle(.orange)
     case .working: AnyShapeStyle(.blue)
@@ -162,7 +173,7 @@ private extension SessionClassification.Status {
     }
   }
 
-  var accessibilityLabel: String {
+  fileprivate var accessibilityLabel: String {
     switch self {
     case .needsYou: "Needs you"
     case .working: "Working"
