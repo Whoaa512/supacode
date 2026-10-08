@@ -1002,3 +1002,18 @@ deviation.
   action id were already layout-keyed, left as is. Gate: check 0,
   TerminalTests 340 (2 baseline Ghostty failures), TerminalsFeatureTests 24,
   AppFeatureSessionsTests 64 pass, build-app 0.
+- R6 review fix, 2026-10-08: the first pass routed commands but not the
+  queries beside them. Now every `terminalClient` query whose key is a
+  directory id from a deeplink, CLI agent command or the selected worktree
+  (`selectedTabID`, `selectedSurfaceID`, `paneExists`, `tabExists`,
+  `tabCanRename`, `surfaceExists`, `surfaceExistsInWorktree`,
+  `canMoveTabToNewSplit`, `sendTextToSurface`) resolves through the seam.
+  Left as is because the key already comes from the terminal layer:
+  `markUserCloseIntent` (layout element id), `tabID` in `surfaceDeeplinkURL`
+  (id from `.notificationReceived`), `markNotificationRead` (notification
+  location), `sessionPreview` (grid tile from `listSurfaces`). Not done here:
+  those same terminal-origin ids are still used as worktree ids (deeplink
+  URL, `worktree(for:)`), and deeplink ack matchers compare a directory id to
+  an event's layout id; both are the R7 split. Gate: check 0, TerminalTests +
+  TerminalsFeatureTests + FeatureTests 1351 (4 baseline failures),
+  build-app 0.
