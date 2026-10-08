@@ -14,7 +14,9 @@ import SupacodeSettingsShared
 @MainActor
 @Observable
 final class WorktreeContentHost {
-  let worktree: Worktree
+  let context: DirectoryContext
+
+  var worktreeID: Worktree.ID { context.worktreeID }
 
   // MARK: - Wiring.
 
@@ -107,12 +109,12 @@ final class WorktreeContentHost {
   private static let logger = SupaLogger("WorktreeContentHost")
 
   init(
-    worktree: Worktree,
+    context: DirectoryContext,
     runtime: ContentRuntime,
     clock: any Clock<Duration>,
     runSetupScript: Bool
   ) {
-    self.worktree = worktree
+    self.context = context
     self.runtime = runtime
     self.clock = clock
     self.pendingSetupScript = runSetupScript
@@ -121,16 +123,7 @@ final class WorktreeContentHost {
     }
   }
 
-  // Standardized to match `loadFailuresByID` keys (built from
-  // `standardizedFileURL.path`) so prune protection lines up.
-  var repositoryID: Repository.ID {
-    switch worktree.location.repositoryLocation {
-    case .local(let url):
-      RepositoryID(url.standardizedFileURL.path(percentEncoded: false))
-    case .remote:
-      worktree.location.repositoryLocation.id
-    }
-  }
+  var repositoryID: Repository.ID { context.repositoryID }
 
   /// Tracked blocking tabs whose kind matches.
   func blockingScriptTabs(matching predicate: (BlockingScriptKind) -> Bool) -> [TabID] {
@@ -293,7 +286,7 @@ final class WorktreeContentHost {
   /// Custom (hook / OSC 3008 notify) source; supersedes any held OSC 9.
   func appendHookNotification(title: String, body: String, surfaceID: UUID) {
     guard isKnownSurface(surfaceID) else {
-      Self.logger.debug("Dropped hook notification for unknown surface \(surfaceID) in worktree \(worktree.id)")
+      Self.logger.debug("Dropped hook notification for unknown surface \(surfaceID) in worktree \(worktreeID)")
       return
     }
     lastCustomNotificationAt[surfaceID] = clock.now
@@ -976,7 +969,7 @@ final class WorktreeContentHost {
   }
 
   private func scriptScope(forDefinitionID id: UUID) -> ScriptScope? {
-    @Shared(.repositorySettings(worktree.repositoryRootURL, host: worktree.host)) var settings
+    @Shared(.repositorySettings(context.repositoryRootURL, host: context.host)) var settings
     if settings.scripts.contains(where: { $0.id == id }) { return .repo }
     @Shared(.settingsFile) var settingsFile: SettingsFile
     if settingsFile.global.globalScripts.contains(where: { $0.id == id }) { return .global }
@@ -994,7 +987,7 @@ final class WorktreeContentHost {
   /// the remote connection dropped, where exit codes are unreliable.
   func handleBlockingScriptChildExited(tabID: TabID, exitCode: UInt32) {
     guard let kind = blockingScripts.removeValue(forKey: tabID) else { return }
-    if worktree.host != nil {
+    if context.host != nil {
       Self.logger.warning("Remote blocking script \(kind.tabTitle) shell exited (\(exitCode)); forcing failure.")
       completeBlockingScript(kind, tabID: tabID, exitCode: 1, reportedTabID: nil)
     } else {

@@ -28,7 +28,7 @@ nonisolated enum TerminalSurfaceRecipe {
   @MainActor
   static func launch(
     _ intent: LaunchIntent,
-    for worktree: Worktree,
+    for context: DirectoryContext,
     surfaceID: UUID,
     zmxExecutablePath: String?
   ) -> Launch {
@@ -44,14 +44,14 @@ nonisolated enum TerminalSurfaceRecipe {
     // local argv, not the loop). When the caller has no explicit command,
     // default to cd-into-the-remote-dir so a freshly created session lands in
     // the project.
-    if let host = worktree.host {
+    if let host = context.host {
       @Shared(.settingsFile) var settingsFile
       let remote = ZmxAttach.RemoteSurfaceLaunch(
         host: host,
         surfaceID: surfaceID,
         userCommand: command,
         defaultCommand: remoteDefaultShellCommand(
-          remotePath: worktree.workingDirectory.path(percentEncoded: false)),
+          remotePath: context.workingDirectory.path(percentEncoded: false)),
         hostPersistenceEnabled: settingsFile.global.remoteSessionPersistenceEnabled,
       )
       return Launch(
@@ -91,18 +91,18 @@ nonisolated enum TerminalSurfaceRecipe {
   /// and the bundled CLI on PATH.
   @MainActor
   static func environment(
-    for worktree: Worktree,
+    for context: DirectoryContext,
     tabID: TabID,
     surfaceID: UUID,
     socketPath: String?,
     extraVariables: [String: String] = [:]
   ) -> [String: String] {
-    var env = worktree.scriptEnvironment
+    var env = context.scriptEnvironment
     let percentEncodingSet = CharacterSet.urlPathAllowed.subtracting(.init(charactersIn: "/"))
-    let repoPath = worktree.repositoryRootURL.path(percentEncoded: false)
+    let repoPath = context.repositoryRootURL.path(percentEncoded: false)
     env["SUPACODE_REPO_ID"] = percentEncode(repoPath, allowedCharacters: percentEncodingSet, label: "SUPACODE_REPO_ID")
     env["SUPACODE_WORKTREE_ID"] = percentEncode(
-      worktree.id.rawValue, allowedCharacters: percentEncodingSet, label: "SUPACODE_WORKTREE_ID")
+      context.worktreeID.rawValue, allowedCharacters: percentEncodingSet, label: "SUPACODE_WORKTREE_ID")
     env["SUPACODE_TAB_ID"] = tabID.rawValue.uuidString
     env["SUPACODE_SURFACE_ID"] = surfaceID.uuidString
     if let socketPath {
@@ -159,7 +159,7 @@ nonisolated enum TerminalSurfaceRecipe {
   @MainActor
   struct PlanSeed {
     var terminalState: TerminalContentState
-    var worktree: Worktree
+    var directory: DirectoryContext
     var socketPath: String?
     var zmxExecutablePath: String?
     /// Live source surface for Ghostty's window-inherit config; nil spawns
@@ -176,7 +176,7 @@ nonisolated enum TerminalSurfaceRecipe {
 
     init(
       terminalState: TerminalContentState,
-      worktree: Worktree,
+      directory: DirectoryContext,
       socketPath: String?,
       zmxExecutablePath: String?,
       inheritedFrom: GhosttySurfaceView? = nil,
@@ -185,7 +185,7 @@ nonisolated enum TerminalSurfaceRecipe {
       initialScrollbackPath: String? = nil
     ) {
       self.terminalState = terminalState
-      self.worktree = worktree
+      self.directory = directory
       self.socketPath = socketPath
       self.zmxExecutablePath = zmxExecutablePath
       self.inheritedFrom = inheritedFrom
@@ -206,7 +206,7 @@ nonisolated enum TerminalSurfaceRecipe {
         initialInput: override?.initialInput,
         bypassZmx: override?.bypassZmx ?? false
       ),
-      for: seed.worktree,
+      for: seed.directory,
       surfaceID: request.contentID.rawValue,
       zmxExecutablePath: seed.zmxExecutablePath
     )
@@ -215,10 +215,10 @@ nonisolated enum TerminalSurfaceRecipe {
     // Remote worktrees have no local working directory: the surface command is
     // an `ssh` line and the cwd lives on the remote.
     let workingDirectory: URL? =
-      seed.worktree.host == nil
+      seed.directory.host == nil
       ? seed.terminalState.workingDirectory.map { URL(filePath: $0, directoryHint: .isDirectory) }
         ?? inherited.workingDirectory
-        ?? seed.worktree.workingDirectory
+        ?? seed.directory.workingDirectory
       : nil
     // A woken surface keeps its frozen font: the frozen backing size only
     // reproduces the grid when the font, and so the cell size, matches.
@@ -231,7 +231,7 @@ nonisolated enum TerminalSurfaceRecipe {
       initialInput: launch.initialInput,
       commandWrapper: launch.commandWrapper,
       environment: environment(
-        for: seed.worktree,
+        for: seed.directory,
         tabID: request.tabID,
         surfaceID: request.contentID.rawValue,
         socketPath: seed.socketPath,
@@ -291,7 +291,7 @@ nonisolated enum TerminalSurfaceRecipe {
 @MainActor
 struct TerminalContentBuilder {
   var runtime: GhosttyRuntime
-  var worktree: (Worktree.ID) -> Worktree?
+  var directory: (LayoutID) -> DirectoryContext?
   var socketPath: () -> String?
   var zmxExecutablePath: () -> String?
   /// Live renderer lookup for window-inherit config; the integration layer
@@ -321,20 +321,20 @@ struct TerminalContentBuilder {
     _ request: ContentRequest,
     terminalState: TerminalContentState
   ) -> any TabContent {
-    guard let capturedWorktree = worktree(request.worktreeID) else {
+    guard let capturedDirectory = directory(request.worktreeID) else {
       // A vanished worktree cannot host a session; inert content keeps the
       // layout itself usable.
       TerminalSurfaceRecipe.builderLogger.error(
         "No worktree \(request.worktreeID.rawValue) for content \(request.contentID.rawValue)")
       return InertTabContent(id: request.contentID, state: request.content)
     }
-    let lookUpWorktree = worktree
+    let lookUpDirectory = directory
     let content = TerminalContent(
       id: request.contentID,
       makeSurface: { geometry, currentState, phase in
         // Re-resolve so a wake long after creation sees the current worktree;
         // the captured value only covers one that vanished mid-flight.
-        let worktree = lookUpWorktree(request.worktreeID) ?? capturedWorktree
+        let directory = lookUpDirectory(request.worktreeID) ?? capturedDirectory
         // One-shot inheritance: a re-wake must not re-read the source's
         // current cwd/font or its split context.
         var effective = request
@@ -361,7 +361,7 @@ struct TerminalContentBuilder {
           for: effective,
           seed: TerminalSurfaceRecipe.PlanSeed(
             terminalState: seedState,
-            worktree: worktree,
+            directory: directory,
             socketPath: socketPath(),
             zmxExecutablePath: zmxExecutablePath(),
             inheritedFrom: effective.inheritedFrom.flatMap(sourceSurface),

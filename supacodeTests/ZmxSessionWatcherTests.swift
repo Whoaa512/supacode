@@ -557,7 +557,7 @@ struct ZmxDormantWatcherRegistryTests {
 
   private func makeHost(layout: PaneLayout, runtime: ContentRuntime = ContentRuntime()) -> WorktreeContentHost {
     let host = WorktreeContentHost(
-      worktree: makeWorktree(),
+      context: DirectoryContext(worktree: makeWorktree()),
       runtime: runtime,
       clock: ContinuousClock(),
       runSetupScript: false

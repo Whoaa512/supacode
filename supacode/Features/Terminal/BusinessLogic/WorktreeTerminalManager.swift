@@ -754,7 +754,7 @@ final class WorktreeTerminalManager {
       return existing
     }
     let host = WorktreeContentHost(
-      worktree: worktree,
+      context: DirectoryContext(worktree: worktree),
       runtime: ContentRuntime.liveValue,
       clock: clock,
       runSetupScript: runSetupScriptIfNew()
@@ -936,7 +936,7 @@ final class WorktreeTerminalManager {
     let remoteHost =
       localOnly
       ? nil
-      : hosts[worktreeID]?.worktree.host
+      : hosts[worktreeID]?.context.host
         ?? appStore?.withState { $0.repositories.worktree(for: worktreeID)?.host }
     guard killLocal || remoteHost != nil else { return }
     analyticsClient.capture(
@@ -1643,7 +1643,7 @@ final class WorktreeTerminalManager {
     in hosts: [WorktreeContentHost]
   ) -> [(host: RemoteHost, sessionID: String)] {
     hosts.flatMap { host -> [(host: RemoteHost, sessionID: String)] in
-      guard let remoteHost = host.worktree.host else { return [] }
+      guard let remoteHost = host.context.host else { return [] }
       return host.allSurfaceIDs.map { (remoteHost, ZmxSessionID.make(surfaceID: $0)) }
     }
   }

@@ -403,8 +403,8 @@ struct SupacodeApp: App {
   ) -> LayoutContentFactory {
     TerminalContentBuilder(
       runtime: runtime,
-      worktree: { [weak terminalManager] id in
-        terminalManager?.appStore?.withState { $0.repositories.worktree(for: id) }
+      directory: { [weak terminalManager] id in
+        terminalManager?.appStore?.withState { $0.repositories.worktree(for: id) }.map(DirectoryContext.init)
       },
       socketPath: { [weak terminalManager] in
         terminalManager?.socketServer?.socketPath

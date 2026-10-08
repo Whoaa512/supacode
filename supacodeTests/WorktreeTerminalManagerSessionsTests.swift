@@ -54,7 +54,7 @@ struct WorktreeTerminalManagerSessionsTests {
       repositoryRootURL: URL(fileURLWithPath: "/tmp/repo")
     )
     let host = WorktreeContentHost(
-      worktree: worktree,
+      context: DirectoryContext(worktree: worktree),
       runtime: ContentRuntime(),
       clock: ImmediateClock(),
       runSetupScript: false
@@ -82,7 +82,7 @@ struct WorktreeTerminalManagerSessionsTests {
       repositoryRootURL: URL(fileURLWithPath: "/tmp/repo")
     )
     let host = WorktreeContentHost(
-      worktree: worktree, runtime: ContentRuntime(),
+      context: DirectoryContext(worktree: worktree), runtime: ContentRuntime(),
       clock: ImmediateClock(), runSetupScript: false
     )
     let surfaceID = UUID()
@@ -102,7 +102,7 @@ struct WorktreeTerminalManagerSessionsTests {
       repositoryRootURL: URL(fileURLWithPath: "/tmp/repo")
     )
     let host = WorktreeContentHost(
-      worktree: worktree, runtime: ContentRuntime(),
+      context: DirectoryContext(worktree: worktree), runtime: ContentRuntime(),
       clock: ImmediateClock(), runSetupScript: false
     )
     let surfaceID = UUID()
@@ -126,7 +126,7 @@ struct WorktreeTerminalManagerSessionsTests {
       repositoryRootURL: URL(fileURLWithPath: "/tmp/repo")
     )
     let host = WorktreeContentHost(
-      worktree: worktree, runtime: ContentRuntime(),
+      context: DirectoryContext(worktree: worktree), runtime: ContentRuntime(),
       clock: ImmediateClock(), runSetupScript: false
     )
     let surfaceID = UUID()
@@ -147,7 +147,7 @@ struct WorktreeTerminalManagerSessionsTests {
     let ghosttyRuntime = GhosttyRuntime(surfaceTeardownQueue: TeardownTestSupport.queue(probe: TeardownProbeSpy()))
     let contentRuntime = ContentRuntime()
     let host = WorktreeContentHost(
-      worktree: worktree, runtime: contentRuntime,
+      context: DirectoryContext(worktree: worktree), runtime: contentRuntime,
       clock: ImmediateClock(), runSetupScript: false
     )
     var capturedActions: [LayoutFeature.Action] = []
@@ -188,7 +188,7 @@ struct WorktreeTerminalManagerSessionsTests {
     let ghosttyRuntime = GhosttyRuntime(surfaceTeardownQueue: TeardownTestSupport.queue(probe: TeardownProbeSpy()))
     let contentRuntime = ContentRuntime()
     let host = WorktreeContentHost(
-      worktree: worktree, runtime: contentRuntime,
+      context: DirectoryContext(worktree: worktree), runtime: contentRuntime,
       clock: ImmediateClock(), runSetupScript: false
     )
     host.sendLayoutAction = { _ in }

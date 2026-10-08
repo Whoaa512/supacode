@@ -22,7 +22,7 @@ struct TerminalSurfaceRecipeTests {
     let tabID = TabID()
     let surfaceID = UUID()
     let env = TerminalSurfaceRecipe.environment(
-      for: Self.makeWorktree(),
+      for: DirectoryContext(worktree: Self.makeWorktree()),
       tabID: tabID,
       surfaceID: surfaceID,
       socketPath: "/tmp/socket"
@@ -38,7 +38,7 @@ struct TerminalSurfaceRecipeTests {
 
   @Test func environmentOmitsSocketWhenAbsent() {
     let env = TerminalSurfaceRecipe.environment(
-      for: Self.makeWorktree(),
+      for: DirectoryContext(worktree: Self.makeWorktree()),
       tabID: TabID(),
       surfaceID: UUID(),
       socketPath: nil
@@ -48,7 +48,7 @@ struct TerminalSurfaceRecipeTests {
 
   @Test func extraVariablesCannotOverrideTheZmxDirectoryLock() {
     let env = TerminalSurfaceRecipe.environment(
-      for: Self.makeWorktree(),
+      for: DirectoryContext(worktree: Self.makeWorktree()),
       tabID: TabID(),
       surfaceID: UUID(),
       socketPath: nil,
@@ -61,7 +61,7 @@ struct TerminalSurfaceRecipeTests {
   @Test func bypassingZmxKeepsTheCommandVerbatim() {
     let launch = TerminalSurfaceRecipe.launch(
       TerminalSurfaceRecipe.LaunchIntent(command: "./script.sh", initialInput: "input\n", bypassZmx: true),
-      for: Self.makeWorktree(),
+      for: DirectoryContext(worktree: Self.makeWorktree()),
       surfaceID: UUID(),
       zmxExecutablePath: "/usr/local/bin/zmx"
     )
@@ -75,7 +75,7 @@ struct TerminalSurfaceRecipeTests {
     let surfaceID = UUID()
     let launch = TerminalSurfaceRecipe.launch(
       TerminalSurfaceRecipe.LaunchIntent(),
-      for: Self.makeWorktree(),
+      for: DirectoryContext(worktree: Self.makeWorktree()),
       surfaceID: surfaceID,
       zmxExecutablePath: "/usr/local/bin/zmx"
     )
@@ -108,7 +108,7 @@ struct TerminalSurfaceRecipeTests {
         for: Self.makeRequest(state: state, origin: origin),
         seed: TerminalSurfaceRecipe.PlanSeed(
           terminalState: state,
-          worktree: worktree,
+          directory: DirectoryContext(worktree: worktree),
           socketPath: nil,
           zmxExecutablePath: nil
         )
@@ -127,7 +127,7 @@ struct TerminalSurfaceRecipeTests {
       for: Self.makeRequest(state: persistedState),
       seed: TerminalSurfaceRecipe.PlanSeed(
         terminalState: persistedState,
-        worktree: worktree,
+        directory: DirectoryContext(worktree: worktree),
         socketPath: nil,
         zmxExecutablePath: nil
       )
@@ -138,7 +138,7 @@ struct TerminalSurfaceRecipeTests {
       for: Self.makeRequest(state: emptyState),
       seed: TerminalSurfaceRecipe.PlanSeed(
         terminalState: emptyState,
-        worktree: worktree,
+        directory: DirectoryContext(worktree: worktree),
         socketPath: nil,
         zmxExecutablePath: nil
       )
@@ -157,7 +157,7 @@ struct TerminalSurfaceRecipeTests {
       for: request,
       seed: TerminalSurfaceRecipe.PlanSeed(
         terminalState: state,
-        worktree: worktree,
+        directory: DirectoryContext(worktree: worktree),
         socketPath: "/tmp/socket",
         zmxExecutablePath: "/usr/local/bin/zmx",
         // A frozen grid outranks any fallback font: the frozen backing size

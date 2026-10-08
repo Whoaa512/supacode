@@ -25,7 +25,7 @@ struct HibernationTeardownTests {
       repositoryRootURL: URL(filePath: "/tmp")
     )
     let host = WorktreeContentHost(
-      worktree: worktree,
+      context: DirectoryContext(worktree: worktree),
       runtime: contentRuntime,
       clock: TestClock(),
       runSetupScript: false
