@@ -937,7 +937,8 @@ deviation.
   `ContentRequest` retyped. `ContentRequest.worktreeID` keeps its name
   (rename belongs to a later slice). Gate: check 0, build-app 0, full test
   run shows only the 5 baseline failures.
-- R2, 2026-10-08: manager storage (7 collections), `focus` observation
+- R2, 2026-10-08, `1c122e3a` + `51886759` (review fix: private layout
+  helpers in the manager and `PaneWindowManager`): manager storage (7 collections), `focus` observation
   key, `layoutState`/`sendLayout`/`hostIfExists`, `TerminalsFeature`
   layout actions/recents/helpers, and `PaneWindowManager` keys retyped to
   `LayoutID`. `worktreeProjection`/`taskStatus` observation keys left
