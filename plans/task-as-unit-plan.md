@@ -956,3 +956,11 @@ deviation.
   (`tabRemoved`/`tabRenamed` with `worktreeID:`) untouched. Gate: check 0,
   TerminalTests 340 (2 baseline Ghostty failures), TerminalsFeatureTests 24
   pass, FeatureTests 987 (2 baseline failures), build-app 0.
+- R4, 2026-10-08: `DirectoryContext` added (`init(worktree:)`, plus
+  `scriptEnvironment` so the recipe never needs a `Worktree`). Host stores
+  `context` and exposes `worktreeID`; its `repositoryID` standardization moved
+  into the context. Recipe `launch`/`environment`/`PlanSeed` and the builder
+  lookup (`directory: (LayoutID) -> DirectoryContext?`) take the context; the
+  app wires the lookup by mapping the repository worktree. Gate: check 0,
+  TerminalTests 340 (2 baseline Ghostty failures), TerminalsFeatureTests 24,
+  TerminalSurfaceRecipeTests 8, DirectoryContextTests 2 pass, build-app 0.
