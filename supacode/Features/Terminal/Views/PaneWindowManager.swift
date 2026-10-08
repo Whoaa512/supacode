@@ -11,7 +11,7 @@ import SwiftUI
 final class PaneWindow: NSWindow, WindowTintColorProviding {
   /// The pane this window hosts; commands arriving while this window is key
   /// target it, whatever worktree is selected.
-  var hostedWorktreeID: Worktree.ID?
+  var hostedWorktreeID: LayoutID?
   var hostedPaneID: PaneID?
   /// Closes the pane's selected tab; serves the menu's Close Window item so
   /// only the red close button exits window mode.
@@ -158,7 +158,7 @@ final class PaneWindowManager {
   /// Opens missing windows and closes stale ones for the worktree. A window
   /// that fails to open returns its pane inline, so it never strands behind
   /// an unreachable placeholder.
-  func reconcile(worktreeID: Worktree.ID) {
+  func reconcile(worktreeID: LayoutID) {
     // Reentrancy guard: the failed-open recovery sends a layout action.
     guard !isReconciling else { return }
     isReconciling = true
@@ -190,7 +190,7 @@ final class PaneWindowManager {
 
   /// Closes every window of a pruned worktree; its layout state is about to
   /// go, so `reconcile` will never see the panes again.
-  func closeAll(for worktreeID: Worktree.ID) {
+  func closeAll(for worktreeID: LayoutID) {
     lastEmbeddedFocusPaneIDs.removeValue(forKey: worktreeID)
     tearDownControllers(for: worktreeID)
   }
@@ -207,7 +207,7 @@ final class PaneWindowManager {
     }
   }
 
-  func orderFront(worktreeID: Worktree.ID, paneID: PaneID) {
+  func orderFront(worktreeID: LayoutID, paneID: PaneID) {
     let key = Key(worktreeID: worktreeID, paneID: paneID)
     if controllers[key] == nil {
       // A missed open retries; a second failure returns the pane inline
@@ -542,7 +542,7 @@ private struct WindowedPaneRootView: View {
   let paneID: PaneID
   let runtime: ContentRuntime
   let manager: WorktreeTerminalManager
-  let worktreeID: Worktree.ID
+  let worktreeID: LayoutID
   let ghosttyShortcuts: GhosttyShortcutManager?
   let commandKeyObserver: CommandKeyObserver?
   /// Perform-time guard: the scene arbitration between this window's focused

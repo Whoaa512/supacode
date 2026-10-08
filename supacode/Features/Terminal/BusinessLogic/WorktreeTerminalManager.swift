@@ -852,7 +852,7 @@ final class WorktreeTerminalManager {
   /// Fires the layout-changed side effects the reducer cannot: persistence,
   /// content lifecycle, surface activity, the pane windows, and the sidebar
   /// projection. Called for every layout action, not only topology changes.
-  func handleLayoutChanged(for worktreeID: Worktree.ID) {
+  func handleLayoutChanged(for worktreeID: LayoutID) {
     markLayoutDirty(worktreeID: worktreeID)
     hosts[worktreeID]?.reconcileContentLifecycle()
     pruneUserCloseIntentsAfterLayoutChange(worktreeID: worktreeID)
@@ -878,7 +878,7 @@ final class WorktreeTerminalManager {
     }
   }
 
-  func markUserCloseIntent(worktreeID: Worktree.ID, surfaceIDs: Set<UUID>) {
+  func markUserCloseIntent(worktreeID: LayoutID, surfaceIDs: Set<UUID>) {
     hosts[worktreeID]?.markUserCloseIntent(for: surfaceIDs)
   }
 
@@ -969,7 +969,7 @@ final class WorktreeTerminalManager {
   }
 
   /// An unexpected zmx exit: probe the session, then spare, kill, or reattach.
-  func handleUnexpectedZmxClose(_ view: GhosttySurfaceView, worktreeID: Worktree.ID) {
+  func handleUnexpectedZmxClose(_ view: GhosttySurfaceView, worktreeID: LayoutID) {
     let surfaceID = view.id
     suppressHarnessEnd(for: [surfaceID])
     Task { @MainActor [weak self] in
@@ -1411,13 +1411,13 @@ final class WorktreeTerminalManager {
   }
 
   /// Whether a pane token (a pane, tab, or content id) resolves to a pane.
-  func paneExists(worktreeID: Worktree.ID, token: UUID) -> Bool {
+  func paneExists(worktreeID: LayoutID, token: UUID) -> Bool {
     resolvePane(token, in: worktreeID) != nil
   }
 
   /// Whether `tab move` is permitted: the tab's pane holds more than one tab
   /// and is not windowed, matching the reducer's `moveTabToSplit` guard.
-  func canMoveTabToNewSplit(worktreeID: Worktree.ID, tabID: UUID) -> Bool {
+  func canMoveTabToNewSplit(worktreeID: LayoutID, tabID: UUID) -> Bool {
     guard let layoutState = layoutState(for: worktreeID),
       let pane = layoutState.layout.pane(containingTab: TabID(rawValue: tabID))
     else { return false }
@@ -1682,7 +1682,7 @@ final class WorktreeTerminalManager {
   /// a burst of mutations into one write; the snapshot is captured at fire time
   /// (freshest tree + agent records), mutated into the in-memory `@Shared` dict
   /// on main, then merged into `layouts.json` off main.
-  func markLayoutDirty(worktreeID: Worktree.ID) {
+  func markLayoutDirty(worktreeID: LayoutID) {
     layoutDirtyTasks[worktreeID]?.cancel()
     layoutDirtyTasks[worktreeID] = Task { [weak self, layoutDebounceSleep] in
       try? await layoutDebounceSleep(Self.layoutDebounceDuration)
@@ -1827,22 +1827,22 @@ final class WorktreeTerminalManager {
     }
   }
 
-  func tabExists(worktreeID: Worktree.ID, tabID: TabID) -> Bool {
+  func tabExists(worktreeID: LayoutID, tabID: TabID) -> Bool {
     layoutState(for: worktreeID)?.layout.pane(containingTab: tabID) != nil
   }
 
-  func tabCanRename(worktreeID: Worktree.ID, tabID: TabID) -> Bool {
+  func tabCanRename(worktreeID: LayoutID, tabID: TabID) -> Bool {
     layoutState(for: worktreeID)?.layout.pane(containingTab: tabID)?.tabs[id: tabID]?.isLocked == false
   }
 
-  func surfaceExists(worktreeID: Worktree.ID, tabID: TabID, surfaceID: UUID) -> Bool {
+  func surfaceExists(worktreeID: LayoutID, tabID: TabID, surfaceID: UUID) -> Bool {
     // Tab-hint tolerant: the surface's actual owner wins, matching the
     // surface-first resolution contract.
     layoutState(for: worktreeID)?.layout.tab(containingContent: ContentID(rawValue: surfaceID)) != nil
   }
 
   /// Checks whether a surface UUID exists anywhere in the worktree (across all tabs).
-  func surfaceExistsInWorktree(worktreeID: Worktree.ID, surfaceID: UUID) -> Bool {
+  func surfaceExistsInWorktree(worktreeID: LayoutID, surfaceID: UUID) -> Bool {
     layoutState(for: worktreeID)?.layout.tab(containingContent: ContentID(rawValue: surfaceID)) != nil
   }
 
@@ -1877,7 +1877,7 @@ final class WorktreeTerminalManager {
   }
 
   /// Surface IDs across every tab in this worktree.
-  func surfaceIDs(forWorktreeID worktreeID: Worktree.ID) -> [UUID] {
+  func surfaceIDs(forWorktreeID worktreeID: LayoutID) -> [UUID] {
     layoutState(for: worktreeID)?.layout.allContentIDs.map(\.rawValue) ?? []
   }
 
@@ -1928,7 +1928,7 @@ final class WorktreeTerminalManager {
   }
 
   /// Current screen for live content, else the last persisted scrollback tail.
-  func sessionPreview(worktreeID: Worktree.ID, surfaceID: UUID) -> String? {
+  func sessionPreview(worktreeID: LayoutID, surfaceID: UUID) -> String? {
     screenPreview(worktreeID: worktreeID, surfaceID: surfaceID)
       ?? ScrollbackPreview.tail(surfaceID: surfaceID, maxLines: 40)
   }
@@ -1936,24 +1936,24 @@ final class WorktreeTerminalManager {
   /// Writes raw bytes to one surface's PTY without focusing it, so CLI-driven
   /// prompts and key sequences reach a background agent. `false` when the
   /// surface is gone or dormant.
-  func sendText(_ text: String, worktreeID: Worktree.ID, surfaceID: UUID) -> Bool {
+  func sendText(_ text: String, worktreeID: LayoutID, surfaceID: UUID) -> Bool {
     guard let surface = hosts[worktreeID]?.liveSurface(surfaceID) else { return false }
     surface.sendText(text)
     return true
   }
 
   /// The focused pane's selected content in a worktree, when its host exists.
-  func focusedSurfaceID(worktreeID: Worktree.ID) -> UUID? {
+  func focusedSurfaceID(worktreeID: LayoutID) -> UUID? {
     hosts[worktreeID]?.focusedTab?.content.id.rawValue
   }
 
   /// Current screen text of one live surface (the same cached read the
   /// accessibility tree uses). `nil` when the surface is gone or dormant.
-  func screenPreview(worktreeID: Worktree.ID, surfaceID: UUID) -> String? {
+  func screenPreview(worktreeID: LayoutID, surfaceID: UUID) -> String? {
     hosts[worktreeID]?.liveSurface(surfaceID)?.screenPreviewContents()
   }
 
-  func isBlockingScriptRunning(kind: BlockingScriptKind, for worktreeID: Worktree.ID) -> Bool {
+  func isBlockingScriptRunning(kind: BlockingScriptKind, for worktreeID: LayoutID) -> Bool {
     hosts[worktreeID]?.isBlockingScriptRunning(kind: kind) == true
   }
 
@@ -2150,7 +2150,7 @@ final class WorktreeTerminalManager {
     emitNotificationIndicatorCountIfNeeded()
   }
 
-  func hasUnseenNotifications(for worktreeID: Worktree.ID) -> Bool {
+  func hasUnseenNotifications(for worktreeID: LayoutID) -> Bool {
     hosts[worktreeID]?.hasUnseenNotification == true
   }
 
@@ -2189,7 +2189,7 @@ final class WorktreeTerminalManager {
   }
 
   /// Resolves the tab containing the given surface, if any.
-  func tabID(forWorktreeID worktreeID: Worktree.ID, surfaceID: UUID) -> TabID? {
+  func tabID(forWorktreeID worktreeID: LayoutID, surfaceID: UUID) -> TabID? {
     hosts[worktreeID]?.tabID(containing: surfaceID)
   }
 
