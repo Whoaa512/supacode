@@ -937,3 +937,10 @@ deviation.
   `ContentRequest` retyped. `ContentRequest.worktreeID` keeps its name
   (rename belongs to a later slice). Gate: check 0, build-app 0, full test
   run shows only the 5 baseline failures.
+- R2, 2026-10-08: manager storage (7 collections), `focus` observation
+  key, `layoutState`/`sendLayout`/`hostIfExists`, `TerminalsFeature`
+  layout actions/recents/helpers, and `PaneWindowManager` keys retyped to
+  `LayoutID`. `worktreeProjection`/`taskStatus` observation keys left
+  worktree-facing (R3 allow-list). Gate: check 0, TerminalTests 340 (only
+  the 2 baseline Ghostty failures), TerminalsFeatureTests 24 pass,
+  build-app 0.
