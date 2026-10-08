@@ -187,7 +187,7 @@ struct TerminalsFeature {
             Self.logger.error("Dropping persisted layout for \(key): an id collides with another worktree")
             continue
           }
-          let worktreeID = Worktree.ID(key)
+          let worktreeID = LayoutID(legacyWorktreeKey: key)
           guard state.layouts[id: worktreeID] == nil else { continue }
           state.layouts.append(LayoutFeature.State(id: worktreeID, layout: record.layout))
           seenContentIDs.formUnion(contentIDs)

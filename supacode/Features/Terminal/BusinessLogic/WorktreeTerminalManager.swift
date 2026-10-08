@@ -1712,7 +1712,7 @@ final class WorktreeTerminalManager {
     layoutFlushGeneration += 1
     let generation = layoutFlushGeneration
     let task = Task { [weak self] in
-      await writer.flush(records: [worktreeID.rawValue: change])
+      await writer.flush(records: [worktreeID.persistenceKey: change])
       // Generation-gated: an older task's completion must not erase a newer
       // registration, or a delete could stop awaiting the in-flight record.
       guard let self, self.layoutFlushTasks[worktreeID]?.generation == generation else { return }
@@ -1734,7 +1734,7 @@ final class WorktreeTerminalManager {
     let generation = layoutFlushGeneration
     let task = Task { [weak self] in
       await inflightFlush?.value
-      await writer.flush(records: [worktreeID.rawValue: .delete])
+      await writer.flush(records: [worktreeID.persistenceKey: .delete])
       guard let self, self.layoutFlushTasks[worktreeID]?.generation == generation else { return }
       self.layoutFlushTasks[worktreeID] = nil
     }
@@ -1890,9 +1890,10 @@ final class WorktreeTerminalManager {
       state.terminals.layouts.flatMap { layoutState in
         let worktreeID = layoutState.id
         let worktree = state.repositories.worktree(for: worktreeID)
-        let worktreeName = worktree?.name ?? URL(fileURLWithPath: worktreeID.rawValue).lastPathComponent
-        let directoryName = worktree?.workingDirectory.lastPathComponent ?? worktreeName
         let host = hosts[worktreeID]
+        let worktreeName =
+          worktree?.name ?? host?.context.name ?? URL(fileURLWithPath: worktreeID.persistenceKey).lastPathComponent
+        let directoryName = worktree?.workingDirectory.lastPathComponent ?? worktreeName
         return layoutState.layout.panes.flatMap { pane in
           pane.tabs.map { tab in
             let surfaceID = tab.content.id.rawValue
@@ -2329,7 +2330,7 @@ final class WorktreeTerminalManager {
         runtime: ContentRuntime.liveValue,
         agentsBySurface: agentsBySurface ?? [:]
       )
-      changes[id.rawValue] = record.layout.panes.isEmpty ? .delete : .record(record)
+      changes[id.persistenceKey] = record.layout.panes.isEmpty ? .delete : .record(record)
     }
     layoutsWriter.flushSync(records: changes)
   }
