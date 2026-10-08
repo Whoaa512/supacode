@@ -964,3 +964,15 @@ deviation.
   app wires the lookup by mapping the repository worktree. Gate: check 0,
   TerminalTests 340 (2 baseline Ghostty failures), TerminalsFeatureTests 24,
   TerminalSurfaceRecipeTests 8, DirectoryContextTests 2 pass, build-app 0.
+- R5a, 2026-10-08: audit moved 15 cases to `LayoutID` (focus family:
+  `selectTabAtIndex`, `selectRelativeTab`, `focusRelativePane`,
+  `splitFocusedPane`, `focusSplit`, `toggleSplitZoom`, `equalizeSplits`,
+  `focusPane`, `toggleZoomPane`, `toggleWindowModeForPane`, `moveTabToSplit`,
+  `toggleWindowModeForFocusedPane`; destroy/rename family: `destroyTab`,
+  `renameTab`, `closePane`). Deviation: fewer than the planned ≈35, because
+  `closeFocused*`, `beginTabRename`, `selectTab`, `focusSurface`,
+  `splitSurface`, `destroySurface`, `splitPane`, `performBindingAction*` and
+  the 4 search cases call `host(for:)` (may create a host), so they go to R5b.
+  Gate: check 0, TerminalTests 340 (2 baseline Ghostty failures),
+  TerminalsFeatureTests 24, FeatureTests 987 (2 baseline failures),
+  build-app 0.
