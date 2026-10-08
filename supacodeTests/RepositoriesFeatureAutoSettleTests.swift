@@ -28,7 +28,9 @@ struct RepositoriesFeatureAutoSettleTests {
   }
 
   private func store() -> TestStoreOf<RepositoriesFeature> {
-    let store = TestStore(initialState: state()) { RepositoriesFeature() } withDependencies: {
+    let store = TestStore(initialState: state()) {
+      RepositoriesFeature()
+    } withDependencies: {
       $0.date.now = now
       $0.continuousClock = TestClock()
       $0.defaultAppStorage = .inMemory
@@ -173,9 +175,11 @@ struct RepositoriesFeatureAutoSettleTests {
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: base) }
 
-    let hdr = "{\"type\":\"session\",\"id\":\"abcfix\","
+    let hdr =
+      "{\"type\":\"session\",\"id\":\"abcfix\","
       + "\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"/fixtures\"}"
-    let msg = "{\"type\":\"message\",\"timestamp\":\"2026-01-02T00:00:00.000Z\","
+    let msg =
+      "{\"type\":\"message\",\"timestamp\":\"2026-01-02T00:00:00.000Z\","
       + "\"message\":{\"role\":\"user\",\"content\":\"hello\"}}"
     let content = hdr + "\n" + String(repeating: msg + "\n", count: 5)
     let file = dir.appending(path: "one.jsonl")
@@ -202,7 +206,9 @@ struct RepositoriesFeatureAutoSettleTests {
     initial.$sidebar = Shared(value: SidebarState())
     initial.$persistedLayouts = SharedReader(value: LayoutsFile(worktrees: [:]))
     initial.sessionsStarted = true
-    let testStore = TestStore(initialState: initial) { RepositoriesFeature() } withDependencies: {
+    let testStore = TestStore(initialState: initial) {
+      RepositoriesFeature()
+    } withDependencies: {
       $0.date.now = testNow
       $0.continuousClock = TestClock()
       $0.defaultAppStorage = .inMemory
@@ -250,13 +256,18 @@ struct RepositoriesFeatureAutoSettleTests {
     row.lastActivity = now.addingTimeInterval(-3 * 86_400 + 900)
     let indexed = row
     let time = LockIsolated(now)
-    let store = TestStore(initialState: initial) { RepositoriesFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      RepositoriesFeature()
+    } withDependencies: {
       $0.date = DateGenerator { time.value }
       $0.continuousClock = clock
       $0.defaultAppStorage = .inMemory
       $0.sessionIndex.cached = { [] }
       $0.sessionIndex.refresh = {
-        let count = calls.withValue { $0 += 1; return $0 }
+        let count = calls.withValue {
+          $0 += 1
+          return $0
+        }
         if failSecondRefresh, count == 2 { throw Failure.unavailable }
         return [indexed]
       }

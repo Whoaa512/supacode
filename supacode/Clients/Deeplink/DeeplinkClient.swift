@@ -23,6 +23,7 @@ extension DependencyValues {
 private nonisolated enum DeeplinkParser {
   private static let logger = SupaLogger("Deeplink")
 
+  // swiftlint:disable:next cyclomatic_complexity
   static func parse(_ url: URL) -> Deeplink? {
     guard url.scheme == "supacode" else {
       logger.debug("Ignoring non-supacode URL: \(url.scheme ?? "nil")")

@@ -59,7 +59,8 @@ struct TerminalCommands: Commands {
       }
       .appKeyboardShortcut(AppShortcuts.settleSessionAndAdvance.effective(from: overrides))
       .disabled(settleSessionAndAdvanceAction?.isEnabled != true)
-      .help("Settle and advance (\(AppShortcuts.settleSessionAndAdvance.effective(from: overrides)?.display ?? "none"))"
+      .help(
+        "Settle and advance (\(AppShortcuts.settleSessionAndAdvance.effective(from: overrides)?.display ?? "none"))"
       )
 
       Button("Unsettle Session") {

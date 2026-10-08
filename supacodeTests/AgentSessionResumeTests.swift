@@ -274,7 +274,8 @@ struct AgentSessionResumeTests {
 
   @Test(arguments: [SkillAgent.claude, .codex])
   func sessionStartHookCapturesTheSessionRef(_ agent: SkillAgent) throws {
-    let hooks = try agent == .claude
+    let hooks =
+      try agent == .claude
       ? ClaudeHookSettings.hooksByEvent() : CodexHookSettings.hooksByEvent()
     let command = try #require(Self.command(in: hooks, event: "SessionStart"))
     #expect(command.contains("__sid="))
@@ -300,7 +301,8 @@ struct AgentSessionResumeTests {
     let content = PiExtensionContent.indexTs
     #expect(content.contains(#"pi.on("session_start""#))
     #expect(content.contains(#"emitPresence("session_start", sessionRef(ctx))"#))
-    #expect(!content.contains(#"emitPresence("session_start")"#),
+    #expect(
+      !content.contains(#"emitPresence("session_start")"#),
       "session_start must carry sessionRef, not fire without sid")
   }
 
@@ -320,7 +322,8 @@ struct AgentSessionResumeTests {
       .objectValue?["command"]?.stringValue
   }
 
-  private func key(_ surfaceID: UUID, agent: SkillAgent = .claude) -> AgentPresenceFeature
+  private func key(_ surfaceID: UUID, agent: SkillAgent = .claude)
+    -> AgentPresenceFeature
     .PresenceKey
   {
     AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: surfaceID)

@@ -159,7 +159,10 @@ struct WorktreeTerminalManagerSessionsTests {
     let surfaceID = content.id.rawValue
     #expect(contentRuntime.provision(content, at: .fallback))
     guard let view = content.renderer as? GhosttySurfaceView
-    else { Issue.record("Expected GhosttySurfaceView"); return }
+    else {
+      Issue.record("Expected GhosttySurfaceView")
+      return
+    }
     host.registerSurfaceState(for: surfaceID)
     var unexpectedZmxClosed = false
     LayoutSurfaceConduit(
@@ -169,10 +172,11 @@ struct WorktreeTerminalManagerSessionsTests {
     view.bridge.onCloseRequest?(false)
     #expect(!unexpectedZmxClosed, "non-zmx surface must not probe zmx")
     #expect(userClosed.isEmpty, "automatic close must not emit user-close")
-    #expect(capturedActions.contains { action in
-      if case .contentRequestedClose(let id, _) = action { return id == content.id }
-      return false
-    }, "conduit must send contentRequestedClose for dead non-zmx process")
+    #expect(
+      capturedActions.contains { action in
+        if case .contentRequestedClose(let id, _) = action { return id == content.id }
+        return false
+      }, "conduit must send contentRequestedClose for dead non-zmx process")
   }
 
   @Test func conduitRoutesDyingZmxSurfaceToHandleUnexpectedZmxClose() throws {

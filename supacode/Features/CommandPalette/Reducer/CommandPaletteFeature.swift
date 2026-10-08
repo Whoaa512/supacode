@@ -1257,7 +1257,9 @@ private func commandPaletteRecencyScore(
 
 /// The delegate an activated item resolves to, or `nil` for a kind the reducer handles
 /// itself: `.openRepository` switches the palette into browse mode and never leaves it.
-private func delegateAction(for kind: CommandPaletteItem.Kind) -> CommandPaletteFeature.Delegate? {
+private func delegateAction(  // swiftlint:disable:this cyclomatic_complexity
+  for kind: CommandPaletteItem.Kind
+) -> CommandPaletteFeature.Delegate? {
   switch kind {
   case .worktreeSelect(let id):
     return .selectWorktree(id)

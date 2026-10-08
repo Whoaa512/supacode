@@ -599,9 +599,10 @@ struct AppFeature {
         return .send(.newSessionDirectorySelected(url))
 
       case .repositories(.delegate(.focusSession(let location))):
-        return .send(.focusTerminalSurface(
-          worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID
-        ))
+        return .send(
+          .focusTerminalSurface(
+            worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID
+          ))
 
       case .repositories(.selectNextWorktree), .repositories(.selectPreviousWorktree):
         if state.repositories.isSessionsSidebarTabActive,

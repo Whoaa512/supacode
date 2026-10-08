@@ -14,7 +14,9 @@ struct AppFeatureLifecycleTelemetryTests {
   func activationRefreshesSessionsOnlyAfterStartup() async {
     var initial = AppFeature.State()
     initial.repositories.sessionsStarted = true
-    let store = TestStore(initialState: initial) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 1_000)
       $0.continuousClock = TestClock()
       $0.analyticsClient.capture = { _, _ in }

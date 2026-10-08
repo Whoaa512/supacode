@@ -39,7 +39,8 @@ struct PiExtensionSessionLifecycleTests {
     let process = Process()
     let miseNode = FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent(".local/share/mise/shims/node")
-    process.executableURL = FileManager.default.isExecutableFile(atPath: miseNode.path)
+    process.executableURL =
+      FileManager.default.isExecutableFile(atPath: miseNode.path)
       ? miseNode : try LoginShellProbe.executable("node")
     process.arguments = ["--experimental-strip-types", script.path]
     var environment = ProcessInfo.processInfo.environment
@@ -62,7 +63,8 @@ struct PiExtensionSessionLifecycleTests {
       let fields = try #require(AgentSignal.contextSignalFields(payload: payload))
       if fields.metadata.contains("kind=notify") { return nil }
       return try AgentSignal.presenceEvent(
-        id: fields.id, metadata: fields.metadata, surfaceID: surface, surfaceExists: true).get()
+        id: fields.id, metadata: fields.metadata, surfaceID: surface, surfaceExists: true
+      ).get()
     }
     #expect(events.map(\.event) == ["session_start", "busy", "idle"] + Array(repeating: "session_end", count: 7))
     #expect(events.allSatisfy { $0.sessionRef == "session-1" && $0.pid == nil })

@@ -207,7 +207,7 @@ struct CLIReferenceView: View {
       description:
         "Poll the worktree's focused terminal every 500ms until a line matches, then print it. "
         + "Target is an agent name, worktree ID, or branch; defaults to $SUPACODE_WORKTREE_ID."
-    ),
+    )
   ]
 
   private static let repoRows: [CLIEntry] = [

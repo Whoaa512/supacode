@@ -161,9 +161,10 @@ nonisolated enum TerminalRestorePruner {
   ) -> PaneLayout? {
     var result = layout
     for pane in layout.panes {
-      let kept = IdentifiedArray(uniqueElements: pane.tabs.filter {
-        shouldKeepContent($0.content)
-      })
+      let kept = IdentifiedArray(
+        uniqueElements: pane.tabs.filter {
+          shouldKeepContent($0.content)
+        })
       guard !kept.isEmpty else {
         if let node = result.tree.find(id: pane.id.rawValue) {
           result.tree = result.tree.removing(node)
@@ -173,7 +174,8 @@ nonisolated enum TerminalRestorePruner {
       }
       var survivor = pane
       survivor.tabs = kept
-      survivor.selectedTabID = pane.selectedTabID.flatMap { kept[id: $0] != nil ? $0 : nil }
+      survivor.selectedTabID =
+        pane.selectedTabID.flatMap { kept[id: $0] != nil ? $0 : nil }
         ?? kept.first?.id
       result.panes[id: pane.id] = survivor
     }

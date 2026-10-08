@@ -77,9 +77,10 @@ struct SessionClassificationTests {
     row.lastActivity = now.addingTimeInterval(-value.age * 86_400)
     let entry = SessionSidecarEntry(
       settledAt: value.explicit ? now : nil, manualUnsettledAtActivity: value.hold ? row.lastActivity : nil)
-    #expect(SessionClassification.classify(
-      summary: row, isLive: value.live, sidecar: entry, now: now, idleDays: value.days
-    ).lifecycle == (value.settled ? .settled : .active))
+    #expect(
+      SessionClassification.classify(
+        summary: row, isLive: value.live, sidecar: entry, now: now, idleDays: value.days
+      ).lifecycle == (value.settled ? .settled : .active))
   }
 
   @Test func newerActivityReleasesManualHold() {
@@ -89,18 +90,21 @@ struct SessionClassificationTests {
     // lastActivity 2 hours ago satisfies dormantInactivityThreshold once hold is released
     row.lastActivity = now.addingTimeInterval(-7_200)
     let entry = SessionSidecarEntry(manualUnsettledAtActivity: row.lastActivity.addingTimeInterval(-1))
-    #expect(SessionClassification.classify(
-      summary: row, isLive: false, sidecar: entry, now: now
-    ).lifecycle == .settled)
-    #expect(SessionClassification.classify(
-      summary: row, isLive: true, sidecar: entry, now: now
-    ).lifecycle == .active)
+    #expect(
+      SessionClassification.classify(
+        summary: row, isLive: false, sidecar: entry, now: now
+      ).lifecycle == .settled)
+    #expect(
+      SessionClassification.classify(
+        summary: row, isLive: true, sidecar: entry, now: now
+      ).lifecycle == .active)
     // recent activity (< threshold) after hold release stays active
     row.lastActivity = now.addingTimeInterval(-60)
     let freshEntry = SessionSidecarEntry(manualUnsettledAtActivity: row.lastActivity.addingTimeInterval(-1))
-    #expect(SessionClassification.classify(
-      summary: row, isLive: false, sidecar: freshEntry, now: now
-    ).lifecycle == .active)
+    #expect(
+      SessionClassification.classify(
+        summary: row, isLive: false, sidecar: freshEntry, now: now
+      ).lifecycle == .active)
   }
 
   @Test func idleSettingsDefaultsAndRoundtrip() throws {
@@ -108,14 +112,18 @@ struct SessionClassificationTests {
     #expect(settings.sessionIdleDays == 3)
     for days in [0, 7] {
       settings.sessionIdleDays = days
-      #expect(try JSONDecoder().decode(
-        GlobalSettings.self, from: JSONEncoder().encode(settings)).sessionIdleDays == days)
+      #expect(
+        try JSONDecoder().decode(
+          GlobalSettings.self, from: JSONEncoder().encode(settings)
+        ).sessionIdleDays == days)
     }
     let data = try JSONEncoder().encode(settings)
     var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     object.removeValue(forKey: "sessionIdleDays")
-    #expect(try JSONDecoder().decode(
-      GlobalSettings.self, from: JSONSerialization.data(withJSONObject: object)).sessionIdleDays == 3)
+    #expect(
+      try JSONDecoder().decode(
+        GlobalSettings.self, from: JSONSerialization.data(withJSONObject: object)
+      ).sessionIdleDays == 3)
   }
 
   @Test func sidecarRoundtripPreservesOnlyMarkersAndUniqueOrderedBranches() throws {

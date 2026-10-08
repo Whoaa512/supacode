@@ -235,7 +235,8 @@ extension AgentCommand {
   }
 
   private static func quoted(_ value: String) -> String {
-    let escaped = value
+    let escaped =
+      value
       .replacing("\\", with: "\\\\")
       .replacing("\"", with: "\\\"")
       .replacing("\n", with: "\\n")

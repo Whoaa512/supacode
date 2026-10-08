@@ -879,8 +879,9 @@ final class WorktreeTerminalManager {
   }
 
   private func markUserCloseIntent(worktreeID: Worktree.ID, tabID: TabID) {
-    guard let contentID = layoutState(for: worktreeID)?.layout.pane(containingTab: tabID)?
-      .tabs[id: tabID]?.content.id.rawValue
+    guard
+      let contentID = layoutState(for: worktreeID)?.layout.pane(containingTab: tabID)?
+        .tabs[id: tabID]?.content.id.rawValue
     else { return }
     markUserCloseIntent(worktreeID: worktreeID, surfaceIDs: [contentID])
   }

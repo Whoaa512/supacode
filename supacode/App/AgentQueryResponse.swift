@@ -68,7 +68,8 @@ enum AgentQueryResponse {
         )
       )
     }
-    return rows
+    return
+      rows
       .sorted { lhs, rhs in
         if lhs.state != rhs.state { return lhs.state < rhs.state }
         switch lhs.title.localizedCaseInsensitiveCompare(rhs.title) {
@@ -217,7 +218,8 @@ enum AgentResumeCandidateQueryResponse {
           ]
         ))
     }
-    return rows
+    return
+      rows
       .sorted { lhs, rhs in
         switch lhs.title.localizedCaseInsensitiveCompare(rhs.title) {
         case .orderedAscending: return true

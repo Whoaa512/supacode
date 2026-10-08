@@ -47,9 +47,10 @@ struct SessionCLITests {
       let writer = dup(pipe.fileHandleForWriting.fileDescriptor)
       try #require(writer >= 0)
       try pipe.fileHandleForWriting.close()
-      await store.send(.deeplink(
-        .session(key: SessionKey(rawValue: raw), action: action),
-        source: .socket, responseFD: writer, timeoutSeconds: 0))
+      await store.send(
+        .deeplink(
+          .session(key: SessionKey(rawValue: raw), action: action),
+          source: .socket, responseFD: writer, timeoutSeconds: 0))
       await store.finish()
       var reader = pollfd(fd: pipe.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
       #expect(poll(&reader, 1, 0) == 1)
@@ -94,7 +95,9 @@ struct SessionCLITests {
           title: "Known", messageCount: 4, lastActivity: .distantPast)
       ]
     }
-    let store = TestStore(initialState: state) { AppFeature() } withDependencies: {
+    let store = TestStore(initialState: state) {
+      AppFeature()
+    } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 123)
       $0.deeplinkClient = .liveValue
     }

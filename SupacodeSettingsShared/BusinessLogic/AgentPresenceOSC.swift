@@ -271,7 +271,8 @@ public nonisolated enum AgentPresenceOSC {
     // Trailing %s for the shell-built, conditionally-empty pid + sid suffix.
     let meta = metadata(event: event, suffix: "%s")
     let payload = #"\033]3008;\#(action(for: event))=\#(agent.rawValue);\#(meta)\033\\"#
-    var build = #"__sp=""; [ -n "${SUPACODE_SOCKET_PATH:-}" ] && [ -n "$__ppid" ] "#
+    var build =
+      #"__sp=""; [ -n "${SUPACODE_SOCKET_PATH:-}" ] && [ -n "$__ppid" ] "#
       + #"&& __sp=";\#(pidField)=$__ppid"; "#
     if includesSessionRef {
       build += #"[ -n "${__sid:-}" ] && __sp="$__sp;\#(sessionField)=$__sid"; "#

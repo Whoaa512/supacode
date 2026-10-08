@@ -37,7 +37,8 @@ nonisolated enum SessionClassification {
     }
     guard idleDays > 0 else { return Classification(lifecycle: .active, runtime: runtime) }
     let inactivity = now.timeIntervalSince(summary.lastActivity)
-    let settled = (summary.messageCount < 4 && inactivity >= dormantInactivityThreshold)
+    let settled =
+      (summary.messageCount < 4 && inactivity >= dormantInactivityThreshold)
       || inactivity >= Double(idleDays) * 86_400
     return Classification(lifecycle: settled ? .settled : .active, runtime: runtime)
   }

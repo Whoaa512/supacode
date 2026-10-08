@@ -309,7 +309,9 @@ struct AgentPresenceFeature {
     let key = PresenceKey(agent: agent, surfaceID: event.surfaceID)
     if event.eventName == .sessionEnd,
       state.records[key]?.matchesSessionEnd(event) != true
-    { return [] }
+    {
+      return []
+    }
     let before = state.records[key]?.activity
     let previousRef = state.records[key]?.sessionRef
     let changed = apply(event: event, into: &state)

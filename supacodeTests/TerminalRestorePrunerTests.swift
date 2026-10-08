@@ -139,16 +139,17 @@ struct TerminalRestorePrunerTests {
     contents: [ContentID],
     selectedIndex: Int = 0
   ) -> Pane {
-    let tabs = IdentifiedArray(uniqueElements: contents.map { contentID in
-      TabItem(
-        id: TabID(),
-        title: "tab",
-        content: ContentSnapshot(
-          id: contentID,
-          state: .terminal(TerminalContentState(workingDirectory: nil))
+    let tabs = IdentifiedArray(
+      uniqueElements: contents.map { contentID in
+        TabItem(
+          id: TabID(),
+          title: "tab",
+          content: ContentSnapshot(
+            id: contentID,
+            state: .terminal(TerminalContentState(workingDirectory: nil))
+          )
         )
-      )
-    })
+      })
     return Pane(
       id: PaneID(),
       tabs: tabs,

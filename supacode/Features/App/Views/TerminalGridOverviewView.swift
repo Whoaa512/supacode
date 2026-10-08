@@ -213,7 +213,9 @@ private struct TerminalGridHeaderView: View {
           .appFont(.callout, monospaced: true)
           .foregroundStyle(.secondary)
         Spacer()
-        Button { store.send(.setTerminalGridPresented(false)) } label: {
+        Button {
+          store.send(.setTerminalGridPresented(false))
+        } label: {
           Label("Close Overview", systemImage: "xmark.circle.fill").labelStyle(.iconOnly)
         }
         .buttonStyle(.borderless)
@@ -233,7 +235,9 @@ private struct TerminalGridHeaderView: View {
   private func filterButton(_ filter: TerminalGridOverview.Filter) -> some View {
     let count = model.counts.count(for: filter)
     let isSelected = model.filter == filter
-    return Button { store.send(.setTerminalGridFilter(filter)) } label: {
+    return Button {
+      store.send(.setTerminalGridFilter(filter))
+    } label: {
       HStack(spacing: 5) {
         if case .activity(let activity) = filter {
           Image(systemName: activity.systemImage).accessibilityHidden(true)

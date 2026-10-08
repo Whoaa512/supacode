@@ -67,10 +67,10 @@ struct AgentDashboardListView: View {
           toggleTabShortcut: toggleTabShortcut,
           shortcutHintByID: shortcutHintByID
         )
-          .onChange(of: store.agentDashboardSelection, initial: false) { _, selection in
-            guard let selection else { return }
-            scrollProxy.scrollTo(selection, anchor: .center)
-          }
+        .onChange(of: store.agentDashboardSelection, initial: false) { _, selection in
+          guard let selection else { return }
+          scrollProxy.scrollTo(selection, anchor: .center)
+        }
       }
     }
     .frame(minWidth: 220)

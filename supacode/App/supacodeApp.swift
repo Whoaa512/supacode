@@ -302,96 +302,96 @@ struct SupacodeApp: App {
     terminalManager: WorktreeTerminalManager
   ) -> TerminalClient {
     TerminalClient(
-        send: { command in
-          terminalManager.handleCommand(command)
-        },
-        events: {
-          terminalManager.eventStream()
-        },
-        listSurfaces: {
-          terminalManager.terminalSessions()
-        },
-        sessionPreview: { worktreeID, surfaceID in
-          terminalManager.sessionPreview(worktreeID: worktreeID, surfaceID: surfaceID)
-        },
-        focusSurface: { worktree, tabID, surfaceID in
-          terminalManager.handleCommand(
-            .focusSurface(worktree, tabID: tabID, surfaceID: surfaceID))
-        },
-        closeSurface: { worktree, tabID, surfaceID in
-          terminalManager.handleCommand(
-            .destroySurface(worktree, tabID: tabID, surfaceID: surfaceID))
-        },
-        closeTab: { worktree, tabID in
-          terminalManager.handleCommand(.destroyTab(worktree, tabID: tabID))
-        },
-        tabExists: { worktreeID, tabID in
-          terminalManager.tabExists(worktreeID: worktreeID, tabID: tabID)
-        },
-        tabCanRename: { worktreeID, tabID in
-          terminalManager.tabCanRename(worktreeID: worktreeID, tabID: tabID)
-        },
-        surfaceExists: { worktreeID, tabID, surfaceID in
-          terminalManager.surfaceExists(worktreeID: worktreeID, tabID: tabID, surfaceID: surfaceID)
-        },
-        surfaceExistsInWorktree: { worktreeID, surfaceID in
-          terminalManager.surfaceExistsInWorktree(worktreeID: worktreeID, surfaceID: surfaceID)
-        },
-        idExistsAnywhere: { id in
-          terminalManager.idExistsAnywhere(id)
-        },
-        paneExists: { worktreeID, token in
-          terminalManager.paneExists(worktreeID: worktreeID, token: token)
-        },
-        canMoveTabToNewSplit: { worktreeID, tabID in
-          terminalManager.canMoveTabToNewSplit(worktreeID: worktreeID, tabID: tabID)
-        },
-        tabID: { worktreeID, surfaceID in
-          terminalManager.tabID(forWorktreeID: worktreeID, surfaceID: surfaceID)
-        },
-        selectedTabID: { worktreeID in
-          terminalManager.hostIfExists(for: worktreeID)?.focusedTab?.id
-        },
-        selectedSurfaceID: { worktreeID in
-          terminalManager.hostIfExists(for: worktreeID)?.focusedContentID
-        },
-        sendTextToSurface: { worktreeID, surfaceID, text in
-          terminalManager.sendText(text, worktreeID: worktreeID, surfaceID: surfaceID)
-        },
-        surfaceScreenText: { worktreeID, surfaceID in
-          terminalManager.screenPreview(worktreeID: worktreeID, surfaceID: surfaceID)
-        },
-        latestUnreadNotification: {
-          terminalManager.latestUnreadNotificationLocation()
-        },
-        markNotificationRead: { worktreeID, notificationID in
-          terminalManager.markNotificationRead(worktreeID: worktreeID, notificationID: notificationID)
-        },
-        markAllNotificationsRead: {
-          terminalManager.markAllNotificationsRead()
-        },
-        hasInflightBlockingScripts: {
-          terminalManager.hasInflightBlockingScripts
-        },
-        markUserCloseIntent: { worktreeID, surfaceIDs in
-          terminalManager.markUserCloseIntent(worktreeID: worktreeID, surfaceIDs: surfaceIDs)
-        },
-        isHarnessEndSuppressed: { surfaceID in
-          terminalManager.isHarnessEndSuppressed(surfaceID: surfaceID)
-        },
-        terminateAllSessions: {
-          await terminalManager.terminateAllSessions()
-        },
-        persistAndTerminateAllSessions: { agentsBySurface in
-          await terminalManager.persistAndTerminateAllSessions(agentsBySurface: agentsBySurface)
-        },
-        reapOrphanSessions: { knownSurfaceIDs in
-          await terminalManager.reapOrphanSessions(knownSurfaceIDs: knownSurfaceIDs)
-        },
-        saveLayoutsWithAgents: { agentsBySurface in
-          terminalManager.saveLayoutsAndScrollback(agentsBySurface: agentsBySurface)
-        }
-      )
+      send: { command in
+        terminalManager.handleCommand(command)
+      },
+      events: {
+        terminalManager.eventStream()
+      },
+      listSurfaces: {
+        terminalManager.terminalSessions()
+      },
+      sessionPreview: { worktreeID, surfaceID in
+        terminalManager.sessionPreview(worktreeID: worktreeID, surfaceID: surfaceID)
+      },
+      focusSurface: { worktree, tabID, surfaceID in
+        terminalManager.handleCommand(
+          .focusSurface(worktree, tabID: tabID, surfaceID: surfaceID))
+      },
+      closeSurface: { worktree, tabID, surfaceID in
+        terminalManager.handleCommand(
+          .destroySurface(worktree, tabID: tabID, surfaceID: surfaceID))
+      },
+      closeTab: { worktree, tabID in
+        terminalManager.handleCommand(.destroyTab(worktree, tabID: tabID))
+      },
+      tabExists: { worktreeID, tabID in
+        terminalManager.tabExists(worktreeID: worktreeID, tabID: tabID)
+      },
+      tabCanRename: { worktreeID, tabID in
+        terminalManager.tabCanRename(worktreeID: worktreeID, tabID: tabID)
+      },
+      surfaceExists: { worktreeID, tabID, surfaceID in
+        terminalManager.surfaceExists(worktreeID: worktreeID, tabID: tabID, surfaceID: surfaceID)
+      },
+      surfaceExistsInWorktree: { worktreeID, surfaceID in
+        terminalManager.surfaceExistsInWorktree(worktreeID: worktreeID, surfaceID: surfaceID)
+      },
+      idExistsAnywhere: { id in
+        terminalManager.idExistsAnywhere(id)
+      },
+      paneExists: { worktreeID, token in
+        terminalManager.paneExists(worktreeID: worktreeID, token: token)
+      },
+      canMoveTabToNewSplit: { worktreeID, tabID in
+        terminalManager.canMoveTabToNewSplit(worktreeID: worktreeID, tabID: tabID)
+      },
+      tabID: { worktreeID, surfaceID in
+        terminalManager.tabID(forWorktreeID: worktreeID, surfaceID: surfaceID)
+      },
+      selectedTabID: { worktreeID in
+        terminalManager.hostIfExists(for: worktreeID)?.focusedTab?.id
+      },
+      selectedSurfaceID: { worktreeID in
+        terminalManager.hostIfExists(for: worktreeID)?.focusedContentID
+      },
+      sendTextToSurface: { worktreeID, surfaceID, text in
+        terminalManager.sendText(text, worktreeID: worktreeID, surfaceID: surfaceID)
+      },
+      surfaceScreenText: { worktreeID, surfaceID in
+        terminalManager.screenPreview(worktreeID: worktreeID, surfaceID: surfaceID)
+      },
+      latestUnreadNotification: {
+        terminalManager.latestUnreadNotificationLocation()
+      },
+      markNotificationRead: { worktreeID, notificationID in
+        terminalManager.markNotificationRead(worktreeID: worktreeID, notificationID: notificationID)
+      },
+      markAllNotificationsRead: {
+        terminalManager.markAllNotificationsRead()
+      },
+      hasInflightBlockingScripts: {
+        terminalManager.hasInflightBlockingScripts
+      },
+      markUserCloseIntent: { worktreeID, surfaceIDs in
+        terminalManager.markUserCloseIntent(worktreeID: worktreeID, surfaceIDs: surfaceIDs)
+      },
+      isHarnessEndSuppressed: { surfaceID in
+        terminalManager.isHarnessEndSuppressed(surfaceID: surfaceID)
+      },
+      terminateAllSessions: {
+        await terminalManager.terminateAllSessions()
+      },
+      persistAndTerminateAllSessions: { agentsBySurface in
+        await terminalManager.persistAndTerminateAllSessions(agentsBySurface: agentsBySurface)
+      },
+      reapOrphanSessions: { knownSurfaceIDs in
+        await terminalManager.reapOrphanSessions(knownSurfaceIDs: knownSurfaceIDs)
+      },
+      saveLayoutsWithAgents: { agentsBySurface in
+        terminalManager.saveLayoutsAndScrollback(agentsBySurface: agentsBySurface)
+      }
+    )
   }
 
   /// The live content factory: terminal surfaces built from a freshly
