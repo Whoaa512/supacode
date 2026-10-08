@@ -9,6 +9,8 @@ import Testing
 
 @MainActor
 struct WindowTitleTests {
+  private static let layoutID: (Worktree.ID) -> LayoutID = AppFeature.State().layoutID(forDirectory:)
+
   // MARK: - format.
 
   @Test func formatsRepoAndTab() {
@@ -48,51 +50,51 @@ struct WindowTitleTests {
   @Test func computeReturnsAppNameWhenNoSelection() {
     let state = RepositoriesFeature.State()
     let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
-    #expect(WindowTitle.compute(repositories: state, terminalManager: manager) == "Supacode")
+    #expect(WindowTitle.compute(repositories: state, terminalManager: manager, layoutID: Self.layoutID) == "Supacode")
   }
 
   @Test func computeReturnsArchiveLabelForArchivedSelection() {
     var state = RepositoriesFeature.State()
     state.selection = .archivedWorktrees
     let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
-    #expect(WindowTitle.compute(repositories: state, terminalManager: manager) == "Archive")
+    #expect(WindowTitle.compute(repositories: state, terminalManager: manager, layoutID: Self.layoutID) == "Archive")
   }
 
   @Test func computeFallsBackToAppNameForUnknownWorktreeID() {
     var state = RepositoriesFeature.State()
     state.selection = .worktree("does-not-exist")
     let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
-    #expect(WindowTitle.compute(repositories: state, terminalManager: manager) == "Supacode")
+    #expect(WindowTitle.compute(repositories: state, terminalManager: manager, layoutID: Self.layoutID) == "Supacode")
   }
 
   @Test func computeUsesRepositoryNameWhenNoCustomTitle() {
     let state = makeState(repoName: "acme-app", customTitle: nil)
     let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
-    #expect(WindowTitle.compute(repositories: state, terminalManager: manager) == "acme-app")
+    #expect(WindowTitle.compute(repositories: state, terminalManager: manager, layoutID: Self.layoutID) == "acme-app")
   }
 
   @Test func computePrefersCustomTitleOverRepositoryName() {
     let state = makeState(repoName: "acme-app", customTitle: "Acme")
     let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
-    #expect(WindowTitle.compute(repositories: state, terminalManager: manager) == "Acme")
+    #expect(WindowTitle.compute(repositories: state, terminalManager: manager, layoutID: Self.layoutID) == "Acme")
   }
 
   @Test func computeFolderRepositoryFallsBackToDirectoryName() {
     let state = makeFolderState(repoName: "notes", customTitle: nil)
     let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
-    #expect(WindowTitle.compute(repositories: state, terminalManager: manager) == "notes")
+    #expect(WindowTitle.compute(repositories: state, terminalManager: manager, layoutID: Self.layoutID) == "notes")
   }
 
   @Test func computeFolderRepositoryPrefersSyntheticItemTitle() {
     let state = makeFolderState(repoName: "notes", customTitle: "Files")
     let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
-    #expect(WindowTitle.compute(repositories: state, terminalManager: manager) == "Files")
+    #expect(WindowTitle.compute(repositories: state, terminalManager: manager, layoutID: Self.layoutID) == "Files")
   }
 
   @Test func computeIgnoresWhitespaceOnlyCustomTitle() {
     let state = makeState(repoName: "acme-app", customTitle: "   ")
     let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
-    #expect(WindowTitle.compute(repositories: state, terminalManager: manager) == "acme-app")
+    #expect(WindowTitle.compute(repositories: state, terminalManager: manager, layoutID: Self.layoutID) == "acme-app")
   }
 
   @Test func computeFailedRepositoryUsesDirectoryName() {
@@ -102,7 +104,9 @@ struct WindowTitleTests {
     state.loadFailuresByID = [id: "Not found"]
     state.selection = .failedRepository(id)
     let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
-    #expect(WindowTitle.compute(repositories: state, terminalManager: manager) == "missing-repo · Unavailable")
+    #expect(
+      WindowTitle.compute(repositories: state, terminalManager: manager, layoutID: Self.layoutID)
+        == "missing-repo · Unavailable")
   }
 
   @Test func computeFailedRepositoryPrefersCustomTitle() {
@@ -117,7 +121,9 @@ struct WindowTitleTests {
       sidebar.sections[id] = section
     }
     let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
-    #expect(WindowTitle.compute(repositories: state, terminalManager: manager) == "My Project · Unavailable")
+    #expect(
+      WindowTitle.compute(repositories: state, terminalManager: manager, layoutID: Self.layoutID)
+        == "My Project · Unavailable")
   }
 
   @Test func computeFailedFolderRepositoryReadsSyntheticItemTitle() {
@@ -132,7 +138,9 @@ struct WindowTitleTests {
       sidebar.setCustomization(title: "Files", color: nil, worktree: WorktreeID(id.rawValue), in: id)
     }
     let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
-    #expect(WindowTitle.compute(repositories: state, terminalManager: manager) == "Files · Unavailable")
+    #expect(
+      WindowTitle.compute(repositories: state, terminalManager: manager, layoutID: Self.layoutID)
+        == "Files · Unavailable")
   }
 
   @Test func computeFailedRemoteRepositoryUsesPlaceholderNameNotFileURL() {
@@ -157,7 +165,9 @@ struct WindowTitleTests {
     state.selection = .failedRepository(id)
     let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
     // Deriving from the `user@host` authority id as a file URL would mangle the name.
-    #expect(WindowTitle.compute(repositories: state, terminalManager: manager) == "proj · Unavailable")
+    #expect(
+      WindowTitle.compute(repositories: state, terminalManager: manager, layoutID: Self.layoutID)
+        == "proj · Unavailable")
   }
 
   // MARK: - helpers.

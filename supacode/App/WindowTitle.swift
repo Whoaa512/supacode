@@ -34,6 +34,7 @@ enum WindowTitle {
   static func compute(
     repositories: RepositoriesFeature.State,
     terminalManager: WorktreeTerminalManager,
+    layoutID: (Worktree.ID) -> LayoutID,
   ) -> String {
     let title: String
     switch repositories.selection {
@@ -44,6 +45,7 @@ enum WindowTitle {
         worktreeID: worktreeID,
         repositories: repositories,
         terminalManager: terminalManager,
+        layoutID: layoutID,
       )
     case .failedRepository(let repositoryID):
       // A failed remote keeps a placeholder repository whose `name` is the
@@ -71,6 +73,7 @@ enum WindowTitle {
     worktreeID: Worktree.ID,
     repositories: RepositoriesFeature.State,
     terminalManager: WorktreeTerminalManager,
+    layoutID: (Worktree.ID) -> LayoutID,
   ) -> String {
     guard let repositoryID = repositories.repositoryID(containing: worktreeID),
       let repository = repositories.repositories[id: repositoryID]
@@ -83,7 +86,7 @@ enum WindowTitle {
     )
     // Through the content's chrome: reported titles never enter the reducer, so
     // this read is what keeps the window title tracking the terminal.
-    let tabTitle = terminalManager.hostIfExists(for: worktreeID)?.focusedTab.flatMap { tab in
+    let tabTitle = terminalManager.hostIfExists(for: layoutID(worktreeID))?.focusedTab.flatMap { tab in
       sanitize(TabTitle.resolved(for: tab, runtime: ContentRuntime.liveValue))
     }
     return format(repo: repoTitle, tab: tabTitle)

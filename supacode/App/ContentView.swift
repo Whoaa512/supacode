@@ -34,6 +34,7 @@ struct ContentView: View {
     #endif
     return NavigationSplitView(columnVisibility: $leftSidebarVisibility) {
       SidebarView(store: repositoriesStore, terminalManager: terminalManager)
+        .environment(\.directoryLayoutResolver, DirectoryLayoutResolver(store: store))
         .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         .safeAreaInset(edge: .bottom, spacing: 0) {
           VStack(spacing: 0) {
@@ -171,6 +172,7 @@ struct ContentView: View {
     .background(WindowChromeObserver(runtime: terminalManager.ghosttyRuntime))
     .background(
       WindowTitleHost(
+        store: store,
         repositoriesStore: repositoriesStore,
         terminalManager: terminalManager
       )
@@ -234,6 +236,7 @@ private struct CommandPaletteOverlayHost: View {
 /// fields. Confining the reads here keeps ContentView immune to title-only
 /// invalidations from tab renames or section title edits.
 private struct WindowTitleHost: View {
+  let store: StoreOf<AppFeature>
   let repositoriesStore: StoreOf<RepositoriesFeature>
   let terminalManager: WorktreeTerminalManager
 
@@ -245,7 +248,8 @@ private struct WindowTitleHost: View {
       .navigationTitle(
         WindowTitle.compute(
           repositories: repositoriesStore.state,
-          terminalManager: terminalManager
+          terminalManager: terminalManager,
+          layoutID: store.state.layoutID(forDirectory:)
         )
       )
   }

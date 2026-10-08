@@ -10,6 +10,7 @@ struct SidebarListView: View {
   let terminalManager: WorktreeTerminalManager
   @FocusState private var isSidebarFocused: Bool
   @Environment(CommandKeyObserver.self) private var commandKeyObserver
+  @Environment(\.directoryLayoutResolver) private var layoutResolver
   @Shared(.settingsFile) private var settingsFile
   /// Read here purely so SwiftUI re-runs the body (and fires the `.onChange`
   /// below) when the menu writes a new value. The structure compute itself
@@ -103,7 +104,8 @@ struct SidebarListView: View {
         guard let worktreeID = store.selectedWorktreeID,
           state.sidebarSelectedWorktreeIDs.count == 1,
           state.sidebarSelectedWorktreeIDs.contains(worktreeID),
-          let host = terminalManager.hostIfExists(for: worktreeID)
+          let layoutID = layoutResolver?.layoutID(forDirectory: worktreeID),
+          let host = terminalManager.hostIfExists(for: layoutID)
         else { return .ignored }
         host.focusAndInsertText(keyPress.characters)
         return .handled
@@ -114,7 +116,8 @@ struct SidebarListView: View {
           guard let worktreeID = store.selectedWorktreeID,
             state.sidebarSelectedWorktreeIDs.count == 1,
             state.sidebarSelectedWorktreeIDs.contains(worktreeID),
-            let host = terminalManager.hostIfExists(for: worktreeID)
+            let layoutID = layoutResolver?.layoutID(forDirectory: worktreeID),
+            let host = terminalManager.hostIfExists(for: layoutID)
           else { return false }
           host.focusSelectedTab()
           return true

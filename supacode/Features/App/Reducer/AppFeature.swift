@@ -4337,3 +4337,23 @@ extension AppFeature.State {
     worktreeID
   }
 }
+
+/// Hands the seam above to views that only hold a repositories store, so they
+/// never key a terminal host by a directory id themselves.
+struct DirectoryLayoutResolver: Equatable {
+  let store: StoreOf<AppFeature>
+
+  @MainActor
+  func layoutID(forDirectory worktreeID: Worktree.ID) -> LayoutID {
+    store.withState { $0.layoutID(forDirectory: worktreeID) }
+  }
+
+  // Store identity, so re-publishing it never invalidates sidebar rows.
+  nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.store === rhs.store
+  }
+}
+
+extension EnvironmentValues {
+  @Entry var directoryLayoutResolver: DirectoryLayoutResolver?
+}

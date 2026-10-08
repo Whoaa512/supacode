@@ -472,6 +472,7 @@ private struct SidebarItemBody: View {
   let nestDepth: Int
   let highlightSubtitle: SidebarHighlightRepoTag?
   let hideSubtitleOnMatch: Bool
+  @Environment(\.directoryLayoutResolver) private var layoutResolver
 
   var body: some View {
     let rowID = store.state.id
@@ -494,7 +495,9 @@ private struct SidebarItemBody: View {
       highlightSubtitle: highlightSubtitle
     )
     .environment(\.focusNotificationAction) { notification in
-      guard let host = terminalManager.hostIfExists(for: rowID) else {
+      guard let layoutID = layoutResolver?.layoutID(forDirectory: rowID),
+        let host = terminalManager.hostIfExists(for: layoutID)
+      else {
         notificationLogger.warning(
           "No terminal host for worktree \(rowID) when focusing notification \(notification.surfaceID).")
         return

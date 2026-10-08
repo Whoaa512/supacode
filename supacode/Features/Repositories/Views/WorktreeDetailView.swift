@@ -121,6 +121,7 @@ struct WorktreeDetailView: View {
         terminalManager: terminalManager,
         fileOpenActions: state.installedOpenActions.filter(\.canOpenFiles),
         resolvedOpenAction: resolvedSelection,
+        layoutID: { id in store.withState { $0.layoutID(forDirectory: id) } },
         onSelectNotification: selectToolbarNotification,
         onPullRequestAction: { sendPullRequestAction($0, worktree: selectedWorktree) },
         onOpenFile: { store.send(.openFile($0, with: $1)) },
@@ -439,7 +440,8 @@ struct WorktreeDetailView: View {
     _ notification: WorktreeTerminalNotification
   ) {
     store.send(.repositories(.selectWorktree(worktreeID)))
-    if let host = terminalManager.hostIfExists(for: worktreeID),
+    let layoutID = store.withState { $0.layoutID(forDirectory: worktreeID) }
+    if let host = terminalManager.hostIfExists(for: layoutID),
       !host.focusSurface(id: notification.surfaceID)
     {
       SupaLogger("Terminal").warning(
