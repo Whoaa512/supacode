@@ -945,3 +945,14 @@ deviation.
   worktree-facing (R3 allow-list). Gate: check 0, TerminalTests 340 (only
   the 2 baseline Ghostty failures), TerminalsFeatureTests 24 pass,
   build-app 0.
+- R3, 2026-10-08, `bf857eb0` + `45178def`: `TerminalClient` `Worktree.ID`
+  closures retyped to `LayoutID`; the 12 layout events relabelled
+  `worktreeID:` → `layoutID:`. A2 allow-list (stay worktree-facing):
+  `worktreeProjectionChanged`, `runStatusChanged`, `worktreeStateTornDown`,
+  plus `notificationReceived`/`blockingScriptCompleted` (not in the R3 list,
+  left as is). Deviation: the run-status rename also covers the host's
+  `taskStatus`/`onTaskStatusChanged`/`emitTaskStatusIfChanged` and the
+  manager's `.taskStatus` observation key. AppFeature's own ack-match enum
+  (`tabRemoved`/`tabRenamed` with `worktreeID:`) untouched. Gate: check 0,
+  TerminalTests 340 (2 baseline Ghostty failures), TerminalsFeatureTests 24
+  pass, FeatureTests 987 (2 baseline failures), build-app 0.
