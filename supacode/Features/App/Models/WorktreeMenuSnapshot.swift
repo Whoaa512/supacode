@@ -108,7 +108,7 @@ extension AppFeature.Action {
       case .notificationIndicatorChanged:
         return true
       case .notificationReceived, .tabCreated, .tabClosed, .focusChanged,
-        .taskStatusChanged, .blockingScriptCompleted, .commandPaletteToggleRequested,
+        .runStatusChanged, .blockingScriptCompleted, .commandPaletteToggleRequested,
         .setupScriptConsumed, .worktreeProjectionChanged, .surfaceCreated,
         .tabRemoved, .tabRenamed, .worktreeStateTornDown,
         .userClosedSurfaces, .surfacesClosed, .agentHookEventReceived, .terminalHasAnySurfaceChanged,

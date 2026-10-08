@@ -147,7 +147,7 @@ struct TerminalClient {
     case tabCreated(layoutID: LayoutID)
     case tabClosed(layoutID: LayoutID)
     case focusChanged(layoutID: LayoutID, surfaceID: UUID)
-    case taskStatusChanged(worktreeID: Worktree.ID, status: WorktreeTaskStatus)
+    case runStatusChanged(worktreeID: Worktree.ID, status: WorktreeRunStatus)
     case blockingScriptCompleted(
       worktreeID: Worktree.ID, kind: BlockingScriptKind, exitCode: Int?, tabId: TabID?)
     case commandPaletteToggleRequested(layoutID: LayoutID)

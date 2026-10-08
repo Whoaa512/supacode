@@ -34,7 +34,7 @@ final class WorktreeContentHost {
   @ObservationIgnored var onNotificationIndicatorChanged: (() -> Void)?
   @ObservationIgnored var onFocusChanged: ((UUID) -> Void)?
   @ObservationIgnored var onFocusedSurfaceColorChanged: (() -> Void)?
-  @ObservationIgnored var onTaskStatusChanged: ((WorktreeTaskStatus) -> Void)?
+  @ObservationIgnored var onRunStatusChanged: ((WorktreeRunStatus) -> Void)?
   @ObservationIgnored var onBlockingScriptCompleted: ((BlockingScriptKind, Int?, TabID?) -> Void)?
   @ObservationIgnored var onRunningScriptsChanged: (() -> Void)?
   @ObservationIgnored var onCommandPaletteToggle: (() -> Void)?
@@ -67,7 +67,7 @@ final class WorktreeContentHost {
   @ObservationIgnored private(set) var isWorktreeSelected = false
   private var lastWindowIsKey: Bool?
   private var lastWindowIsVisible: Bool?
-  @ObservationIgnored private var lastReportedTaskStatus: WorktreeTaskStatus?
+  @ObservationIgnored private var lastReportedRunStatus: WorktreeRunStatus?
   @ObservationIgnored private var lastTabProgressDisplays: [TabID: TerminalTabProgressDisplay?] = [:]
   /// Contents the user explicitly closed; consumed when the close completes so
   /// an unexpected zmx exit is never misread as explicit.
@@ -495,7 +495,7 @@ final class WorktreeContentHost {
 
   // MARK: - Task status + progress.
 
-  var taskStatus: WorktreeTaskStatus {
+  var runStatus: WorktreeRunStatus {
     guard let layout = layout() else { return .idle }
     let busy = layout.panes.contains { pane in
       pane.tabs.contains { isTabActivityBusy($0) }
@@ -536,7 +536,7 @@ final class WorktreeContentHost {
   func updateRunningState(for tabID: TabID) {
     guard tab(withID: tabID) != nil else { return }
     emitTabProgressDisplay(for: tabID)
-    emitTaskStatusIfChanged()
+    emitRunStatusIfChanged()
   }
 
   private func computeTabProgressDisplay(for tabID: TabID) -> TerminalTabProgressDisplay? {
@@ -581,11 +581,11 @@ final class WorktreeContentHost {
     onReportedTitleChanged?()
   }
 
-  func emitTaskStatusIfChanged() {
-    let status = taskStatus
-    guard status != lastReportedTaskStatus else { return }
-    lastReportedTaskStatus = status
-    onTaskStatusChanged?(status)
+  func emitRunStatusIfChanged() {
+    let status = runStatus
+    guard status != lastReportedRunStatus else { return }
+    lastReportedRunStatus = status
+    onRunStatusChanged?(status)
   }
 
   // MARK: - Sidebar projection.
@@ -593,7 +593,7 @@ final class WorktreeContentHost {
   func currentProjection() -> WorktreeRowProjection {
     WorktreeRowProjection(
       surfaceIDs: allSurfaceIDs,
-      isProgressBusy: taskStatus == .running,
+      isProgressBusy: runStatus == .running,
       hasUnseenNotifications: hasUnseenNotification,
       notifications: IdentifiedArray(uniqueElements: notifications),
       unseenSurfaces: unseenSurfacesProjection(),
@@ -961,7 +961,7 @@ final class WorktreeContentHost {
       blockingScriptLaunchDirectories[tabID] = launchDirectory
     }
     completedBlockingScriptTabs.remove(tabID)
-    emitTaskStatusIfChanged()
+    emitRunStatusIfChanged()
   }
 
   func blockingScriptEnvironment(for tabID: TabID) -> [String: String] {
@@ -1011,7 +1011,7 @@ final class WorktreeContentHost {
       lastBlockingScriptTabByKind.removeValue(forKey: kind)
     }
     guard let kind = blockingScripts.removeValue(forKey: tabID) else { return }
-    emitTaskStatusIfChanged()
+    emitRunStatusIfChanged()
     onBlockingScriptCompleted?(kind, nil, nil)
   }
 
@@ -1037,7 +1037,7 @@ final class WorktreeContentHost {
     if let contentID = tab(withID: tabID)?.content.id.rawValue {
       liveSurface(contentID)?.enableReadOnly()
     }
-    emitTaskStatusIfChanged()
+    emitRunStatusIfChanged()
     Task { @MainActor [weak self] in
       guard let self else {
         SupaLogger("WorktreeContentHost").debug("Blocking script completion dropped: host gone.")
@@ -1185,7 +1185,7 @@ final class WorktreeContentHost {
     for tabID in Array(lastTabProgressDisplays.keys) {
       emitTabProgressDisplay(for: tabID)
     }
-    emitTaskStatusIfChanged()
+    emitRunStatusIfChanged()
     onDormancyChanged?()
   }
 

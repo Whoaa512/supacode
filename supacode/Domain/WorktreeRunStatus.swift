@@ -1,6 +1,6 @@
 import Foundation
 
-enum WorktreeTaskStatus: Equatable {
+enum WorktreeRunStatus: Equatable {
   case idle
   case running
 }

@@ -96,7 +96,7 @@ struct LayoutSurfaceConduit {
       // `recordActiveSurface` must see the updated focused pane.
       host.sendLayoutAction(.contentRequestedFocus(content: contentID))
       host.recordActiveSurface(surfaceID)
-      host.emitTaskStatusIfChanged()
+      host.emitRunStatusIfChanged()
     }
     view.onOcclusionHeal = { [weak view] windowIsKey, windowIsVisible in
       guard let view, isLive(view) else { return }

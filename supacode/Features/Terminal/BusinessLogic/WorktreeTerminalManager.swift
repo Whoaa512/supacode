@@ -112,7 +112,7 @@ final class WorktreeTerminalManager {
   /// piece of state, so an identical repeat is a no-op and is dropped.
   private enum CoalesceKey: Hashable {
     case worktreeProjection(Worktree.ID)
-    case taskStatus(Worktree.ID)
+    case runStatus(Worktree.ID)
     case focus(LayoutID)
     case notificationIndicator
     case hasAnySurface
@@ -124,7 +124,7 @@ final class WorktreeTerminalManager {
   private static func coalesceKey(for event: TerminalClient.Event) -> CoalesceKey? {
     switch event {
     case .worktreeProjectionChanged(let worktreeID, _): .worktreeProjection(worktreeID)
-    case .taskStatusChanged(let worktreeID, _): .taskStatus(worktreeID)
+    case .runStatusChanged(let worktreeID, _): .runStatus(worktreeID)
     case .focusChanged(let worktreeID, _): .focus(worktreeID)
     case .notificationIndicatorChanged: .notificationIndicator
     case .terminalHasAnySurfaceChanged: .hasAnySurface
@@ -818,8 +818,8 @@ final class WorktreeTerminalManager {
     host.onFocusedSurfaceColorChanged = { [weak self] in
       self?.refreshFocusedSurfaceBackground()
     }
-    host.onTaskStatusChanged = { [weak self] status in
-      self?.emit(.taskStatusChanged(worktreeID: worktree.id, status: status))
+    host.onRunStatusChanged = { [weak self] status in
+      self?.emit(.runStatusChanged(worktreeID: worktree.id, status: status))
       self?.emitProjection(for: worktree.id)
     }
     host.onBlockingScriptCompleted = { [weak self] kind, exitCode, tabId in
@@ -1295,7 +1295,7 @@ final class WorktreeTerminalManager {
       host.reportBlockingScriptLaunchFailure(kind, "Could not create the script tab.")
       return
     }
-    host.emitTaskStatusIfChanged()
+    host.emitRunStatusIfChanged()
     terminalLogger.info("Started \(kind.tabTitle) for worktree \(worktree.id)")
   }
 
@@ -2499,7 +2499,7 @@ final class WorktreeTerminalManager {
   private static func invalidatedCoalesceKeys(by event: TerminalClient.Event) -> [CoalesceKey] {
     switch event {
     case .worktreeStateTornDown(let worktreeID):
-      [.worktreeProjection(worktreeID), .taskStatus(worktreeID), .focus(worktreeID)]
+      [.worktreeProjection(worktreeID), .runStatus(worktreeID), .focus(worktreeID)]
     default: []
     }
   }
