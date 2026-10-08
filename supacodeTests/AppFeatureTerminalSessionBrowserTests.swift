@@ -10,8 +10,8 @@ import Testing
 @MainActor
 struct AppFeatureTerminalSessionBrowserTests {
   private enum Call: Equatable {
-    case focus(Worktree, TabID, UUID)
-    case close(Worktree, TabID, UUID)
+    case focus(LayoutID, DirectoryContext, TabID, UUID)
+    case close(LayoutID, DirectoryContext, TabID, UUID)
   }
 
   @Test(.dependencies) func focusSelectsWorktreeAndFocusesSurface() async {
@@ -20,8 +20,8 @@ struct AppFeatureTerminalSessionBrowserTests {
     let surfaceID = UUID()
     let calls = LockIsolated<[Call]>([])
     let store = makeStore(worktree: worktree) {
-      $0.terminalClient.focusSurface = { worktree, tabID, surfaceID in
-        calls.withValue { $0.append(.focus(worktree, tabID, surfaceID)) }
+      $0.terminalClient.focusSurface = { layoutID, context, tabID, surfaceID in
+        calls.withValue { $0.append(.focus(layoutID, context, tabID, surfaceID)) }
       }
     }
 
@@ -29,7 +29,7 @@ struct AppFeatureTerminalSessionBrowserTests {
       .focusTerminalSurface(worktreeID: worktree.id, tabID: tabID, surfaceID: surfaceID))
     await store.finish()
 
-    #expect(calls.value == [.focus(worktree, tabID, surfaceID)])
+    #expect(calls.value == [.focus(worktree.id, DirectoryContext(worktree: worktree), tabID, surfaceID)])
   }
 
   @Test(.dependencies) func closeUsesTerminalClientClosePath() async {
@@ -38,8 +38,8 @@ struct AppFeatureTerminalSessionBrowserTests {
     let surfaceID = UUID()
     let calls = LockIsolated<[Call]>([])
     let store = makeStore(worktree: worktree) {
-      $0.terminalClient.closeSurface = { worktree, tabID, surfaceID in
-        calls.withValue { $0.append(.close(worktree, tabID, surfaceID)) }
+      $0.terminalClient.closeSurface = { layoutID, context, tabID, surfaceID in
+        calls.withValue { $0.append(.close(layoutID, context, tabID, surfaceID)) }
       }
     }
 
@@ -47,14 +47,14 @@ struct AppFeatureTerminalSessionBrowserTests {
       .closeTerminalSurface(worktreeID: worktree.id, tabID: tabID, surfaceID: surfaceID))
     await store.finish()
 
-    #expect(calls.value == [.close(worktree, tabID, surfaceID)])
+    #expect(calls.value == [.close(worktree.id, DirectoryContext(worktree: worktree), tabID, surfaceID)])
   }
 
   @Test(.dependencies) func missingWorktreeDropsFocusAndClose() async {
     let called = LockIsolated(false)
     let store = makeStore(worktree: makeWorktree()) {
-      $0.terminalClient.focusSurface = { _, _, _ in called.setValue(true) }
-      $0.terminalClient.closeSurface = { _, _, _ in called.setValue(true) }
+      $0.terminalClient.focusSurface = { _, _, _, _ in called.setValue(true) }
+      $0.terminalClient.closeSurface = { _, _, _, _ in called.setValue(true) }
     }
     let missingID = WorktreeID("/tmp/repo/missing")
 

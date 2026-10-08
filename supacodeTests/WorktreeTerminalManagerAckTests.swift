@@ -105,7 +105,9 @@ struct WorktreeTerminalManagerAckTests {
     let pump = CreationEvents(harness.manager)
     let id = UUID()
     harness.manager.handleCommand(
-      .createTab(harness.worktree, runSetupScriptIfNew: false, id: id, focusing: false))
+      .createTab(
+        harness.worktree.id, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false, id: id,
+        focusing: false))
 
     let events = await pump.next(2)
     #expect(events.contains(.tabCreated(layoutID: harness.worktree.id)))
@@ -124,7 +126,9 @@ struct WorktreeTerminalManagerAckTests {
     }
     let pump = CreationEvents(manager)
     let id = UUID()
-    manager.handleCommand(.createTab(worktree, runSetupScriptIfNew: false, id: id, focusing: false))
+    manager.handleCommand(
+      .createTab(worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, id: id, focusing: false)
+    )
 
     let events = await pump.next(1)
     guard case .surfaceCreationFailed(let worktreeID, let attemptedID, _) = events.first else {
@@ -145,7 +149,8 @@ struct WorktreeTerminalManagerAckTests {
       WorktreeTerminalManager(runtime: GhosttyRuntime())
     }
     let pump = CreationEvents(manager)
-    manager.handleCommand(.ensureInitialTab(worktree, runSetupScriptIfNew: false, focusing: false))
+    manager.handleCommand(
+      .ensureInitialTab(worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: false))
 
     let events = await pump.next(1)
     guard case .initialTabCreationFailed(let worktreeID, _) = events.first else {
@@ -160,13 +165,17 @@ struct WorktreeTerminalManagerAckTests {
     let pump = CreationEvents(harness.manager)
     let first = UUID()
     harness.manager.handleCommand(
-      .createTab(harness.worktree, runSetupScriptIfNew: false, id: first, focusing: false))
+      .createTab(
+        harness.worktree.id, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false, id: first,
+        focusing: false))
     _ = await pump.next(2)
 
     // Reusing the surface id of the EXISTING tab must refuse and say so, not
     // match the old content and ack a creation that never happened.
     harness.manager.handleCommand(
-      .createTab(harness.worktree, runSetupScriptIfNew: false, id: first, focusing: false))
+      .createTab(
+        harness.worktree.id, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false, id: first,
+        focusing: false))
     let events = await pump.next(1)
     guard case .surfaceCreationFailed = events.first else {
       Issue.record("Expected surfaceCreationFailed, got \(events)")
@@ -178,13 +187,16 @@ struct WorktreeTerminalManagerAckTests {
     let harness = makeHarness()
     let pump = CreationEvents(harness.manager)
     harness.manager.handleCommand(
-      .createTab(harness.worktree, runSetupScriptIfNew: false, id: UUID(), focusing: false))
+      .createTab(
+        harness.worktree.id, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false, id: UUID(),
+        focusing: false))
     _ = await pump.next(2)
 
     // A hydrated or already-bootstrapped layout resolves a waiting
     // worktree-new ack instead of stranding it until the watchdog.
     harness.manager.handleCommand(
-      .ensureInitialTab(harness.worktree, runSetupScriptIfNew: false, focusing: false))
+      .ensureInitialTab(
+        harness.worktree.id, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false, focusing: false))
     let events = await pump.next(1)
     #expect(events.first == .tabCreated(layoutID: harness.worktree.id))
   }
@@ -305,13 +317,16 @@ struct WorktreeTerminalManagerAckTests {
     let pump = CreationEvents(harness.manager)
     let anchor = UUID()
     harness.manager.handleCommand(
-      .createTab(harness.worktree, runSetupScriptIfNew: false, id: anchor, focusing: false))
+      .createTab(
+        harness.worktree.id, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false, id: anchor,
+        focusing: false))
     _ = await pump.next(2)
 
     let added = UUID()
     harness.manager.handleCommand(
       .createTab(
-        harness.worktree, runSetupScriptIfNew: false, id: added, focusing: false, anchor: anchor))
+        harness.worktree.id, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false, id: added,
+        focusing: false, anchor: anchor))
     _ = await pump.next(2)
 
     let layout = harness.store.withState { $0.terminals.layouts[id: harness.worktree.id]?.layout }

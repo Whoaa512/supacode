@@ -91,9 +91,9 @@ struct AppFeatureSessionsTests {
       AppFeature()
     } withDependencies: {
       $0.date.now = .distantPast
-      $0.terminalClient.focusSurface = { worktree, tab, surf in
+      $0.terminalClient.focusSurface = { layoutID, _, tab, surf in
         focused.withValue {
-          $0.append(SessionLocation(worktreeID: worktree.id, tabID: tab, surfaceID: surf))
+          $0.append(SessionLocation(worktreeID: layoutID, tabID: tab, surfaceID: surf))
         }
       }
     }
@@ -120,9 +120,9 @@ struct AppFeatureSessionsTests {
       AppFeature()
     } withDependencies: {
       $0.date.now = .distantPast
-      $0.terminalClient.focusSurface = { worktree, tab, surf in
+      $0.terminalClient.focusSurface = { layoutID, _, tab, surf in
         focused.withValue {
-          $0.append(SessionLocation(worktreeID: worktree.id, tabID: tab, surfaceID: surf))
+          $0.append(SessionLocation(worktreeID: layoutID, tabID: tab, surfaceID: surf))
         }
       }
     }
@@ -379,12 +379,12 @@ struct AppFeatureSessionsTests {
     await store.finish()
 
     let createInputs = sent.value.compactMap { cmd -> String? in
-      if case .createTabWithInput(_, let input, _, _, _, _, _) = cmd { return input }
+      if case .createTabWithInput(_, _, let input, _, _, _, _, _) = cmd { return input }
       return nil
     }
     #expect(createInputs == ["pi --session piSess1"])
     let createFlags = sent.value.compactMap { cmd -> (setup: Bool, focusing: Bool)? in
-      if case .createTabWithInput(_, _, let setup, _, _, let focusing, _) = cmd {
+      if case .createTabWithInput(_, _, _, let setup, _, _, let focusing, _) = cmd {
         return (setup, focusing)
       }
       return nil
@@ -580,9 +580,9 @@ struct AppFeatureSessionsTests {
     } withDependencies: {
       $0.date.now = .distantPast
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
-      $0.terminalClient.focusSurface = { worktree, tab, surf in
+      $0.terminalClient.focusSurface = { layoutID, _, tab, surf in
         focused.withValue {
-          $0.append(SessionLocation(worktreeID: worktree.id, tabID: tab, surfaceID: surf))
+          $0.append(SessionLocation(worktreeID: layoutID, tabID: tab, surfaceID: surf))
         }
       }
     }
@@ -636,9 +636,9 @@ struct AppFeatureSessionsTests {
     } withDependencies: {
       $0.date.now = .distantPast
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
-      $0.terminalClient.focusSurface = { worktree, tab, surf in
+      $0.terminalClient.focusSurface = { layoutID, _, tab, surf in
         focused.withValue {
-          $0.append(SessionLocation(worktreeID: worktree.id, tabID: tab, surfaceID: surf))
+          $0.append(SessionLocation(worktreeID: layoutID, tabID: tab, surfaceID: surf))
         }
       }
     }
@@ -691,9 +691,9 @@ struct AppFeatureSessionsTests {
     } withDependencies: {
       $0.date.now = .distantPast
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
-      $0.terminalClient.focusSurface = { worktree, tab, surf in
+      $0.terminalClient.focusSurface = { layoutID, _, tab, surf in
         focused.withValue {
-          $0.append(SessionLocation(worktreeID: worktree.id, tabID: tab, surfaceID: surf))
+          $0.append(SessionLocation(worktreeID: layoutID, tabID: tab, surfaceID: surf))
         }
       }
     }
@@ -793,9 +793,9 @@ struct AppFeatureSessionsTests {
     } withDependencies: {
       $0.date.now = .distantPast
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
-      $0.terminalClient.focusSurface = { worktree, tab, surf in
+      $0.terminalClient.focusSurface = { layoutID, _, tab, surf in
         focused.withValue {
-          $0.append(SessionLocation(worktreeID: worktree.id, tabID: tab, surfaceID: surf))
+          $0.append(SessionLocation(worktreeID: layoutID, tabID: tab, surfaceID: surf))
         }
       }
     }
@@ -875,7 +875,7 @@ struct AppFeatureSessionsTests {
     await store.finish()
 
     let tabInputs = sent.value.compactMap { cmd -> String? in
-      if case .createTabWithInput(_, let input, _, _, _, _, _) = cmd { return input }
+      if case .createTabWithInput(_, _, let input, _, _, _, _, _) = cmd { return input }
       return nil
     }
     #expect(tabInputs == ["pi --session piSess2"])
@@ -919,7 +919,7 @@ struct AppFeatureSessionsTests {
     await store.finish()
 
     let created = sent.value.compactMap { cmd -> String? in
-      if case .createTabWithInput(_, let input, _, _, _, _, _) = cmd { return input }
+      if case .createTabWithInput(_, _, let input, _, _, _, _, _) = cmd { return input }
       return nil
     }
     #expect(created == ["pi --session piSess3"])
@@ -1164,8 +1164,8 @@ struct AppFeatureSessionsTests {
     await store.finish()
 
     let launches = sent.value.compactMap { command -> (String, String)? in
-      guard case .createTabWithInput(let worktree, let input, _, _, _, _, _) = command else { return nil }
-      return (worktree.workingDirectory.path(percentEncoded: false), input)
+      guard case .createTabWithInput(_, let context, let input, _, _, _, _, _) = command else { return nil }
+      return (context.workingDirectory.path(percentEncoded: false), input)
     }
     #expect(launches.count == 1)
     #expect(launches.first?.0 == focusedCwd.path(percentEncoded: false))
@@ -1200,7 +1200,7 @@ struct AppFeatureSessionsTests {
     await store.finish()
 
     let input = sent.value.compactMap { command -> String? in
-      if case .createTabWithInput(_, let input, _, _, _, _, _) = command { return input }
+      if case .createTabWithInput(_, _, let input, _, _, _, _, _) = command { return input }
       return nil
     }
     #expect(input == ["pi"])
@@ -1241,12 +1241,12 @@ struct AppFeatureSessionsTests {
     await store.finish()
     #expect(store.state.repositories.openPanelPurpose == .openRepository)
     #expect(sent.value.count == 1)
-    guard case .createTabWithInput(let worktree, let input, _, _, _, _, _) = sent.value[0]
+    guard case .createTabWithInput(_, let context, let input, _, _, _, _, _) = sent.value[0]
     else {
       Issue.record("Expected exactly one session launch")
       return
     }
-    #expect(worktree.workingDirectory == cwd)
+    #expect(context.workingDirectory == cwd)
     #expect(input == "pi")
   }
 
@@ -1300,7 +1300,7 @@ struct AppFeatureSessionsTests {
     } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 100)
       $0.continuousClock = ImmediateClock()
-      $0.terminalClient.focusSurface = { _, _, _ in }
+      $0.terminalClient.focusSurface = { _, _, _, _ in }
     }
     store.exhaustivity = .off
     await store.send(.settleSessionAndAdvance) { appState in
@@ -1369,7 +1369,7 @@ struct AppFeatureSessionsTests {
     } withDependencies: {
       $0.date.now = Date(timeIntervalSince1970: 100)
       $0.continuousClock = ImmediateClock()
-      $0.terminalClient.focusSurface = { _, _, _ in }
+      $0.terminalClient.focusSurface = { _, _, _, _ in }
     }
     store.exhaustivity = .off
     await store.send(.settleSessionAndAdvance) { appState in
@@ -1866,7 +1866,7 @@ struct AppFeatureSessionsTests {
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
-      $0.terminalClient.focusSurface = { _, _, _ in }
+      $0.terminalClient.focusSurface = { _, _, _, _ in }
     }
     store.exhaustivity = .off
 
@@ -1922,7 +1922,7 @@ struct AppFeatureSessionsTests {
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
-      $0.terminalClient.focusSurface = { _, _, _ in }
+      $0.terminalClient.focusSurface = { _, _, _, _ in }
     }
     store.exhaustivity = .off
 
@@ -1953,7 +1953,7 @@ struct AppFeatureSessionsTests {
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
-      $0.terminalClient.focusSurface = { _, _, surfaceID in focused.withValue { $0.append(surfaceID) } }
+      $0.terminalClient.focusSurface = { _, _, _, surfaceID in focused.withValue { $0.append(surfaceID) } }
     }
     await store.send(.nextSessionNeedsMe)
     await store.finish()
@@ -2326,8 +2326,8 @@ struct AppFeatureSessionsTests {
         return nil
       }
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
-      $0.terminalClient.focusSurface = { targetWorktree, targetTab, surf in
-        let loc = SessionLocation(worktreeID: targetWorktree.id, tabID: targetTab, surfaceID: surf)
+      $0.terminalClient.focusSurface = { targetLayoutID, _, targetTab, surf in
+        let loc = SessionLocation(worktreeID: targetLayoutID, tabID: targetTab, surfaceID: surf)
         focused.withValue { $0.append(loc) }
       }
     }
@@ -2387,8 +2387,8 @@ struct AppFeatureSessionsTests {
       $0.continuousClock = ImmediateClock()
       $0[GitClientDependency.self].branchName = { _ in "new-branch" }
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
-      $0.terminalClient.focusSurface = { targetWorktree, targetTab, surf in
-        let loc = SessionLocation(worktreeID: targetWorktree.id, tabID: targetTab, surfaceID: surf)
+      $0.terminalClient.focusSurface = { targetLayoutID, _, targetTab, surf in
+        let loc = SessionLocation(worktreeID: targetLayoutID, tabID: targetTab, surfaceID: surf)
         focused.withValue { $0.append(loc) }
       }
     }

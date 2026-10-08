@@ -7,9 +7,9 @@ struct TerminalClient {
   var events: @MainActor @Sendable () -> AsyncStream<Event>
   var listSurfaces: @MainActor @Sendable () -> [TerminalSession]
   var sessionPreview: @MainActor @Sendable (LayoutID, UUID) -> String?
-  var focusSurface: @MainActor @Sendable (Worktree, TabID, UUID) -> Void
-  var closeSurface: @MainActor @Sendable (Worktree, TabID, UUID) -> Void
-  var closeTab: @MainActor @Sendable (Worktree, TabID) -> Void
+  var focusSurface: @MainActor @Sendable (LayoutID, DirectoryContext, TabID, UUID) -> Void
+  var closeSurface: @MainActor @Sendable (LayoutID, DirectoryContext, TabID, UUID) -> Void
+  var closeTab: @MainActor @Sendable (LayoutID, TabID) -> Void
   var tabExists: @MainActor @Sendable (LayoutID, TabID) -> Bool
   var tabCanRename: @MainActor @Sendable (LayoutID, TabID) -> Bool
   var surfaceExists: @MainActor @Sendable (LayoutID, TabID, UUID) -> Bool
@@ -66,7 +66,8 @@ struct TerminalClient {
 
   enum Command: Equatable {
     case createTab(
-      Worktree,
+      LayoutID,
+      DirectoryContext,
       runSetupScriptIfNew: Bool,
       id: UUID? = nil,
       title: String? = nil,
@@ -74,7 +75,8 @@ struct TerminalClient {
       anchor: UUID? = nil
     )
     case createTabWithInput(
-      Worktree,
+      LayoutID,
+      DirectoryContext,
       input: String,
       runSetupScriptIfNew: Bool,
       id: UUID? = nil,
@@ -84,13 +86,13 @@ struct TerminalClient {
     )
     /// Runs the resolved open-file script for a File Explorer file. `input` is the ready shell
     /// command; the manager picks placement (tab in the zoomed/top-right pane, or a split).
-    case openFileWithScript(Worktree, input: String)
-    case ensureInitialTab(Worktree, runSetupScriptIfNew: Bool, focusing: Bool)
-    case stopRunScript(Worktree, focusing: Bool = true)
-    case stopScript(Worktree, definitionID: UUID, focusing: Bool = true)
-    case runBlockingScript(Worktree, kind: BlockingScriptKind, script: String, focusing: Bool = true)
-    case closeFocusedTab(Worktree)
-    case closeFocusedSurface(Worktree)
+    case openFileWithScript(LayoutID, DirectoryContext, input: String)
+    case ensureInitialTab(LayoutID, DirectoryContext, runSetupScriptIfNew: Bool, focusing: Bool)
+    case stopRunScript(LayoutID, DirectoryContext, focusing: Bool = true)
+    case stopScript(LayoutID, DirectoryContext, definitionID: UUID, focusing: Bool = true)
+    case runBlockingScript(LayoutID, DirectoryContext, kind: BlockingScriptKind, script: String, focusing: Bool = true)
+    case closeFocusedTab(LayoutID, DirectoryContext)
+    case closeFocusedSurface(LayoutID, DirectoryContext)
     case splitFocusedPane(LayoutID, direction: TerminalSplitMenuDirection)
     case focusSplit(LayoutID, direction: TerminalSplitMenuDirection)
     /// Cycles focus to the next or previous pane in visual tree order, wrapping at the ends.
@@ -100,31 +102,31 @@ struct TerminalClient {
     /// Pane-addressed layout ops from the CLI / deeplinks. `paneToken` is a pane
     /// id, or the id of a tab / content the pane hosts.
     case splitPane(
-      Worktree, paneToken: UUID, direction: SplitDirection, input: String?, id: UUID? = nil,
+      LayoutID, DirectoryContext, paneToken: UUID, direction: SplitDirection, input: String?, id: UUID? = nil,
       focusing: Bool = true)
     case focusPane(LayoutID, paneToken: UUID)
     case closePane(LayoutID, paneToken: UUID)
     case toggleZoomPane(LayoutID, paneToken: UUID)
     case toggleWindowModeForPane(LayoutID, paneToken: UUID)
     case moveTabToSplit(LayoutID, tabID: UUID, direction: TerminalSplitMenuDirection, focusing: Bool = true)
-    case performBindingAction(Worktree, action: String)
-    case performBindingActionOnSurface(Worktree, surfaceID: UUID, action: String)
+    case performBindingAction(LayoutID, DirectoryContext, action: String)
+    case performBindingActionOnSurface(LayoutID, DirectoryContext, surfaceID: UUID, action: String)
     case setImagePasteAgents(surfaceID: UUID, agents: Set<SkillAgent>)
-    case startSearch(Worktree)
-    case searchSelection(Worktree)
-    case navigateSearchNext(Worktree)
-    case navigateSearchPrevious(Worktree)
-    case selectTab(Worktree, tabID: TabID)
+    case startSearch(LayoutID, DirectoryContext)
+    case searchSelection(LayoutID, DirectoryContext)
+    case navigateSearchNext(LayoutID, DirectoryContext)
+    case navigateSearchPrevious(LayoutID, DirectoryContext)
+    case selectTab(LayoutID, DirectoryContext, tabID: TabID)
     case selectTabAtIndex(LayoutID, index: Int)
     /// Cycles to the next or previous tab in the focused pane, wrapping at the ends.
     case selectRelativeTab(LayoutID, forward: Bool)
-    case focusSurface(Worktree, tabID: TabID, surfaceID: UUID, input: String? = nil)
+    case focusSurface(LayoutID, DirectoryContext, tabID: TabID, surfaceID: UUID, input: String? = nil)
     case splitSurface(
-      Worktree, tabID: TabID, surfaceID: UUID, direction: SplitDirection,
+      LayoutID, DirectoryContext, tabID: TabID, surfaceID: UUID, direction: SplitDirection,
       input: String?, id: UUID? = nil, focusing: Bool = true)
     case destroyTab(LayoutID, tabID: TabID, focusing: Bool = true)
-    case destroySurface(Worktree, tabID: TabID, surfaceID: UUID, focusing: Bool = true)
-    case beginTabRename(Worktree, tabID: TabID? = nil)
+    case destroySurface(LayoutID, DirectoryContext, tabID: TabID, surfaceID: UUID, focusing: Bool = true)
+    case beginTabRename(LayoutID, DirectoryContext, tabID: TabID? = nil)
     /// Moves the worktree's focused pane into its own window, or back.
     case toggleWindowModeForFocusedPane(LayoutID)
     case renameTab(LayoutID, tabID: TabID, title: String)
@@ -194,8 +196,8 @@ extension TerminalClient: DependencyKey {
     events: { fatalError("TerminalClient.events not configured") },
     listSurfaces: { fatalError("TerminalClient.listSurfaces not configured") },
     sessionPreview: { _, _ in fatalError("TerminalClient.sessionPreview not configured") },
-    focusSurface: { _, _, _ in fatalError("TerminalClient.focusSurface not configured") },
-    closeSurface: { _, _, _ in fatalError("TerminalClient.closeSurface not configured") },
+    focusSurface: { _, _, _, _ in fatalError("TerminalClient.focusSurface not configured") },
+    closeSurface: { _, _, _, _ in fatalError("TerminalClient.closeSurface not configured") },
     closeTab: { _, _ in fatalError("TerminalClient.closeTab not configured") },
     tabExists: { _, _ in fatalError("TerminalClient.tabExists not configured") },
     tabCanRename: { _, _ in fatalError("TerminalClient.tabCanRename not configured") },

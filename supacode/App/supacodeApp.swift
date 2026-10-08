@@ -314,16 +314,16 @@ struct SupacodeApp: App {
       sessionPreview: { worktreeID, surfaceID in
         terminalManager.sessionPreview(worktreeID: worktreeID, surfaceID: surfaceID)
       },
-      focusSurface: { worktree, tabID, surfaceID in
+      focusSurface: { layoutID, context, tabID, surfaceID in
         terminalManager.handleCommand(
-          .focusSurface(worktree, tabID: tabID, surfaceID: surfaceID))
+          .focusSurface(layoutID, context, tabID: tabID, surfaceID: surfaceID))
       },
-      closeSurface: { worktree, tabID, surfaceID in
+      closeSurface: { layoutID, context, tabID, surfaceID in
         terminalManager.handleCommand(
-          .destroySurface(worktree, tabID: tabID, surfaceID: surfaceID))
+          .destroySurface(layoutID, context, tabID: tabID, surfaceID: surfaceID))
       },
-      closeTab: { worktree, tabID in
-        terminalManager.handleCommand(.destroyTab(worktree.id, tabID: tabID))
+      closeTab: { layoutID, tabID in
+        terminalManager.handleCommand(.destroyTab(layoutID, tabID: tabID))
       },
       tabExists: { worktreeID, tabID in
         terminalManager.tabExists(worktreeID: worktreeID, tabID: tabID)
@@ -422,7 +422,7 @@ struct SupacodeApp: App {
             $0.repositories.worktree(for: request.worktreeID)
           })
         else { return }
-        let host = terminalManager.host(for: worktree)
+        let host = terminalManager.host(for: worktree.id, context: DirectoryContext(worktree: worktree))
         LayoutSurfaceConduit(
           host: host,
           runtime: ContentRuntime.liveValue,

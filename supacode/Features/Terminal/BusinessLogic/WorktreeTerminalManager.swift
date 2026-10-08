@@ -327,7 +327,8 @@ final class WorktreeTerminalManager {
 
   // swiftlint:disable:next function_parameter_count
   private func scheduleTabCreation(  // swiftlint:disable:this function_parameter_count
-    in worktree: Worktree,
+    in layoutID: LayoutID,
+    context: DirectoryContext,
     runSetupScriptIfNew: Bool,
     input: String?,
     tabID: UUID?,
@@ -337,7 +338,7 @@ final class WorktreeTerminalManager {
   ) {
     Task {
       createTabAsync(
-        in: worktree,
+        in: layoutID, context: context,
         runSetupScriptIfNew: runSetupScriptIfNew,
         initialInput: input,
         tabID: tabID,
@@ -351,45 +352,45 @@ final class WorktreeTerminalManager {
   // swiftlint:disable:next cyclomatic_complexity
   private func handleTabCommand(_ command: TerminalClient.Command) -> Bool {
     switch command {
-    case .createTab(let worktree, let runSetupScriptIfNew, let id, let title, let focusing, let anchor):
+    case .createTab(let layoutID, let context, let runSetupScriptIfNew, let id, let title, let focusing, let anchor):
       scheduleTabCreation(
-        in: worktree, runSetupScriptIfNew: runSetupScriptIfNew, input: nil,
+        in: layoutID, context: context, runSetupScriptIfNew: runSetupScriptIfNew, input: nil,
         tabID: id, customTitle: title, focusing: focusing, anchor: anchor)
     case .createTabWithInput(
-      let worktree, let input, let runSetupScriptIfNew, let id, let title, let focusing, let anchor
+      let layoutID, let context, let input, let runSetupScriptIfNew, let id, let title, let focusing, let anchor
     ):
       scheduleTabCreation(
-        in: worktree, runSetupScriptIfNew: runSetupScriptIfNew, input: input,
+        in: layoutID, context: context, runSetupScriptIfNew: runSetupScriptIfNew, input: input,
         tabID: id, customTitle: title, focusing: focusing, anchor: anchor)
-    case .openFileWithScript(let worktree, let input):
-      openFileWithScript(in: worktree, input: input)
-    case .ensureInitialTab(let worktree, let runSetupScriptIfNew, let focusing):
-      ensureInitialTab(in: worktree, runSetupScriptIfNew: runSetupScriptIfNew, focusing: focusing)
+    case .openFileWithScript(let layoutID, let context, let input):
+      openFileWithScript(in: layoutID, context: context, input: input)
+    case .ensureInitialTab(let layoutID, let context, let runSetupScriptIfNew, let focusing):
+      ensureInitialTab(in: layoutID, context: context, runSetupScriptIfNew: runSetupScriptIfNew, focusing: focusing)
       // Arm terminal focus on the just-created host; it claims first responder
       // immediately when the surface is live and keyed, else once it becomes so.
       if focusing {
-        host(for: worktree).focusSelectedTab()
+        host(for: layoutID, context: context).focusSelectedTab()
       }
-    case .stopRunScript(let worktree, let focusing):
-      stopBlockingScripts(in: worktree) { host in
-        self.closeBlockingTabs(in: worktree, host: host, focusing: focusing) { $0.isRunKind }
+    case .stopRunScript(let layoutID, let context, let focusing):
+      stopBlockingScripts(in: layoutID, context: context) { host in
+        self.closeBlockingTabs(in: layoutID, context: context, host: host, focusing: focusing) { $0.isRunKind }
       }
-    case .stopScript(let worktree, let definitionID, let focusing):
-      stopBlockingScripts(in: worktree) { host in
-        self.closeBlockingTabs(in: worktree, host: host, focusing: focusing) { kind in
+    case .stopScript(let layoutID, let context, let definitionID, let focusing):
+      stopBlockingScripts(in: layoutID, context: context) { host in
+        self.closeBlockingTabs(in: layoutID, context: context, host: host, focusing: focusing) { kind in
           guard case .script(let definition) = kind else { return false }
           return definition.id == definitionID
         }
       }
-    case .runBlockingScript(let worktree, let kind, let script, let focusing):
-      runBlockingScript(in: worktree, kind: kind, script: script, focusing: focusing)
-    case .closeFocusedTab(let worktree), .closeFocusedSurface(let worktree):
-      guard let tab = host(for: worktree).focusedTab else { break }
-      markUserCloseIntent(worktreeID: worktree.id, surfaceIDs: [tab.content.id.rawValue])
-      sendLayout(worktree.id, .contentRequestedClose(content: tab.content.id, scope: .tab))
-    case .beginTabRename(let worktree, let tabID):
-      guard let target = tabID ?? host(for: worktree).focusedTab?.id else { break }
-      sendLayout(worktree.id, .beginTabRename(id: target))
+    case .runBlockingScript(let layoutID, let context, let kind, let script, let focusing):
+      runBlockingScript(in: layoutID, context: context, kind: kind, script: script, focusing: focusing)
+    case .closeFocusedTab(let layoutID, let context), .closeFocusedSurface(let layoutID, let context):
+      guard let tab = host(for: layoutID, context: context).focusedTab else { break }
+      markUserCloseIntent(worktreeID: layoutID, surfaceIDs: [tab.content.id.rawValue])
+      sendLayout(layoutID, .contentRequestedClose(content: tab.content.id, scope: .tab))
+    case .beginTabRename(let layoutID, let context, let tabID):
+      guard let target = tabID ?? host(for: layoutID, context: context).focusedTab?.id else { break }
+      sendLayout(layoutID, .beginTabRename(id: target))
     case .renameTab(let layoutID, let tabID, let title):
       let tab = layoutState(for: layoutID)?.layout.pane(containingTab: tabID)?.tabs[id: tabID]
       let applied = tab != nil && tab?.isLocked != true
@@ -397,32 +398,32 @@ final class WorktreeTerminalManager {
         sendLayout(layoutID, .renameTab(id: tabID, title: title))
       }
       emit(.tabRenamed(layoutID: layoutID, tabID: tabID, applied: applied))
-    case .selectTab(let worktree, let tabID):
-      sendLayout(worktree.id, .wakeTab(id: tabID))
-      sendLayout(worktree.id, .selectTab(id: tabID))
-      host(for: worktree).focusSelectedTab()
+    case .selectTab(let layoutID, let context, let tabID):
+      sendLayout(layoutID, .wakeTab(id: tabID))
+      sendLayout(layoutID, .selectTab(id: tabID))
+      host(for: layoutID, context: context).focusSelectedTab()
     case .selectTabAtIndex(let layoutID, let index):
       selectTab(atIndex: index, in: layoutID)
     case .selectRelativeTab(let layoutID, let forward):
       selectRelativeTab(forward: forward, in: layoutID)
-    case .focusSurface(let worktree, let tabID, let surfaceID, let input):
-      let host = host(for: worktree)
+    case .focusSurface(let layoutID, let context, let tabID, let surfaceID, let input):
+      let host = host(for: layoutID, context: context)
       // Surface-first: the tab ID is a hint; the surface's actual owner wins.
-      guard let owningTab = host.tabID(containing: surfaceID) ?? presentTab(tabID, in: worktree.id) else {
-        terminalLogger.warning("focusSurface: surface \(surfaceID) not found in worktree \(worktree.id).")
+      guard let owningTab = host.tabID(containing: surfaceID) ?? presentTab(tabID, in: layoutID) else {
+        terminalLogger.warning("focusSurface: surface \(surfaceID) not found in worktree \(layoutID).")
         break
       }
-      sendLayout(worktree.id, .wakeTab(id: owningTab))
-      sendLayout(worktree.id, .selectTab(id: owningTab))
+      sendLayout(layoutID, .wakeTab(id: owningTab))
+      sendLayout(layoutID, .selectTab(id: owningTab))
       host.liveSurface(surfaceID)?.requestFocus()
       if let input, !input.isEmpty {
         host.focusAndInsertText(input + "\r")
       }
     case .splitSurface(
-      let worktree, let tabID, let surfaceID, let direction, let input, let id, let focusing
+      let layoutID, let context, let tabID, let surfaceID, let direction, let input, let id, let focusing
     ):
       splitSurface(
-        in: worktree, tabID: tabID, surfaceID: surfaceID, direction: direction,
+        in: layoutID, context: context, tabID: tabID, surfaceID: surfaceID, direction: direction,
         input: input, id: id, focusing: focusing)
     case .destroyTab(let layoutID, let tabID, let focusing):
       guard layoutState(for: layoutID)?.layout.pane(containingTab: tabID) != nil else {
@@ -435,24 +436,24 @@ final class WorktreeTerminalManager {
       markUserCloseIntent(worktreeID: layoutID, tabID: tabID)
       sendLayout(layoutID, .closeTab(id: tabID))
       emit(.tabRemoved(layoutID: layoutID, tabID: tabID))
-    case .destroySurface(let worktree, let tabID, let surfaceID, let focusing):
-      let host = host(for: worktree)
+    case .destroySurface(let layoutID, let context, let tabID, let surfaceID, let focusing):
+      let host = host(for: layoutID, context: context)
       // Surface-first: the surface's actual owner wins over the tab hint.
-      guard let owningTab = host.tabID(containing: surfaceID) ?? presentTab(tabID, in: worktree.id) else {
-        terminalLogger.warning("destroySurface: surface \(surfaceID) not found in worktree \(worktree.id).")
+      guard let owningTab = host.tabID(containing: surfaceID) ?? presentTab(tabID, in: layoutID) else {
+        terminalLogger.warning("destroySurface: surface \(surfaceID) not found in worktree \(layoutID).")
         // Don't synthesize a `surfacesClosed` here: it drives global presence
         // cleanup keyed by surface id, which would drop a duplicate id live in
         // another worktree. The rare validated-then-vanished race falls to the
         // ack watchdog instead.
         break
       }
-      markUserCloseIntent(worktreeID: worktree.id, surfaceIDs: [surfaceID])
-      sendLayout(worktree.id, .wakeTab(id: owningTab))
+      markUserCloseIntent(worktreeID: layoutID, surfaceIDs: [surfaceID])
+      sendLayout(layoutID, .wakeTab(id: owningTab))
       if focusing {
-        sendLayout(worktree.id, .selectTab(id: owningTab))
+        sendLayout(layoutID, .selectTab(id: owningTab))
       }
-      sendLayout(worktree.id, .closeTab(id: owningTab))
-      emit(.tabRemoved(layoutID: worktree.id, tabID: owningTab))
+      sendLayout(layoutID, .closeTab(id: owningTab))
+      emit(.tabRemoved(layoutID: layoutID, tabID: owningTab))
     default:
       return false
     }
@@ -511,14 +512,14 @@ final class WorktreeTerminalManager {
 
   private func handleSearchCommand(_ command: TerminalClient.Command) -> Bool {
     switch command {
-    case .startSearch(let worktree):
-      host(for: worktree).performBindingActionOnFocusedSurface("start_search")
-    case .searchSelection(let worktree):
-      host(for: worktree).performBindingActionOnFocusedSurface("search_selection")
-    case .navigateSearchNext(let worktree):
-      host(for: worktree).navigateSearchOnFocusedSurface(.next)
-    case .navigateSearchPrevious(let worktree):
-      host(for: worktree).navigateSearchOnFocusedSurface(.previous)
+    case .startSearch(let layoutID, let context):
+      host(for: layoutID, context: context).performBindingActionOnFocusedSurface("start_search")
+    case .searchSelection(let layoutID, let context):
+      host(for: layoutID, context: context).performBindingActionOnFocusedSurface("search_selection")
+    case .navigateSearchNext(let layoutID, let context):
+      host(for: layoutID, context: context).navigateSearchOnFocusedSurface(.next)
+    case .navigateSearchPrevious(let layoutID, let context):
+      host(for: layoutID, context: context).navigateSearchOnFocusedSurface(.previous)
     case .createTab, .createTabWithInput, .openFileWithScript, .ensureInitialTab, .stopRunScript, .stopScript,
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .performBindingAction,
       .performBindingActionOnSurface, .selectTab, .selectTabAtIndex, .selectRelativeTab, .focusSurface, .splitSurface,
@@ -548,8 +549,10 @@ final class WorktreeTerminalManager {
       sendFocusedContentLayoutAction(layoutID) { .contentRequestedToggleZoom(content: $0) }
     case .equalizeSplits(let layoutID):
       sendLayout(layoutID, .equalizePanes)
-    case .splitPane(let worktree, let token, let direction, let input, let id, let focusing):
-      splitPane(in: worktree, paneToken: token, direction: direction, input: input, id: id, focusing: focusing)
+    case .splitPane(let layoutID, let context, let token, let direction, let input, let id, let focusing):
+      splitPane(
+        in: layoutID, context: context, paneToken: token, direction: direction, input: input, id: id, focusing: focusing
+      )
     case .focusPane(let layoutID, let paneToken):
       focusPane(in: layoutID, paneToken: paneToken)
     case .closePane(let layoutID, let token):
@@ -560,10 +563,10 @@ final class WorktreeTerminalManager {
       toggleWindowModeForPane(in: layoutID, paneToken: token)
     case .moveTabToSplit(let layoutID, let tabID, let direction, let focusing):
       moveTabToSplit(in: layoutID, tabID: tabID, direction: direction, focusing: focusing)
-    case .performBindingAction(let worktree, let action):
-      host(for: worktree).performBindingActionOnFocusedSurface(action)
-    case .performBindingActionOnSurface(let worktree, let surfaceID, let action):
-      host(for: worktree).performBindingAction(action, onSurfaceID: surfaceID)
+    case .performBindingAction(let layoutID, let context, let action):
+      host(for: layoutID, context: context).performBindingActionOnFocusedSurface(action)
+    case .performBindingActionOnSurface(let layoutID, let context, let surfaceID, let action):
+      host(for: layoutID, context: context).performBindingAction(action, onSurfaceID: surfaceID)
     case .setImagePasteAgents(let surfaceID, let agents):
       setImagePasteAgents(agents, onSurfaceID: surfaceID)
     case .createTab, .createTabWithInput, .openFileWithScript, .ensureInitialTab, .stopRunScript, .stopScript,
@@ -738,43 +741,44 @@ final class WorktreeTerminalManager {
   /// The worktree's cross-feature host, created and wired on first use. Also
   /// ensures the layout exists in the store so commands have a target.
   func host(
-    for worktree: Worktree,
+    for layoutID: LayoutID,
+    context: DirectoryContext,
     runSetupScriptIfNew: () -> Bool = { false }
   ) -> WorktreeContentHost {
-    if hosts[worktree.id] == nil {
-      pruneBareSurfacesOnRestore(for: worktree)
+    if hosts[layoutID] == nil {
+      pruneBareSurfacesOnRestore(for: layoutID, context: context)
     }
     // Unconditional: attach is idempotent and a hydrated layout still needs
     // its minted-title prefix stamped.
-    sendTerminals(.attachLayout(worktreeID: worktree.id, titlePrefix: worktree.name))
-    if let existing = hosts[worktree.id] {
+    sendTerminals(.attachLayout(worktreeID: layoutID, titlePrefix: context.name))
+    if let existing = hosts[layoutID] {
       if runSetupScriptIfNew() {
         existing.enableSetupScriptIfNeeded()
       }
       return existing
     }
     let host = WorktreeContentHost(
-      context: DirectoryContext(worktree: worktree),
+      context: context,
       runtime: ContentRuntime.liveValue,
       clock: clock,
       runSetupScript: runSetupScriptIfNew()
     )
     host.socketPath = socketServer?.socketPath
     host.notificationsEnabled = notificationsEnabled
-    host.layout = { [weak self] in self?.layoutState(for: worktree.id)?.layout }
-    host.windowedPaneIDs = { [weak self] in self?.layoutState(for: worktree.id)?.windowedPaneIDs ?? [] }
-    host.sendLayoutAction = { [weak self] action in self?.sendLayout(worktree.id, action) }
-    host.setWorktreeSelected(selectedWorktreeID == worktree.id)
+    host.layout = { [weak self] in self?.layoutState(for: layoutID)?.layout }
+    host.windowedPaneIDs = { [weak self] in self?.layoutState(for: layoutID)?.windowedPaneIDs ?? [] }
+    host.sendLayoutAction = { [weak self] action in self?.sendLayout(layoutID, action) }
+    host.setWorktreeSelected(selectedWorktreeID == layoutID)
     host.hibernationAgentsBySurface = { [weak self] in self?.currentAgentsBySurface?() ?? [:] }
     host.isSelected = { [weak self] in
-      self?.selectedWorktreeID == worktree.id
+      self?.selectedWorktreeID == layoutID
     }
     host.onUserClosedSurfaces = { [weak self] ids in
-      self?.emit(.userClosedSurfaces(layoutID: worktree.id, ids))
+      self?.emit(.userClosedSurfaces(layoutID: layoutID, ids))
     }
     host.onSurfacesClosed = { [weak self] ids in
       self?.suppressedHarnessEndSurfaceIDs.subtract(ids)
-      self?.handleSurfacesClosed(worktreeID: worktree.id, surfaceIDs: ids)
+      self?.handleSurfacesClosed(worktreeID: layoutID, surfaceIDs: ids)
       // The last surface closing leaves no focus target, so no focus event
       // follows; fall back to the theme background here.
       self?.refreshFocusedSurfaceBackground()
@@ -784,7 +788,7 @@ final class WorktreeTerminalManager {
     host.onSurfacesHibernated = { [weak self] ids in self?.cancelPendingIdleHooks(forSurfaceIDs: ids) }
     // A hibernate / wake leaves the surface set unchanged, so re-emit the row
     // projection here or the sidebar sleep marker never tracks dormancy.
-    host.onDormancyChanged = { [weak self] in self?.emitProjection(for: worktree.id) }
+    host.onDormancyChanged = { [weak self] in self?.emitProjection(for: layoutID) }
     // OSC-sourced presence events go through the existing idle-debounce funnel.
     host.onAgentHookEvent = { [weak self] event in
       self?.dispatchHookEvent(event)
@@ -792,56 +796,56 @@ final class WorktreeTerminalManager {
     host.onNotificationReceived = { [weak self] surfaceID, title, body, isViewed in
       self?.emit(
         .notificationReceived(
-          worktreeID: worktree.id,
+          worktreeID: layoutID,
           surfaceID: surfaceID,
           title: title,
           body: body,
           isViewed: isViewed
         )
       )
-      self?.emitProjection(for: worktree.id)
+      self?.emitProjection(for: layoutID)
     }
     host.onNotificationIndicatorChanged = { [weak self] in
       self?.emitNotificationIndicatorCountIfNeeded()
-      self?.emitProjection(for: worktree.id)
+      self?.emitProjection(for: layoutID)
     }
     // Only the debounce: the title itself is read back off the chrome when the
     // snapshot is built, so a title storm costs one coalesced write, not one
     // store send per report.
     host.onReportedTitleChanged = { [weak self] in
-      self?.markLayoutDirty(worktreeID: worktree.id)
+      self?.markLayoutDirty(worktreeID: layoutID)
     }
     host.onFocusChanged = { [weak self] surfaceID in
-      self?.emit(.focusChanged(layoutID: worktree.id, surfaceID: surfaceID))
+      self?.emit(.focusChanged(layoutID: layoutID, surfaceID: surfaceID))
       self?.refreshFocusedSurfaceBackground()
     }
     host.onFocusedSurfaceColorChanged = { [weak self] in
       self?.refreshFocusedSurfaceBackground()
     }
     host.onRunStatusChanged = { [weak self] status in
-      self?.emit(.runStatusChanged(worktreeID: worktree.id, status: status))
-      self?.emitProjection(for: worktree.id)
+      self?.emit(.runStatusChanged(worktreeID: layoutID, status: status))
+      self?.emitProjection(for: layoutID)
     }
     host.onBlockingScriptCompleted = { [weak self] kind, exitCode, tabId in
-      self?.emit(.blockingScriptCompleted(worktreeID: worktree.id, kind: kind, exitCode: exitCode, tabId: tabId))
+      self?.emit(.blockingScriptCompleted(worktreeID: layoutID, kind: kind, exitCode: exitCode, tabId: tabId))
     }
     host.onRunningScriptsChanged = { [weak self] in
       // Force past the projection dedupe: an archived-strip can clear the row while
       // the cache still holds running, so a plain emit would dedupe and strand it (#573).
-      self?.forceEmitProjection(for: worktree.id)
+      self?.forceEmitProjection(for: layoutID)
     }
     host.onCommandPaletteToggle = { [weak self] in
-      self?.emit(.commandPaletteToggleRequested(layoutID: worktree.id))
+      self?.emit(.commandPaletteToggleRequested(layoutID: layoutID))
     }
     host.onSetupScriptConsumed = { [weak self] in
-      self?.emit(.setupScriptConsumed(layoutID: worktree.id))
+      self?.emit(.setupScriptConsumed(layoutID: layoutID))
     }
-    hosts[worktree.id] = host
+    hosts[layoutID] = host
     // Seed the lifecycle baseline from the hydrated layout, or the first
     // close would diff against an empty set and skip its cleanup; this also
     // starts the dormant watchers for restored contents.
     host.reconcileContentLifecycle()
-    terminalLogger.info("Created content host for worktree \(worktree.id)")
+    terminalLogger.info("Created content host for worktree \(layoutID)")
     return host
   }
 
@@ -1014,7 +1018,8 @@ final class WorktreeTerminalManager {
   }
 
   private func createTabAsync(
-    in worktree: Worktree,
+    in layoutID: LayoutID,
+    context: DirectoryContext,
     runSetupScriptIfNew: Bool,
     initialInput: String? = nil,
     tabID: UUID? = nil,
@@ -1023,16 +1028,16 @@ final class WorktreeTerminalManager {
     anchor: UUID? = nil,
     isInitialTab: Bool = false
   ) {
-    let host = host(for: worktree) { runSetupScriptIfNew }
+    let host = host(for: layoutID, context: context) { runSetupScriptIfNew }
     // Mint upfront so a title-only request still has a rename target, keeping
     // the documented initial-surface-equals-tab-ID invariant either way.
     let mintedID = tabID ?? UUID()
-    guard let layout = layoutState(for: worktree.id)?.layout else {
+    guard let layout = layoutState(for: layoutID)?.layout else {
       // Drain a waiting CLI ack now instead of stranding it until the timeout.
-      emitTabCreationFailure(for: worktree, attemptedID: mintedID, isInitialTab: isInitialTab)
+      emitTabCreationFailure(for: layoutID, context: context, attemptedID: mintedID, isInitialTab: isInitialTab)
       return
     }
-    let setupInput = consumeSetupScriptInput(for: worktree, host: host)
+    let setupInput = consumeSetupScriptInput(for: layoutID, context: context, host: host)
     // Route the user command through the terminator too; #786 joined it raw, so it sat unterminated at the prompt.
     let combinedInput = BlockingScriptRunner.combinedInitialInput(setupInput: setupInput, command: initialInput)
     let launch: LaunchOverride? = combinedInput.map { LaunchOverride(initialInput: $0) }
@@ -1048,20 +1053,20 @@ final class WorktreeTerminalManager {
     let spec = NewTabSpec(
       tabID: TabID(rawValue: mintedID),
       contentID: ContentID(rawValue: mintedID),
-      title: "\(worktree.name) \(nextTabIndex(in: layout, prefix: worktree.name))",
+      title: "\(context.name) \(nextTabIndex(in: layout, prefix: context.name))",
       content: .terminal(TerminalContentState(workingDirectory: nil, launch: launch)),
       geometry: ContentRuntime.liveValue.spawnGeometry(near: inheritedFrom, fallback: inheritedFrom),
       select: focusing,
       inheritedFrom: inheritedFrom
     )
-    sendLayout(worktree.id, .newTab(inPane: paneID, spec: spec))
+    sendLayout(layoutID, .newTab(inPane: paneID, spec: spec))
     if let customTitle {
-      sendLayout(worktree.id, .renameTab(id: TabID(rawValue: mintedID), title: customTitle))
+      sendLayout(layoutID, .renameTab(id: TabID(rawValue: mintedID), title: customTitle))
     }
     // A grown strip AND a tab-addressed match: an explicit id colliding with
     // an EXISTING tab or content would otherwise match the old tab and ack a
     // creation that was refused.
-    let after = layoutState(for: worktree.id)?.layout
+    let after = layoutState(for: layoutID)?.layout
     let created =
       Self.tabCount(in: after) == Self.tabCount(in: layout) + 1
       && after?.panes
@@ -1069,12 +1074,12 @@ final class WorktreeTerminalManager {
         .tabs[id: TabID(rawValue: mintedID)]?.content.id.rawValue == mintedID
     guard created else {
       // Drain a waiting CLI ack now instead of stranding it until the timeout.
-      emitTabCreationFailure(for: worktree, attemptedID: mintedID, isInitialTab: isInitialTab)
+      emitTabCreationFailure(for: layoutID, context: context, attemptedID: mintedID, isInitialTab: isInitialTab)
       return
     }
-    emit(.tabCreated(layoutID: worktree.id))
+    emit(.tabCreated(layoutID: layoutID))
     if tabID != nil {
-      emit(.surfaceCreated(layoutID: worktree.id, id: mintedID))
+      emit(.surfaceCreated(layoutID: layoutID, id: mintedID))
     }
   }
 
@@ -1108,10 +1113,10 @@ final class WorktreeTerminalManager {
   }
 
   /// Runs the open-file script in a terminal, placed per `openFilePlacement`.
-  private func openFileWithScript(in worktree: Worktree, input: String) {
+  private func openFileWithScript(in layoutID: LayoutID, context: DirectoryContext, input: String) {
     Task {
-      guard let layout = layoutState(for: worktree.id)?.layout else {
-        terminalLogger.warning("openFileWithScript: no layout for worktree \(worktree.id); dropping open.")
+      guard let layout = layoutState(for: layoutID)?.layout else {
+        terminalLogger.warning("openFileWithScript: no layout for worktree \(layoutID); dropping open.")
         return
       }
       let zoomedLeaf: PaneID?
@@ -1128,14 +1133,15 @@ final class WorktreeTerminalManager {
       )
       switch placement {
       case .tab(let paneToken):
-        createTabAsync(in: worktree, runSetupScriptIfNew: false, initialInput: input, anchor: paneToken)
+        createTabAsync(
+          in: layoutID, context: context, runSetupScriptIfNew: false, initialInput: input, anchor: paneToken)
       case .splitRight(let paneToken):
         splitPane(
-          in: worktree, paneToken: paneToken, direction: .horizontal, input: input, id: UUID(),
+          in: layoutID, context: context, paneToken: paneToken, direction: .horizontal, input: input, id: UUID(),
           focusing: true)
       case nil:
         // No existing pane (a tab-less layout is valid): bootstrap the first tab; createTabAsync mints one.
-        createTabAsync(in: worktree, runSetupScriptIfNew: false, initialInput: input, anchor: nil)
+        createTabAsync(in: layoutID, context: context, runSetupScriptIfNew: false, initialInput: input, anchor: nil)
       }
     }
   }
@@ -1171,9 +1177,11 @@ final class WorktreeTerminalManager {
   }
 
   /// Resolves and consumes the pending setup script, if any.
-  private func consumeSetupScriptInput(for worktree: Worktree, host: WorktreeContentHost) -> String? {
+  private func consumeSetupScriptInput(for layoutID: LayoutID, context: DirectoryContext, host: WorktreeContentHost)
+    -> String?
+  {
     guard host.needsSetupScript() else { return nil }
-    @SharedReader(.repositorySettings(worktree.repositoryRootURL, host: worktree.host))
+    @SharedReader(.repositorySettings(context.repositoryRootURL, host: context.host))
     var settings = RepositorySettings.default
     let script = settings.setupScript
     guard !script.isEmpty else {
@@ -1186,57 +1194,62 @@ final class WorktreeTerminalManager {
 
   /// Creates the first tab when the layout is empty, matching the legacy
   /// ensure-initial-tab semantics; restored layouts already have tabs.
-  private func ensureInitialTab(in worktree: Worktree, runSetupScriptIfNew: Bool, focusing: Bool) {
-    let host = host(for: worktree) { runSetupScriptIfNew }
+  private func ensureInitialTab(
+    in layoutID: LayoutID, context: DirectoryContext, runSetupScriptIfNew: Bool, focusing: Bool
+  ) {
+    let host = host(for: layoutID, context: context) { runSetupScriptIfNew }
     _ = host
-    if fullyPrunedRestoreIDs.contains(worktree.id) {
-      emit(.tabCreated(layoutID: worktree.id))
+    if fullyPrunedRestoreIDs.contains(layoutID) {
+      emit(.tabCreated(layoutID: layoutID))
       return
     }
-    guard layoutState(for: worktree.id)?.layout.panes.isEmpty != false else {
+    guard layoutState(for: layoutID)?.layout.panes.isEmpty != false else {
       // A hydrated layout already has its tabs; a waiting worktree-new ack
       // still needs the signal or it strands until the watchdog.
-      emit(.tabCreated(layoutID: worktree.id))
+      emit(.tabCreated(layoutID: layoutID))
       return
     }
     createTabAsync(
-      in: worktree, runSetupScriptIfNew: runSetupScriptIfNew, focusing: focusing, isInitialTab: true)
+      in: layoutID, context: context, runSetupScriptIfNew: runSetupScriptIfNew, focusing: focusing, isInitialTab: true)
   }
 
   /// Emits the right failure event for a refused tab creation: the initial-tab
   /// bootstrap gets its own event so only it settles the worktree-new ack and
   /// creation-progress state, never an ordinary tab / split failure.
-  private func emitTabCreationFailure(for worktree: Worktree, attemptedID: UUID, isInitialTab: Bool) {
+  private func emitTabCreationFailure(
+    for layoutID: LayoutID, context: DirectoryContext, attemptedID: UUID, isInitialTab: Bool
+  ) {
     let message = "Could not create the tab."
     emit(
       isInitialTab
-        ? .initialTabCreationFailed(layoutID: worktree.id, message: message)
-        : .surfaceCreationFailed(layoutID: worktree.id, attemptedID: attemptedID, message: message))
+        ? .initialTabCreationFailed(layoutID: layoutID, message: message)
+        : .surfaceCreationFailed(layoutID: layoutID, attemptedID: attemptedID, message: message))
   }
 
   /// Launches a blocking script in a locked, ephemeral tab.
   private func runBlockingScript(
-    in worktree: Worktree,
+    in layoutID: LayoutID,
+    context: DirectoryContext,
     kind: BlockingScriptKind,
     script: String,
     focusing: Bool
   ) {
-    let host = host(for: worktree)
+    let host = host(for: layoutID, context: context)
     // User-script dedup: a still-running script keeps its tab.
     if case .script = kind, let active = host.trackedBlockingScriptTab(for: kind) {
       _ = active
-      sendLayout(worktree.id, .selectTab(id: active))
+      sendLayout(layoutID, .selectTab(id: active))
       return
     }
     let command: String?
     let initialInput: String?
     let launchDirectory: URL?
-    if let remoteHost = worktree.host {
+    if let remoteHost = context.host {
       guard
         let remote = BlockingScriptRunner.remoteCommand(
           host: remoteHost,
           script: script,
-          remoteWorktreePath: worktree.workingDirectory.path(percentEncoded: false),
+          remoteWorktreePath: context.workingDirectory.path(percentEncoded: false),
           environment: [:]
         )
       else {
@@ -1265,9 +1278,9 @@ final class WorktreeTerminalManager {
     // Replace a lingering completed/cancelled tab of this kind.
     if let lingering = host.lingeringBlockingScriptTab(for: kind) {
       host.untrackBlockingScript(tabID: lingering)
-      sendLayout(worktree.id, .closeTab(id: lingering))
+      sendLayout(layoutID, .closeTab(id: lingering))
     }
-    let layout = layoutState(for: worktree.id)?.layout
+    let layout = layoutState(for: layoutID)?.layout
     let paneID = layout?.focusedPaneID ?? layout?.panes.first?.id ?? PaneID()
     let tabID = TabID()
     let contentID = ContentID()
@@ -1289,19 +1302,20 @@ final class WorktreeTerminalManager {
       geometry: ContentRuntime.liveValue.spawnGeometry(near: host.focusedTab?.content.id),
       select: focusing
     )
-    sendLayout(worktree.id, .newTab(inPane: paneID, spec: spec))
-    guard layoutState(for: worktree.id)?.layout.pane(containingTab: tabID) != nil else {
+    sendLayout(layoutID, .newTab(inPane: paneID, spec: spec))
+    guard layoutState(for: layoutID)?.layout.pane(containingTab: tabID) != nil else {
       host.untrackBlockingScript(tabID: tabID)
       host.reportBlockingScriptLaunchFailure(kind, "Could not create the script tab.")
       return
     }
     host.emitRunStatusIfChanged()
-    terminalLogger.info("Started \(kind.tabTitle) for worktree \(worktree.id)")
+    terminalLogger.info("Started \(kind.tabTitle) for worktree \(layoutID)")
   }
 
   /// Closes every tracked blocking tab matching `predicate`; false when none.
   private func closeBlockingTabs(
-    in worktree: Worktree,
+    in layoutID: LayoutID,
+    context: DirectoryContext,
     host: WorktreeContentHost,
     focusing: Bool,
     matching predicate: (BlockingScriptKind) -> Bool
@@ -1310,7 +1324,7 @@ final class WorktreeTerminalManager {
     var closed = false
     for tabID in host.blockingScriptTabs(matching: predicate) {
       host.handleBlockingScriptTabClosed(tabID: tabID)
-      sendLayout(worktree.id, .closeTab(id: tabID))
+      sendLayout(layoutID, .closeTab(id: tabID))
       closed = true
     }
     return closed
@@ -1322,7 +1336,8 @@ final class WorktreeTerminalManager {
 
   /// CLI / deeplink split: opens a fresh pane next to the surface's pane.
   private func splitSurface(  // swiftlint:disable:this function_parameter_count
-    in worktree: Worktree,
+    in layoutID: LayoutID,
+    context: DirectoryContext,
     tabID: TabID,
     surfaceID: UUID,
     direction: SplitDirection,
@@ -1330,32 +1345,32 @@ final class WorktreeTerminalManager {
     id: UUID?,
     focusing: Bool
   ) {
-    let host = host(for: worktree)
+    let host = host(for: layoutID, context: context)
     // Surface-first: the surface's actual owner wins over the tab hint.
-    guard let owningTab = host.tabID(containing: surfaceID) ?? presentTab(tabID, in: worktree.id) else {
-      terminalLogger.warning("splitSurface: surface \(surfaceID) not found in worktree \(worktree.id).")
+    guard let owningTab = host.tabID(containing: surfaceID) ?? presentTab(tabID, in: layoutID) else {
+      terminalLogger.warning("splitSurface: surface \(surfaceID) not found in worktree \(layoutID).")
       if let id {
         emit(
           .surfaceCreationFailed(
-            layoutID: worktree.id, attemptedID: id,
+            layoutID: layoutID, attemptedID: id,
             message: "Could not create the split surface."))
       }
       return
     }
     // The wake runs even when not focusing: splitting a dormant tab would
     // otherwise land in a frozen layout.
-    sendLayout(worktree.id, .wakeTab(id: owningTab))
+    sendLayout(layoutID, .wakeTab(id: owningTab))
     if focusing {
-      sendLayout(worktree.id, .selectTab(id: owningTab))
+      sendLayout(layoutID, .selectTab(id: owningTab))
     }
-    guard let layout = layoutState(for: worktree.id)?.layout,
+    guard let layout = layoutState(for: layoutID)?.layout,
       let anchorPane = layout.pane(containingTab: owningTab),
       let anchorContent = anchorPane.tabs[id: owningTab]?.content.id
     else {
       if let id {
         emit(
           .surfaceCreationFailed(
-            layoutID: worktree.id, attemptedID: id,
+            layoutID: layoutID, attemptedID: id,
             message: "Could not create the split surface."))
       }
       return
@@ -1365,26 +1380,26 @@ final class WorktreeTerminalManager {
     let spec = NewTabSpec(
       tabID: id.map(TabID.init(rawValue:)),
       contentID: id.map(ContentID.init(rawValue:)),
-      title: "\(worktree.name) \(nextTabIndex(in: layout, prefix: worktree.name))",
+      title: "\(context.name) \(nextTabIndex(in: layout, prefix: context.name))",
       content: .terminal(TerminalContentState(workingDirectory: nil, launch: launch)),
       geometry: ContentRuntime.liveValue.spawnGeometry(near: anchorContent),
       select: focusing,
       inheritedFrom: anchorContent
     )
     sendLayout(
-      worktree.id,
+      layoutID,
       .splitPane(id: anchorPane.id, direction: direction == .vertical ? .down : .right, spec: spec)
     )
     guard let id else { return }
-    guard layoutState(for: worktree.id)?.layout.tab(containingContent: ContentID(rawValue: id)) != nil else {
-      terminalLogger.warning("splitSurface: failed for surface \(surfaceID) in worktree \(worktree.id).")
+    guard layoutState(for: layoutID)?.layout.tab(containingContent: ContentID(rawValue: id)) != nil else {
+      terminalLogger.warning("splitSurface: failed for surface \(surfaceID) in worktree \(layoutID).")
       emit(
         .surfaceCreationFailed(
-          layoutID: worktree.id, attemptedID: id,
+          layoutID: layoutID, attemptedID: id,
           message: "Could not create the split surface."))
       return
     }
-    emit(.surfaceCreated(layoutID: worktree.id, id: id))
+    emit(.surfaceCreated(layoutID: layoutID, id: id))
   }
 
   // MARK: - Pane-addressed layout ops.
@@ -1410,56 +1425,57 @@ final class WorktreeTerminalManager {
   }
 
   private func splitPane(  // swiftlint:disable:this function_parameter_count
-    in worktree: Worktree,
+    in layoutID: LayoutID,
+    context: DirectoryContext,
     paneToken: UUID,
     direction: SplitDirection,
     input: String?,
     id: UUID?,
     focusing: Bool
   ) {
-    _ = host(for: worktree)
+    _ = host(for: layoutID, context: context)
     func fail() {
       guard let id else { return }
       emit(
         .surfaceCreationFailed(
-          layoutID: worktree.id, attemptedID: id, message: "Could not split the pane."))
+          layoutID: layoutID, attemptedID: id, message: "Could not split the pane."))
     }
     // Panes are never empty, so a resolved pane always has a selected content.
-    guard let paneID = resolvePane(paneToken, in: worktree.id),
-      let layout = layoutState(for: worktree.id)?.layout,
+    guard let paneID = resolvePane(paneToken, in: layoutID),
+      let layout = layoutState(for: layoutID)?.layout,
       let anchorPane = layout.panes[id: paneID],
       let selectedTab = anchorPane.selectedTabID,
       let anchorContent = anchorPane.tabs[id: selectedTab]?.content.id
     else {
-      terminalLogger.warning("splitPane: pane token \(paneToken) not found in worktree \(worktree.id).")
+      terminalLogger.warning("splitPane: pane token \(paneToken) not found in worktree \(layoutID).")
       fail()
       return
     }
     // The wake runs even when not focusing: splitting a dormant pane would
     // otherwise land in a frozen layout.
-    sendLayout(worktree.id, .wakeTab(id: selectedTab))
+    sendLayout(layoutID, .wakeTab(id: selectedTab))
     let resolvedInput = BlockingScriptRunner.makeCommandInput(script: input ?? "")
     let launch: LaunchOverride? = resolvedInput.map { LaunchOverride(initialInput: $0) }
     let spec = NewTabSpec(
       tabID: id.map(TabID.init(rawValue:)),
       contentID: id.map(ContentID.init(rawValue:)),
-      title: "\(worktree.name) \(nextTabIndex(in: layout, prefix: worktree.name))",
+      title: "\(context.name) \(nextTabIndex(in: layout, prefix: context.name))",
       content: .terminal(TerminalContentState(workingDirectory: nil, launch: launch)),
       geometry: ContentRuntime.liveValue.spawnGeometry(near: anchorContent),
       select: focusing,
       inheritedFrom: anchorContent
     )
     sendLayout(
-      worktree.id,
+      layoutID,
       .splitPane(id: paneID, direction: direction == .vertical ? .down : .right, spec: spec)
     )
     guard let id else { return }
-    guard layoutState(for: worktree.id)?.layout.tab(containingContent: ContentID(rawValue: id)) != nil else {
-      terminalLogger.warning("splitPane: failed for pane \(paneID) in worktree \(worktree.id).")
+    guard layoutState(for: layoutID)?.layout.tab(containingContent: ContentID(rawValue: id)) != nil else {
+      terminalLogger.warning("splitPane: failed for pane \(paneID) in worktree \(layoutID).")
       fail()
       return
     }
-    emit(.surfaceCreated(layoutID: worktree.id, id: id))
+    emit(.surfaceCreated(layoutID: layoutID, id: id))
   }
 
   private func focusPane(in layoutID: LayoutID, paneToken: UUID) {
@@ -2188,11 +2204,11 @@ final class WorktreeTerminalManager {
     emit(.surfacesClosed(layoutID: worktreeID, surfaceIDs))
   }
 
-  private func pruneBareSurfacesOnRestore(for worktree: Worktree) {
-    guard let layout = layoutState(for: worktree.id)?.layout else { return }
+  private func pruneBareSurfacesOnRestore(for layoutID: LayoutID, context: DirectoryContext) {
+    guard let layout = layoutState(for: layoutID)?.layout else { return }
     guard
       TerminalRestorePruner.shouldPrune(
-        isRemote: worktree.host != nil,
+        isRemote: context.host != nil,
         settingEnabled: settingsFile.global.pruneBareSurfacesOnRestore,
         scrollbackEnabled: settingsFile.global.persistScrollbackEnabled,
         zmxBundled: zmxClient.isBundled(),
@@ -2212,7 +2228,7 @@ final class WorktreeTerminalManager {
     guard !prunedIDs.isEmpty else { return }
 
     terminalLogger.info(
-      "Pruning \(prunedIDs.count) bare surface(s) from restore for worktree \(worktree.id)")
+      "Pruning \(prunedIDs.count) bare surface(s) from restore for worktree \(layoutID)")
     ScrollbackPersistence.removeFiles(surfaceIDs: prunedIDs)
     let liveSessionNames = liveZmxSessionNames ?? []
     let livePrunedSessionNames = prunedIDs.map(ZmxSessionID.make(surfaceID:)).filter {
@@ -2223,10 +2239,10 @@ final class WorktreeTerminalManager {
 
     let replacement = pruned ?? PaneLayout()
     if pruned == nil {
-      fullyPrunedRestoreIDs.insert(worktree.id)
+      fullyPrunedRestoreIDs.insert(layoutID)
     }
-    sendTerminals(.replaceRestoredLayout(worktreeID: worktree.id, layout: replacement))
-    markLayoutDirty(worktreeID: worktree.id)
+    sendTerminals(.replaceRestoredLayout(worktreeID: layoutID, layout: replacement))
+    markLayoutDirty(worktreeID: layoutID)
   }
 
   func initialScrollbackPath(for surfaceID: UUID) -> String? {
@@ -2537,14 +2553,16 @@ final class WorktreeTerminalManager {
   /// Runs `stop` on the worktree's existing terminal state, never minting one.
   /// A miss with a live state means the caller acted on a stale mirror, so force
   /// a fresh projection emit past the dedupe cache to reconcile it (#573).
-  private func stopBlockingScripts(in worktree: Worktree, using stop: (WorktreeContentHost) -> Bool) {
-    guard let host = hostIfExists(for: worktree.id) else {
-      terminalLogger.warning("Stop requested for \(worktree.id) with no terminal host")
+  private func stopBlockingScripts(
+    in layoutID: LayoutID, context: DirectoryContext, using stop: (WorktreeContentHost) -> Bool
+  ) {
+    guard let host = hostIfExists(for: layoutID) else {
+      terminalLogger.warning("Stop requested for \(layoutID) with no terminal host")
       return
     }
     guard !stop(host) else { return }
-    terminalLogger.warning("Stop requested for \(worktree.id) with no matching script; re-emitting projection")
-    forceEmitProjection(for: worktree.id)
+    terminalLogger.warning("Stop requested for \(layoutID) with no matching script; re-emitting projection")
+    forceEmitProjection(for: layoutID)
   }
 
   /// Re-delivers a worktree's projection past both dedupe layers, so a row that

@@ -517,7 +517,7 @@ extension AppFeature {
     return .run { send in
       await terminalClient.send(
         .createTabWithInput(
-          worktree,
+          worktree.id, DirectoryContext(worktree: worktree),
           input: command,
           runSetupScriptIfNew: false,
           title: nil,

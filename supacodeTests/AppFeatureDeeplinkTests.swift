@@ -91,8 +91,8 @@ struct AppFeatureDeeplinkTests {
     await store.receive(\.repositories.selectWorktree)
     await store.finish()
     let ranTarget = sent.value.contains {
-      if case .runBlockingScript(let target, _, let script, _) = $0 {
-        return target.id == worktree.id && script == definition.command
+      if case .runBlockingScript(let target, _, _, let script, _) = $0 {
+        return target == worktree.id && script == definition.command
       }
       return false
     }
@@ -124,8 +124,8 @@ struct AppFeatureDeeplinkTests {
     await store.finish()
     #expect(
       sent.value.contains {
-        if case .splitPane(let target, let paneToken, let direction, let input, let id, _) = $0 {
-          return target.id == worktree.id && paneToken == token && direction == .vertical && input == nil
+        if case .splitPane(let target, _, let paneToken, let direction, let input, let id, _) = $0 {
+          return target == worktree.id && paneToken == token && direction == .vertical && input == nil
             && id == newID
         }
         return false
@@ -318,8 +318,8 @@ struct AppFeatureDeeplinkTests {
     await store.finish()
     #expect(store.state.repositories.selection == .worktree(worktree.id))
     let ranTarget = sent.value.contains {
-      if case .runBlockingScript(let ran, _, let script, _) = $0 {
-        return ran.id == target.id && script == definition.command
+      if case .runBlockingScript(let ran, _, _, let script, _) = $0 {
+        return ran == target.id && script == definition.command
       }
       return false
     }
@@ -629,7 +629,7 @@ struct AppFeatureDeeplinkTests {
     await store.send(.deeplink(.worktree(id: worktree.id, action: .run, background: true)))
     await store.finish()
     let launchedUnfocused = sent.value.contains {
-      if case .runBlockingScript(_, _, let script, let focusing) = $0 {
+      if case .runBlockingScript(_, _, _, let script, let focusing) = $0 {
         return script == definition.command && focusing == false
       }
       return false
@@ -655,7 +655,7 @@ struct AppFeatureDeeplinkTests {
     await store.send(.deeplink(.worktree(id: worktree.id, action: .stop, background: true)))
     await store.finish()
     let stoppedUnfocused = sent.value.contains {
-      if case .stopRunScript(_, let focusing) = $0 { return focusing == false }
+      if case .stopRunScript(_, _, let focusing) = $0 { return focusing == false }
       return false
     }
     #expect(stoppedUnfocused)
@@ -685,7 +685,7 @@ struct AppFeatureDeeplinkTests {
     )
     await store.finish()
     let stoppedUnfocused = sent.value.contains {
-      if case .stopScript(_, let definitionID, let focusing) = $0 {
+      if case .stopScript(_, _, let definitionID, let focusing) = $0 {
         return definitionID == definition.id && focusing == false
       }
       return false
@@ -719,7 +719,7 @@ struct AppFeatureDeeplinkTests {
     await store.send(.deeplink(.worktree(id: worktree.id, action: .archive, background: true)))
     await store.finish()
     let archivedUnfocused = sent.value.contains {
-      if case .runBlockingScript(_, .archive, _, let focusing) = $0 { return focusing == false }
+      if case .runBlockingScript(_, _, .archive, _, let focusing) = $0 { return focusing == false }
       return false
     }
     #expect(archivedUnfocused)
@@ -1066,7 +1066,7 @@ struct AppFeatureDeeplinkTests {
     await store.receive(\.repositories.selectWorktree)
     await store.finish()
     let stoppedTarget = sent.value.contains {
-      if case .stopRunScript(let target, _) = $0 { return target.id == worktree.id }
+      if case .stopRunScript(let target, _, _) = $0 { return target == worktree.id }
       return false
     }
     #expect(stoppedTarget)
@@ -1094,7 +1094,7 @@ struct AppFeatureDeeplinkTests {
     await store.finish()
     #expect(store.state.repositories.selection == .worktree(worktree.id))
     let stoppedTarget = sent.value.contains {
-      if case .stopRunScript(let stopped, _) = $0 { return stopped.id == target.id }
+      if case .stopRunScript(let stopped, _, _) = $0 { return stopped == target.id }
       return false
     }
     #expect(stoppedTarget)
@@ -1153,7 +1153,7 @@ struct AppFeatureDeeplinkTests {
 
     #expect(store.state.deeplinkInputConfirmation == nil)
     let hasRun = sent.value.contains(where: {
-      if case .runBlockingScript(_, .script(let sentDefinition), _, _) = $0 {
+      if case .runBlockingScript(_, _, .script(let sentDefinition), _, _) = $0 {
         return sentDefinition.id == definition.id
       }
       return false
@@ -1198,7 +1198,7 @@ struct AppFeatureDeeplinkTests {
 
     #expect(store.state.deeplinkInputConfirmation == nil)
     let hasStop = sent.value.contains(where: {
-      if case .stopScript(_, let definitionID, _) = $0 { return definitionID == definition.id }
+      if case .stopScript(_, _, let definitionID, _) = $0 { return definitionID == definition.id }
       return false
     })
     #expect(hasStop)
@@ -1239,7 +1239,7 @@ struct AppFeatureDeeplinkTests {
     await store.finish()
 
     let hasRun = sent.value.contains(where: {
-      if case .runBlockingScript(_, .script(let definition), _, _) = $0 {
+      if case .runBlockingScript(_, _, .script(let definition), _, _) = $0 {
         return definition.id == globalScript.id
       }
       return false
@@ -1274,7 +1274,7 @@ struct AppFeatureDeeplinkTests {
     await store.finish()
 
     let hasStop = sent.value.contains(where: {
-      if case .stopScript(_, let definitionID, _) = $0 { return definitionID == globalScript.id }
+      if case .stopScript(_, _, let definitionID, _) = $0 { return definitionID == globalScript.id }
       return false
     })
     #expect(hasStop)
@@ -1314,7 +1314,7 @@ struct AppFeatureDeeplinkTests {
     await store.finish()
 
     let runCommands = sent.value.compactMap { command -> ScriptDefinition? in
-      if case .runBlockingScript(_, .script(let def), _, _) = command { return def }
+      if case .runBlockingScript(_, _, .script(let def), _, _) = command { return def }
       return nil
     }
     #expect(runCommands.count == 1)
@@ -1464,7 +1464,7 @@ struct AppFeatureDeeplinkTests {
     await store.finish()
 
     let hasRun = sent.value.contains(where: {
-      if case .runBlockingScript(_, .script(let sentDefinition), _, _) = $0 {
+      if case .runBlockingScript(_, _, .script(let sentDefinition), _, _) = $0 {
         return sentDefinition.id == definition.id
       }
       return false
@@ -1937,7 +1937,8 @@ struct AppFeatureDeeplinkTests {
 
     await store.send(.deeplink(.worktree(id: worktree.id, action: .tab(tabID: tabUUID))))
     await store.receive(\.repositories.selectWorktree)
-    let expected = TerminalClient.Command.selectTab(worktree, tabID: TabID(rawValue: tabUUID))
+    let expected = TerminalClient.Command.selectTab(
+      worktree.id, DirectoryContext(worktree: worktree), tabID: TabID(rawValue: tabUUID))
     #expect(sent.value.contains(expected))
   }
 
@@ -1976,7 +1977,8 @@ struct AppFeatureDeeplinkTests {
     #expect(store.state.deeplinkInputConfirmation == nil)
     #expect(
       sent.value.contains(
-        .createTabWithInput(worktree, input: "echo hello", runSetupScriptIfNew: false, id: nil)
+        .createTabWithInput(
+          worktree.id, DirectoryContext(worktree: worktree), input: "echo hello", runSetupScriptIfNew: false, id: nil)
       )
     )
   }
@@ -2011,7 +2013,8 @@ struct AppFeatureDeeplinkTests {
     }
     #expect(
       sent.value.contains(
-        .createTabWithInput(worktree, input: "echo hello", runSetupScriptIfNew: false, id: nil)
+        .createTabWithInput(
+          worktree.id, DirectoryContext(worktree: worktree), input: "echo hello", runSetupScriptIfNew: false, id: nil)
       )
     )
     await store.finish()
@@ -2129,7 +2132,7 @@ struct AppFeatureDeeplinkTests {
 
     await store.send(.deeplink(.worktree(id: worktree.id, action: .tabNew(input: nil, id: nil))))
     let hasCreateTab = sent.value.contains(where: {
-      if case .createTab(let target, _, _, _, _, _) = $0 { return target.id == worktree.id }
+      if case .createTab(let target, _, _, _, _, _, _) = $0 { return target == worktree.id }
       return false
     })
     #expect(hasCreateTab)
@@ -2165,7 +2168,7 @@ struct AppFeatureDeeplinkTests {
     #expect(
       sent.value.contains(
         .createTab(
-          worktree,
+          worktree.id, DirectoryContext(worktree: worktree),
           runSetupScriptIfNew: true,
           id: tabID,
           title: "implement"
@@ -2217,7 +2220,7 @@ struct AppFeatureDeeplinkTests {
     #expect(
       sent.value.contains(
         .createTabWithInput(
-          worktree,
+          worktree.id, DirectoryContext(worktree: worktree),
           input: "omp",
           runSetupScriptIfNew: false,
           id: nil,
@@ -3354,7 +3357,8 @@ struct AppFeatureDeeplinkTests {
     #expect(store.state.deeplinkInputConfirmation == nil)
     #expect(
       sent.value.contains(
-        .createTabWithInput(worktree, input: "echo test", runSetupScriptIfNew: false, id: nil)
+        .createTabWithInput(
+          worktree.id, DirectoryContext(worktree: worktree), input: "echo test", runSetupScriptIfNew: false, id: nil)
       )
     )
   }
@@ -3862,7 +3866,8 @@ struct AppFeatureDeeplinkTests {
     #expect(store.state.deeplinkInputConfirmation == nil)
     #expect(
       sent.value.contains(
-        .createTabWithInput(worktree, input: "echo test", runSetupScriptIfNew: false, id: nil)
+        .createTabWithInput(
+          worktree.id, DirectoryContext(worktree: worktree), input: "echo test", runSetupScriptIfNew: false, id: nil)
       )
     )
   }

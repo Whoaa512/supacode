@@ -49,7 +49,7 @@ struct AppFeatureTerminalGridTests {
     let focused = LockIsolated<UUID?>(nil)
     let store = makeStore(worktree: worktree) {
       $0.terminalClient.listSurfaces = { [session] }
-      $0.terminalClient.focusSurface = { _, _, surfaceID in focused.setValue(surfaceID) }
+      $0.terminalClient.focusSurface = { _, _, _, surfaceID in focused.setValue(surfaceID) }
     }
 
     await store.send(.setTerminalGridPresented(true))

@@ -41,7 +41,8 @@ struct AppFeatureTerminalSetupScriptTests {
       )
     }
     await store.finish()
-    #expect(sent.value == [.createTab(worktree, runSetupScriptIfNew: true, id: nil)])
+    #expect(
+      sent.value == [.createTab(worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, id: nil)])
   }
 
   @Test(.dependencies) func newTerminalWithoutSetupScriptDoesNotConsume() async {
@@ -67,7 +68,9 @@ struct AppFeatureTerminalSetupScriptTests {
 
     await store.send(.newTerminal)
     await store.finish()
-    #expect(sent.value == [.createTab(worktree, runSetupScriptIfNew: false, id: nil)])
+    #expect(
+      sent.value == [.createTab(worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, id: nil)]
+    )
   }
 
   @Test(.dependencies) func tabCreatedClearsPending() async {
@@ -347,7 +350,7 @@ struct AppFeatureTerminalSetupScriptTests {
     await store.finish()
     #expect(
       sent.value == [
-        .ensureInitialTab(worktree, runSetupScriptIfNew: true, focusing: false)
+        .ensureInitialTab(worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, focusing: false)
       ]
     )
   }
@@ -377,7 +380,8 @@ struct AppFeatureTerminalSetupScriptTests {
     await store.finish()
     #expect(
       sent.value == [
-        .ensureInitialTab(worktree, runSetupScriptIfNew: false, focusing: false)
+        .ensureInitialTab(
+          worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: false)
       ]
     )
   }
@@ -412,7 +416,9 @@ struct AppFeatureTerminalSetupScriptTests {
     await store.send(.repositories(.delegate(.selectedWorktreeChanged(worktree))))
     await store.finish()
     #expect(
-      sent.value.contains(.ensureInitialTab(worktree, runSetupScriptIfNew: true, focusing: false))
+      sent.value.contains(
+        .ensureInitialTab(worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, focusing: false)
+      )
     )
   }
 
@@ -443,7 +449,9 @@ struct AppFeatureTerminalSetupScriptTests {
     await store.send(.repositories(.delegate(.selectedWorktreeChanged(worktree))))
     await store.finish()
     #expect(
-      sent.value.contains(.ensureInitialTab(worktree, runSetupScriptIfNew: false, focusing: false))
+      sent.value.contains(
+        .ensureInitialTab(
+          worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: false))
     )
   }
 
@@ -487,7 +495,10 @@ struct AppFeatureTerminalSetupScriptTests {
     await store.send(.repositories(.delegate(.selectedWorktreeChanged(worktree))))
     await store.finish()
     // The activation command carries the focus intent so the host claims focus.
-    #expect(sent.value.contains(.ensureInitialTab(worktree, runSetupScriptIfNew: false, focusing: true)))
+    #expect(
+      sent.value.contains(
+        .ensureInitialTab(worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: true)
+      ))
   }
 
   private func makeRepositoriesState(

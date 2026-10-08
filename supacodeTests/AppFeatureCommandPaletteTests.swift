@@ -241,7 +241,8 @@ struct AppFeatureCommandPaletteTests {
 
     #expect(
       sent.value == [
-        .performBindingActionOnSurface(worktree, surfaceID: surfaceID, action: "goto_split:right")
+        .performBindingActionOnSurface(
+          worktree.id, DirectoryContext(worktree: worktree), surfaceID: surfaceID, action: "goto_split:right")
       ]
     )
   }
@@ -274,7 +275,10 @@ struct AppFeatureCommandPaletteTests {
     await store.send(.commandPalette(.delegate(.ghosttyCommand("goto_split:right"))))
     await store.finish()
 
-    #expect(sent.value == [.performBindingAction(worktree, action: "goto_split:right")])
+    #expect(
+      sent.value == [
+        .performBindingAction(worktree.id, DirectoryContext(worktree: worktree), action: "goto_split:right")
+      ])
   }
 
   @Test(.dependencies) func ghosttyCommandCapturesSelectedSurfaceBeforeAsyncDispatch() async {
@@ -313,7 +317,8 @@ struct AppFeatureCommandPaletteTests {
 
     #expect(
       sent.value == [
-        .performBindingActionOnSurface(worktree, surfaceID: firstSurface, action: "toggle_split_zoom")
+        .performBindingActionOnSurface(
+          worktree.id, DirectoryContext(worktree: worktree), surfaceID: firstSurface, action: "toggle_split_zoom")
       ]
     )
   }
@@ -347,7 +352,7 @@ struct AppFeatureCommandPaletteTests {
     await store.send(.commandPalette(.delegate(.ghosttyCommand("prompt_surface_title"))))
     await store.finish()
 
-    #expect(sent.value == [.beginTabRename(worktree, tabID: capturedTabID)])
+    #expect(sent.value == [.beginTabRename(worktree.id, DirectoryContext(worktree: worktree), tabID: capturedTabID)])
   }
 
   @Test(.dependencies) func promptTabTitleGhosttyCommandCapturesSelectedTabIDSynchronously() async {
@@ -379,7 +384,7 @@ struct AppFeatureCommandPaletteTests {
     await store.send(.commandPalette(.delegate(.ghosttyCommand("prompt_tab_title"))))
     await store.finish()
 
-    #expect(sent.value == [.beginTabRename(worktree, tabID: capturedTabID)])
+    #expect(sent.value == [.beginTabRename(worktree.id, DirectoryContext(worktree: worktree), tabID: capturedTabID)])
   }
 
   @Test(.dependencies) func promptTitleGhosttyCommandCapturesSelectedTabIDBeforeAsyncDispatch() async {
@@ -416,7 +421,7 @@ struct AppFeatureCommandPaletteTests {
     currentTabID.setValue(secondTabID)
     await task.finish()
 
-    #expect(sent.value == [.beginTabRename(worktree, tabID: firstTabID)])
+    #expect(sent.value == [.beginTabRename(worktree.id, DirectoryContext(worktree: worktree), tabID: firstTabID)])
   }
 
   @Test(.dependencies) func promptTitleGhosttyCommandPassesNilTabIDWhenNoneSelected() async {
@@ -447,7 +452,7 @@ struct AppFeatureCommandPaletteTests {
     await store.send(.commandPalette(.delegate(.ghosttyCommand("prompt_surface_title"))))
     await store.finish()
 
-    #expect(sent.value == [.beginTabRename(worktree, tabID: nil)])
+    #expect(sent.value == [.beginTabRename(worktree.id, DirectoryContext(worktree: worktree), tabID: nil)])
   }
 
   @Test(.dependencies) func promptTitleGhosttyCommandDoesNothingForMissingWorktree() async {
@@ -511,7 +516,10 @@ struct AppFeatureCommandPaletteTests {
     await store.send(.commandPalette(.delegate(.ghosttyCommand("new_split:right"))))
     await store.finish()
 
-    #expect(sent.value == [.performBindingAction(worktree, action: "new_split:right")])
+    #expect(
+      sent.value == [
+        .performBindingAction(worktree.id, DirectoryContext(worktree: worktree), action: "new_split:right")
+      ])
   }
 
   @Test(.dependencies) func closePullRequestDispatchesAction() async {
