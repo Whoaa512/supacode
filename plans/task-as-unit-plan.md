@@ -989,3 +989,16 @@ deviation.
   Gate: check 0, TerminalTests 340 (2 baseline Ghostty failures),
   TerminalsFeatureTests 24, FeatureTests 987 (2 baseline failures),
   build-app 0.
+- R6, 2026-10-08, `d5fcb3ad`: `AppFeature.State.layoutID(forDirectory:)`
+  (identity) added; every app-layer `terminalClient` command/query that took
+  `worktree.id` as a layout (incl. `sendTerminalCommand`, whose builder now
+  gets `(LayoutID, Worktree)`, and `launchSessionTab`) and the
+  `layouts[id: worktree.id]` reads in `AppFeature+Sessions` and
+  `WorktreeDetailView` go through it. `SessionLocation.worktreeID` →
+  `layoutID` plus a stored `directoryID` (used by `focusTerminalSurface`
+  callers). Deviations: `WorktreeLayoutView` now takes `layoutID` instead of
+  `worktree` (its only use was as the layout key); `PaneWindowManager` and the
+  `AppFeature` `layouts[id:]` reads keyed by a `.layouts(.element(id:))`
+  action id were already layout-keyed, left as is. Gate: check 0,
+  TerminalTests 340 (2 baseline Ghostty failures), TerminalsFeatureTests 24,
+  AppFeatureSessionsTests 64 pass, build-app 0.
