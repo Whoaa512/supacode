@@ -15,7 +15,8 @@ Measured on cj-main at 47b3b515. Line numbers drift; re-`rg` before editing.
   1. `make check` (format + lint)
   2. the slice's focused tests (listed per slice)
   3. `make build-app`
-  4. last slice of each phase only: full `make test`
+  4. full `make test` on: the last slice of each phase, F1, and the
+     destructive slices R8, T2, T6. Other slices run focused tests only.
 - Focused test form (keep `SWIFT_VERSION=5`):
   `make test LOCAL_XCODEBUILD_FLAGS='SWIFT_VERSION=5 -only-testing:<bundle>/<Suite>'`
   then
@@ -43,9 +44,10 @@ Measured on cj-main at 47b3b515. Line numbers drift; re-`rg` before editing.
 - **`DirectoryContext`**: `{ worktreeID, repositoryID, name, workingDirectory,
   repositoryRootURL, host }`, built from a `Worktree`. The terminal layer holds
   this instead of a `Worktree`.
-- **Settle state stays in the session sidecar**, on the task's primary
-  session. No sidecar migration. A task is settled iff its primary's entry is
-  settled. Shell-only tasks have no settle state: closing the last tab
+- **Settle state stays in the session sidecar**, on the task's current
+  primary session. No sidecar migration. A task is settled iff its current
+  primary's entry is settled. Session-level settle (sidecar mark only) and
+  task settle (closes tabs) are separate actions; see T9. Shell-only tasks have no settle state: closing the last tab
   deletes the task.
 - **Implicit tasks**: an indexed session in no `TaskRecord` renders as a
   one-member task with no layout and nothing persisted. Resume mints the
@@ -63,8 +65,9 @@ cj can confirm in the running app (see the live-UI section).
 
 Rekey (behaviour unchanged):
 
-- A1 (auto) After every R slice and F1, `make build-app` and the full
-  `make test` pass with no test deleted or weakened.
+- A1 (auto) After every R slice and F1, `make build-app` and the slice's
+  focused tests pass with no test deleted or weakened; the full `make test`
+  passes at R8, R10 and F1 (same policy as ground rule 4).
 - A2 (auto) No file in `supacode/Features/Terminal` or
   `supacode/Clients/Terminal` names `Worktree.ID` as a layout key after R
   phase: `rg -n 'Worktree\.ID' supacode/Features/Terminal supacode/Clients/Terminal`
@@ -88,12 +91,14 @@ Ownership and migration:
   directory with no leftover tabs gets no shell task (D11).
 - A8 (auto) Migration loses nothing: the multiset of content ids, tab ids and
   surface ids across all v3 tasks equals the v2 input; splits inside one tab
-  stay together.
+  stay together; every v2 `origin` survives in the directory-keyed `origins`
+  field, including for a directory whose tabs all became agent tasks.
 - A9 (auto) Migration is safe: v2 is backed up before the first v3 write; any
   decode loss defers migration and leaves v2 untouched; rerunning is a no-op.
-- A10 (auto) After migration, the reaper's known-surface set and agent
-  presence restore cover every surface that v2 covered (no zmx session is
-  orphaned or reaped).
+- A10 (auto) After migration, the complete `allKnownSurfaceIDs` set
+  (origin-only ids included) equals the v2 set, and agent presence restore
+  covers every surface that v2 covered (no zmx session is orphaned or
+  reaped).
 - A11 (auto) Two tasks may share a directory: both layouts survive a
   `repositoriesChanged` prune, and the info watcher is still fed one entry
   per worktree (D9).
@@ -114,7 +119,22 @@ Ownership and migration:
 - A18 (auto) `selectedWorktreeID` equals the selected task's directory, so
   directory features (scripts, PR, explorer, open-in) follow the task.
 - A19 (auto) Task settle closes every tab of the task and settles the
-  primary's sidecar entry; unsettle/reopen resumes only the primary (D6).
+  current primary's sidecar entry; unsettle/reopen resumes only the primary
+  (D6).
+- A36 (auto) Every task is reachable: for any set of tasks (several per
+  directory, orphans, shell-only, freshly migrated), each layout id is the
+  target of a sidebar row, activating the row shows that layout and focuses
+  its surface, and the next/previous chord visits every live task without
+  minting or resuming. Holds before the split migration is wired (T6 gate).
+- A37 (auto) Replacement is not quit: `/new` or `/fork` on a member's
+  surface keeps the task active, closes no surface, puts the new session in
+  the replaced one's slot (new primary if it replaced the primary) and keeps
+  the replaced session as a session-level-settled member. Primary quit
+  settles the task only when no other member is live; tangent quit never
+  does.
+- A38 (auto) Branch capture uses the session surface's cwd: a tangent
+  running in directory B inside a task on directory A records B's branch,
+  and its resume warning compares against B (D9).
 - A20 (auto) `SUPACODE_WORKTREE_ID` in a new surface is still the
   percent-encoded directory path; `SUPACODE_TASK_ID` is the task id; existing
   CLI `-w <path>` and worktree deeplinks resolve to that directory's active
@@ -125,7 +145,8 @@ Sub-rows, tangents, keyboard:
 
 - A21 (auto) An agent that starts in a task's tab is appended to that task's
   `sessions`; the first is primary and supplies the title; membership
-  survives relaunch (D5).
+  survives relaunch; two agents in one task are both visible before grouping
+  lands (D5).
 - A22 (auto) A provisional (no session ref yet) member upgrades in place when
   the ref arrives, without a second row or a membership loss.
 - A23 (auto) The sidebar structure exposes sub-rows only for the selected
@@ -137,9 +158,11 @@ Sub-rows, tangents, keyboard:
   chord walks surfaces inside the selected task; jump-to-attention returns
   the exact surface across tasks (D7).
 - A26 (auto) Reconcile with tasks stays O(n) and write-free when nothing
-  changed: a 3,000-row reconcile with an unchanged input performs zero state
-  writes, and its measured time is within 1.5× of the pre-task baseline
-  recorded in S2.
+  changed. Deterministic: a 3,000-row reconcile with an unchanged input
+  performs zero state writes. Scaling, same process and build config: median
+  of 5 runs at 6,000 rows ≤ 3× the median at 3,000 rows. The test is added
+  in T4's first commit against pre-task code and must pass unmodified after
+  S1; the T4 numbers in Progress are informational, not a gate.
 - A27 (auto) A shell-only task is titled by its directory and becomes an
   agent task (primary set, title switches) when the first agent starts in it
   (D4).
@@ -171,9 +194,9 @@ Live use:
 
 ## Slices
 
-Order: R (rekey behind alias) → F (flip) → T (ownership + migration) → S
-(sub-rows) → K (tangent keyboard) → M (merge/detach) → P (picker) → Z
-(cleanup). Each slice depends on the one before it unless stated.
+Order: R (rekey behind alias) → F (flip) → T (ownership, reachability, then
+migration) → S (sub-rows) → K (tangent keyboard) → M (merge/detach) → P
+(picker) → Z (cleanup). Each slice depends on the one before it unless stated.
 
 ### Phase R — rekey behind a typealias (no behaviour change)
 
@@ -369,41 +392,57 @@ behaviour change.
 
 ### Phase T — task ownership and migration
 
+Row rule through phase T: a sidebar row is still one session (as today), now
+located in a task, plus one row per task with no sessions (shell-only).
+Collapsing members into one task row with sub-rows is phase S. This keeps
+every agent visible when a task holds several (unsplit store, or a second
+agent started in a tab).
+
 **T1 — `TaskRecord` model and pure v2 → v3 split.** Complex, pure code.
 - Files: new `Domain/TaskRecord.swift`; new
   `Features/Terminal/BusinessLogic/LayoutsTaskSplitter.swift`.
-- Steps: define `TaskRecord` and `LayoutsFile` v3 shape
-  (`tasks: [String: TaskRecord]`, key = `LayoutID.persistenceKey`,
-  `origin` kept per directory for rollback). Write the pure split: per v2
+- Steps: define `TaskRecord` and a **separately named** v3 DTO
+  `TaskLayoutsFile` (`tasks: [String: TaskRecord]`, key =
+  `LayoutID.persistenceKey`; `origins: [String: Origin]` top-level, keyed by
+  directory, so an all-agent directory keeps its origin). Production
+  `LayoutsFile` and its consumers are untouched. Write the pure split: per v2
   record, each tab whose terminal state has a non-empty agent record (dead
   flagged ones included) becomes a single-pane task with a fresh UUID id and
   `sessions` seeded from the record's `sessionRef` when present; the rest go
   through `TerminalRestorePruner.prunedLayout` with the inverse predicate
-  into one shell-only task that keeps the legacy id. Rebuild focus/selection
-  per task. Nothing wired.
+  into one shell-only task that keeps the legacy id. Origin moves to
+  `origins[directory]` whether or not a shell task exists. Rebuild
+  focus/selection per task. Nothing wired.
 - Tests: new `LayoutsTaskSplitterTests` (Terminal bundle): A7 cases, A8
   multiset equality, splits kept together, empty-leftover case, tab without
-  `sessionRef`, remote directory.
+  `sessionRef`, remote directory, all-agent directory with an origin
+  (origin-only surface ids still in the known-surface set).
 - Verify: `make generate-project`; `…-only-testing:supacodeTerminalTests/LayoutsTaskSplitterTests`.
-- Assertions: A7, A8.
+- Assertions: A7, A8, A10 (pure half).
 
-**T2 — v3 codec, in-memory v2 read, writer speaks tasks (still one per
-directory).** Complex.
+**T2 — Switch production codec and consumers to v3 atomically (still one
+task per directory).** Complex.
 - Files: `LayoutsMigrator.swift`, `LayoutsIncrementalWriter.swift`,
   `LayoutsPersistenceKey.swift:52`, `TerminalsFeature.swift:172-196`,
-  `AgentPresenceFeature.swift:628`, `AppFeature.swift:476-477`, manager
+  `AgentPresenceFeature.swift:628`, `AppFeature.swift:476-477`,
+  `AppFeature+Sessions.swift` (`persistedLayouts.worktrees` readers), manager
   writer sites.
-- Steps: readers decode v3, or v2 mapped 1:1 in memory (each worktree record
-  → one `TaskRecord` with the legacy id and explicit directory; **no split
-  yet**). Writer upserts/deletes `TaskRecord`s. `allKnownSurfaceIDs` and
-  `stageRestore(from:)` iterate tasks. Hydration builds layouts from tasks
-  and hands each host its `DirectoryContext` from the record's directory
-  instead of from the key. Bump `currentSchemaVersion` to 3; back up v2
-  before the first v3 write, same pattern as v1→v2 (`:399-456`).
+- Steps: one commit swaps the production type to the T1 DTO and converts
+  every `.worktrees` consumer (hydration, presence restore, reaper, session
+  lookups). Readers decode v3, or v2 mapped 1:1 in memory (each worktree
+  record → one `TaskRecord` with the legacy id and explicit directory, origin
+  → `origins`; **no split yet**). Writer upserts/deletes `TaskRecord`s.
+  `allKnownSurfaceIDs` = all task content ids ∪ all `origins` surface ids.
+  `stageRestore(from:)` iterates tasks. Hydration hands each host its
+  `DirectoryContext` from the record's directory instead of from the key.
+  Bump `currentSchemaVersion` to 3; back up v2 before the first v3 write,
+  same pattern as v1→v2 (`:399-456`).
 - Tests: extend `LayoutsMigrator` tests: v2 in → v3 out round trip, backup
   written once, decode loss defers (A9), newer schema stays read-only;
-  `LayoutsLegacyKeyTests` still green; reaper/presence coverage test (A10).
-- Verify: `…-only-testing:supacodeTerminalTests`, `supacodeTests/TerminalsFeatureTests`.
+  `LayoutsLegacyKeyTests` still green; reaper/presence coverage test: full
+  `allKnownSurfaceIDs` before == after, including origin-only ids (A10).
+- Verify: `…-only-testing:supacodeTerminalTests`, `supacodeTests/TerminalsFeatureTests`,
+  `supacodeFeatureTests`.
 - Assertions: A9, A10, A5.
 - Note: from here an older build reads the store as `.unreadable` (safe, no
   reaping, but shows no layouts).
@@ -424,78 +463,135 @@ directory).** Complex.
 - Verify: `supacodeTerminalTests`, `supacodeFeatureTests`.
 - Assertions: A11, A12, A13, A14.
 
-**T4 — Wire the split migration.** Complex, destructive if wrong.
+**T4 — Surface discovery walks tasks.** Complex.
+- Files: `AppFeature+Sessions.swift` (`sessionSnapshots :611-642`,
+  `focusedSurfaceID :35`, `worktreeIDForSurface :565`,
+  `hasUnresolvedLivePresence :584`), `SessionSidebarItemFeature.swift`,
+  `SessionsSidebarStructure.swift`.
+- Steps: first commit (before any change): add the reconcile benchmark and
+  zero-write test against the current pre-task code (see A26) and note the
+  measured numbers in Progress. Then: one `surfaceIndex` helper walks every
+  task (live layout, else persisted record), not repositories→worktrees
+  through the resolver, and returns `surface → (LayoutID, tabID, directory,
+  cwd)`; cwd is the tab snapshot `workingDirectory`, falling back to the task
+  directory (D9). The four functions above use it. `SessionLocation` carries
+  the owning `layoutID`. Orphan tasks are included.
+- Tests: `AppFeatureSessionsTests`: two tasks on one directory, each with an
+  agent → both snapshots, each with its own layout id; orphan task's agent
+  listed; `hasUnresolvedLivePresence` false for a surface in a non-active
+  task.
+- Verify: `supacodeFeatureTests/AppFeatureSessionsTests`, `supacodeTests`.
+- Assertions: A36 (discovery half), A26 (baseline), A13.
+
+**T5 — Task selection, shell-only rows, focus routing, minimum keyboard.**
+Complex.
+- Files: `SessionSidebarItemFeature.swift`, `SessionsSidebarStructure.swift`
+  (`reconcileSessionItems :97-180`, cycling `:18-65`),
+  `RepositoriesFeature.swift` (`selectedWorktreeID :5914`, removal paths
+  `:1122,1455,1520,1584`, history `~:244`), `SidebarSelection.swift`,
+  `SessionsSidebarListView.swift`, `TerminalCommands.swift`.
+- Steps: add `selectedTaskID`; `selectedWorktreeID` becomes
+  `tasks[selectedTaskID]?.directory ?? selection?.worktreeID`. Activating a
+  session row selects its task (`location.layoutID`) and focuses its surface.
+  Add a `.task(LayoutID)` row for every task with no sessions (titled by
+  directory). Indexed sessions in no task stay as implicit rows. Removing a
+  directory clears or retargets `selectedTaskID`. Keyboard: the existing
+  next/previous and ⌘1–9 walk live rows including shell-only task rows, and
+  never mint or resume.
+- Tests: `SessionsSidebarStructure`/`AppFeatureSessionsTests`: A16, A17,
+  A18; A36: for N tasks across shared directories, every layout id is the
+  target of some row, and next/previous from any row visits every live task;
+  selection cleared when the directory is deleted.
+- Verify: `supacodeFeatureTests`, `supacodeTests`.
+- Assertions: A16, A17, A18, A36.
+
+**T6 — Wire the split migration.** Complex, destructive if wrong. Depends on
+T4 and T5 (migrated tasks must already be reachable).
 - Files: `LayoutsMigrator.swift`, `SettingsRelocationMigrator.swift:121`.
 - Steps: one-time on-disk v2/"v3-unsplit" → split using T1's function, gated
   by a `tasksSplit` marker in the file so it runs once; backup first; any
-  integrity failure (A8 check run at migration time) aborts and leaves the
-  unsplit store in use.
+  integrity failure (A8 check and full known-surface-set equality, run at
+  migration time) aborts and leaves the unsplit store in use.
 - Tests: migrator tests end to end from a realistic v2 fixture (several
   directories, mixed agent/shell tabs, splits, a dead-flagged agent, a
-  remote); idempotence; abort path.
+  remote, an all-agent directory with an origin); idempotence; abort path.
+  Reducer test: hydrate the split fixture and assert A36 over it (every
+  migrated layout has a row and is in the keyboard cycle).
 - Verify: `…-only-testing:supacodeTerminalTests`; full `make test`.
-- Assertions: A7, A8, A9, A10.
+- Assertions: A7, A8, A9, A10, A36.
 - **UI checkpoint (A34)**: cj copies his real `layoutsFile` default aside,
-  launches, and confirms every agent and shell reattached. Do not start T5
-  before this is confirmed.
+  launches, and confirms every agent and shell reattached and is reachable
+  by click **and** by the cycling chord. Do not start T7 before this is
+  confirmed.
 
-**T5 — Minting: new session, resume and agent-start create/join tasks.**
-Complex.
+**T7 — Minting and membership.** Complex.
 - Files: `AppFeature+Sessions.swift` (`handleNewSession :284-312`,
   resume `:314-495`, `launchSessionTab`, `worktreeForCwd :505`,
-  `createTabWithInput :513`, `surfacesChanged :77`), `TerminalsFeature`.
+  `createTabWithInput :513`, `surfacesChanged :77`, swap at `:162`),
+  `TerminalsFeature`, `TaskRecord`, writer.
 - Steps: Cmd-N mints a `TaskRecord` (fresh id, directory = current task's
   directory, default agent) and creates its first tab. Resume of a session
-  with no task mints one with that session as primary. An agent reported on
-  a surface whose task has no sessions becomes its primary. A task whose
-  last tab closes and that has no sessions is deleted; one with sessions
-  keeps its record with an empty layout.
+  with no task mints one with that session as primary. When presence reports
+  an agent on a surface, its `SessionKey` is appended to the owning task's
+  `sessions` if absent (first = primary). Provisional members (no ref yet)
+  are recorded by surface and upgraded in place when the ref arrives. A task
+  whose last tab closes and that has no sessions is deleted; one with
+  sessions keeps its record with an empty layout. No grouping or sub-row UI:
+  each member is still its own row (row rule above).
 - Tests: `AppFeatureSessionsTests`: A15 cases; no action creates an empty
-  task; task with sessions survives last-tab close.
+  task; task with sessions survives last-tab close; A21, A22; two agents in
+  one task → two rows, both members, survives a v3 codec round trip.
+- Verify: `supacodeFeatureTests/AppFeatureSessionsTests`,
+  `supacodeTerminalTests`.
+- Assertions: A15, A21, A22.
+
+**T8 — Branch capture uses the session surface's cwd.** Complex (small).
+- Files: `AppFeature+Sessions.swift:535-560` (capture), resume-warning path.
+- Steps: capture resolves the surface through T4's index. Use the cached
+  `sidebarItems[id:].branchName` only when the surface cwd equals that
+  directory's working directory; otherwise probe `gitClient.branchName(cwd)`
+  with the surface cwd.
+- Tests: tangent running in directory B inside task A captures B's branch;
+  resuming it in B does not warn; resuming it in A (different branch) warns;
+  same-directory capture still uses the cache (no probe).
 - Verify: `supacodeFeatureTests/AppFeatureSessionsTests`.
-- Assertions: A15.
+- Assertions: A38.
 
-**T6 — Sidebar rows are tasks; selection carries a task.** Complex.
-- Files: `SessionSidebarItemFeature.swift`, `SessionsSidebarStructure.swift`
-  (`reconcileSessionItems :97-180`), `AppFeature+Sessions.swift`
-  (`sessionSnapshots :611-642`, `focusedSurfaceID :35`,
-  `worktreeIDForSurface :565`, `hasUnresolvedLivePresence :584`),
-  `RepositoriesFeature.swift` (`selectedWorktreeID :5914`, removal paths
-  `:1122,1455,1520,1584`, history `~:244`), `SidebarSelection.swift`,
-  `SessionsSidebarListView.swift`.
-- Steps: row id becomes a task row id (`.task(LayoutID)` or
-  `.implicit(SessionKey)`, plus the provisional case). `sessionSnapshots`
-  walks tasks, not repositories→worktrees; cwd comes from the tab snapshot
-  `workingDirectory`, falling back to the task directory (D9). Add
-  `selectedTaskID`; `selectedWorktreeID` becomes
-  `tasks[selectedTaskID]?.directory ?? selection?.worktreeID`. Removing a
-  directory clears or retargets `selectedTaskID`. One member per task still.
-- Tests: `SessionsSidebarStructure`/`AppFeatureSessionsTests`: A16, A17,
-  A18; selection cleared when the directory is deleted.
-- Verify: `supacodeFeatureTests`, `supacodeTests`.
-- Assertions: A16, A17, A18.
-
-**T7 — Settle is task-level.** Complex.
-- Files: `AppFeature+Sessions.swift:166-244`,
+**T9 — Replacement and task-level settle.** Complex.
+- Files: `AppFeature+Sessions.swift:166-244`
+  (`settleReplacedOrEndedSession :166`),
   `SessionsSidebarStructure.swift:211-260`.
-- Steps: manual settle closes every tab of the task and settles the
-  primary's sidecar entry. Auto-settle evaluates the task: never while any
-  member is live; idle age = newest member activity. Harness-end of the
-  primary settles the task; harness-end of a tangent only closes that
-  sub-row's surface. Reopen resumes the primary. Settle-and-advance moves to
-  the next live task.
-- Tests: A19; auto-settle with one live tangent among idle members does not
-  fire.
+- Steps: keep `settleSession(key)` as the session-level sidecar mark (closes
+  nothing); add `settleTask(id)` (closes every tab, settles the current
+  primary's entry). A task is settled iff its **current** primary's entry is
+  settled.
+  - Replacement (`/new`, `/fork`: changed ref on the same surface): the new
+    key takes the replaced key's slot in `sessions` (replacing the primary
+    promotes the new key to primary; title follows); the replaced key stays a
+    member directly after it and gets `settleSession` only. The task stays
+    active; no tab closes; no new task. Same rule for a tangent's slot.
+  - Quit (`sessionEnd`, pi non-reload): of a tangent → nothing settles; of
+    the primary → `settleTask` only when no other member is live, otherwise
+    nothing closes and the task stays active.
+  - Manual settle → `settleTask`. Auto-settle evaluates the task: never
+    while any member is live; idle age = newest member activity. Reopen
+    resumes the current primary. Settle-and-advance moves to the next live
+    task.
+- Tests: A19; A37 table: primary `/new`, primary `/fork`, tangent
+  replacement, primary quit alone, primary quit with a live tangent, tangent
+  quit — each asserting task settled-state, primary, member list and that no
+  surface was closed except on `settleTask`; auto-settle with one live
+  tangent among idle members does not fire.
 - Verify: `supacodeFeatureTests/AppFeatureSessionsTests`,
   `supacodeTests` (structure tests).
-- Assertions: A19.
+- Assertions: A19, A37.
 
-**T8 — Worktrees tab: a directory is a filter.** Complex.
+**T10 — Worktrees tab: a directory is a filter.** Complex.
 - Files: `RepositoriesFeature.swift` selection handling,
   `WorktreeDetailView.swift`, `SidebarStructure` projections.
 - Steps: selecting a worktree row selects that directory's most recent task
   via the resolver; if it has none, show the existing empty detail state
-  with a "New task here" action (mints via T5). Worktree-row badges come
+  with a "New task here" action (mints via T7). Worktree-row badges come
   from the T3 aggregates. `sidebarItems[id: selectedWorktreeID]` focus logic
   (`AppFeature.swift:650-657`) keeps working because the directory row still
   exists.
@@ -503,7 +599,7 @@ Complex.
 - Verify: `supacodeFeatureTests`.
 - Assertions: A18, A32.
 
-**T9 — CLI, env and deeplinks.** Complex (external contract).
+**T11 — CLI, env and deeplinks.** Complex (external contract).
 - Files: `TerminalSurfaceRecipe.swift:104-107`, `supacodeApp.swift:807-819`,
   `DeeplinkClient.swift`, `Deeplink.swift`, `AppFeature.swift` deeplink
   handlers (`:2671+`, `handleWorktreeDeeplink :2838`),
@@ -524,31 +620,23 @@ Complex.
 
 ### Phase S — sub-rows
 
-**S1 — Persisted membership.** Complex.
-- Files: `AppFeature+Sessions.swift:77,162`, `TaskRecord`, writer.
-- Steps: when presence reports an agent on a surface, append its
-  `SessionKey` to the owning task's `sessions` if absent. Provisional
-  members are recorded by surface and upgraded when the ref arrives (reuse
-  the swap at `:162`). A `/new`/`/fork` replacement in the same surface adds
-  the new key as a tangent.
-- Tests: A21, A22; relaunch round trip through the v3 codec.
-- Verify: `supacodeFeatureTests/AppFeatureSessionsTests`,
-  `supacodeTerminalTests`.
-- Assertions: A21, A22.
+Membership already exists (T7). This phase is grouping and presentation only.
 
-**S2 — Structure: grouping and status rollup.** Complex, perf-sensitive.
+**S1 — Structure: grouping and status rollup.** Complex, perf-sensitive.
 - Files: `SessionsSidebarStructure.swift`, `SessionSidebarItemFeature.swift`.
-- Steps: first commit: add a 3,000-row reconcile benchmark test against
-  today's code and record the baseline in the test. Second: reconcile groups
-  sessions by task via a prebuilt `[SessionKey: LayoutID]` map (O(n)), task
-  status = most urgent member, sub-row list computed only for the selected
-  task; keep the write-avoidance diffing.
-- Tests: A24 table test; A26 zero-write and timing test; A23 structure half
-  (sub-rows only for selected, closed tangent flagged dormant).
-- Verify: `supacodeTests` (structure suite).
-- Assertions: A23, A24, A26.
+- Steps: row id becomes `.task(LayoutID)` / `.implicit(SessionKey)` (plus
+  the provisional case). Reconcile groups sessions by task via a prebuilt
+  `[SessionKey: LayoutID]` map (O(n)), task status = most urgent member,
+  sub-row list computed only for the selected task; keep the write-avoidance
+  diffing. Session-level-settled members (replaced keys) are dormant
+  sub-rows, not top-level rows.
+- Tests: A24 table test; A26 with the T4 benchmark unchanged; A23 structure
+  half (sub-rows only for selected, closed tangent flagged dormant); A36
+  re-run on task rows.
+- Verify: `supacodeTests` (structure suite), `supacodeFeatureTests`.
+- Assertions: A23, A24, A26, A36.
 
-**S3 — View: sub-rows under the selected task.** Complex (UI).
+**S2 — View: sub-rows under the selected task.** Complex (UI).
 - Files: `SessionsSidebarListView.swift`.
 - Steps: render sub-rows from the cached structure only (never read
   `sessionItems[id:]` in a body, per AGENTS.md). Dimmed dormant tangent;
@@ -559,23 +647,24 @@ Complex.
 - Verify: `supacodeFeatureTests`; `make build-app`.
 - Assertions: A23; A35 (UI).
 
-**S4 — Shell-only tasks become agent tasks.** Mechanical-ish.
+**S3 — Shell-only tasks become agent tasks.** Mechanical-ish.
 - Files: `SessionsSidebarStructure.swift`, title derivation.
-- Steps: a task with no sessions is titled by directory name; once S1 adds
-  its first session the title switches to the primary's.
+- Steps: a task with no sessions is titled by directory name; once T7 adds
+  its first session the title switches to the primary's and the T5
+  shell-only row is replaced by the task row (same id, no selection loss).
 - Tests: A27.
 - Verify: `supacodeTests`, `supacodeFeatureTests`; full `make test`.
 - Assertions: A27.
 
 ### Phase K — tangent keyboard
 
-**K1 — Task chord and tab chord.** Complex.
+**K1 — Task chord vs tab chord.** Complex.
 - Files: `SessionsSidebarStructure.swift:18-65`, `TerminalCommands.swift`,
   `AppFeature+Sessions.swift`.
-- Steps: next/previous and ⌘1–9 walk live tasks (a task is live if any
-  member or shell surface is live). The existing tab chord
-  (`selectRelativeTab`) walks surfaces of the selected task; no new chord.
-  Cycling never mints or resumes.
+- Steps: the T5 cycle now steps one **task** per press (a task is live if
+  any member or shell surface is live), not one member. The existing tab
+  chord (`selectRelativeTab`) walks surfaces of the selected task; no new
+  chord. Cycling never mints or resumes.
 - Tests: A25 task and tab halves; a cycling test asserting zero terminal
   commands other than focus.
 - Verify: `supacodeTests`, `supacodeFeatureTests`.
@@ -635,7 +724,7 @@ Complex.
   `CommandPaletteFeature.swift`), view for the picker.
 - Steps: extend the existing fuzzy directory picker with one extra choice,
   agent or shell. Sources: known directories including remote ones. Confirm
-  mints via T5 (agent) or mints a shell-only task. No model/machine field.
+  mints via T7 (agent) or mints a shell-only task. No model/machine field.
 - Tests: reducer tests for A31 (local agent, local shell, remote directory).
 - Verify: `supacodeFeatureTests`; `make build-app`.
 - Assertions: A31; A35 (UI).
@@ -668,44 +757,49 @@ Complex.
 | A4 | F1 |
 | A5 | R9, F1, T2 |
 | A6 | R8 |
-| A7, A8 | T1, T4 |
-| A9 | T2, T4 |
-| A10 | T2, T4 |
-| A11, A13, A14 | T3 |
+| A7, A8 | T1, T6 |
+| A9 | T2, T6 |
+| A10 | T1, T2, T6 |
+| A11, A14 | T3 |
 | A12 | R8, T3 |
-| A15 | T5 |
-| A16 | T6 |
-| A17 | R7, T6 |
-| A18 | T6, T8 |
-| A19 | T7 |
-| A20 | T9 |
-| A21, A22 | S1 |
-| A23 | S2, S3 |
-| A24, A26 | S2 |
+| A13 | T3, T4 |
+| A15 | T7 |
+| A16 | T5 |
+| A17 | R7, T5 |
+| A18 | T5, T10 |
+| A19 | T9 |
+| A20 | T11 |
+| A21, A22 | T7 |
+| A23 | S1, S2 |
+| A24 | S1 |
 | A25 | K1, K2 |
-| A27 | S4 |
+| A26 | T4 (baseline), S1 |
+| A27 | S3 |
 | A28 | M1, M2, M3 |
 | A29 | M1, M3 |
 | A30 | M3 |
 | A31 | P1 |
-| A32 | R6, T8, Z1 |
+| A32 | R6, T10, Z1 |
 | A33 | K2 (UI) |
-| A34 | T4 (UI) |
-| A35 | S3, M3, P1 (UI) |
+| A34 | T6 (UI) |
+| A35 | S2, M3, P1 (UI) |
+| A36 | T4, T5, T6, S1 |
+| A37 | T9 |
+| A38 | T8 |
 
 ## What only the live UI can verify
 
 An agent can build and run tests; it cannot judge any of these. cj checks
 them at the marked checkpoints, on his real state.
 
-- A34 after T4: real zmx sessions reattach with scrollback after the
-  migration launch. Take a copy of the `layoutsFile` default first.
+- A34 after T6: real zmx sessions reattach with scrollback after the
+  migration launch, each reachable by click and by the cycling chord. Take a copy of the `layoutsFile` default first.
 - A33 after K2: cycling speed and feel under key repeat, no flicker.
-- A35 after S3, M3, P1: sub-row appearance, dimming, rollup badge, menus,
+- A35 after S2, M3, P1: sub-row appearance, dimming, rollup badge, menus,
   picker, tooltips.
 - After F1 and after T3: a day of normal use with no visible change
   (hibernation wake, pane windows, remote worktrees, setup scripts).
-- After T9: an already-running shell (old env, no `SUPACODE_TASK_ID`) still
+- After T11: an already-running shell (old env, no `SUPACODE_TASK_ID`) still
   drives the CLI and agent hooks correctly.
 - Remote tasks end to end (host reachable, restore while repos resolve).
 - Downgrade behaviour: launching an older build against a v3 store shows no
@@ -718,7 +812,8 @@ them at the marked checkpoints, on his real state.
   the alias with explicit tests before any id can differ from its directory.
 - **Migration data loss** (T1, T4). Mitigation: pure splitter with multiset
   equality tests, backup before write, integrity check at migration time
-  that aborts to the unsplit store, UI checkpoint before T5.
+  that aborts to the unsplit store, reachability (A36) landed before the
+  split, UI checkpoint before T7.
 - **No downgrade after T2.** Older builds read v3 as unreadable. The v2
   backup is the only way back.
 - **R5 breadth.** 50 command cases and 40 call sites; split in three commits
@@ -728,8 +823,8 @@ them at the marked checkpoints, on his real state.
   touches teardown, hibernation and settle signalling; a stray close signal
   would settle the session being merged. Highest-risk slice; it may need to
   split in two.
-- **Reconcile performance** (S2). It runs on every status flip; grouping
-  must not add writes. Baseline is recorded before the change.
+- **Reconcile performance** (S1). It runs on every status flip; grouping
+  must not add writes. The benchmark lands in T4, before any task code.
 - **Stale `DirectoryContext`.** The host is the source of cwd/host; a
   worktree rename or move leaves it stale. Already latent today; R4 keeps
   it, T3 should refresh contexts on `repositoriesChanged`.
@@ -737,7 +832,7 @@ them at the marked checkpoints, on his real state.
   directory the visible set is the selected task only. Covered by R7's
   rename but needs the UI day after T3.
 - **Selection removal.** History and `selectionWasRemoved` are
-  worktree-keyed; T6 must retarget `selectedTaskID` or the detail view shows
+  worktree-keyed; T5 must retarget `selectedTaskID` or the detail view shows
   a layout whose directory is gone.
 - **Notification scope `.selected`** changes meaning (see open questions).
 - **Upstream drift.** Every R slice widens the diff from upstream's terminal
@@ -763,8 +858,9 @@ them at the marked checkpoints, on his real state.
    user settles them.
 6. Auto-settle rule for a task with mixed members? **Assumed** never while
    any member is live; idle age is the newest member's activity.
-7. Harness-end of a tangent? **Assumed** it does not settle the task; only
-   the primary ending does.
+7. Harness-end of a tangent? **Assumed** it does not settle the task. The
+   primary quitting settles the task only when no other member is live
+   (otherwise settle would kill live tangents).
 8. Detaching the primary? **Assumed** refused; merge the other way instead.
 9. Merge and detach entry points? **Assumed** context menu and palette only,
    no drag and drop.
@@ -775,7 +871,7 @@ them at the marked checkpoints, on his real state.
     **Assumed** the existing empty state plus a "New task here" action; no
     task is minted on selection.
 12. Notification scope `.selected`: this task or this directory? **Assumed**
-    this directory (unchanged behaviour); revisit after S3.
+    this directory (unchanged behaviour); revisit after S2.
 13. Per-directory features for a task whose tabs span directories?
     **Assumed** (as in the sizing notes) they follow the task's directory.
 14. Setup script with two tasks on one directory? **Assumed** once per
@@ -785,8 +881,40 @@ them at the marked checkpoints, on his real state.
     this plan; removal is a later call.
 17. `SUPACODE_WORKTREE_ID` for a tab running outside the task directory?
     **Assumed** still the task's directory.
-18. Keep `origin` (v1 snapshot) in v3? **Assumed** yes, carried on the
-    shell-only task that keeps the legacy id.
+18. Keep `origin` (v1 snapshot) in v3? **Assumed** yes, in a top-level
+    directory-keyed `origins` field (not on any task).
+19. `/new` or `/fork` in a task: same task or a new one? **Assumed** same
+    task, stays active; the new session takes the replaced one's slot
+    (primary if it replaced the primary) and the replaced one stays as a
+    session-level-settled dormant member.
+20. Rows before phase S: **assumed** one row per session (as today) plus one
+    per shell-only task; a task with two agents shows two rows until S1
+    groups them.
+21. Primary quits while a tangent is live: **assumed** the task stays active
+    with a dormant primary; should the live tangent be promoted instead?
+
+## Review notes
+
+Independent review (9 findings), each checked against source. All applied;
+none rejected.
+
+- P1 migration before reachability: held (`sessionSnapshots` and
+  `worktreeIDForSurface` walk worktrees, one layout each). Enumeration (T4)
+  and selection + keyboard (T5) now precede the split (T6); A36 gates it.
+- P1 `/new` vs settle: held (`settleReplacedOrEndedSession` settles the old
+  key on a changed ref). Replacement semantics specified in T9; A37.
+- P1 T1 unwired vs `LayoutsFile`: held (`.worktrees` read at
+  `TerminalsFeature.swift:179`, `AgentPresenceFeature.swift:628`). T1 uses a
+  separate DTO; T2 switches atomically.
+- P1 branch capture: held (capture reads the owning worktree's cached branch
+  or cwd). New slice T8; A38.
+- P1 origin coverage: held (`allKnownSurfaceIDs` includes origin ids;
+  all-agent directory had no owner). Top-level `origins`; A8/A10 tightened.
+- P2 membership too late: held. Moved into T7; S is presentation only.
+- P2 keyboard too late: held. Minimum cycling in T5, gated in T6.
+- P2 perf baseline: held. Benchmark lands in T4; A26 made deterministic plus
+  same-run scaling.
+- P3 full-test policy: held. Ground rule 4 and A1 aligned.
 
 ## Progress
 
