@@ -1030,3 +1030,19 @@ deviation.
   resolved by the caller / layout-origin). Gate: check 0, WindowTitleTests +
   AppFeatureSessionsTests + TerminalTests + TerminalsFeatureTests 447 (2
   baseline Ghostty failures), build-app 0.
+- R7 (partial, rename half only), 2026-10-08: `setSelectedWorktreeID` →
+  `setSelectedLayoutID` (terminal client only; the watcher's stays),
+  manager `selectedLayoutID`, `TerminalsFeature.selectedLayoutID`/
+  `recentLayoutIDs`/`.selectedLayoutChanged`. The app handler sends the
+  resolved layout id; `focusedSurfaceID` reads `terminals.selectedLayoutID`
+  directly (already a layout id, no resolver). Left on
+  `repositories.selectedWorktreeID` as directory sites that already resolve
+  through the seam: `AppFeature` `newTerminal`/palette-dismiss/
+  `ghosttyCommand`, `WorktreeDetailView.hasFocusedTab`, `supacodeApp`
+  `isFocused`. NOT done, blocked on decisions: the delegate payload carrying
+  a layout id (`RepositoriesFeature` cannot reach the R6 seam), the
+  layout-half/directory-half gating (no stored "previous" ids in
+  `AppFeature`; id-only gating would skip the directory half on the same-id
+  re-sends `hasSelectionChanged` emits for path changes), and its AppFeature
+  test. Gate: check 0, TerminalTests + TerminalsFeatureTests + FeatureTests
+  1351 (4 baseline failures), build-app 0.
