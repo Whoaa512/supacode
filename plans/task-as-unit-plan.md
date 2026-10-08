@@ -17,6 +17,15 @@ Measured on cj-main at 47b3b515. Line numbers drift; re-`rg` before editing.
   3. `make build-app`
   4. full `make test` on: the last slice of each phase, F1, and the
      destructive slices R8, T2, T6. Other slices run focused tests only.
+- Full `make test` is red on cj-main before this work (5 failures, seen at
+  R0 with 3979 tests). "Passes" for a full run means: no failure outside
+  this list, and `totalTestCount` not lower than the previous full run.
+  - `AppFeatureCommandAckTests/deleteSocketDeeplinkFailsOnScriptCancellation()`
+    (parallel-run flake, see PAPERCUTS.md)
+  - `AppFeatureSettingsChangedTests/settingsChangedPropagatesRepositorySettings()`
+  - `GhosttyRuntimeBundledOverridesTests/backgroundColorTracksColorScheme()`
+  - `GhosttyRuntimeBundledOverridesTests/initSeedsResolvedColorSchemeBeforeFirstRead()`
+  - `PaneWindowShortcutTests/relativeTabCyclingShortcutsUseBracketChords()`
 - Focused test form (keep `SWIFT_VERSION=5`):
   `make test LOCAL_XCODEBUILD_FLAGS='SWIFT_VERSION=5 -only-testing:<bundle>/<Suite>'`
   then
@@ -918,5 +927,13 @@ none rejected.
 
 ## Progress
 
-Nothing landed. Update this section per slice: id, commit, date, and any
-allow-list or deviation.
+Update this section per slice: id, commit, date, and any allow-list or
+deviation.
+
+- R0 (unplanned), 2026-10-08: `make check` was red on cj-main (format
+  drift in 20 files, 2 complexity violations). Fixed so the gate can run.
+  Full `make test` baseline recorded in the ground rules.
+- R1, 2026-10-08: `LayoutID` alias added; `LayoutFeature` and
+  `ContentRequest` retyped. `ContentRequest.worktreeID` keeps its name
+  (rename belongs to a later slice). Gate: check 0, build-app 0, full test
+  run shows only the 5 baseline failures.

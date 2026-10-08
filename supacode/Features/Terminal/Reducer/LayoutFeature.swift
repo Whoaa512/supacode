@@ -74,7 +74,7 @@ extension DependencyValues {
 /// Tears down the session behind a closed content (the zmx kill for
 /// terminals); the reducer confirms the tombstone when it returns.
 nonisolated struct ContentSessionKiller: Sendable {
-  var kill: @Sendable (_ content: ContentID, _ worktree: Worktree.ID) async -> Void
+  var kill: @Sendable (_ content: ContentID, _ layout: LayoutID) async -> Void
 }
 
 extension ContentSessionKiller: DependencyKey {
@@ -110,7 +110,7 @@ extension SplitZoomPolicy: DependencyKey {
 struct LayoutFeature {
   @ObservableState
   struct State: Equatable, Identifiable {
-    let id: Worktree.ID
+    let id: LayoutID
     var layout: PaneLayout
     /// Base for minted tab titles ("<prefix> N"); the worktree's name once the
     /// integration layer attaches it.
@@ -381,7 +381,7 @@ extension LayoutFeature {
     }
     guard var pane = state.layout.panes[id: paneID] else {
       // Unreachable behind the guards above; reap the started session anyway.
-      return reap(identity.contentID, worktree: state.id)
+      return reap(identity.contentID, layout: state.id)
     }
     let tab = TabItem(
       id: identity.tabID,
@@ -587,7 +587,7 @@ extension LayoutFeature {
     }
     // Reap after the tree has collapsed so the collapse is the turn's state
     // mutation and the surface teardown runs off it, not before it.
-    return reap(contentID, worktree: state.id)
+    return reap(contentID, layout: state.id)
   }
 
   private func reduceMoveTab(
@@ -819,7 +819,7 @@ extension LayoutFeature {
       // Defense in depth behind the anchor pre-check; reaping routes the
       // started session into the kill path instead of leaking it.
       Self.logger.error("splitPane insert failed at \(anchorID.rawValue): \(error)")
-      return reap(identity.contentID, worktree: state.id)
+      return reap(identity.contentID, layout: state.id)
     }
     equalizeIfEnabled(&state)
     let tab = TabItem(
@@ -928,7 +928,7 @@ extension LayoutFeature {
     // Reap after the tree has collapsed so the collapse is the turn's state
     // mutation and the surface teardown runs off it, not before it. Merged: one
     // hung kill must not queue the siblings behind it.
-    return .merge(pane.tabs.map { reap($0.content.id, worktree: state.id) })
+    return .merge(pane.tabs.map { reap($0.content.id, layout: state.id) })
   }
 
   private func reduceResizePane(_ state: inout State, node: SplitTree<PaneID>.Node, ratio: Double) -> Effect<Action> {
@@ -1097,10 +1097,10 @@ extension LayoutFeature {
   /// confirms the tombstone. The kill runs unstructured so element teardown
   /// cannot abandon a half-killed session; a cancelled effect confirms the
   /// tombstone straight on the runtime instead of leaving it stale.
-  private func reap(_ contentID: ContentID, worktree worktreeID: Worktree.ID) -> Effect<Action> {
+  private func reap(_ contentID: ContentID, layout layoutID: LayoutID) -> Effect<Action> {
     contentRuntime.remove(contentID, tombstone: true)
     return .run { [contentRuntime, sessionKiller] send in
-      let kill = Task { await sessionKiller.kill(contentID, worktreeID) }
+      let kill = Task { await sessionKiller.kill(contentID, layoutID) }
       await kill.value
       // Confirm straight on the runtime: a layout detached mid-kill (prune)
       // would drop the action below and leak the tombstone forever.

@@ -61,7 +61,7 @@ nonisolated enum ContentOrigin: Equatable, Sendable {
 
 /// Everything the factory needs to build one tab's content, kind and all.
 nonisolated struct ContentRequest: Equatable, Sendable {
-  var worktreeID: Worktree.ID
+  var worktreeID: LayoutID
   var tabID: TabID
   var contentID: ContentID
   var content: ContentState
@@ -70,7 +70,7 @@ nonisolated struct ContentRequest: Equatable, Sendable {
   var inheritedFrom: ContentID?
 
   init(
-    worktreeID: Worktree.ID,
+    worktreeID: LayoutID,
     tabID: TabID,
     contentID: ContentID,
     content: ContentState,
