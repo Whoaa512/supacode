@@ -1073,3 +1073,17 @@ deviation.
   `WorktreeTerminalManagerAckTests`. Gate: check 0, TerminalTests 342 (2
   baseline Ghostty failures), build-app 0, full `make test` 3983 with only
   the 5 baseline failures.
+- R9, 2026-10-08, `2afd7ec1`: `init(legacyWorktreeKey:)` and
+  `persistenceKey` added (declared on `WorktreeID`: Swift rejects
+  `extension LayoutID` on an alias; F1 moves them onto the struct).
+  Hydration and the 3 writer sites (`flushLayoutSnapshot`,
+  `deleteLayoutSnapshot`, `saveAllLayoutSnapshots`) use them;
+  `LayoutsIncrementalWriter` keeps its `String` keys (already the
+  persistence form, nothing to change). Decision: the session-name fallback
+  is now `worktree?.name ?? host?.context.name ?? URL(path of
+  persistenceKey)`; the path parse stays last because a hydrated, never
+  opened layout has no host and no context, and dropping it would change the
+  name shown. Left for F1/T2: that last path fallback. Tests: new
+  `LayoutsLegacyKeyTests` (golden v2 blob, 2 keys → layout/pane/tab/content
+  ids). Gate: check 0, TerminalTests + TerminalsFeatureTests 368 (2
+  baseline Ghostty failures), build-app 0.
