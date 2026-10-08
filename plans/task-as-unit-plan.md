@@ -1058,3 +1058,18 @@ deviation.
   re-sends `hasSelectionChanged` emits for path changes), and its AppFeature
   test. Gate: check 0, TerminalTests + TerminalsFeatureTests + FeatureTests
   1351 (4 baseline failures), build-app 0.
+- R8, 2026-10-08, `bde1569b`: `prune(keepingDirectories:)` keeps a host by
+  `host.worktreeID` (was the key); `removeWorktreeLayout` →
+  `removeLayouts(forDirectory:)`, looping the unchanged per-layout teardown
+  over every host on that directory. `handleSurfacesClosed`/
+  `invalidateCaches` relabelled to layout ids. Decision: a hostless layout
+  (hydrated, never selected) has no directory to match, so
+  `removeLayouts(forDirectory:)` also tears down the layout keyed by the
+  directory id itself when no host sits under that key, as before; that
+  directory-id-as-layout-id use is an F1/T3 site. Also left for F1/T3: the
+  per-layout `worktreeStateTornDown(worktreeID:)` carries the layout id
+  (A2 allow-list, retargeted in T3), and `prune` still cannot see hostless
+  layouts (unchanged). Tests: 2 new cases in
+  `WorktreeTerminalManagerAckTests`. Gate: check 0, TerminalTests 342 (2
+  baseline Ghostty failures), build-app 0, full `make test` 3983 with only
+  the 5 baseline failures.
