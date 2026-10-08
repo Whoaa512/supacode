@@ -1184,7 +1184,7 @@ struct AppFeature {
       case .renameSelectedTerminalTab:
         guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID),
           !worktree.isMissing,
-          let tabID = terminalClient.selectedTabID(worktree.id)
+          let tabID = terminalClient.selectedTabID(state.layoutID(forDirectory: worktree.id))
         else {
           return .none
         }
@@ -2074,9 +2074,9 @@ struct AppFeature {
           guard !worktree.isMissing else { return .none }
           // Capture the focused tab synchronously so a fast tab switch between dispatch
           // and effect execution can't redirect the rename to the wrong tab.
-          let tabID = terminalClient.selectedTabID(worktree.id)
+          let tabID = terminalClient.selectedTabID(state.layoutID(forDirectory: worktree.id))
           command = .beginTabRename(layoutID, DirectoryContext(worktree: worktree), tabID: tabID)
-        } else if let surfaceID = terminalClient.selectedSurfaceID(worktree.id) {
+        } else if let surfaceID = terminalClient.selectedSurfaceID(state.layoutID(forDirectory: worktree.id)) {
           command = .performBindingActionOnSurface(
             layoutID, DirectoryContext(worktree: worktree), surfaceID: surfaceID, action: action)
         } else {
@@ -3138,7 +3138,7 @@ struct AppFeature {
       // A pane anchor that resolves nothing must fail loudly, not fall back
       // to a pane the caller didn't ask for. The anchor is a pane token, so it
       // resolves a pane, tab, or content id (matching `createTabAsync`).
-      if let pane, !terminalClient.paneExists(worktreeID, pane) {
+      if let pane, !terminalClient.paneExists(state.layoutID(forDirectory: worktreeID), pane) {
         deeplinkLogger.warning("Rejecting unknown pane anchor \(pane) in worktree \(worktreeID)")
         state.alert = AlertState {
           TextState("Pane not found")
@@ -3153,7 +3153,7 @@ struct AppFeature {
       // (the runtime and hibernation key globally), or an in-flight creation, so
       // a duplicate id can't have one creation resolve the other's ack.
       if let id,
-        terminalClient.tabExists(worktreeID, TabID(rawValue: id))
+        terminalClient.tabExists(state.layoutID(forDirectory: worktreeID), TabID(rawValue: id))
           || terminalClient.idExistsAnywhere(id)
           || Self.hasPendingCreationAck(id: id, state: state)
       {
@@ -3207,7 +3207,7 @@ struct AppFeature {
           message: "The tab title has no visible characters. Pass an empty title to clear it.")
         return .none
       }
-      guard terminalClient.tabCanRename(worktreeID, TabID(rawValue: tabID)) else {
+      guard terminalClient.tabCanRename(state.layoutID(forDirectory: worktreeID), TabID(rawValue: tabID)) else {
         deeplinkLogger.warning("Tab \(tabID) has a locked title in worktree \(worktreeID)")
         state.alert = AlertState {
           TextState("Tab cannot be renamed")
@@ -3270,7 +3270,7 @@ struct AppFeature {
       // (the runtime and hibernation key globally), or an in-flight split, so a
       // duplicate id can't have one split resolve the other's ack.
       if let id,
-        terminalClient.surfaceExistsInWorktree(worktreeID, id)
+        terminalClient.surfaceExistsInWorktree(state.layoutID(forDirectory: worktreeID), id)
           || terminalClient.idExistsAnywhere(id)
           || Self.hasPendingCreationAck(id: id, state: state)
       {
@@ -3324,7 +3324,7 @@ struct AppFeature {
       guard validateTab(worktreeID: worktreeID, tabID: tabID, state: &state) else { return .none }
       // A single-tab or windowed pane refuses the move; report that instead of
       // a phantom success.
-      guard terminalClient.canMoveTabToNewSplit(worktreeID, tabID) else {
+      guard terminalClient.canMoveTabToNewSplit(state.layoutID(forDirectory: worktreeID), tabID) else {
         deeplinkLogger.warning("Tab \(tabID) cannot move to a new split in worktree \(worktreeID)")
         state.alert = AlertState {
           TextState("Tab cannot be moved")
@@ -3354,7 +3354,7 @@ struct AppFeature {
       // (the runtime and hibernation key globally), or an in-flight split, so a
       // duplicate id can't have one split resolve the other's ack.
       if let id,
-        terminalClient.surfaceExistsInWorktree(worktreeID, id)
+        terminalClient.surfaceExistsInWorktree(state.layoutID(forDirectory: worktreeID), id)
           || terminalClient.idExistsAnywhere(id)
           || Self.hasPendingCreationAck(id: id, state: state)
       {
@@ -4188,7 +4188,7 @@ struct AppFeature {
     token: UUID,
     state: inout State
   ) -> Bool {
-    guard terminalClient.paneExists(worktreeID, token) else {
+    guard terminalClient.paneExists(state.layoutID(forDirectory: worktreeID), token) else {
       deeplinkLogger.warning("Pane token \(token) not found in worktree \(worktreeID)")
       state.alert = AlertState {
         TextState("Pane not found")
@@ -4210,7 +4210,7 @@ struct AppFeature {
     tabID: UUID,
     state: inout State
   ) -> Bool {
-    guard terminalClient.tabExists(worktreeID, TabID(rawValue: tabID)) else {
+    guard terminalClient.tabExists(state.layoutID(forDirectory: worktreeID), TabID(rawValue: tabID)) else {
       deeplinkLogger.warning("Tab \(tabID) not found in worktree \(worktreeID)")
       state.alert = AlertState {
         TextState("Tab not found")
@@ -4236,11 +4236,12 @@ struct AppFeature {
     // Surface-first: the tab segment is a hint. Migration moves surfaces
     // between tabs and long-running shells hold stale pairs by design, so a
     // resolvable surface is valid wherever it lives now.
-    if terminalClient.surfaceExistsInWorktree(worktreeID, surfaceID) {
+    if terminalClient.surfaceExistsInWorktree(state.layoutID(forDirectory: worktreeID), surfaceID) {
       return true
     }
     guard validateTab(worktreeID: worktreeID, tabID: tabID, state: &state) else { return false }
-    guard terminalClient.surfaceExists(worktreeID, TabID(rawValue: tabID), surfaceID) else {
+    guard terminalClient.surfaceExists(state.layoutID(forDirectory: worktreeID), TabID(rawValue: tabID), surfaceID)
+    else {
       deeplinkLogger.warning("Surface \(surfaceID) not found in tab \(tabID) of worktree \(worktreeID)")
       state.alert = AlertState {
         TextState("Surface not found")
