@@ -390,13 +390,13 @@ final class WorktreeTerminalManager {
     case .beginTabRename(let worktree, let tabID):
       guard let target = tabID ?? host(for: worktree).focusedTab?.id else { break }
       sendLayout(worktree.id, .beginTabRename(id: target))
-    case .renameTab(let worktree, let tabID, let title):
-      let tab = layoutState(for: worktree.id)?.layout.pane(containingTab: tabID)?.tabs[id: tabID]
+    case .renameTab(let layoutID, let tabID, let title):
+      let tab = layoutState(for: layoutID)?.layout.pane(containingTab: tabID)?.tabs[id: tabID]
       let applied = tab != nil && tab?.isLocked != true
       if applied {
-        sendLayout(worktree.id, .renameTab(id: tabID, title: title))
+        sendLayout(layoutID, .renameTab(id: tabID, title: title))
       }
-      emit(.tabRenamed(layoutID: worktree.id, tabID: tabID, applied: applied))
+      emit(.tabRenamed(layoutID: layoutID, tabID: tabID, applied: applied))
     case .selectTab(let worktree, let tabID):
       sendLayout(worktree.id, .wakeTab(id: tabID))
       sendLayout(worktree.id, .selectTab(id: tabID))
@@ -424,17 +424,17 @@ final class WorktreeTerminalManager {
       splitSurface(
         in: worktree, tabID: tabID, surfaceID: surfaceID, direction: direction,
         input: input, id: id, focusing: focusing)
-    case .destroyTab(let worktree, let tabID, let focusing):
-      guard layoutState(for: worktree.id)?.layout.pane(containingTab: tabID) != nil else {
-        terminalLogger.warning("destroyTab: tab \(tabID.rawValue) not found in worktree \(worktree.id).")
+    case .destroyTab(let layoutID, let tabID, let focusing):
+      guard layoutState(for: layoutID)?.layout.pane(containingTab: tabID) != nil else {
+        terminalLogger.warning("destroyTab: tab \(tabID.rawValue) not found in worktree \(layoutID).")
         // Already gone, so the close goal is met: resolve the ack instead of timing out.
-        emit(.tabRemoved(layoutID: worktree.id, tabID: tabID))
+        emit(.tabRemoved(layoutID: layoutID, tabID: tabID))
         break
       }
       _ = focusing
-      markUserCloseIntent(worktreeID: worktree.id, tabID: tabID)
-      sendLayout(worktree.id, .closeTab(id: tabID))
-      emit(.tabRemoved(layoutID: worktree.id, tabID: tabID))
+      markUserCloseIntent(worktreeID: layoutID, tabID: tabID)
+      sendLayout(layoutID, .closeTab(id: tabID))
+      emit(.tabRemoved(layoutID: layoutID, tabID: tabID))
     case .destroySurface(let worktree, let tabID, let surfaceID, let focusing):
       let host = host(for: worktree)
       // Surface-first: the surface's actual owner wins over the tab hint.
@@ -552,8 +552,8 @@ final class WorktreeTerminalManager {
       splitPane(in: worktree, paneToken: token, direction: direction, input: input, id: id, focusing: focusing)
     case .focusPane(let layoutID, let paneToken):
       focusPane(in: layoutID, paneToken: paneToken)
-    case .closePane(let worktree, let token):
-      closePane(in: worktree, paneToken: token)
+    case .closePane(let layoutID, let token):
+      closePane(in: layoutID, paneToken: token)
     case .toggleZoomPane(let layoutID, let token):
       toggleZoomPane(in: layoutID, paneToken: token)
     case .toggleWindowModeForPane(let layoutID, let token):
@@ -1481,15 +1481,15 @@ final class WorktreeTerminalManager {
     }
   }
 
-  private func closePane(in worktree: Worktree, paneToken: UUID) {
-    guard let paneID = resolvePane(paneToken, in: worktree.id) else {
-      terminalLogger.warning("closePane: pane token \(paneToken) not found in worktree \(worktree.id).")
+  private func closePane(in layoutID: LayoutID, paneToken: UUID) {
+    guard let paneID = resolvePane(paneToken, in: layoutID) else {
+      terminalLogger.warning("closePane: pane token \(paneToken) not found in worktree \(layoutID).")
       return
     }
-    if let pane = layoutState(for: worktree.id)?.layout.panes[id: paneID] {
-      markUserCloseIntent(worktreeID: worktree.id, surfaceIDs: Set(pane.tabs.map(\.content.id.rawValue)))
+    if let pane = layoutState(for: layoutID)?.layout.panes[id: paneID] {
+      markUserCloseIntent(worktreeID: layoutID, surfaceIDs: Set(pane.tabs.map(\.content.id.rawValue)))
     }
-    sendLayout(worktree.id, .closePane(id: paneID))
+    sendLayout(layoutID, .closePane(id: paneID))
   }
 
   private func toggleZoomPane(in layoutID: LayoutID, paneToken: UUID) {

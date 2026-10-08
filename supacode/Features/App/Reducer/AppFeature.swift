@@ -3178,7 +3178,7 @@ struct AppFeature {
         return .none
       }
       let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .renameTab(worktree, tabID: TabID(rawValue: tabID), title: title)
+        .renameTab(worktree.id, tabID: TabID(rawValue: tabID), title: title)
       }
       return awaitingCompletion(
         effect, match: .tabRenamed(worktreeID: worktreeID, tabID: TabID(rawValue: tabID)),
@@ -3196,7 +3196,7 @@ struct AppFeature {
           background: background)
       }
       let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .destroyTab(worktree, tabID: TabID(rawValue: tabID), focusing: !background)
+        .destroyTab(worktree.id, tabID: TabID(rawValue: tabID), focusing: !background)
       }
       return awaitingCompletion(
         effect, match: .tabRemoved(worktreeID: worktreeID, tabID: TabID(rawValue: tabID)),
@@ -3348,7 +3348,7 @@ struct AppFeature {
           background: background)
       }
       return sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .closePane(worktree, paneToken: token)
+        .closePane(worktree.id, paneToken: token)
       }
     case .paneZoom(let token):
       guard validatePane(worktreeID: worktreeID, token: token, state: &state) else { return .none }

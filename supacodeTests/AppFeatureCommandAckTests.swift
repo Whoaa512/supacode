@@ -691,7 +691,7 @@ struct AppFeatureCommandAckTests {
     #expect(readPipeJSON(readFD)?["ok"] as? Bool == true)
     #expect(
       sent.value.contains(
-        .renameTab(worktree, tabID: TabID(rawValue: tabID), title: "review")))
+        .renameTab(worktree.id, tabID: TabID(rawValue: tabID), title: "review")))
   }
 
   @Test(.dependencies) func tabRenameSocketDeeplinkFailsWhenRenameDoesNotApply() async {

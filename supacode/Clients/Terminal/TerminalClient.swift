@@ -103,7 +103,7 @@ struct TerminalClient {
       Worktree, paneToken: UUID, direction: SplitDirection, input: String?, id: UUID? = nil,
       focusing: Bool = true)
     case focusPane(LayoutID, paneToken: UUID)
-    case closePane(Worktree, paneToken: UUID)
+    case closePane(LayoutID, paneToken: UUID)
     case toggleZoomPane(LayoutID, paneToken: UUID)
     case toggleWindowModeForPane(LayoutID, paneToken: UUID)
     case moveTabToSplit(LayoutID, tabID: UUID, direction: TerminalSplitMenuDirection, focusing: Bool = true)
@@ -122,12 +122,12 @@ struct TerminalClient {
     case splitSurface(
       Worktree, tabID: TabID, surfaceID: UUID, direction: SplitDirection,
       input: String?, id: UUID? = nil, focusing: Bool = true)
-    case destroyTab(Worktree, tabID: TabID, focusing: Bool = true)
+    case destroyTab(LayoutID, tabID: TabID, focusing: Bool = true)
     case destroySurface(Worktree, tabID: TabID, surfaceID: UUID, focusing: Bool = true)
     case beginTabRename(Worktree, tabID: TabID? = nil)
     /// Moves the worktree's focused pane into its own window, or back.
     case toggleWindowModeForFocusedPane(LayoutID)
-    case renameTab(Worktree, tabID: TabID, title: String)
+    case renameTab(LayoutID, tabID: TabID, title: String)
     case prune(keeping: Set<Worktree.ID>, protectingRepositoryIDs: Set<Repository.ID>)
     /// Explicitly deleted worktree: its layout, sessions, and persisted record
     /// go with it, host or no host.

@@ -2259,7 +2259,7 @@ struct AppFeatureDeeplinkTests {
     )
     #expect(
       sent.value.contains(
-        .renameTab(worktree, tabID: TabID(rawValue: tabID), title: "review")
+        .renameTab(worktree.id, tabID: TabID(rawValue: tabID), title: "review")
       )
     )
   }
@@ -2291,7 +2291,7 @@ struct AppFeatureDeeplinkTests {
     )
     #expect(
       sent.value.contains(
-        .renameTab(worktree, tabID: TabID(rawValue: tabID), title: "")
+        .renameTab(worktree.id, tabID: TabID(rawValue: tabID), title: "")
       )
     )
     #expect(store.state.alert == nil)

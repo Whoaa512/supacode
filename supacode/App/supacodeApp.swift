@@ -323,7 +323,7 @@ struct SupacodeApp: App {
           .destroySurface(worktree, tabID: tabID, surfaceID: surfaceID))
       },
       closeTab: { worktree, tabID in
-        terminalManager.handleCommand(.destroyTab(worktree, tabID: tabID))
+        terminalManager.handleCommand(.destroyTab(worktree.id, tabID: tabID))
       },
       tabExists: { worktreeID, tabID in
         terminalManager.tabExists(worktreeID: worktreeID, tabID: tabID)
