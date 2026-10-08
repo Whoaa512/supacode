@@ -505,7 +505,7 @@ final class WorktreeTerminalManager {
   }
 
   /// The tab ID when it exists in the worktree's layout, else nil.
-  private func presentTab(_ tabID: TabID, in worktreeID: Worktree.ID) -> TabID? {
+  private func presentTab(_ tabID: TabID, in worktreeID: LayoutID) -> TabID? {
     layoutState(for: worktreeID)?.layout.pane(containingTab: tabID) != nil ? tabID : nil
   }
 
@@ -865,7 +865,7 @@ final class WorktreeTerminalManager {
   /// rebuild detaches and re-mounts the surviving surfaces, whose detach
   /// clears their local focus, so activity derived against the old hierarchy
   /// must not be the last word.
-  private func scheduleDeferredActivityReassert(for worktreeID: Worktree.ID) {
+  private func scheduleDeferredActivityReassert(for worktreeID: LayoutID) {
     guard pendingActivityReasserts.insert(worktreeID).inserted else { return }
     Task { @MainActor [weak self] in
       guard let self else { return }
@@ -878,7 +878,7 @@ final class WorktreeTerminalManager {
     hosts[worktreeID]?.markUserCloseIntent(for: surfaceIDs)
   }
 
-  private func markUserCloseIntent(worktreeID: Worktree.ID, tabID: TabID) {
+  private func markUserCloseIntent(worktreeID: LayoutID, tabID: TabID) {
     guard
       let contentID = layoutState(for: worktreeID)?.layout.pane(containingTab: tabID)?
         .tabs[id: tabID]?.content.id.rawValue
@@ -907,7 +907,7 @@ final class WorktreeTerminalManager {
     suppressedHarnessEndSurfaceIDs.formUnion(surfaceIDs)
   }
 
-  private func pruneUserCloseIntentsAfterLayoutChange(worktreeID: Worktree.ID) {
+  private func pruneUserCloseIntentsAfterLayoutChange(worktreeID: LayoutID) {
     guard let host = hosts[worktreeID], let state = layoutState(for: worktreeID) else { return }
     guard state.alert != nil, let paneID = state.alertPaneID, let pane = state.layout.panes[id: paneID] else {
       host.pruneStaleUserCloseIntents(retaining: [])
@@ -957,7 +957,7 @@ final class WorktreeTerminalManager {
   /// carried by the content's chrome alone, so every teardown that keeps the tab
   /// (a reattach rebuild, quit-time termination) must commit it first or the tab
   /// falls back to its creation-time name.
-  private func commitReportedTitle(of contentID: ContentID, worktreeID: Worktree.ID) {
+  private func commitReportedTitle(of contentID: ContentID, worktreeID: LayoutID) {
     guard let title = ContentRuntime.liveValue.content(for: contentID)?.chrome?.reportedTitle,
       !title.isEmpty
     else { return }
@@ -1391,7 +1391,7 @@ final class WorktreeTerminalManager {
 
   /// Resolves a CLI / deeplink pane token: a pane's own id, or the id of a
   /// tab or content the pane hosts.
-  private func resolvePane(_ token: UUID, in worktreeID: Worktree.ID) -> PaneID? {
+  private func resolvePane(_ token: UUID, in worktreeID: LayoutID) -> PaneID? {
     layoutState(for: worktreeID)?.layout.pane(forToken: token)?.id
   }
 
@@ -1664,7 +1664,7 @@ final class WorktreeTerminalManager {
   /// Fires after the debounce window: builds the freshest record for
   /// `worktreeID` (live-grid + agent overlay), then queues the off-main
   /// per-key merge. Its only caller is `markLayoutDirty`.
-  private func flushLayoutSnapshot(worktreeID: Worktree.ID) {
+  private func flushLayoutSnapshot(worktreeID: LayoutID) {
     layoutDirtyTasks[worktreeID] = nil
     guard let layoutState = layoutState(for: worktreeID) else { return }
     // A file written by a newer schema is served read-only; never write back.
@@ -1695,7 +1695,7 @@ final class WorktreeTerminalManager {
   /// cancelling any queued positive save so a stale snapshot can't resurrect a
   /// removed worktree. Awaits any in-flight positive flush for the key first so
   /// the `.delete` always reaches the writer after the record.
-  private func deleteLayoutSnapshot(worktreeID: Worktree.ID) {
+  private func deleteLayoutSnapshot(worktreeID: LayoutID) {
     layoutDirtyTasks[worktreeID]?.cancel()
     layoutDirtyTasks[worktreeID] = nil
     let inflightFlush = layoutFlushTasks[worktreeID]?.task
@@ -2183,7 +2183,7 @@ final class WorktreeTerminalManager {
     }
   }
 
-  private func handleSurfacesClosed(worktreeID: Worktree.ID, surfaceIDs: Set<UUID>) {
+  private func handleSurfacesClosed(worktreeID: LayoutID, surfaceIDs: Set<UUID>) {
     ScrollbackPersistence.removeFiles(surfaceIDs: surfaceIDs)
     emit(.surfacesClosed(worktreeID: worktreeID, surfaceIDs))
   }

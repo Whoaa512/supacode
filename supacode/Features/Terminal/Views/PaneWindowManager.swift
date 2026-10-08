@@ -195,7 +195,7 @@ final class PaneWindowManager {
     tearDownControllers(for: worktreeID)
   }
 
-  private func tearDownControllers(for worktreeID: Worktree.ID, keeping keep: Set<PaneID> = []) {
+  private func tearDownControllers(for worktreeID: LayoutID, keeping keep: Set<PaneID> = []) {
     for (key, controller) in controllers where key.worktreeID == worktreeID && !keep.contains(key.paneID) {
       controllers.removeValue(forKey: key)
       controller.tearDown()
@@ -281,7 +281,7 @@ final class PaneWindowManager {
 
   /// Dispatches a key pane window's chords to pane-scoped actions. Returns
   /// `true` when the event was consumed.
-  private func handleShortcut(_ event: NSEvent, worktreeID: Worktree.ID, paneID: PaneID) -> Bool {
+  private func handleShortcut(_ event: NSEvent, worktreeID: LayoutID, paneID: PaneID) -> Bool {
     guard let terminalManager else { return false }
     // Plain typing never matches a chord; bail before touching the store.
     guard !event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else { return false }
@@ -351,7 +351,7 @@ final class PaneWindowManager {
     return "\(repositoryName) / \(worktreeName)"
   }
 
-  private func makeController(worktreeID: Worktree.ID, paneID: PaneID) -> PaneWindowController? {
+  private func makeController(worktreeID: LayoutID, paneID: PaneID) -> PaneWindowController? {
     guard let terminalManager, let appStore = terminalManager.appStore else {
       Self.logger.error("Cannot open pane window without the app store.")
       return nil
