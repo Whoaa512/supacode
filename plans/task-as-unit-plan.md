@@ -1017,3 +1017,16 @@ deviation.
   an event's layout id; both are the R7 split. Gate: check 0, TerminalTests +
   TerminalsFeatureTests + FeatureTests 1351 (4 baseline failures),
   build-app 0.
+- R6 review fix 2, 2026-10-08: view-side `hostIfExists` lookups keyed by a
+  directory id now resolve first: toolbar and sidebar notification focus,
+  sidebar typing/right-arrow, inspector mark-all/dismiss-all, window title
+  (`WindowTitle.compute` takes a `layoutID:` closure). Sidebar views only
+  hold a repositories store, so they read `DirectoryLayoutResolver` from the
+  environment (set in `ContentView`, equal by store identity); unset means
+  no host, never a second identity mapping. Left as is: the inspector's
+  per-row `markNotificationRead`/`dismissNotification` (manager API is still
+  `worktreeID:`-typed and emits the worktree projection, R7), the
+  `supacodeApp` client closures and `PaneWindowManager` (keys already
+  resolved by the caller / layout-origin). Gate: check 0, WindowTitleTests +
+  AppFeatureSessionsTests + TerminalTests + TerminalsFeatureTests 447 (2
+  baseline Ghostty failures), build-app 0.
