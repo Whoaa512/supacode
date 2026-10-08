@@ -984,7 +984,8 @@ deviation.
   `host(for:context:)` take the pair. Deviation: the `focusSurface`/
   `closeSurface` client closures also take the pair and `closeTab` takes
   `LayoutID`, so the `\(Worktree[,)]` check on `TerminalClient.swift` is
-  empty. Test asserts that compared a sent `Worktree` now compare its id.
+  empty. Test asserts that compared a sent `Worktree` now compare its id and
+  `DirectoryContext(worktree:)`.
   Gate: check 0, TerminalTests 340 (2 baseline Ghostty failures),
   TerminalsFeatureTests 24, FeatureTests 987 (2 baseline failures),
   build-app 0.

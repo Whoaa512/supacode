@@ -83,11 +83,12 @@ struct AppFeatureOpenFileTests {
     await store.finish()
 
     #expect(sent.value.count == 1)
-    guard case .openFileWithScript(let sentWorktree, _, let input) = sent.value.first else {
+    guard case .openFileWithScript(let sentWorktree, let sentContext, let input) = sent.value.first else {
       Issue.record("Expected openFileWithScript command")
       return
     }
     #expect(sentWorktree == worktree.id)
+    #expect(sentContext == DirectoryContext(worktree: worktree))
     #expect(
       input == "export SUPACODE_FILE_PATH='/tmp/repo/wt-1/main.swift'; code \"$SUPACODE_FILE_PATH\""
     )

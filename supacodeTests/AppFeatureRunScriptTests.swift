@@ -68,11 +68,12 @@ struct AppFeatureRunScriptTests {
     // terminal's row projection once the script tab is tracked.
     #expect(store.state.repositories.sidebarItems[id: worktree.id]?.runningScripts.isEmpty == true)
     #expect(sent.value.count == 1)
-    guard case .runBlockingScript(let sentWorktree, _, let kind, let script, _) = sent.value.first else {
+    guard case .runBlockingScript(let sentWorktree, let sentContext, let kind, let script, _) = sent.value.first else {
       Issue.record("Expected runBlockingScript command")
       return
     }
     #expect(sentWorktree == worktree.id)
+    #expect(sentContext == DirectoryContext(worktree: worktree))
     #expect(script == "npm run dev")
     guard case .script(let sentDefinition) = kind else {
       Issue.record("Expected .script kind")
@@ -281,11 +282,12 @@ struct AppFeatureRunScriptTests {
     await store.finish()
 
     #expect(sent.value.count == 1)
-    guard case .stopRunScript(let sentWorktree, _, _) = sent.value.first else {
+    guard case .stopRunScript(let sentWorktree, let sentContext, _) = sent.value.first else {
       Issue.record("Expected stopRunScript command")
       return
     }
     #expect(sentWorktree == worktree.id)
+    #expect(sentContext == DirectoryContext(worktree: worktree))
   }
 
   @Test(.dependencies) func stopScriptSendsTerminalCommand() async {
@@ -310,11 +312,12 @@ struct AppFeatureRunScriptTests {
     await store.finish()
 
     #expect(sent.value.count == 1)
-    guard case .stopScript(let sentWorktree, _, let definitionID, _) = sent.value.first else {
+    guard case .stopScript(let sentWorktree, let sentContext, let definitionID, _) = sent.value.first else {
       Issue.record("Expected stopScript command")
       return
     }
     #expect(sentWorktree == worktree.id)
+    #expect(sentContext == DirectoryContext(worktree: worktree))
     #expect(definitionID == definition.id)
   }
 
