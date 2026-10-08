@@ -736,7 +736,7 @@ struct AppFeature {
           effects.append(
             .run { [allowed, protectedRepositoryIDs] _ in
               await terminalClient.send(
-                .prune(keeping: allowed, protectingRepositoryIDs: protectedRepositoryIDs)
+                .prune(keepingDirectories: allowed, protectingRepositoryIDs: protectedRepositoryIDs)
               )
             }
           )
@@ -1794,7 +1794,7 @@ struct AppFeature {
           },
           .run { _ in
             await terminalClient.send(
-              .removeWorktreeLayout(worktreeID: worktreeID, remoteHost: remoteHost))
+              .removeLayouts(forDirectory: worktreeID, remoteHost: remoteHost))
           }
         )
 

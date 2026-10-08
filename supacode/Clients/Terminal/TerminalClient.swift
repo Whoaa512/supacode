@@ -130,10 +130,10 @@ struct TerminalClient {
     /// Moves the worktree's focused pane into its own window, or back.
     case toggleWindowModeForFocusedPane(LayoutID)
     case renameTab(LayoutID, tabID: TabID, title: String)
-    case prune(keeping: Set<Worktree.ID>, protectingRepositoryIDs: Set<Repository.ID>)
-    /// Explicitly deleted worktree: its layout, sessions, and persisted record
-    /// go with it, host or no host.
-    case removeWorktreeLayout(worktreeID: Worktree.ID, remoteHost: RemoteHost?)
+    case prune(keepingDirectories: Set<Worktree.ID>, protectingRepositoryIDs: Set<Repository.ID>)
+    /// Explicitly deleted worktree: every layout on that directory goes, with
+    /// its sessions and persisted record, host or no host.
+    case removeLayouts(forDirectory: Worktree.ID, remoteHost: RemoteHost?)
     case setNotificationsEnabled(Bool)
     case enforceNotificationRetentionLimit
     case setSelectedLayoutID(LayoutID?)

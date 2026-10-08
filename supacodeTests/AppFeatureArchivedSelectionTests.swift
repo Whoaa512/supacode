@@ -122,7 +122,7 @@ struct AppFeatureArchivedSelectionTests {
 
     #expect(
       sentCommands.value == [
-        .prune(keeping: [activeWorktree.id], protectingRepositoryIDs: [])
+        .prune(keepingDirectories: [activeWorktree.id], protectingRepositoryIDs: [])
       ]
     )
   }
@@ -151,7 +151,7 @@ struct AppFeatureArchivedSelectionTests {
 
     #expect(
       sentCommands.value == [
-        .prune(keeping: [], protectingRepositoryIDs: [failedRepositoryID])
+        .prune(keepingDirectories: [], protectingRepositoryIDs: [failedRepositoryID])
       ]
     )
   }
@@ -184,7 +184,7 @@ struct AppFeatureArchivedSelectionTests {
 
     #expect(
       sentCommands.value == [
-        .prune(keeping: [], protectingRepositoryIDs: [blockedID])
+        .prune(keepingDirectories: [], protectingRepositoryIDs: [blockedID])
       ]
     )
   }
@@ -255,7 +255,7 @@ struct AppFeatureArchivedSelectionTests {
     #expect(activeRowIDs.contains(worktree.id))
     #expect(
       sentCommands.value == [
-        .prune(keeping: [worktree.id], protectingRepositoryIDs: []),
+        .prune(keepingDirectories: [worktree.id], protectingRepositoryIDs: []),
         .setImagePasteAgents(surfaceID: surfaceID, agents: [.claude]),
       ]
     )

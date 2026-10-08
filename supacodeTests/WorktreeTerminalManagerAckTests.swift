@@ -251,7 +251,7 @@ struct WorktreeTerminalManagerAckTests {
     #expect(harness.store.withState { $0.terminals.layouts[id: harness.worktree.id] } != nil)
 
     harness.manager.handleCommand(
-      .removeWorktreeLayout(worktreeID: harness.worktree.id, remoteHost: nil))
+      .removeLayouts(forDirectory: harness.worktree.id, remoteHost: nil))
 
     // The in-memory layout detaches AND the persisted record goes with it;
     // this hostless-hydrated case is exactly the one roster prune cannot reach.
@@ -271,7 +271,7 @@ struct WorktreeTerminalManagerAckTests {
       .terminals(.layoutsHydrated(LayoutsFile(worktrees: [harness.worktree.id.rawValue: record]))))
 
     harness.manager.handleCommand(
-      .removeWorktreeLayout(worktreeID: harness.worktree.id, remoteHost: nil))
+      .removeLayouts(forDirectory: harness.worktree.id, remoteHost: nil))
 
     // The prune must retract the surface so AppFeature clears its agent presence.
     var closed: (worktreeID: Worktree.ID, ids: Set<UUID>)?
@@ -303,13 +303,79 @@ struct WorktreeTerminalManagerAckTests {
     )
 
     harness.manager.handleCommand(
-      .removeWorktreeLayout(
-        worktreeID: harness.worktree.id, remoteHost: RemoteHost(alias: "build-box")))
+      .removeLayouts(
+        forDirectory: harness.worktree.id, remoteHost: RemoteHost(alias: "build-box")))
 
     var kills = remoteKills.makeAsyncIterator()
     let kill = await kills.next()
     #expect(kill?.0 == "build-box")
     #expect(kill?.1 == ZmxSessionID.make(surfaceID: contentID))
+  }
+
+  /// Opens one tab so the manager holds a host under `layoutID` whose
+  /// directory is `directory`; returns the tab's surface id.
+  private func openLayout(
+    _ layoutID: LayoutID, on directory: Worktree, in harness: Harness, pump: CreationEvents
+  ) async -> UUID {
+    let surfaceID = UUID()
+    harness.manager.handleCommand(
+      .createTab(
+        layoutID, DirectoryContext(worktree: directory), runSetupScriptIfNew: false, id: surfaceID,
+        focusing: false))
+    _ = await pump.next(2)
+    return surfaceID
+  }
+
+  @Test(.dependencies) func pruneDecidesByTheHostsDirectoryNotItsKey() async {
+    let harness = makeHarness()
+    let pump = CreationEvents(harness.manager)
+    let directory = makeWorktree(id: "/tmp/repo/wt-directory")
+    let layoutID = LayoutID("/tmp/repo/wt-layout-key")
+    _ = await openLayout(layoutID, on: directory, in: harness, pump: pump)
+
+    harness.manager.handleCommand(.prune(keepingDirectories: [directory.id], protectingRepositoryIDs: []))
+
+    #expect(harness.manager.hostIfExists(for: layoutID) != nil)
+    #expect(harness.store.withState { $0.terminals.layouts[id: layoutID] } != nil)
+
+    // Keeping the key alone protects nothing: the directory is gone.
+    harness.manager.handleCommand(.prune(keepingDirectories: [layoutID], protectingRepositoryIDs: []))
+
+    #expect(harness.manager.hostIfExists(for: layoutID) == nil)
+    #expect(harness.store.withState { $0.terminals.layouts[id: layoutID] } == nil)
+  }
+
+  @Test(.dependencies) func removingADirectoryTearsDownEveryLayoutOnItAndNoOther() async {
+    let harness = makeHarness()
+    let pump = CreationEvents(harness.manager)
+    let directory = makeWorktree(id: "/tmp/repo/wt-directory")
+    let other = makeWorktree(id: "/tmp/repo/wt-other")
+    let first = LayoutID("/tmp/repo/wt-layout-first")
+    let second = LayoutID("/tmp/repo/wt-layout-second")
+    let firstSurface = await openLayout(first, on: directory, in: harness, pump: pump)
+    let secondSurface = await openLayout(second, on: directory, in: harness, pump: pump)
+    _ = await openLayout(other.id, on: other, in: harness, pump: pump)
+    var iterator = harness.manager.eventStream().makeAsyncIterator()
+
+    harness.manager.handleCommand(.removeLayouts(forDirectory: directory.id, remoteHost: nil))
+
+    #expect(harness.manager.hostIfExists(for: first) == nil)
+    #expect(harness.manager.hostIfExists(for: second) == nil)
+    #expect(harness.manager.hostIfExists(for: other.id) != nil)
+    #expect(harness.store.withState { Array($0.terminals.layouts.ids) } == [other.id])
+
+    // Each layout reports its own closed surfaces and its own teardown.
+    var closed: [LayoutID: Set<UUID>] = [:]
+    var tornDown: Set<LayoutID> = []
+    while tornDown.count < 2, let event = await iterator.next() {
+      switch event {
+      case .surfacesClosed(let layoutID, let ids): closed[layoutID] = ids
+      case .worktreeStateTornDown(let layoutID): tornDown.insert(layoutID)
+      default: continue
+      }
+    }
+    #expect(closed == [first: [firstSurface], second: [secondSurface]])
+    #expect(tornDown == [first, second])
   }
 
   @Test(.dependencies) func anchoredCreateLandsInTheAnchorsPane() async {

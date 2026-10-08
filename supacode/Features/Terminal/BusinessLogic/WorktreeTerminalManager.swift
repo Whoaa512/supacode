@@ -523,7 +523,7 @@ final class WorktreeTerminalManager {
     case .createTab, .createTabWithInput, .openFileWithScript, .ensureInitialTab, .stopRunScript, .stopScript,
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .performBindingAction,
       .performBindingActionOnSurface, .selectTab, .selectTabAtIndex, .selectRelativeTab, .focusSurface, .splitSurface,
-      .destroyTab, .destroySurface, .renameTab, .setImagePasteAgents, .prune, .removeWorktreeLayout,
+      .destroyTab, .destroySurface, .renameTab, .setImagePasteAgents, .prune, .removeLayouts,
       .setNotificationsEnabled, .enforceNotificationRetentionLimit, .setSelectedLayoutID, .beginTabRename,
       .setTerminalHibernationEnabled, .toggleWindowModeForFocusedPane,
       .splitFocusedPane, .focusSplit, .focusRelativePane, .toggleSplitZoom, .equalizeSplits,
@@ -572,7 +572,7 @@ final class WorktreeTerminalManager {
     case .createTab, .createTabWithInput, .openFileWithScript, .ensureInitialTab, .stopRunScript, .stopScript,
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .startSearch, .searchSelection,
       .navigateSearchNext, .navigateSearchPrevious, .selectTab, .selectTabAtIndex, .selectRelativeTab,
-      .focusSurface, .splitSurface, .destroyTab, .destroySurface, .renameTab, .prune, .removeWorktreeLayout,
+      .focusSurface, .splitSurface, .destroyTab, .destroySurface, .renameTab, .prune, .removeLayouts,
       .setNotificationsEnabled, .enforceNotificationRetentionLimit, .setSelectedLayoutID, .beginTabRename,
       .setTerminalHibernationEnabled, .toggleWindowModeForFocusedPane:
       return false
@@ -589,9 +589,9 @@ final class WorktreeTerminalManager {
   private func handleManagementCommand(_ command: TerminalClient.Command) {
     switch command {
     case .prune(let ids, let protectedRepositoryIDs):
-      prune(keeping: ids, protectingRepositoryIDs: protectedRepositoryIDs)
-    case .removeWorktreeLayout(let worktreeID, let remoteHost):
-      removeWorktreeLayout(for: worktreeID, remoteHost: remoteHost)
+      prune(keepingDirectories: ids, protectingRepositoryIDs: protectedRepositoryIDs)
+    case .removeLayouts(let directoryID, let remoteHost):
+      removeLayouts(forDirectory: directoryID, remoteHost: remoteHost)
     case .setNotificationsEnabled(let enabled):
       setNotificationsEnabled(enabled)
     case .enforceNotificationRetentionLimit:
@@ -778,7 +778,7 @@ final class WorktreeTerminalManager {
     }
     host.onSurfacesClosed = { [weak self] ids in
       self?.suppressedHarnessEndSurfaceIDs.subtract(ids)
-      self?.handleSurfacesClosed(worktreeID: layoutID, surfaceIDs: ids)
+      self?.handleSurfacesClosed(layoutID: layoutID, surfaceIDs: ids)
       // The last surface closing leaves no focus target, so no focus event
       // follows; fall back to the theme background here.
       self?.refreshFocusedSurfaceBackground()
@@ -1557,17 +1557,29 @@ final class WorktreeTerminalManager {
     }
   }
 
-  /// Explicit worktree deletion: drop its layout and sessions whether or not
-  /// a host exists (a hydrated worktree the user never selected has none).
-  /// Roster prune cannot do this, since a hostless layout could also belong
-  /// to a repository that merely failed to load.
-  func removeWorktreeLayout(for worktreeID: Worktree.ID, remoteHost: RemoteHost?) {
+  /// Explicit worktree deletion: drop every layout on that directory, with
+  /// its sessions, whether or not a host exists (a hydrated worktree the user
+  /// never selected has none). Roster prune cannot do this, since a hostless
+  /// layout could also belong to a repository that merely failed to load.
+  func removeLayouts(forDirectory directoryID: Worktree.ID, remoteHost: RemoteHost?) {
+    var layoutIDs = hosts.filter { $0.value.worktreeID == directoryID }.map(\.key)
+    // A hostless layout carries no directory, so it is found by the legacy
+    // key (the directory id); a host under that key has already answered.
+    if hosts[directoryID] == nil {
+      layoutIDs.append(directoryID)
+    }
+    for layoutID in layoutIDs {
+      removeLayout(layoutID, remoteHost: remoteHost)
+    }
+  }
+
+  private func removeLayout(_ layoutID: LayoutID, remoteHost: RemoteHost?) {
     let surfaceIDs =
-      hosts[worktreeID]?.allSurfaceIDs
-      ?? layoutState(for: worktreeID)?.layout.allContentIDs.map(\.rawValue) ?? []
-    paneWindows.closeAll(for: worktreeID)
-    deleteLayoutSnapshot(worktreeID: worktreeID)
-    if let host = hosts.removeValue(forKey: worktreeID) {
+      hosts[layoutID]?.allSurfaceIDs
+      ?? layoutState(for: layoutID)?.layout.allContentIDs.map(\.rawValue) ?? []
+    paneWindows.closeAll(for: layoutID)
+    deleteLayoutSnapshot(worktreeID: layoutID)
+    if let host = hosts.removeValue(forKey: layoutID) {
       // Watchers stop before the kill.
       host.tearDown()
     }
@@ -1580,12 +1592,12 @@ final class WorktreeTerminalManager {
     // removed worktree's agents linger in the presence UI.
     let closedSurfaceIDs = Set(surfaceIDs)
     if !closedSurfaceIDs.isEmpty {
-      handleSurfacesClosed(worktreeID: worktreeID, surfaceIDs: closedSurfaceIDs)
+      handleSurfacesClosed(layoutID: layoutID, surfaceIDs: closedSurfaceIDs)
     }
-    sendTerminals(.detachLayout(worktreeID: worktreeID))
-    emit(.worktreeStateTornDown(worktreeID: worktreeID))
+    sendTerminals(.detachLayout(worktreeID: layoutID))
+    emit(.worktreeStateTornDown(worktreeID: layoutID))
     cancelPendingIdleHooks(forSurfaceIDs: closedSurfaceIDs)
-    invalidateCaches(forPrunedWorktree: worktreeID)
+    invalidateCaches(forPrunedLayout: layoutID)
     emitNotificationIndicatorCountIfNeeded()
     emitHasAnyTerminalSurfaceIfNeeded()
     refreshFocusedSurfaceBackground()
@@ -1598,14 +1610,16 @@ final class WorktreeTerminalManager {
   }
 
   func prune(
-    keeping worktreeIDs: Set<Worktree.ID>,
+    keepingDirectories directoryIDs: Set<Worktree.ID>,
     protectingRepositoryIDs protectedRepositoryIDs: Set<Repository.ID> = []
   ) {
-    let shouldKeep: (Worktree.ID, WorktreeContentHost) -> Bool = { id, host in
-      worktreeIDs.contains(id) || protectedRepositoryIDs.contains(host.repositoryID)
+    // The host's directory decides, never its key: a layout id need not be
+    // the directory id, and a mismatch here kills sessions silently.
+    let shouldKeep: (WorktreeContentHost) -> Bool = { host in
+      directoryIDs.contains(host.worktreeID) || protectedRepositoryIDs.contains(host.repositoryID)
     }
-    var removed: [(Worktree.ID, WorktreeContentHost)] = []
-    for (id, host) in hosts where !shouldKeep(id, host) {
+    var removed: [(LayoutID, WorktreeContentHost)] = []
+    for (id, host) in hosts where !shouldKeep(host) {
       removed.append((id, host))
     }
     let prunedSurfaceIDs = Set(removed.flatMap { _, host in host.allSurfaceIDs })
@@ -1631,7 +1645,7 @@ final class WorktreeTerminalManager {
       // Global agent presence is keyed by surface id; retract the pruned
       // surfaces or archived / deleted agents linger in the presence UI.
       if !closedSurfaceIDs.isEmpty {
-        handleSurfacesClosed(worktreeID: id, surfaceIDs: closedSurfaceIDs)
+        handleSurfacesClosed(layoutID: id, surfaceIDs: closedSurfaceIDs)
       }
       // Signals the reducer to drop the pruned layout and bookkeeping.
       sendTerminals(.detachLayout(worktreeID: id))
@@ -1640,9 +1654,9 @@ final class WorktreeTerminalManager {
     if !removed.isEmpty {
       terminalLogger.info("Pruned \(removed.count) terminal host(s)")
     }
-    hosts = hosts.filter { shouldKeep($0.key, $0.value) }
+    hosts = hosts.filter { shouldKeep($0.value) }
     cancelPendingIdleHooks(forSurfaceIDs: prunedSurfaceIDs)
-    for (id, _) in removed { invalidateCaches(forPrunedWorktree: id) }
+    for (id, _) in removed { invalidateCaches(forPrunedLayout: id) }
     emitNotificationIndicatorCountIfNeeded()
     emitHasAnyTerminalSurfaceIfNeeded()
     refreshFocusedSurfaceBackground()
@@ -2199,9 +2213,9 @@ final class WorktreeTerminalManager {
     }
   }
 
-  private func handleSurfacesClosed(worktreeID: LayoutID, surfaceIDs: Set<UUID>) {
+  private func handleSurfacesClosed(layoutID: LayoutID, surfaceIDs: Set<UUID>) {
     ScrollbackPersistence.removeFiles(surfaceIDs: surfaceIDs)
-    emit(.surfacesClosed(layoutID: worktreeID, surfaceIDs))
+    emit(.surfacesClosed(layoutID: layoutID, surfaceIDs))
   }
 
   private func pruneBareSurfacesOnRestore(for layoutID: LayoutID, context: DirectoryContext) {
@@ -2522,7 +2536,7 @@ final class WorktreeTerminalManager {
 
   /// Clears the worktree-keyed lastEmittedProjections during prune; emit's purge has
   /// already cleared the coalesce keys, which this re-clears as a guard against drift.
-  private func invalidateCaches(forPrunedWorktree id: Worktree.ID) {
+  private func invalidateCaches(forPrunedLayout id: LayoutID) {
     lastEmittedProjections.removeValue(forKey: id)
     pendingShedProjectionReplays.remove(id)
     for key in Self.invalidatedCoalesceKeys(by: .worktreeStateTornDown(worktreeID: id)) {

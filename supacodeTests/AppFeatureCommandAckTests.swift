@@ -1873,7 +1873,7 @@ struct AppFeatureCommandAckTests {
     // The row is read before the repositories scope drops the worktree, so
     // the remote host must resolve; nil would strand the host-side session.
     let removal = sent.value.contains {
-      if case .removeWorktreeLayout(let worktreeID, let remoteHost) = $0 {
+      if case .removeLayouts(let worktreeID, let remoteHost) = $0 {
         return worktreeID == worktree.id && remoteHost == host
       }
       return false
@@ -1895,7 +1895,7 @@ struct AppFeatureCommandAckTests {
 
     // Archiving must never tear the layout down; only deletion does.
     let removal = sent.value.contains {
-      if case .removeWorktreeLayout = $0 { return true }
+      if case .removeLayouts = $0 { return true }
       return false
     }
     #expect(!removal)
