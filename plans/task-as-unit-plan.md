@@ -332,11 +332,20 @@ judgement call per site.
   handler splits into a layout half and a directory half, each gated on its
   own id changing. Switch only the ~8 layout sites to `selectedLayoutID`;
   leave the ~75 directory sites on `selectedWorktreeID`.
+- **Revised 2026-10-08**: only the rename half lands in R7. The payload
+  change and the handler split are dropped from R7 and the gating is dropped
+  altogether: it needed new "previous id" state in `AppFeature`, and id-only
+  gating would skip work the handler does today on same-id re-sends
+  (`hasSelectionChanged` re-sends on path changes; `ensureInitialTab` is not
+  idempotent in its `focusing:`/`runSetupScriptIfNew:` intent). T5 instead
+  adds an optional `layoutID:` to `selectedWorktreeChanged` (nil = resolve
+  through the seam) and the single handler keeps running both halves on
+  every send, as it does today. A17 is covered by T5 alone.
 - Tests: `TerminalsFeatureTests` renames; add an `AppFeature` test that the
   handler does the layout half only when just the layout id changes (using
   the alias, feed same worktree with a different layout id).
 - Verify: R block + `supacodeFeatureTests`.
-- Assertions: A1, A17 (mechanism).
+- Assertions: A1.
 
 **R8 — Prune and teardown decide by the host's directory.** Complex
 (destructive path).
@@ -506,7 +515,10 @@ Complex.
   directory). Indexed sessions in no task stay as implicit rows. Removing a
   directory clears or retargets `selectedTaskID`. Keyboard: the existing
   next/previous and ⌘1–9 walk live rows including shell-only task rows, and
-  never mint or resume.
+  never mint or resume. Selecting a task sends
+  `selectedWorktreeChanged(worktree, layoutID: taskID)`; the `AppFeature`
+  handler uses that id when present and the R6 seam when nil, and runs both
+  its layout and directory work on every send (no gating, no new state).
 - Tests: `SessionsSidebarStructure`/`AppFeatureSessionsTests`: A16, A17,
   A18; A36: for N tasks across shared directories, every layout id is the
   target of some row, and next/previous from any row visits every live task;
@@ -774,7 +786,7 @@ Membership already exists (T7). This phase is grouping and presentation only.
 | A13 | T3, T4 |
 | A15 | T7 |
 | A16 | T5 |
-| A17 | R7, T5 |
+| A17 | T5 |
 | A18 | T5, T10 |
 | A19 | T9 |
 | A20 | T11 |
@@ -1030,7 +1042,7 @@ deviation.
   resolved by the caller / layout-origin). Gate: check 0, WindowTitleTests +
   AppFeatureSessionsTests + TerminalTests + TerminalsFeatureTests 447 (2
   baseline Ghostty failures), build-app 0.
-- R7 (partial, rename half only), 2026-10-08: `setSelectedWorktreeID` →
+- R7 (rename half; the rest moved to T5, see the revised R7 text), 2026-10-08: `setSelectedWorktreeID` →
   `setSelectedLayoutID` (terminal client only; the watcher's stays),
   manager `selectedLayoutID`, `TerminalsFeature.selectedLayoutID`/
   `recentLayoutIDs`/`.selectedLayoutChanged`. The app handler sends the
