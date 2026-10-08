@@ -976,3 +976,15 @@ deviation.
   Gate: check 0, TerminalTests 340 (2 baseline Ghostty failures),
   TerminalsFeatureTests 24, FeatureTests 987 (2 baseline failures),
   build-app 0.
+- R5b, 2026-10-08: the remaining 21 `Command` cases (`createTab*`,
+  `openFileWithScript`, `ensureInitialTab`, script cases, `closeFocused*`,
+  `beginTabRename`, `selectTab`, `focusSurface`, `splitSurface`,
+  `destroySurface`, `splitPane`, `performBindingAction*`, 4 search cases)
+  now carry `(LayoutID, DirectoryContext)`; manager helpers and
+  `host(for:context:)` take the pair. Deviation: the `focusSurface`/
+  `closeSurface` client closures also take the pair and `closeTab` takes
+  `LayoutID`, so the `\(Worktree[,)]` check on `TerminalClient.swift` is
+  empty. Test asserts that compared a sent `Worktree` now compare its id.
+  Gate: check 0, TerminalTests 340 (2 baseline Ghostty failures),
+  TerminalsFeatureTests 24, FeatureTests 987 (2 baseline failures),
+  build-app 0.
