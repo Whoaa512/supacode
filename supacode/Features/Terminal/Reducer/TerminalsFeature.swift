@@ -46,11 +46,11 @@ struct TerminalsFeature {
     var layoutsAreReadOnly = false
     /// The selected worktree; only its panes' selected tabs are visible, so
     /// everything else is a hibernation candidate.
-    var selectedWorktreeID: Worktree.ID?
+    var selectedLayoutID: LayoutID?
     /// Most-recently-selected worktrees, newest first, capped at
     /// `liveWorktreeLimit`. Their visible panes' selected tabs never arm a grace
     /// timer, so flipping back among them is instant.
-    var recentWorktreeIDs: [LayoutID] = []
+    var recentLayoutIDs: [LayoutID] = []
     /// Tabs with an armed hibernation grace timer.
     var hibernationArmedTabs: Set<TabID> = []
     /// Hidden-but-ineligible tabs already logged, so a permanently ineligible
@@ -78,7 +78,7 @@ struct TerminalsFeature {
     case detachLayout(worktreeID: LayoutID)
     /// Worktree selection moved; visibility-driven hibernation re-diffs and
     /// the newly visible selection wakes.
-    case selectedWorktreeChanged(Worktree.ID?)
+    case selectedLayoutChanged(LayoutID?)
     /// The hibernation Beta flag flipped: enabling re-arms hidden tabs,
     /// disabling cancels every pending timer.
     case hibernationPolicyChanged
@@ -152,12 +152,12 @@ struct TerminalsFeature {
         // Bookkeeping is NOT pre-cleared: the reconcile below must still see
         // the armed entries to emit their timer cancellations.
         state.layouts.remove(id: worktreeID)
-        state.recentWorktreeIDs.removeAll { $0 == worktreeID }
+        state.recentLayoutIDs.removeAll { $0 == worktreeID }
         return reconcileHibernation(&state)
 
-      case .selectedWorktreeChanged(let worktreeID):
-        state.selectedWorktreeID = worktreeID
-        Self.recordSelection(worktreeID, in: &state.recentWorktreeIDs)
+      case .selectedLayoutChanged(let layoutID):
+        state.selectedLayoutID = layoutID
+        Self.recordSelection(layoutID, in: &state.recentLayoutIDs)
         return reconcileHibernation(&state)
 
       case .hibernationPolicyChanged:
@@ -220,12 +220,12 @@ extension TerminalsFeature {
     _ pane: Pane,
     in layout: LayoutFeature.State,
     visiblePanes: Set<PaneID>,
-    selectedWorktreeID: Worktree.ID?
+    selectedLayoutID: LayoutID?
   ) -> Bool {
     if layout.windowedPaneIDs.contains(pane.id) {
       return true
     }
-    return layout.id == selectedWorktreeID && visiblePanes.contains(pane.id)
+    return layout.id == selectedLayoutID && visiblePanes.contains(pane.id)
   }
 
   /// Moves a selection to the front of the recency list, capped at
@@ -248,10 +248,10 @@ extension TerminalsFeature {
     pane: Pane,
     in layout: LayoutFeature.State,
     visiblePanes: Set<PaneID>,
-    recentWorktreeIDs: [LayoutID]
+    recentLayoutIDs: [LayoutID]
   ) -> Bool {
     guard pane.selectedTabID == tab.id, visiblePanes.contains(pane.id) else { return false }
-    return recentWorktreeIDs.contains(layout.id)
+    return recentLayoutIDs.contains(layout.id)
   }
 
   /// Diffs the hidden set against armed timers and wakes newly visible
@@ -271,7 +271,7 @@ extension TerminalsFeature {
           pane,
           in: layout,
           visiblePanes: visiblePanes,
-          selectedWorktreeID: state.selectedWorktreeID
+          selectedLayoutID: state.selectedLayoutID
         )
         for tab in pane.tabs {
           allTabs.insert(tab.id)
@@ -282,7 +282,7 @@ extension TerminalsFeature {
             // among them never pays a rewake; they never arm.
             if Self.recencyRetains(
               tab, pane: pane, in: layout,
-              visiblePanes: visiblePanes, recentWorktreeIDs: state.recentWorktreeIDs
+              visiblePanes: visiblePanes, recentLayoutIDs: state.recentLayoutIDs
             ) {
               continue
             }
@@ -358,7 +358,7 @@ extension TerminalsFeature {
           pane,
           in: layout,
           visiblePanes: visiblePanes,
-          selectedWorktreeID: state.selectedWorktreeID
+          selectedLayoutID: state.selectedLayoutID
         )
       ),
       // Recency can cover a tab after its timer armed; the fire-time gate must
@@ -368,7 +368,7 @@ extension TerminalsFeature {
         pane: pane,
         in: layout,
         visiblePanes: visiblePanes,
-        recentWorktreeIDs: state.recentWorktreeIDs
+        recentLayoutIDs: state.recentLayoutIDs
       )
     else { return .none }
     guard layout.alert == nil else {
@@ -403,7 +403,7 @@ extension TerminalsFeature {
   private func reduceMemoryPressureWarning(_ state: inout State) -> Effect<Action> {
     @Shared(.settingsFile) var settingsFile: SettingsFile
     guard settingsFile.global.terminalHibernationEnabled else { return .none }
-    state.recentWorktreeIDs = state.selectedWorktreeID.map { [$0] } ?? []
+    state.recentLayoutIDs = state.selectedLayoutID.map { [$0] } ?? []
     var effects: [Effect<Action>] = []
     for layout in state.layouts {
       // A pending close confirmation keeps its worktree's tabs live; the grace
@@ -412,7 +412,7 @@ extension TerminalsFeature {
       let visiblePanes = Set(layout.layout.tree.visibleLeaves())
       for pane in layout.layout.panes {
         let showsContent = Self.paneShowsContent(
-          pane, in: layout, visiblePanes: visiblePanes, selectedWorktreeID: state.selectedWorktreeID)
+          pane, in: layout, visiblePanes: visiblePanes, selectedLayoutID: state.selectedLayoutID)
         for tab in pane.tabs where Self.isTabHidden(tab, pane: pane, paneShowsContent: showsContent) {
           guard contentRuntime.content(for: tab.content.id)?.isHibernatable == true else { continue }
           // Cancel the pending grace timer and hibernate through the fire-time

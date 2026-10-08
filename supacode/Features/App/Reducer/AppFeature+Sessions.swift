@@ -33,8 +33,8 @@ struct BranchCaptureRequest: Equatable {
 
 extension AppFeature {
   static func focusedSurfaceID(state: State) -> UUID? {
-    guard let selectedWorktreeID = state.terminals.selectedWorktreeID,
-      let layout = state.terminals.layouts[id: state.layoutID(forDirectory: selectedWorktreeID)]?.layout,
+    guard let selectedLayoutID = state.terminals.selectedLayoutID,
+      let layout = state.terminals.layouts[id: selectedLayoutID]?.layout,
       let focusedPane = layout.panes.first(where: { $0.id == layout.focusedPaneID }),
       let selectedTab = focusedPane.tabs.first(where: { $0.id == focusedPane.selectedTabID })
     else { return nil }

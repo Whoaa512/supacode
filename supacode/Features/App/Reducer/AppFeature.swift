@@ -626,7 +626,7 @@ struct AppFeature {
           }
           return .merge(
             .run { _ in
-              await terminalClient.send(.setSelectedWorktreeID(nil))
+              await terminalClient.send(.setSelectedLayoutID(nil))
             },
             .run { _ in
               await worktreeInfoWatcher.send(.setSelectedWorktreeID(nil))
@@ -662,7 +662,7 @@ struct AppFeature {
         let layoutID = state.layoutID(forDirectory: worktree.id)
         return .merge(
           .run { _ in
-            await terminalClient.send(.setSelectedWorktreeID(worktree.id))
+            await terminalClient.send(.setSelectedLayoutID(layoutID))
           },
           .run { _ in
             // A worktree selected for the first time (fresh install, empty

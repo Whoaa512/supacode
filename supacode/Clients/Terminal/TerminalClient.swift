@@ -136,7 +136,7 @@ struct TerminalClient {
     case removeWorktreeLayout(worktreeID: Worktree.ID, remoteHost: RemoteHost?)
     case setNotificationsEnabled(Bool)
     case enforceNotificationRetentionLimit
-    case setSelectedWorktreeID(Worktree.ID?)
+    case setSelectedLayoutID(LayoutID?)
     /// Fans a hibernation Beta-flag flip into every worktree state: enabling
     /// re-arms grace timers for hidden tabs, disabling cancels pending ones.
     case setTerminalHibernationEnabled(Bool)

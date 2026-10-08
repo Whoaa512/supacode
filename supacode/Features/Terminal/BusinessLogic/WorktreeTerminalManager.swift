@@ -144,7 +144,7 @@ final class WorktreeTerminalManager {
     }
   }
 
-  var selectedWorktreeID: Worktree.ID?
+  var selectedLayoutID: LayoutID?
   /// The resolved background of the focused surface in the selected worktree
   /// (OSC 11 override or theme fallback). Single source for the window tint,
   /// `window.appearance`, and the toolbar title's color scheme.
@@ -524,7 +524,7 @@ final class WorktreeTerminalManager {
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .performBindingAction,
       .performBindingActionOnSurface, .selectTab, .selectTabAtIndex, .selectRelativeTab, .focusSurface, .splitSurface,
       .destroyTab, .destroySurface, .renameTab, .setImagePasteAgents, .prune, .removeWorktreeLayout,
-      .setNotificationsEnabled, .enforceNotificationRetentionLimit, .setSelectedWorktreeID, .beginTabRename,
+      .setNotificationsEnabled, .enforceNotificationRetentionLimit, .setSelectedLayoutID, .beginTabRename,
       .setTerminalHibernationEnabled, .toggleWindowModeForFocusedPane,
       .splitFocusedPane, .focusSplit, .focusRelativePane, .toggleSplitZoom, .equalizeSplits,
       .splitPane, .focusPane, .closePane, .toggleZoomPane, .toggleWindowModeForPane, .moveTabToSplit:
@@ -573,7 +573,7 @@ final class WorktreeTerminalManager {
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .startSearch, .searchSelection,
       .navigateSearchNext, .navigateSearchPrevious, .selectTab, .selectTabAtIndex, .selectRelativeTab,
       .focusSurface, .splitSurface, .destroyTab, .destroySurface, .renameTab, .prune, .removeWorktreeLayout,
-      .setNotificationsEnabled, .enforceNotificationRetentionLimit, .setSelectedWorktreeID, .beginTabRename,
+      .setNotificationsEnabled, .enforceNotificationRetentionLimit, .setSelectedLayoutID, .beginTabRename,
       .setTerminalHibernationEnabled, .toggleWindowModeForFocusedPane:
       return false
     }
@@ -600,9 +600,9 @@ final class WorktreeTerminalManager {
       sendTerminals(.hibernationPolicyChanged)
     case .toggleWindowModeForFocusedPane(let layoutID):
       toggleWindowModeForFocusedPane(of: layoutID)
-    case .setSelectedWorktreeID(let id):
-      guard id != selectedWorktreeID else { return }
-      if let previousID = selectedWorktreeID, let previousHost = hosts[previousID] {
+    case .setSelectedLayoutID(let id):
+      guard id != selectedLayoutID else { return }
+      if let previousID = selectedLayoutID, let previousHost = hosts[previousID] {
         rememberFocusedZoom(of: previousHost)
         previousHost.setAllSurfacesOccluded()
         previousHost.forgetLastEmittedFocus()
@@ -610,11 +610,11 @@ final class WorktreeTerminalManager {
         lastEmittedCoalescable.removeValue(forKey: .focus(previousID))
         markLayoutDirty(worktreeID: previousID)
       }
-      selectedWorktreeID = id
+      selectedLayoutID = id
       hosts[id ?? WorktreeID("")]?.setWorktreeSelected(true)
       // Deselecting arms grace timers, selecting wakes the visible tabs; the
       // reducer owns both through the selection action.
-      sendTerminals(.selectedWorktreeChanged(id))
+      sendTerminals(.selectedLayoutChanged(id))
       // A sidebar click never hands AppKit focus to the terminal, so no focus
       // event fires; refresh here or the window keeps the previous tint.
       refreshFocusedSurfaceBackground()
@@ -768,10 +768,10 @@ final class WorktreeTerminalManager {
     host.layout = { [weak self] in self?.layoutState(for: layoutID)?.layout }
     host.windowedPaneIDs = { [weak self] in self?.layoutState(for: layoutID)?.windowedPaneIDs ?? [] }
     host.sendLayoutAction = { [weak self] action in self?.sendLayout(layoutID, action) }
-    host.setWorktreeSelected(selectedWorktreeID == layoutID)
+    host.setWorktreeSelected(selectedLayoutID == layoutID)
     host.hibernationAgentsBySurface = { [weak self] in self?.currentAgentsBySurface?() ?? [:] }
     host.isSelected = { [weak self] in
-      self?.selectedWorktreeID == layoutID
+      self?.selectedLayoutID == layoutID
     }
     host.onUserClosedSurfaces = { [weak self] ids in
       self?.emit(.userClosedSurfaces(layoutID: layoutID, ids))
@@ -1898,7 +1898,7 @@ final class WorktreeTerminalManager {
               tabTitle: TabTitle.resolved(for: tab, runtime: ContentRuntime.liveValue),
               surfaceID: surfaceID,
               availability: availability,
-              isFocused: selectedWorktreeID == worktreeID
+              isFocused: selectedLayoutID == worktreeID
                 && layoutState.layout.focusedPaneID == pane.id
                 && pane.selectedTabID == tab.id
             )
@@ -2338,7 +2338,7 @@ final class WorktreeTerminalManager {
 
   /// Capture the selected worktree's zoom at quit (no switch fires then).
   func rememberSelectedWorktreeZoomOnQuit() {
-    guard let selectedWorktreeID, let host = hosts[selectedWorktreeID] else { return }
+    guard let selectedLayoutID, let host = hosts[selectedLayoutID] else { return }
     rememberFocusedZoom(of: host)
   }
 
@@ -2354,8 +2354,8 @@ final class WorktreeTerminalManager {
   }
 
   private func resolveFocusedSurfaceBackground() -> NSColor {
-    guard let selectedWorktreeID,
-      let host = hosts[selectedWorktreeID],
+    guard let selectedLayoutID,
+      let host = hosts[selectedLayoutID],
       let surfaceState = host.focusedSurfaceState()
     else { return runtime.backgroundColor() }
     return Self.osc11BackgroundColor(

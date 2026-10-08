@@ -573,7 +573,7 @@ struct AppFeatureSessionsTests {
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
     initial.repositories.sessionSelection = .session(key1)
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    initial.terminals.selectedWorktreeID = worktree.id
+    initial.terminals.selectedLayoutID = worktree.id
     initial.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = self.tab
     let store = TestStore(initialState: initial) {
       AppFeature()
@@ -629,7 +629,7 @@ struct AppFeatureSessionsTests {
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
     initial.repositories.sessionSelection = .session(key1)
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    initial.terminals.selectedWorktreeID = worktree.id
+    initial.terminals.selectedLayoutID = worktree.id
     initial.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = self.tab
     let store = TestStore(initialState: initial) {
       AppFeature()
@@ -684,7 +684,7 @@ struct AppFeatureSessionsTests {
     initial.repositories.reconcileSessionItems(now: .distantPast)
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    initial.terminals.selectedWorktreeID = worktree.id
+    initial.terminals.selectedLayoutID = worktree.id
     initial.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = self.tab
     let store = TestStore(initialState: initial) {
       AppFeature()
@@ -712,7 +712,7 @@ struct AppFeatureSessionsTests {
 
   @Test(.dependencies) func focusedSurfaceResolvesToSessionRowID() {
     var state = state()
-    state.terminals.selectedWorktreeID = worktree.id
+    state.terminals.selectedLayoutID = worktree.id
     state.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = tab
     let key = SessionKey(harness: .pi, sessionID: "real")
     let location = SessionLocation(
@@ -727,7 +727,7 @@ struct AppFeatureSessionsTests {
 
   @Test(.dependencies) func sidebarSelectionFollowsFocusedTabOnlyWhenFocusMoves() {
     var state = state()
-    state.terminals.selectedWorktreeID = worktree.id
+    state.terminals.selectedLayoutID = worktree.id
     state.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = tab
     let key = SessionKey(harness: .pi, sessionID: "real")
     state.repositories.sessionSnapshots = [
@@ -788,7 +788,7 @@ struct AppFeatureSessionsTests {
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
     initial.repositories.sessionSelection = .session(key1)
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    initial.terminals.selectedWorktreeID = worktree.id
+    initial.terminals.selectedLayoutID = worktree.id
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
@@ -1127,7 +1127,7 @@ struct AppFeatureSessionsTests {
       id: Worktree.ID(focusedCwd.path(percentEncoded: false)), name: "focused", detail: "",
       workingDirectory: focusedCwd, repositoryRootURL: focusedCwd)
     var initial = state()
-    initial.terminals.selectedWorktreeID = worktree.id
+    initial.terminals.selectedLayoutID = worktree.id
     initial.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = tab
     initial.repositories.repositories.append(
       Repository(
