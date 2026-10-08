@@ -22,7 +22,9 @@ struct SessionCLITests {
       SessionSidebarItemFeature.State(
         id: .session(key), title: "Title", cwd: "/tmp/project", createdAt: .distantPast,
         lifecycle: .active,
-        location: SessionLocation(worktreeID: WorktreeID("/tmp/project"), tabID: TabID(), surfaceID: surface),
+        location: SessionLocation(
+          layoutID: WorktreeID("/tmp/project"), directoryID: WorktreeID("/tmp/project"), tabID: TabID(),
+          surfaceID: surface),
         branchAnnotation: "feature/session")
     ]
     repositories.recomputeSessionsSidebarStructureIfChanged()
@@ -81,7 +83,9 @@ struct SessionCLITests {
       SessionSidebarItemFeature.State(
         id: .session(key), title: "Known", cwd: directory.path, createdAt: .distantPast,
         location: live
-          ? SessionLocation(worktreeID: WorktreeID(directory.path), tabID: TabID(), surfaceID: UUID()) : nil)
+          ? SessionLocation(
+            layoutID: WorktreeID(directory.path), directoryID: WorktreeID(directory.path), tabID: TabID(),
+            surfaceID: UUID()) : nil)
     ]
     if let location = state.repositories.sessionItems[id: .session(key)]?.location {
       state.repositories.sessionSnapshots = [

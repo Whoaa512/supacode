@@ -37,7 +37,7 @@ struct RepositoriesFeatureSessionsScaleTests {
       SessionLiveSnapshot(
         harness: .pi, sessionRef: "s\(index)", cwd: "/fixture/dir\(index % 6)",
         location: SessionLocation(
-          worktreeID: "/fixture", tabID: TabID(), surfaceID: UUID()))
+          layoutID: "/fixture", directoryID: "/fixture", tabID: TabID(), surfaceID: UUID()))
     }
     return state
   }

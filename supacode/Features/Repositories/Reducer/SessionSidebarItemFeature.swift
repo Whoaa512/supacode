@@ -15,7 +15,8 @@ nonisolated enum SessionRowID: Hashable, Sendable {
 }
 
 nonisolated struct SessionLocation: Equatable, Sendable {
-  var worktreeID: Worktree.ID
+  var layoutID: LayoutID
+  var directoryID: Worktree.ID
   var tabID: TabID
   var surfaceID: UUID
 }

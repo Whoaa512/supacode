@@ -16,7 +16,7 @@ struct SessionsSidebarObservationTests {
     SessionLiveSnapshot(
       harness: .pi, sessionRef: id, cwd: "/workspace",
       location: SessionLocation(
-        worktreeID: "/workspace", tabID: TabID(rawValue: surface), surfaceID: surface),
+        layoutID: "/workspace", directoryID: "/workspace", tabID: TabID(rawValue: surface), surfaceID: surface),
       status: status)
   }
 

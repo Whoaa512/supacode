@@ -99,7 +99,8 @@ struct RepositoriesFeatureAutoSettleTests {
     let surface = UUID()
     let snapshot = SessionLiveSnapshot(
       harness: .pi, sessionRef: nil, cwd: "/fixture",
-      location: SessionLocation(worktreeID: "/fixture", tabID: TabID(rawValue: surface), surfaceID: surface))
+      location: SessionLocation(
+        layoutID: "/fixture", directoryID: "/fixture", tabID: TabID(rawValue: surface), surfaceID: surface))
     await store.send(.sessionSnapshotsChanged([snapshot]))
     await store.receive(\.sessionsRefreshRequested)
     await store.send(.sessionsRestorationCompleted([]))
@@ -117,7 +118,8 @@ struct RepositoriesFeatureAutoSettleTests {
     let surface = UUID()
     let snapshot = SessionLiveSnapshot(
       harness: .pi, sessionRef: nil, cwd: "/fixture",
-      location: SessionLocation(worktreeID: "/fixture", tabID: TabID(rawValue: surface), surfaceID: surface))
+      location: SessionLocation(
+        layoutID: "/fixture", directoryID: "/fixture", tabID: TabID(rawValue: surface), surfaceID: surface))
     await store.send(.sessionSnapshotsChanged([snapshot]))
     await store.receive(\.sessionsRefreshRequested)
     await store.send(.sessionsRestorationCompleted([]))

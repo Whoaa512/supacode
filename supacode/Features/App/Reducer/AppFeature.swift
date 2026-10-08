@@ -601,7 +601,7 @@ struct AppFeature {
       case .repositories(.delegate(.focusSession(let location))):
         return .send(
           .focusTerminalSurface(
-            worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID
+            worktreeID: location.directoryID, tabID: location.tabID, surfaceID: location.surfaceID
           ))
 
       case .repositories(.selectNextWorktree), .repositories(.selectPreviousWorktree):
@@ -659,6 +659,7 @@ struct AppFeature {
         // auto-focus races host creation and loses. The flag itself is consumed
         // by the detail view on appear.
         let wantsFocus = state.repositories.sidebarItems[id: worktree.id]?.shouldFocusTerminal == true
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .merge(
           .run { _ in
             await terminalClient.send(.setSelectedWorktreeID(worktree.id))
@@ -668,7 +669,7 @@ struct AppFeature {
             // migration) still needs its bootstrap tab; no-op when populated.
             await terminalClient.send(
               .ensureInitialTab(
-                worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: runSetupScriptIfNew,
+                layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: runSetupScriptIfNew,
                 focusing: wantsFocus))
           },
           .run { _ in
@@ -680,10 +681,11 @@ struct AppFeature {
       case .repositories(.delegate(.worktreeCreated(let worktree))):
         let shouldRunSetupScript =
           state.repositories.sidebarItems[id: worktree.id]?.lifecycle == .pending
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
           await terminalClient.send(
             .ensureInitialTab(
-              worktree.id, DirectoryContext(worktree: worktree),
+              layoutID, DirectoryContext(worktree: worktree),
               runSetupScriptIfNew: shouldRunSetupScript,
               focusing: false
             )
@@ -830,16 +832,18 @@ struct AppFeature {
           appLogger.info("Skipping \(kind) blocking script on missing worktree \(worktree.id)")
           return .none
         }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
           await terminalClient.send(
             .runBlockingScript(
-              worktree.id, DirectoryContext(worktree: worktree), kind: kind, script: script, focusing: focusing))
+              layoutID, DirectoryContext(worktree: worktree), kind: kind, script: script, focusing: focusing))
         }
 
       case .repositories(.delegate(.selectTerminalTab(let worktreeID, let tabId))):
         guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.selectTab(worktree.id, DirectoryContext(worktree: worktree), tabID: tabId))
+          await terminalClient.send(.selectTab(layoutID, DirectoryContext(worktree: worktree), tabID: tabId))
         }
 
       case .settings(.delegate(.settingsChanged(let settings))):
@@ -1067,9 +1071,10 @@ struct AppFeature {
         let script = resolveOpenFileScript(in: worktree)
         guard !script.isEmpty else { return openWithDefaultApp }
         let input = Self.openFileCommandInput(script: script, fileURL: fileURL)
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
           await terminalClient.send(
-            .openFileWithScript(worktree.id, DirectoryContext(worktree: worktree), input: input))
+            .openFileWithScript(layoutID, DirectoryContext(worktree: worktree), input: input))
         }
 
       case .openWorktreeFailed(let error):
@@ -1148,9 +1153,10 @@ struct AppFeature {
         analyticsClient.capture("terminal_tab_created", nil)
         let shouldRunSetupScript =
           state.repositories.sidebarItems[id: worktree.id]?.lifecycle == .pending
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
           await terminalClient.send(
-            .createTab(worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: shouldRunSetupScript))
+            .createTab(layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: shouldRunSetupScript))
         }
 
       case .newSession:
@@ -1182,8 +1188,9 @@ struct AppFeature {
         else {
           return .none
         }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.beginTabRename(worktree.id, DirectoryContext(worktree: worktree), tabID: tabID))
+          await terminalClient.send(.beginTabRename(layoutID, DirectoryContext(worktree: worktree), tabID: tabID))
         }
 
       case .selectTerminalTabAtIndex(let tabNumber):
@@ -1195,8 +1202,9 @@ struct AppFeature {
         else {
           return .none
         }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.selectTabAtIndex(worktree.id, index: tabNumber))
+          await terminalClient.send(.selectTabAtIndex(layoutID, index: tabNumber))
         }
 
       case .selectNextTerminalTab:
@@ -1205,8 +1213,9 @@ struct AppFeature {
         else {
           return .none
         }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.selectRelativeTab(worktree.id, forward: true))
+          await terminalClient.send(.selectRelativeTab(layoutID, forward: true))
         }
 
       case .selectPreviousTerminalTab:
@@ -1215,8 +1224,9 @@ struct AppFeature {
         else {
           return .none
         }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.selectRelativeTab(worktree.id, forward: false))
+          await terminalClient.send(.selectRelativeTab(layoutID, forward: false))
         }
 
       case .splitTerminal(let direction):
@@ -1225,8 +1235,9 @@ struct AppFeature {
         else {
           return .none
         }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.splitFocusedPane(worktree.id, direction: direction))
+          await terminalClient.send(.splitFocusedPane(layoutID, direction: direction))
         }
 
       case .toggleWindowModeForFocusedPane:
@@ -1235,8 +1246,9 @@ struct AppFeature {
         else {
           return .none
         }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.toggleWindowModeForFocusedPane(worktree.id))
+          await terminalClient.send(.toggleWindowModeForFocusedPane(layoutID))
         }
 
       case .toggleSplitZoom:
@@ -1245,8 +1257,9 @@ struct AppFeature {
         else {
           return .none
         }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.toggleSplitZoom(worktree.id))
+          await terminalClient.send(.toggleSplitZoom(layoutID))
         }
 
       case .equalizeSplits:
@@ -1255,8 +1268,9 @@ struct AppFeature {
         else {
           return .none
         }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.equalizeSplits(worktree.id))
+          await terminalClient.send(.equalizeSplits(layoutID))
         }
 
       case .focusSplit(let direction):
@@ -1265,8 +1279,9 @@ struct AppFeature {
         else {
           return .none
         }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.focusSplit(worktree.id, direction: direction))
+          await terminalClient.send(.focusSplit(layoutID, direction: direction))
         }
 
       case .focusRelativePane(let forward):
@@ -1275,8 +1290,9 @@ struct AppFeature {
         else {
           return .none
         }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.focusRelativePane(worktree.id, forward: forward))
+          await terminalClient.send(.focusRelativePane(layoutID, forward: forward))
         }
 
       case .jumpToLatestUnread:
@@ -1294,12 +1310,13 @@ struct AppFeature {
         // `.merge` is safe here: `focusSurface` carries the `Worktree`
         // explicitly, so it does not depend on `selectWorktree` landing
         // first. `.concatenate` would serialize unnecessarily.
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .merge(
           .send(.repositories(.selectWorktree(location.worktreeID, focusTerminal: true))),
           .run { _ in
             await terminalClient.send(
               .focusSurface(
-                worktree.id, DirectoryContext(worktree: worktree), tabID: location.tabID, surfaceID: location.surfaceID)
+                layoutID, DirectoryContext(worktree: worktree), tabID: location.tabID, surfaceID: location.surfaceID)
             )
             await terminalClient.markNotificationRead(location.worktreeID, location.notificationID)
           }
@@ -1307,23 +1324,26 @@ struct AppFeature {
 
       case .focusTerminalSurface(let worktreeID, let tabID, let surfaceID):
         guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .merge(
           .send(.repositories(.selectWorktree(worktreeID, focusTerminal: true))),
           .run { @MainActor _ in
-            terminalClient.focusSurface(worktree.id, DirectoryContext(worktree: worktree), tabID, surfaceID)
+            terminalClient.focusSurface(layoutID, DirectoryContext(worktree: worktree), tabID, surfaceID)
           }
         )
 
       case .closeTerminalSurface(let worktreeID, let tabID, let surfaceID):
         guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { @MainActor _ in
-          terminalClient.closeSurface(worktree.id, DirectoryContext(worktree: worktree), tabID, surfaceID)
+          terminalClient.closeSurface(layoutID, DirectoryContext(worktree: worktree), tabID, surfaceID)
         }
 
       case .closeTerminalTab(let worktreeID, let tabID):
         guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { @MainActor _ in
-          terminalClient.closeTab(worktree.id, tabID)
+          terminalClient.closeTab(layoutID, tabID)
         }
 
       case .setTerminalGridPresented(let isPresented):
@@ -1434,10 +1454,11 @@ struct AppFeature {
         analyticsClient.capture("script_run", ["kind": definition.kind.rawValue])
         // The row's `runningScripts` reconciles from the terminal's projection
         // once the script tab is tracked; no optimistic mirror write (#573).
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
           await terminalClient.send(
             .runBlockingScript(
-              worktree.id, DirectoryContext(worktree: worktree), kind: .script(definition), script: definition.command)
+              layoutID, DirectoryContext(worktree: worktree), kind: .script(definition), script: definition.command)
           )
         }
 
@@ -1445,17 +1466,19 @@ struct AppFeature {
         guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) else {
           return .none
         }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
           await terminalClient.send(
-            .stopScript(worktree.id, DirectoryContext(worktree: worktree), definitionID: definition.id))
+            .stopScript(layoutID, DirectoryContext(worktree: worktree), definitionID: definition.id))
         }
 
       case .stopRunScripts:
         guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) else {
           return .none
         }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.stopRunScript(worktree.id, DirectoryContext(worktree: worktree)))
+          await terminalClient.send(.stopRunScript(layoutID, DirectoryContext(worktree: worktree)))
         }
 
       case .closeTab:
@@ -1463,48 +1486,54 @@ struct AppFeature {
           return .none
         }
         analyticsClient.capture("terminal_tab_closed", nil)
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.closeFocusedTab(worktree.id, DirectoryContext(worktree: worktree)))
+          await terminalClient.send(.closeFocusedTab(layoutID, DirectoryContext(worktree: worktree)))
         }
 
       case .closeSurface:
         guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) else {
           return .none
         }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.closeFocusedSurface(worktree.id, DirectoryContext(worktree: worktree)))
+          await terminalClient.send(.closeFocusedSurface(layoutID, DirectoryContext(worktree: worktree)))
         }
 
       case .startSearch:
         guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) else {
           return .none
         }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.startSearch(worktree.id, DirectoryContext(worktree: worktree)))
+          await terminalClient.send(.startSearch(layoutID, DirectoryContext(worktree: worktree)))
         }
 
       case .searchSelection:
         guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) else {
           return .none
         }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.searchSelection(worktree.id, DirectoryContext(worktree: worktree)))
+          await terminalClient.send(.searchSelection(layoutID, DirectoryContext(worktree: worktree)))
         }
 
       case .navigateSearchNext:
         guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) else {
           return .none
         }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.navigateSearchNext(worktree.id, DirectoryContext(worktree: worktree)))
+          await terminalClient.send(.navigateSearchNext(layoutID, DirectoryContext(worktree: worktree)))
         }
 
       case .navigateSearchPrevious:
         guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) else {
           return .none
         }
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.navigateSearchPrevious(worktree.id, DirectoryContext(worktree: worktree)))
+          await terminalClient.send(.navigateSearchPrevious(layoutID, DirectoryContext(worktree: worktree)))
         }
 
       case .settings(.repositorySettings(.delegate(.settingsChanged(let rootURL, let host)))):
@@ -2038,6 +2067,7 @@ struct AppFeature {
           return .none
         }
         // Ghostty void actions emit bare tag names; no colon.
+        let layoutID = state.layoutID(forDirectory: worktree.id)
         let command: TerminalClient.Command
         if action == "prompt_surface_title" || action == "prompt_tab_title" {
           // Skip missing worktrees so the palette matches the rename shortcut's guard.
@@ -2045,12 +2075,12 @@ struct AppFeature {
           // Capture the focused tab synchronously so a fast tab switch between dispatch
           // and effect execution can't redirect the rename to the wrong tab.
           let tabID = terminalClient.selectedTabID(worktree.id)
-          command = .beginTabRename(worktree.id, DirectoryContext(worktree: worktree), tabID: tabID)
+          command = .beginTabRename(layoutID, DirectoryContext(worktree: worktree), tabID: tabID)
         } else if let surfaceID = terminalClient.selectedSurfaceID(worktree.id) {
           command = .performBindingActionOnSurface(
-            worktree.id, DirectoryContext(worktree: worktree), surfaceID: surfaceID, action: action)
+            layoutID, DirectoryContext(worktree: worktree), surfaceID: surfaceID, action: action)
         } else {
-          command = .performBindingAction(worktree.id, DirectoryContext(worktree: worktree), action: action)
+          command = .performBindingAction(layoutID, DirectoryContext(worktree: worktree), action: action)
         }
         return .run { _ in
           await terminalClient.send(command)
@@ -2665,10 +2695,11 @@ struct AppFeature {
     }
     let shouldRunSetupScript =
       state.repositories.sidebarItems[id: worktree.id]?.lifecycle == .pending
+    let layoutID = state.layoutID(forDirectory: worktree.id)
     return .run { _ in
       await terminalClient.send(
         .createTabWithInput(
-          worktree.id, DirectoryContext(worktree: worktree),
+          layoutID, DirectoryContext(worktree: worktree),
           input: "$EDITOR",
           runSetupScriptIfNew: shouldRunSetupScript
         )
@@ -2998,8 +3029,8 @@ struct AppFeature {
         background: background
       )
     case .stop:
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .stopRunScript(worktree.id, DirectoryContext(worktree: worktree), focusing: !background)
+      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, worktree in
+        .stopRunScript(layoutID, DirectoryContext(worktree: worktree), focusing: !background)
       }
     case .runScript(let scriptID):
       return runScriptDeeplinkEffect(
@@ -3093,8 +3124,8 @@ struct AppFeature {
       )
     case .tab(let tabID):
       guard validateTab(worktreeID: worktreeID, tabID: tabID, state: &state) else { return .none }
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .selectTab(worktree.id, DirectoryContext(worktree: worktree), tabID: TabID(rawValue: tabID))
+      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, worktree in
+        .selectTab(layoutID, DirectoryContext(worktree: worktree), tabID: TabID(rawValue: tabID))
       }
     case .tabNew(let input, let id, let title, let pane):
       // A new tab has no override to clear, so a blank title would be dropped silently.
@@ -3136,9 +3167,9 @@ struct AppFeature {
         return .none
       }
       guard let input, !input.isEmpty else {
-        let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
+        let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, worktree in
           .createTab(
-            worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, id: id, title: title,
+            layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, id: id, title: title,
             focusing: !background,
             anchor: pane)
         }
@@ -3151,9 +3182,9 @@ struct AppFeature {
           worktreeID: worktreeID, responseFD: responseFD, timeoutSeconds: timeoutSeconds,
           message: .command(input), action: action, state: &state, background: background)
       }
-      let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
+      let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, worktree in
         .createTabWithInput(
-          worktree.id, DirectoryContext(worktree: worktree),
+          layoutID, DirectoryContext(worktree: worktree),
           input: input,
           runSetupScriptIfNew: false,
           id: id,
@@ -3189,8 +3220,8 @@ struct AppFeature {
         }
         return .none
       }
-      let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .renameTab(worktree.id, tabID: TabID(rawValue: tabID), title: title)
+      let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, _ in
+        .renameTab(layoutID, tabID: TabID(rawValue: tabID), title: title)
       }
       return awaitingCompletion(
         effect, match: .tabRenamed(worktreeID: worktreeID, tabID: TabID(rawValue: tabID)),
@@ -3207,8 +3238,8 @@ struct AppFeature {
           state: &state,
           background: background)
       }
-      let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .destroyTab(worktree.id, tabID: TabID(rawValue: tabID), focusing: !background)
+      let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, _ in
+        .destroyTab(layoutID, tabID: TabID(rawValue: tabID), focusing: !background)
       }
       return awaitingCompletion(
         effect, match: .tabRemoved(worktreeID: worktreeID, tabID: TabID(rawValue: tabID)),
@@ -3226,9 +3257,9 @@ struct AppFeature {
       }
       // Focus has no reliable completion signal (the event only fires when
       // focus actually moves), so this acks immediately.
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
+      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, worktree in
         .focusSurface(
-          worktree.id, DirectoryContext(worktree: worktree), tabID: TabID(rawValue: tabID), surfaceID: surfaceID,
+          layoutID, DirectoryContext(worktree: worktree), tabID: TabID(rawValue: tabID), surfaceID: surfaceID,
           input: input)
       }
     case .surfaceSplit(let tabID, let surfaceID, let direction, let input, let id):
@@ -3259,9 +3290,9 @@ struct AppFeature {
           worktreeID: worktreeID, responseFD: responseFD, timeoutSeconds: timeoutSeconds,
           message: .command(input), action: action, state: &state, background: background)
       }
-      let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
+      let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, worktree in
         .splitSurface(
-          worktree.id, DirectoryContext(worktree: worktree), tabID: TabID(rawValue: tabID), surfaceID: surfaceID,
+          layoutID, DirectoryContext(worktree: worktree), tabID: TabID(rawValue: tabID), surfaceID: surfaceID,
           direction: direction, input: input, id: id, focusing: !background)
       }
       return awaitingCompletion(
@@ -3281,9 +3312,9 @@ struct AppFeature {
           state: &state,
           background: background)
       }
-      let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
+      let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, worktree in
         .destroySurface(
-          worktree.id, DirectoryContext(worktree: worktree), tabID: TabID(rawValue: tabID), surfaceID: surfaceID,
+          layoutID, DirectoryContext(worktree: worktree), tabID: TabID(rawValue: tabID), surfaceID: surfaceID,
           focusing: !background)
       }
       return awaitingCompletion(
@@ -3305,17 +3336,17 @@ struct AppFeature {
         return .none
       }
       // Layout topology has no distinct completion signal, so this acks immediately.
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .moveTabToSplit(worktree.id, tabID: tabID, direction: direction, focusing: !background)
+      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, _ in
+        .moveTabToSplit(layoutID, tabID: tabID, direction: direction, focusing: !background)
       }
     case .paneFocus(let token):
       guard validatePane(worktreeID: worktreeID, token: token, state: &state) else { return .none }
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .focusPane(worktree.id, paneToken: token)
+      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, _ in
+        .focusPane(layoutID, paneToken: token)
       }
     case .paneFocusDirection(let direction):
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .focusSplit(worktree.id, direction: direction)
+      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, _ in
+        .focusSplit(layoutID, direction: direction)
       }
     case .paneSplit(let token, let direction, let input, let id):
       guard validatePane(worktreeID: worktreeID, token: token, state: &state) else { return .none }
@@ -3343,9 +3374,9 @@ struct AppFeature {
           worktreeID: worktreeID, responseFD: responseFD, timeoutSeconds: timeoutSeconds,
           message: .command(input), action: action, state: &state, background: background)
       }
-      let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
+      let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, worktree in
         .splitPane(
-          worktree.id, DirectoryContext(worktree: worktree), paneToken: token, direction: direction, input: input,
+          layoutID, DirectoryContext(worktree: worktree), paneToken: token, direction: direction, input: input,
           id: id, focusing: !background)
       }
       return awaitingCompletion(
@@ -3363,22 +3394,22 @@ struct AppFeature {
           state: &state,
           background: background)
       }
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .closePane(worktree.id, paneToken: token)
+      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, _ in
+        .closePane(layoutID, paneToken: token)
       }
     case .paneZoom(let token):
       guard validatePane(worktreeID: worktreeID, token: token, state: &state) else { return .none }
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .toggleZoomPane(worktree.id, paneToken: token)
+      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, _ in
+        .toggleZoomPane(layoutID, paneToken: token)
       }
     case .paneWindow(let token):
       guard validatePane(worktreeID: worktreeID, token: token, state: &state) else { return .none }
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .toggleWindowModeForPane(worktree.id, paneToken: token)
+      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, _ in
+        .toggleWindowModeForPane(layoutID, paneToken: token)
       }
     case .paneEqualize:
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .equalizeSplits(worktree.id)
+      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, _ in
+        .equalizeSplits(layoutID)
       }
     }
   }
@@ -3434,10 +3465,11 @@ struct AppFeature {
     let terminalClient = terminalClient
     // The row's `runningScripts` reconciles from the terminal's projection
     // once the script tab is tracked; no optimistic mirror write (#573).
+    let layoutID = state.layoutID(forDirectory: worktree.id)
     return .run { _ in
       await terminalClient.send(
         .runBlockingScript(
-          worktree.id, DirectoryContext(worktree: worktree), kind: .script(definition), script: definition.command,
+          layoutID, DirectoryContext(worktree: worktree), kind: .script(definition), script: definition.command,
           focusing: !background)
       )
     }
@@ -3470,9 +3502,10 @@ struct AppFeature {
       return .none
     }
     let terminalClient = terminalClient
+    let layoutID = state.layoutID(forDirectory: worktree.id)
     return .run { _ in
       await terminalClient.send(
-        .stopScript(worktree.id, DirectoryContext(worktree: worktree), definitionID: scriptID, focusing: !background))
+        .stopScript(layoutID, DirectoryContext(worktree: worktree), definitionID: scriptID, focusing: !background))
     }
   }
 
@@ -3792,7 +3825,7 @@ struct AppFeature {
   private func sendTerminalCommand(
     worktreeID: Worktree.ID,
     state: inout State,
-    command: (Worktree) -> TerminalClient.Command
+    command: (LayoutID, Worktree) -> TerminalClient.Command
   ) -> Effect<Action> {
     guard let worktree = state.repositories.worktree(for: worktreeID) else {
       deeplinkLogger.warning("Worktree \(worktreeID) vanished before terminal command could be dispatched.")
@@ -3800,7 +3833,7 @@ struct AppFeature {
       state.alert = worktreeNotFoundAlert()
       return .none
     }
-    let cmd = command(worktree)
+    let cmd = command(state.layoutID(forDirectory: worktree.id), worktree)
     let terminalClient = terminalClient
     return .run { _ in await terminalClient.send(cmd) }
   }
@@ -4294,5 +4327,12 @@ struct AppFeature {
       return nil
     }
     return url
+  }
+}
+
+extension AppFeature.State {
+  /// The single app-layer seam for "which layout does this worktree mean".
+  func layoutID(forDirectory worktreeID: Worktree.ID) -> LayoutID {
+    worktreeID
   }
 }

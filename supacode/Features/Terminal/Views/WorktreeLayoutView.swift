@@ -5,7 +5,7 @@ import SwiftUI
 /// One worktree's terminal area on the layout engine: the pane tree with its
 /// close-confirmation alert, window-activity sync, and terminal auto-focus.
 struct WorktreeLayoutView: View {
-  let worktree: Worktree
+  let layoutID: LayoutID
   let manager: WorktreeTerminalManager
   let terminalsStore: StoreOf<TerminalsFeature>
   let runtime: ContentRuntime
@@ -25,8 +25,8 @@ struct WorktreeLayoutView: View {
     Group {
       // An empty layout renders the hint instead of an empty pane tree.
       if let layoutStore = terminalsStore.scope(
-        state: \.layouts[id: worktree.id],
-        action: \.layouts[id: worktree.id]
+        state: \.layouts[id: layoutID],
+        action: \.layouts[id: layoutID]
       ), !layoutStore.layout.panes.isEmpty {
         LayoutAlertHost(
           store: layoutStore,
@@ -34,11 +34,11 @@ struct WorktreeLayoutView: View {
           dividerColor: manager.splitDividerColor(),
           unfocusedOverlay: manager.unfocusedSplitOverlay(),
           surfaceState: { [weak manager] surfaceID in
-            manager?.hostIfExists(for: worktree.id)?.surfaceStates[surfaceID]
+            manager?.hostIfExists(for: layoutID)?.surfaceStates[surfaceID]
           },
           isLifecycleBusy: isLifecycleBusy,
           showWindowedPane: { [weak manager] paneID in
-            manager?.paneWindows.orderFront(worktreeID: worktree.id, paneID: paneID)
+            manager?.paneWindows.orderFront(worktreeID: layoutID, paneID: paneID)
           }
         )
       } else {
@@ -75,13 +75,13 @@ struct WorktreeLayoutView: View {
   }
 
   private var host: WorktreeContentHost? {
-    manager.hostIfExists(for: worktree.id)
+    manager.hostIfExists(for: layoutID)
   }
 
   /// The focused pane's selected content; drives the auto-focus handoff when
   /// selection moves (Cmd+T, tab click, deeplink jump).
   private var selectedContentID: UUID? {
-    guard let layout = terminalsStore.layouts[id: worktree.id]?.layout,
+    guard let layout = terminalsStore.layouts[id: layoutID]?.layout,
       let focused = layout.focusedPaneID
     else { return nil }
     return layout.panes[id: focused]?.selectedTab?.content.id.rawValue

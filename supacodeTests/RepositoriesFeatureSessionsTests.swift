@@ -23,7 +23,7 @@ struct RepositoriesFeatureSessionsTests {
     SessionLiveSnapshot(
       harness: .pi, sessionRef: ref, cwd: "/workspace",
       location: SessionLocation(
-        worktreeID: "/workspace", tabID: TabID(rawValue: surface), surfaceID: surface))
+        layoutID: "/workspace", directoryID: "/workspace", tabID: TabID(rawValue: surface), surfaceID: surface))
   }
 
   private func state() -> RepositoriesFeature.State {

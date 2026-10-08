@@ -34,7 +34,7 @@ struct BranchCaptureRequest: Equatable {
 extension AppFeature {
   static func focusedSurfaceID(state: State) -> UUID? {
     guard let selectedWorktreeID = state.terminals.selectedWorktreeID,
-      let layout = state.terminals.layouts[id: selectedWorktreeID]?.layout,
+      let layout = state.terminals.layouts[id: state.layoutID(forDirectory: selectedWorktreeID)]?.layout,
       let focusedPane = layout.panes.first(where: { $0.id == layout.focusedPaneID }),
       let selectedTab = focusedPane.tabs.first(where: { $0.id == focusedPane.selectedTabID })
     else { return nil }
@@ -214,7 +214,7 @@ extension AppFeature {
         .terminals(
           .layouts(
             .element(
-              id: $0.location.worktreeID,
+              id: $0.location.layoutID,
               action: .contentRequestedClose(
                 content: ContentID(rawValue: $0.location.surfaceID), scope: .tab)))))
     }
@@ -235,7 +235,7 @@ extension AppFeature {
       settleEffect,
       .send(
         .focusTerminalSurface(
-          worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID)),
+          worktreeID: location.directoryID, tabID: location.tabID, surfaceID: location.surfaceID)),
     ]
     if case .session(let targetKey) = target, targetItem.lifecycle == .settled {
       effects.append(.send(.repositories(.unsettleSession(targetKey))))
@@ -305,7 +305,9 @@ extension AppFeature {
     if let worktree = worktreeForCwd(cwd, state: state) {
       pending.launched = true
       state.pendingSessionLaunch = pending
-      return launchSessionTab(worktree: worktree, command: pending.command, requestID: requestID)
+      return launchSessionTab(
+        layoutID: state.layoutID(forDirectory: worktree.id), worktree: worktree, command: pending.command,
+        requestID: requestID)
     }
     state.pendingSessionLaunch = pending
     return .send(.repositories(.registerSessionFolder(cwd)))
@@ -391,7 +393,7 @@ extension AppFeature {
       state.alert = nil
       return .send(
         .focusTerminalSurface(
-          worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID))
+          worktreeID: location.directoryID, tabID: location.tabID, surfaceID: location.surfaceID))
     }
     let branches = state.repositories.sessions[key]?.branches ?? []
     let hasBranchHistory = !branches.isEmpty
@@ -478,7 +480,7 @@ extension AppFeature {
       state.alert = nil
       return .send(
         .focusTerminalSurface(
-          worktreeID: location.worktreeID, tabID: location.tabID, surfaceID: location.surfaceID))
+          worktreeID: location.directoryID, tabID: location.tabID, surfaceID: location.surfaceID))
     }
     @Dependency(\.uuid) var uuid
     let requestID = reservedID ?? uuid()
@@ -487,7 +489,9 @@ extension AppFeature {
     if let worktree = worktreeForCwd(prepared.cwd, state: state) {
       pending.launched = true
       state.pendingSessionLaunch = pending
-      return launchSessionTab(worktree: worktree, command: pending.command, requestID: requestID)
+      return launchSessionTab(
+        layoutID: state.layoutID(forDirectory: worktree.id), worktree: worktree, command: pending.command,
+        requestID: requestID)
     }
     state.pendingSessionLaunch = pending
     return .send(.repositories(.registerSessionFolder(prepared.cwd)))
@@ -499,7 +503,9 @@ extension AppFeature {
   ) -> Effect<Action>? {
     guard let worktree = worktreeForCwd(pending.cwd, state: state) else { return nil }
     state.pendingSessionLaunch?.launched = true
-    return launchSessionTab(worktree: worktree, command: pending.command, requestID: pending.requestID)
+    return launchSessionTab(
+      layoutID: state.layoutID(forDirectory: worktree.id), worktree: worktree, command: pending.command,
+      requestID: pending.requestID)
   }
 
   private static func worktreeForCwd(_ cwd: URL, state: State) -> Worktree? {
@@ -511,13 +517,13 @@ extension AppFeature {
   }
 
   private static func launchSessionTab(
-    worktree: Worktree, command: String, requestID: UUID
+    layoutID: LayoutID, worktree: Worktree, command: String, requestID: UUID
   ) -> Effect<Action> {
     @Dependency(TerminalClient.self) var terminalClient
     return .run { send in
       await terminalClient.send(
         .createTabWithInput(
-          worktree.id, DirectoryContext(worktree: worktree),
+          layoutID, DirectoryContext(worktree: worktree),
           input: command,
           runSetupScriptIfNew: false,
           title: nil,
@@ -566,7 +572,7 @@ extension AppFeature {
     for repository in state.repositories.repositories {
       for worktree in repository.worktrees {
         let layout =
-          state.terminals.layouts[id: worktree.id]?.layout
+          state.terminals.layouts[id: state.layoutID(forDirectory: worktree.id)]?.layout
           ?? state.repositories.persistedLayouts.worktrees[worktree.id.rawValue]?.layout
         guard let layout else { continue }
         for pane in layout.panes {
@@ -586,7 +592,7 @@ extension AppFeature {
     for repository in state.repositories.repositories {
       for worktree in repository.worktrees {
         let layout =
-          state.terminals.layouts[id: worktree.id]?.layout
+          state.terminals.layouts[id: state.layoutID(forDirectory: worktree.id)]?.layout
           ?? state.repositories.persistedLayouts.worktrees[worktree.id.rawValue]?.layout
         guard let layout else { continue }
         for pane in layout.panes {
@@ -613,14 +619,16 @@ extension AppFeature {
     for repository in state.repositories.repositories {
       for worktree in repository.worktrees {
         guard
-          let layout = state.terminals.layouts[id: worktree.id]?.layout
+          let layout = state.terminals.layouts[id: state.layoutID(forDirectory: worktree.id)]?.layout
             ?? state.repositories.persistedLayouts.worktrees[worktree.id.rawValue]?.layout
         else { continue }
         for pane in layout.panes {
           for tab in pane.tabs {
             let id = tab.content.id.rawValue
             locations[id] = (
-              SessionLocation(worktreeID: worktree.id, tabID: tab.id, surfaceID: id),
+              SessionLocation(
+                layoutID: state.layoutID(forDirectory: worktree.id), directoryID: worktree.id, tabID: tab.id,
+                surfaceID: id),
               worktree.workingDirectory.path(percentEncoded: false)
             )
           }

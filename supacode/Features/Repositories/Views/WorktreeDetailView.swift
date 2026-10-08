@@ -308,7 +308,7 @@ struct WorktreeDetailView: View {
         // lets the live surface reparent its cached wrapper instead of tearing
         // the hosting chain down and rebuilding it at zero size.
         WorktreeLayoutView(
-          worktree: selectedWorktree,
+          layoutID: store.state.layoutID(forDirectory: selectedWorktree.id),
           manager: terminalManager,
           terminalsStore: store.scope(state: \.terminals, action: \.terminals),
           runtime: ContentRuntime.liveValue,
@@ -336,7 +336,7 @@ struct WorktreeDetailView: View {
   /// Window.
   static func hasFocusedTab(in state: AppFeature.State, worktreeID: Worktree.ID?) -> Bool {
     guard let worktreeID,
-      let layout = state.terminals.layouts[id: worktreeID]?.layout,
+      let layout = state.terminals.layouts[id: state.layoutID(forDirectory: worktreeID)]?.layout,
       let focusedPaneID = layout.focusedPaneID
     else { return false }
     return layout.panes[id: focusedPaneID]?.selectedTab != nil
