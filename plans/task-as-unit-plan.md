@@ -939,6 +939,17 @@ none rejected.
 
 ## Progress
 
+A2 allow-list after R10 (`Worktree.ID` in Terminal layer): `TerminalClient`
+`prune(keepingDirectories:)`, `removeLayouts(forDirectory:)`,
+`notificationReceived`, `runStatusChanged`, `blockingScriptCompleted`,
+`worktreeProjectionChanged`, `worktreeStateTornDown`; manager
+`worktreeProjection`/`runStatus` observation keys, `removeLayouts`, `prune`,
+`forceEmitProjection`, `emitProjection`, `markNotificationRead`,
+`dismissNotification`, `killSession`; `PaneWindowManager.headerInfo`;
+`DirectoryContext.worktreeID`, host `worktreeID`, `TerminalSession.worktreeID`,
+`NotificationLocation.worktreeID`; the `LayoutID` alias. A3 allow-list:
+`DirectoryContext.init(worktree:)` only.
+
 Update this section per slice: id, commit, date, and any allow-list or
 deviation.
 
@@ -1087,3 +1098,18 @@ deviation.
   `LayoutsLegacyKeyTests` (golden v2 blob, 2 keys → layout/pane/tab/content
   ids). Gate: check 0, TerminalTests + TerminalsFeatureTests 368 (2
   baseline Ghostty failures), build-app 0.
+- R10, 2026-10-08, `a8deb176`: 18 manager functions that only index
+  `hosts`/layout state (`handleLayoutChanged`, `markUserCloseIntent`,
+  `handleUnexpectedZmxClose`, `paneExists`, `canMoveTabToNewSplit`,
+  `markLayoutDirty`, `tabExists`, `tabCanRename`, `surfaceExists`,
+  `surfaceExistsInWorktree`, `surfaceIDs`, `sessionPreview`, `sendText`,
+  `focusedSurfaceID`, `screenPreview`, `isBlockingScriptRunning`,
+  `hasUnseenNotifications`, `tabID(forWorktreeID:)`) and 5 `PaneWindowManager`
+  keys retyped to `LayoutID`. Decision: A3's `: Worktree\b` also matches
+  `: Worktree.ID`; read as "no stored `Worktree` value", which holds. Left
+  for F1 (mixed layout key + directory use): `killSession`
+  (`worktree(for:)` fallback), `markNotificationRead`/`dismissNotification`
+  (host lookup + projection emit), `headerInfo`, `TerminalSession`/
+  `NotificationLocation.worktreeID` (carry a layout key, read as a
+  directory). Gate: check 0, build-app 0, full `make test` 3985 with only
+  the 5 baseline failures.
