@@ -32,7 +32,7 @@ struct AppFeatureTerminalSetupScriptTests {
     }
 
     await store.send(.newTerminal)
-    await store.send(.terminalEvent(.setupScriptConsumed(worktreeID: worktree.id)))
+    await store.send(.terminalEvent(.setupScriptConsumed(layoutID: worktree.id)))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.receive(\.repositories.sidebarItems) {
       $0.repositories.sidebarItems[id: worktree.id]?.lifecycle = .idle
@@ -89,7 +89,7 @@ struct AppFeatureTerminalSetupScriptTests {
       AppFeature()
     }
 
-    await store.send(.terminalEvent(.tabCreated(worktreeID: worktree.id)))
+    await store.send(.terminalEvent(.tabCreated(layoutID: worktree.id)))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.receive(\.repositories.sidebarItems) {
       $0.repositories.sidebarItems[id: worktree.id]?.lifecycle = .idle
@@ -118,7 +118,7 @@ struct AppFeatureTerminalSetupScriptTests {
       AppFeature()
     }
 
-    await store.send(.terminalEvent(.setupScriptConsumed(worktreeID: worktree.id)))
+    await store.send(.terminalEvent(.setupScriptConsumed(layoutID: worktree.id)))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.receive(\.repositories.sidebarItems) {
       $0.repositories.sidebarItems[id: worktree.id]?.lifecycle = .idle
@@ -128,7 +128,7 @@ struct AppFeatureTerminalSetupScriptTests {
     }
     // The later readiness signal re-fires but the row is already idle: the
     // guard makes it inert (no follow-up `sidebarItems` mutation).
-    await store.send(.terminalEvent(.tabCreated(worktreeID: worktree.id)))
+    await store.send(.terminalEvent(.tabCreated(layoutID: worktree.id)))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.finish()
   }
@@ -153,7 +153,7 @@ struct AppFeatureTerminalSetupScriptTests {
     }
 
     await store.send(
-      .terminalEvent(.surfaceCreationFailed(worktreeID: worktree.id, attemptedID: UUID(), message: "boom"))
+      .terminalEvent(.surfaceCreationFailed(layoutID: worktree.id, attemptedID: UUID(), message: "boom"))
     )
     await store.finish()
     #expect(store.state.repositories.sidebarItems[id: worktree.id]?.lifecycle == .pending)
@@ -177,7 +177,7 @@ struct AppFeatureTerminalSetupScriptTests {
       AppFeature()
     }
 
-    await store.send(.terminalEvent(.initialTabCreationFailed(worktreeID: worktree.id, message: "boom")))
+    await store.send(.terminalEvent(.initialTabCreationFailed(layoutID: worktree.id, message: "boom")))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.receive(\.repositories.sidebarItems) {
       $0.repositories.sidebarItems[id: worktree.id]?.lifecycle = .idle
@@ -208,7 +208,7 @@ struct AppFeatureTerminalSetupScriptTests {
       AppFeature()
     }
 
-    await store.send(.terminalEvent(.tabCreated(worktreeID: worktree.id)))
+    await store.send(.terminalEvent(.tabCreated(layoutID: worktree.id)))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.finish()
     #expect(store.state.repositories.sidebarItems[id: worktree.id]?.lifecycle == .deleting)
@@ -311,7 +311,7 @@ struct AppFeatureTerminalSetupScriptTests {
       AppFeature()
     }
 
-    await store.send(.terminalEvent(.setupScriptConsumed(worktreeID: worktree.id)))
+    await store.send(.terminalEvent(.setupScriptConsumed(layoutID: worktree.id)))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.receive(\.repositories.sidebarItems) {
       $0.repositories.sidebarItems[id: worktree.id]?.lifecycle = .idle

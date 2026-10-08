@@ -802,7 +802,7 @@ struct AppFeatureCommandPaletteTests {
     store.exhaustivity = .off
 
     // Ghostty's toggle opens the command palette, never the last-used switcher.
-    await store.send(.terminalEvent(.commandPaletteToggleRequested(worktreeID: worktree.id)))
+    await store.send(.terminalEvent(.commandPaletteToggleRequested(layoutID: worktree.id)))
     await store.receive(\.commandPalette.togglePresentInMode)
     #expect(store.state.commandPalette.mode == .commands)
     #expect(store.state.commandPalette.isPresented == true)
@@ -825,7 +825,7 @@ struct AppFeatureCommandPaletteTests {
     store.exhaustivity = .off
 
     // The switcher swaps to the command palette rather than closing.
-    await store.send(.terminalEvent(.commandPaletteToggleRequested(worktreeID: worktree.id)))
+    await store.send(.terminalEvent(.commandPaletteToggleRequested(layoutID: worktree.id)))
     await store.receive(\.commandPalette.togglePresentInMode)
     #expect(store.state.commandPalette.mode == .commands)
     #expect(store.state.commandPalette.isPresented == true)
@@ -850,7 +850,7 @@ struct AppFeatureCommandPaletteTests {
 
     // The toggle fires from wt-b's surface while wt-a is selected. Closing must not
     // drag the selection onto the originating worktree.
-    await store.send(.terminalEvent(.commandPaletteToggleRequested(worktreeID: origin.id)))
+    await store.send(.terminalEvent(.commandPaletteToggleRequested(layoutID: origin.id)))
     await store.receive(\.commandPalette.togglePresentInMode)
     await store.receive(\.commandPalette.setPresented)
     await store.receive(\.commandPalette.delegate.dismissedWithoutSelection)

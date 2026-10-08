@@ -318,7 +318,7 @@ struct AppFeatureSettingsChangedTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.terminalEvent(.focusChanged(worktreeID: worktree.id, surfaceID: focused)))
+    await store.send(.terminalEvent(.focusChanged(layoutID: worktree.id, surfaceID: focused)))
     await store.skipReceivedActions()
     await store.finish()
 

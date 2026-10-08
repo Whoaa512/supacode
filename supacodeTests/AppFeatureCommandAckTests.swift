@@ -50,7 +50,7 @@ struct AppFeatureCommandAckTests {
     )
     #expect(store.state.pendingCommandAcks[id: writeFD] != nil)
 
-    await store.send(.terminalEvent(.surfaceCreated(worktreeID: worktree.id, id: tabID)))
+    await store.send(.terminalEvent(.surfaceCreated(layoutID: worktree.id, id: tabID)))
     await store.finish()
 
     #expect(store.state.pendingCommandAcks.isEmpty)
@@ -148,7 +148,7 @@ struct AppFeatureCommandAckTests {
         .createRandomWorktreeSucceeded(created, repositoryID: "/tmp/repo", pendingID: pendingID)))
     #expect(store.state.pendingCommandAcks[id: writeFD] != nil)
 
-    await store.send(.terminalEvent(.tabCreated(worktreeID: created.id)))
+    await store.send(.terminalEvent(.tabCreated(layoutID: created.id)))
     await store.finish()
 
     #expect(store.state.pendingCommandAcks.isEmpty)
@@ -186,7 +186,7 @@ struct AppFeatureCommandAckTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.terminalEvent(.tabCreated(worktreeID: worktree.id)))
+    await store.send(.terminalEvent(.tabCreated(layoutID: worktree.id)))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.receive(\.repositories.sidebarItems)
     await store.finish()
@@ -273,7 +273,7 @@ struct AppFeatureCommandAckTests {
     store.exhaustivity = .off
 
     await store.send(
-      .terminalEvent(.surfaceCreationFailed(worktreeID: worktree.id, attemptedID: UUID(), message: "boom")))
+      .terminalEvent(.surfaceCreationFailed(layoutID: worktree.id, attemptedID: UUID(), message: "boom")))
     await store.finish()
 
     #expect(store.state.pendingCommandAcks[id: writeFD] != nil)
@@ -304,7 +304,7 @@ struct AppFeatureCommandAckTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.terminalEvent(.initialTabCreationFailed(worktreeID: worktree.id, message: "boom")))
+    await store.send(.terminalEvent(.initialTabCreationFailed(layoutID: worktree.id, message: "boom")))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.receive(\.repositories.sidebarItems)
     await store.finish()
@@ -563,7 +563,7 @@ struct AppFeatureCommandAckTests {
     #expect(store.state.pendingCommandAcks[id: writeFD] != nil)
 
     await store.send(
-      .terminalEvent(.tabRemoved(worktreeID: worktree.id, tabID: TabID(rawValue: tabID)))
+      .terminalEvent(.tabRemoved(layoutID: worktree.id, tabID: TabID(rawValue: tabID)))
     )
     await store.finish()
 
@@ -596,7 +596,7 @@ struct AppFeatureCommandAckTests {
     )
     #expect(store.state.pendingCommandAcks[id: writeFD] != nil)
 
-    await store.send(.terminalEvent(.surfacesClosed(worktreeID: worktree.id, [surfaceID])))
+    await store.send(.terminalEvent(.surfacesClosed(layoutID: worktree.id, [surfaceID])))
     await store.finish()
 
     #expect(store.state.pendingCommandAcks.isEmpty)
@@ -683,7 +683,7 @@ struct AppFeatureCommandAckTests {
     await store.send(
       .terminalEvent(
         .tabRenamed(
-          worktreeID: worktree.id, tabID: TabID(rawValue: tabID), applied: true))
+          layoutID: worktree.id, tabID: TabID(rawValue: tabID), applied: true))
     )
     await store.finish()
 
@@ -715,7 +715,7 @@ struct AppFeatureCommandAckTests {
     await store.send(
       .terminalEvent(
         .tabRenamed(
-          worktreeID: worktree.id, tabID: TabID(rawValue: tabID), applied: false))
+          layoutID: worktree.id, tabID: TabID(rawValue: tabID), applied: false))
     )
     await store.finish()
 
@@ -758,7 +758,7 @@ struct AppFeatureCommandAckTests {
     await store.send(
       .terminalEvent(
         .tabRenamed(
-          worktreeID: worktree.id, tabID: TabID(rawValue: tabID), applied: true))
+          layoutID: worktree.id, tabID: TabID(rawValue: tabID), applied: true))
     )
     await store.finish()
 
@@ -978,7 +978,7 @@ struct AppFeatureCommandAckTests {
     await store.send(
       .terminalEvent(
         .tabRenamed(
-          worktreeID: worktree.id, tabID: TabID(rawValue: tabID), applied: true))
+          layoutID: worktree.id, tabID: TabID(rawValue: tabID), applied: true))
     )
     await store.finish()
 
@@ -1804,7 +1804,7 @@ struct AppFeatureCommandAckTests {
     await store.store.send(
       .terminalEvent(
         .surfaceCreationFailed(
-          worktreeID: worktree.id, attemptedID: surfaceID, message: "Could not create the split surface."
+          layoutID: worktree.id, attemptedID: surfaceID, message: "Could not create the split surface."
         )))
     await store.store.finish()
 

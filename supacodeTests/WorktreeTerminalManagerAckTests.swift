@@ -108,8 +108,8 @@ struct WorktreeTerminalManagerAckTests {
       .createTab(harness.worktree, runSetupScriptIfNew: false, id: id, focusing: false))
 
     let events = await pump.next(2)
-    #expect(events.contains(.tabCreated(worktreeID: harness.worktree.id)))
-    #expect(events.contains(.surfaceCreated(worktreeID: harness.worktree.id, id: id)))
+    #expect(events.contains(.tabCreated(layoutID: harness.worktree.id)))
+    #expect(events.contains(.surfaceCreated(layoutID: harness.worktree.id, id: id)))
     // The documented invariant: the initial surface ID equals the tab ID.
     let layout = harness.store.withState { $0.terminals.layouts[id: harness.worktree.id]?.layout }
     #expect(layout?.pane(containingTab: TabID(rawValue: id))?.tabs[id: TabID(rawValue: id)]?.content.id.rawValue == id)
@@ -186,7 +186,7 @@ struct WorktreeTerminalManagerAckTests {
     harness.manager.handleCommand(
       .ensureInitialTab(harness.worktree, runSetupScriptIfNew: false, focusing: false))
     let events = await pump.next(1)
-    #expect(events.first == .tabCreated(worktreeID: harness.worktree.id))
+    #expect(events.first == .tabCreated(layoutID: harness.worktree.id))
   }
 
   private func singleTabLayout(contentID: UUID) -> PaneLayout {

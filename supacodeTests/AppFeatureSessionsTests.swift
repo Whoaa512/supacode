@@ -1460,11 +1460,11 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.terminalEvent(.userClosedSurfaces(worktreeID: worktree.id, [surface])))
+    await store.send(.terminalEvent(.userClosedSurfaces(layoutID: worktree.id, [surface])))
     await store.receive(\.repositories.settleSession) { appState in
       #expect(appState.repositories.sessions[key]?.settledAt == Date(timeIntervalSince1970: 100))
     }
-    await store.send(.terminalEvent(.surfacesClosed(worktreeID: worktree.id, [surface])))
+    await store.send(.terminalEvent(.surfacesClosed(layoutID: worktree.id, [surface])))
     await store.receive(\.agentPresence.surfaceClosed)
     await store.finish()
   }
@@ -1499,12 +1499,12 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.terminalEvent(.userClosedSurfaces(worktreeID: worktree.id, [surface, shell])))
+    await store.send(.terminalEvent(.userClosedSurfaces(layoutID: worktree.id, [surface, shell])))
     await store.receive(\.repositories.settleSession)
     await store.receive(\.repositories.settleSession)
     #expect(store.state.repositories.sessions[first]?.settledAt == Date(timeIntervalSince1970: 100))
     #expect(store.state.repositories.sessions[second]?.settledAt == Date(timeIntervalSince1970: 100))
-    await store.send(.terminalEvent(.surfacesClosed(worktreeID: worktree.id, [surface, shell])))
+    await store.send(.terminalEvent(.surfacesClosed(layoutID: worktree.id, [surface, shell])))
     await store.receive(\.agentPresence.surfacesClosed)
     await store.finish()
   }

@@ -6,45 +6,45 @@ struct TerminalClient {
   var send: @MainActor @Sendable (Command) -> Void
   var events: @MainActor @Sendable () -> AsyncStream<Event>
   var listSurfaces: @MainActor @Sendable () -> [TerminalSession]
-  var sessionPreview: @MainActor @Sendable (Worktree.ID, UUID) -> String?
+  var sessionPreview: @MainActor @Sendable (LayoutID, UUID) -> String?
   var focusSurface: @MainActor @Sendable (Worktree, TabID, UUID) -> Void
   var closeSurface: @MainActor @Sendable (Worktree, TabID, UUID) -> Void
   var closeTab: @MainActor @Sendable (Worktree, TabID) -> Void
-  var tabExists: @MainActor @Sendable (Worktree.ID, TabID) -> Bool
-  var tabCanRename: @MainActor @Sendable (Worktree.ID, TabID) -> Bool
-  var surfaceExists: @MainActor @Sendable (Worktree.ID, TabID, UUID) -> Bool
-  var surfaceExistsInWorktree: @MainActor @Sendable (Worktree.ID, UUID) -> Bool
+  var tabExists: @MainActor @Sendable (LayoutID, TabID) -> Bool
+  var tabCanRename: @MainActor @Sendable (LayoutID, TabID) -> Bool
+  var surfaceExists: @MainActor @Sendable (LayoutID, TabID, UUID) -> Bool
+  var surfaceExistsInWorktree: @MainActor @Sendable (LayoutID, UUID) -> Bool
   /// Whether a UUID is already a tab or content id in any loaded worktree. The
   /// runtime keys content globally and hibernation keys tabs globally, so an
   /// explicit id must be unique across worktrees in both id spaces.
   var idExistsAnywhere: @MainActor @Sendable (UUID) -> Bool
   /// Whether a CLI / deeplink pane token (a pane, tab, or content id) resolves
   /// to a pane in the worktree.
-  var paneExists: @MainActor @Sendable (Worktree.ID, UUID) -> Bool
+  var paneExists: @MainActor @Sendable (LayoutID, UUID) -> Bool
   /// Whether a tab can move into a new split: its pane holds more than one tab
   /// and is not windowed. A single-tab or windowed pane refuses the move.
-  var canMoveTabToNewSplit: @MainActor @Sendable (Worktree.ID, UUID) -> Bool
-  var tabID: @MainActor @Sendable (Worktree.ID, UUID) -> TabID?
-  var selectedTabID: @MainActor @Sendable (Worktree.ID) -> TabID?
+  var canMoveTabToNewSplit: @MainActor @Sendable (LayoutID, UUID) -> Bool
+  var tabID: @MainActor @Sendable (LayoutID, UUID) -> TabID?
+  var selectedTabID: @MainActor @Sendable (LayoutID) -> TabID?
   /// Active surface in the selected tab. Lets the reducer capture the target
   /// synchronously before an async dispatch races against AppKit focus reshuffle
   /// (e.g. when a palette dismisses and the leftmost pane reclaims first responder).
-  var selectedSurfaceID: @MainActor @Sendable (Worktree.ID) -> UUID?
+  var selectedSurfaceID: @MainActor @Sendable (LayoutID) -> UUID?
   /// Writes raw bytes to one live surface's PTY without focusing it, so
   /// `supacode agent prompt` / `send-keys` can drive a background agent.
   /// `false` when the surface is gone or dormant (dormant tabs have no PTY).
-  var sendTextToSurface: @MainActor @Sendable (Worktree.ID, UUID, String) -> Bool
+  var sendTextToSurface: @MainActor @Sendable (LayoutID, UUID, String) -> Bool
   /// Current screen text of one live surface (same cached read the
   /// accessibility tree uses). `nil` when the surface is gone or dormant.
-  var surfaceScreenText: @MainActor @Sendable (Worktree.ID, UUID) -> String?
+  var surfaceScreenText: @MainActor @Sendable (LayoutID, UUID) -> String?
   var latestUnreadNotification: @MainActor @Sendable () -> NotificationLocation?
-  var markNotificationRead: @MainActor @Sendable (Worktree.ID, UUID) -> Void
+  var markNotificationRead: @MainActor @Sendable (LayoutID, UUID) -> Void
   /// Marks every notification in every worktree read (menu bar "Mark All as Read").
   var markAllNotificationsRead: @MainActor @Sendable () -> Void
   /// Blocking scripts (setup / archive / delete / run) bypass zmx and die
   /// with the app, so the auto-mode quit confirmation needs to know.
   var hasInflightBlockingScripts: @MainActor @Sendable () -> Bool
-  var markUserCloseIntent: @MainActor @Sendable (Worktree.ID, Set<UUID>) -> Void = { _, _ in }
+  var markUserCloseIntent: @MainActor @Sendable (LayoutID, Set<UUID>) -> Void = { _, _ in }
   var isHarnessEndSuppressed: @MainActor @Sendable (UUID) -> Bool = { _ in false }
   /// Close every tracked surface and kill its zmx session in parallel.
   /// Awaited from the quit path so teardown completes before process exit.
@@ -144,32 +144,32 @@ struct TerminalClient {
     case notificationReceived(
       worktreeID: Worktree.ID, surfaceID: UUID, title: String, body: String, isViewed: Bool)
     case notificationIndicatorChanged(count: Int)
-    case tabCreated(worktreeID: Worktree.ID)
-    case tabClosed(worktreeID: Worktree.ID)
-    case focusChanged(worktreeID: Worktree.ID, surfaceID: UUID)
+    case tabCreated(layoutID: LayoutID)
+    case tabClosed(layoutID: LayoutID)
+    case focusChanged(layoutID: LayoutID, surfaceID: UUID)
     case taskStatusChanged(worktreeID: Worktree.ID, status: WorktreeTaskStatus)
     case blockingScriptCompleted(
       worktreeID: Worktree.ID, kind: BlockingScriptKind, exitCode: Int?, tabId: TabID?)
-    case commandPaletteToggleRequested(worktreeID: Worktree.ID)
-    case setupScriptConsumed(worktreeID: Worktree.ID)
+    case commandPaletteToggleRequested(layoutID: LayoutID)
+    case setupScriptConsumed(layoutID: LayoutID)
     /// Per-worktree projection emitted when surfaces / task-running / unseen / notifications drift.
     /// Routed by the parent into the matching `SidebarItemFeature` via the row's id.
     case worktreeProjectionChanged(Worktree.ID, WorktreeRowProjection)
     /// An explicitly-addressed tab or split landed in the layout; resolves the
     /// CLI / deeplink creation ack for that id.
-    case surfaceCreated(worktreeID: Worktree.ID, id: UUID)
+    case surfaceCreated(layoutID: LayoutID, id: UUID)
     /// A tab was destroyed in the layout; resolves the matching close ack.
-    case tabRemoved(worktreeID: Worktree.ID, tabID: TabID)
+    case tabRemoved(layoutID: LayoutID, tabID: TabID)
     /// A rename command settled. `applied` is false when the tab vanished or its
     /// title was locked, so the CLI ack reports the failure instead of ok.
-    case tabRenamed(worktreeID: Worktree.ID, tabID: TabID, applied: Bool)
+    case tabRenamed(layoutID: LayoutID, tabID: TabID, applied: Bool)
     /// The worktree's terminal state was torn down (prune path).
     case worktreeStateTornDown(worktreeID: Worktree.ID)
-    case userClosedSurfaces(worktreeID: Worktree.ID, Set<UUID>)
+    case userClosedSurfaces(layoutID: LayoutID, Set<UUID>)
     /// Forwarded from the terminal manager when surfaces close (single or bulk).
     /// `AppFeature` translates this into `agentPresence(.surfaceClosed/surfacesClosed)`.
     /// `worktreeID` scopes the CLI close ack so a duplicate id elsewhere can't cross-resolve.
-    case surfacesClosed(worktreeID: Worktree.ID, Set<UUID>)
+    case surfacesClosed(layoutID: LayoutID, Set<UUID>)
     /// Forwarded from the terminal manager for hook events received over the socket.
     /// `AppFeature` translates this into `agentPresence(.hookEventReceived)`.
     case agentHookEventReceived(AgentHookEvent)
@@ -180,11 +180,11 @@ struct TerminalClient {
     /// A surface split failed to materialize (target raced away, target was a
     /// blocking-script tab, or the layout insert threw). Lets a CLI completion
     /// ack report the failure instead of waiting for its timeout.
-    case surfaceCreationFailed(worktreeID: Worktree.ID, attemptedID: UUID, message: String)
+    case surfaceCreationFailed(layoutID: LayoutID, attemptedID: UUID, message: String)
     /// The initial-tab bootstrap for a new worktree failed. Distinct from
     /// `surfaceCreationFailed` so only this resolves the worktree-new ack and
     /// settles creation progress; the worktree then rests with no tabs.
-    case initialTabCreationFailed(worktreeID: Worktree.ID, message: String)
+    case initialTabCreationFailed(layoutID: LayoutID, message: String)
   }
 }
 
