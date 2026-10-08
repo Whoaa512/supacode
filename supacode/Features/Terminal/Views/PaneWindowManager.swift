@@ -121,7 +121,7 @@ final class PaneWindowManager {
   private static let logger = SupaLogger("PaneWindow")
 
   private struct Key: Hashable {
-    let worktreeID: Worktree.ID
+    let worktreeID: LayoutID
     let paneID: PaneID
   }
 
@@ -135,7 +135,7 @@ final class PaneWindowManager {
   private var cascadePoint = NSPoint.zero
   /// The most recent live, non-windowed focused pane per worktree; where
   /// focus returns when a pane window hands it back.
-  private var lastEmbeddedFocusPaneIDs: [Worktree.ID: PaneID] = [:]
+  private var lastEmbeddedFocusPaneIDs: [LayoutID: PaneID] = [:]
   private var appObservers: [NSObjectProtocol] = []
   private var isReconciling = false
 

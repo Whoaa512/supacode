@@ -5,7 +5,7 @@ import SupacodeSettingsShared
 /// App-shell side effects of a layout change (persistence debounce, sidebar
 /// projection, dormant watchers); the integration layer injects the live hook.
 nonisolated struct LayoutChangeObserver: Sendable {
-  var layoutChanged: @MainActor @Sendable (Worktree.ID) -> Void
+  var layoutChanged: @MainActor @Sendable (LayoutID) -> Void
 }
 
 extension LayoutChangeObserver: DependencyKey {
@@ -50,7 +50,7 @@ struct TerminalsFeature {
     /// Most-recently-selected worktrees, newest first, capped at
     /// `liveWorktreeLimit`. Their visible panes' selected tabs never arm a grace
     /// timer, so flipping back among them is instant.
-    var recentWorktreeIDs: [Worktree.ID] = []
+    var recentWorktreeIDs: [LayoutID] = []
     /// Tabs with an armed hibernation grace timer.
     var hibernationArmedTabs: Set<TabID> = []
     /// Hidden-but-ineligible tabs already logged, so a permanently ineligible
@@ -71,11 +71,11 @@ struct TerminalsFeature {
     case layoutsHydrated(LayoutsFile)
     /// Ensures a layout exists for a worktree and carries its display name for
     /// minted tab titles. Never replaces a live layout.
-    case attachLayout(worktreeID: Worktree.ID, titlePrefix: String)
+    case attachLayout(worktreeID: LayoutID, titlePrefix: String)
     /// Replaces a not-yet-hosted launch restore after bare-shell pruning.
-    case replaceRestoredLayout(worktreeID: Worktree.ID, layout: PaneLayout)
+    case replaceRestoredLayout(worktreeID: LayoutID, layout: PaneLayout)
     /// Drops a pruned worktree's layout and bookkeeping.
-    case detachLayout(worktreeID: Worktree.ID)
+    case detachLayout(worktreeID: LayoutID)
     /// Worktree selection moved; visibility-driven hibernation re-diffs and
     /// the newly visible selection wakes.
     case selectedWorktreeChanged(Worktree.ID?)
@@ -83,7 +83,7 @@ struct TerminalsFeature {
     /// disabling cancels every pending timer.
     case hibernationPolicyChanged
     /// A tab's grace timer fired; re-verify and hibernate or re-arm.
-    case hibernationGraceElapsed(worktreeID: Worktree.ID, tabID: TabID)
+    case hibernationGraceElapsed(worktreeID: LayoutID, tabID: TabID)
     /// The system reported memory pressure: drop the recency budget to the
     /// selection and hibernate the hidden tabs now, skipping the grace window.
     case memoryPressureWarning
@@ -231,7 +231,7 @@ extension TerminalsFeature {
   /// Moves a selection to the front of the recency list, capped at
   /// `liveWorktreeLimit`. Deselecting keeps the list, so the worktree just left
   /// stays the most recent.
-  private static func recordSelection(_ worktreeID: Worktree.ID?, in recents: inout [Worktree.ID]) {
+  private static func recordSelection(_ worktreeID: LayoutID?, in recents: inout [LayoutID]) {
     guard let worktreeID else { return }
     recents.removeAll { $0 == worktreeID }
     recents.insert(worktreeID, at: 0)
@@ -248,7 +248,7 @@ extension TerminalsFeature {
     pane: Pane,
     in layout: LayoutFeature.State,
     visiblePanes: Set<PaneID>,
-    recentWorktreeIDs: [Worktree.ID]
+    recentWorktreeIDs: [LayoutID]
   ) -> Bool {
     guard pane.selectedTabID == tab.id, visiblePanes.contains(pane.id) else { return false }
     return recentWorktreeIDs.contains(layout.id)
@@ -325,7 +325,7 @@ extension TerminalsFeature {
     return content.renderer == nil
   }
 
-  private func armGraceTimer(worktreeID: Worktree.ID, tabID: TabID) -> Effect<Action> {
+  private func armGraceTimer(worktreeID: LayoutID, tabID: TabID) -> Effect<Action> {
     .run { send in
       try await clock.sleep(for: Self.hibernationGraceWindow)
       await send(.hibernationGraceElapsed(worktreeID: worktreeID, tabID: tabID))
@@ -338,7 +338,7 @@ extension TerminalsFeature {
   /// hibernation.
   private func reduceHibernationGraceElapsed(
     _ state: inout State,
-    worktreeID: Worktree.ID,
+    worktreeID: LayoutID,
     tabID: TabID
   ) -> Effect<Action> {
     state.hibernationArmedTabs.remove(tabID)

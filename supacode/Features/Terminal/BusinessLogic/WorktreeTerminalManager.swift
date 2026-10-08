@@ -15,7 +15,7 @@ final class WorktreeTerminalManager {
   private let runtime: GhosttyRuntime
   @ObservationIgnored private let surfaceBindingActionPerformer: ((GhosttySurfaceView, String) -> Void)?
   private(set) var socketServer: AgentHookSocketServer?
-  private var hosts: [Worktree.ID: WorktreeContentHost] = [:]
+  private var hosts: [LayoutID: WorktreeContentHost] = [:]
   /// The windowed-pane windows, reconciled after every layout change.
   @ObservationIgnored let paneWindows = PaneWindowManager()
   /// The app store; topology commands route into `TerminalsFeature` through it.
@@ -31,7 +31,7 @@ final class WorktreeTerminalManager {
   private var isEndingAllSessions = false
   /// Worktrees with a deferred activity re-assert already queued, so a burst
   /// of layout actions (a divider drag) coalesces into one pass per tick.
-  private var pendingActivityReasserts: Set<Worktree.ID> = []
+  private var pendingActivityReasserts: Set<LayoutID> = []
   @ObservationIgnored
   @Shared(.settingsFile) private var settingsFile: SettingsFile
   private var notificationsEnabled = true
@@ -40,7 +40,7 @@ final class WorktreeTerminalManager {
   private var lastEmittedHasAnyTerminalSurface: Bool?
   /// Per-worktree dedup of `worktreeProjectionChanged`; identical projections
   /// (common on hook storms) are dropped before they hit the AsyncStream.
-  private var lastEmittedProjections: [Worktree.ID: WorktreeRowProjection] = [:]
+  private var lastEmittedProjections: [LayoutID: WorktreeRowProjection] = [:]
   private var eventContinuation: AsyncStream<TerminalClient.Event>.Continuation?
   private var pendingEvents: [TerminalClient.Event] = []
   /// Latest-wins events deduped by identity: drops a value equal to the
@@ -50,7 +50,7 @@ final class WorktreeTerminalManager {
   private var lastEmittedCoalescable: [CoalesceKey: TerminalClient.Event] = [:]
   /// Worktrees whose projection was shed under backpressure, awaiting next-tick
   /// redelivery. Coalesced so a shed storm replays each id at most once per tick.
-  private var pendingShedProjectionReplays: Set<Worktree.ID> = []
+  private var pendingShedProjectionReplays: Set<LayoutID> = []
   /// True while a replay drain is emitting, so a replay that itself sheds can't
   /// schedule another and spin the buffer.
   private var isDrainingShedProjectionReplays = false
@@ -79,11 +79,11 @@ final class WorktreeTerminalManager {
   /// or app configured, not whatever context happens to be current at flush.
   @ObservationIgnored private let layoutsWriter: LayoutsIncrementalWriter
   /// Per-worktree debounce timers for incremental layout saves.
-  @ObservationIgnored private var layoutDirtyTasks: [Worktree.ID: Task<Void, Never>] = [:]
+  @ObservationIgnored private var layoutDirtyTasks: [LayoutID: Task<Void, Never>] = [:]
   /// Per-worktree in-flight positive flush Tasks. A delete awaits the live one
   /// for its key so `.delete` always lands on the writer after the `.snapshot`,
   /// preventing a stale positive flush from resurrecting a pruned worktree.
-  @ObservationIgnored private var layoutFlushTasks: [Worktree.ID: (generation: UInt64, task: Task<Void, Never>)] = [:]
+  @ObservationIgnored private var layoutFlushTasks: [LayoutID: (generation: UInt64, task: Task<Void, Never>)] = [:]
   /// Monotonic stamp for `layoutFlushTasks` so an older task's completion can
   /// never erase a newer registration for the same key.
   @ObservationIgnored private var layoutFlushGeneration: UInt64 = 0
@@ -95,7 +95,7 @@ final class WorktreeTerminalManager {
   @ObservationIgnored private var scrollbackPersistTask: Task<Void, Never>?
   @ObservationIgnored private(set) var liveZmxSessionNames: Set<String>?
   private(set) var hasResolvedLiveZmxSessions: Bool
-  @ObservationIgnored private var fullyPrunedRestoreIDs: Set<Worktree.ID> = []
+  @ObservationIgnored private var fullyPrunedRestoreIDs: Set<LayoutID> = []
   /// Reads the freshest `agentsBySurface` at flush time so incremental captures
   /// embed live badge records instead of the empty default.
   var currentAgentsBySurface: (() -> [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]])?
@@ -113,7 +113,7 @@ final class WorktreeTerminalManager {
   private enum CoalesceKey: Hashable {
     case worktreeProjection(Worktree.ID)
     case taskStatus(Worktree.ID)
-    case focus(Worktree.ID)
+    case focus(LayoutID)
     case notificationIndicator
     case hasAnySurface
   }
@@ -705,18 +705,18 @@ final class WorktreeTerminalManager {
   }
 
   /// The worktree's layout state in the store, nil before hydration/attach.
-  func layoutState(for worktreeID: Worktree.ID) -> LayoutFeature.State? {
+  func layoutState(for worktreeID: LayoutID) -> LayoutFeature.State? {
     appStore?.withState { $0.terminals.layouts[id: worktreeID] }
   }
 
   /// Routes an action into the worktree's `LayoutFeature`.
-  func sendLayout(_ worktreeID: Worktree.ID, _ action: LayoutFeature.Action) {
+  func sendLayout(_ worktreeID: LayoutID, _ action: LayoutFeature.Action) {
     appStore?.send(.terminals(.layouts(.element(id: worktreeID, action: action))))
   }
 
   /// Routes a layout action targeting the focused pane's selected content.
   private func sendFocusedContentLayoutAction(
-    _ worktreeID: Worktree.ID,
+    _ worktreeID: LayoutID,
     _ action: (ContentID) -> LayoutFeature.Action
   ) {
     guard
@@ -731,7 +731,7 @@ final class WorktreeTerminalManager {
     appStore?.send(.terminals(action))
   }
 
-  func hostIfExists(for worktreeID: Worktree.ID) -> WorktreeContentHost? {
+  func hostIfExists(for worktreeID: LayoutID) -> WorktreeContentHost? {
     hosts[worktreeID]
   }
 
