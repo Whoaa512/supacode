@@ -23,7 +23,7 @@ struct WorktreeTerminalManagerPaneCycleTests {
     }
 
     func focus(forward: Bool) {
-      manager.handleCommand(.focusRelativePane(worktree, forward: forward))
+      manager.handleCommand(.focusRelativePane(worktree.id, forward: forward))
     }
   }
 

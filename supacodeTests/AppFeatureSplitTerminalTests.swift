@@ -73,7 +73,7 @@ struct AppFeatureSplitTerminalTests {
 
     await store.send(.splitTerminal(direction))
     await store.finish()
-    #expect(sent.value == [.splitFocusedPane(worktree, direction: direction)])
+    #expect(sent.value == [.splitFocusedPane(worktree.id, direction: direction)])
   }
 
   @Test(.dependencies) func splitTerminalWithoutSelectionIsNoop() async {
@@ -113,7 +113,7 @@ struct AppFeatureSplitTerminalTests {
 
     await store.send(.focusSplit(direction))
     await store.finish()
-    #expect(sent.value == [.focusSplit(worktree, direction: direction)])
+    #expect(sent.value == [.focusSplit(worktree.id, direction: direction)])
   }
 
   @Test(.dependencies) func toggleSplitZoomForwardsTheLayoutCommand() async {
@@ -134,7 +134,7 @@ struct AppFeatureSplitTerminalTests {
 
     await store.send(.toggleSplitZoom)
     await store.finish()
-    #expect(sent.value == [.toggleSplitZoom(worktree)])
+    #expect(sent.value == [.toggleSplitZoom(worktree.id)])
   }
 
   @Test(.dependencies) func equalizeSplitsForwardsTheLayoutCommand() async {
@@ -155,7 +155,7 @@ struct AppFeatureSplitTerminalTests {
 
     await store.send(.equalizeSplits)
     await store.finish()
-    #expect(sent.value == [.equalizeSplits(worktree)])
+    #expect(sent.value == [.equalizeSplits(worktree.id)])
   }
 
   @Test(.dependencies) func toggleWindowModeForwardsToTheTerminalClient() async {
@@ -176,7 +176,7 @@ struct AppFeatureSplitTerminalTests {
 
     await store.send(.toggleWindowModeForFocusedPane)
     await store.finish()
-    #expect(sent.value == [.toggleWindowModeForFocusedPane(worktree)])
+    #expect(sent.value == [.toggleWindowModeForFocusedPane(worktree.id)])
   }
 
   @Test(.dependencies) func toggleWindowModeWithoutSelectionIsNoop() async {

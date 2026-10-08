@@ -1189,7 +1189,7 @@ struct AppFeature {
           return .none
         }
         return .run { _ in
-          await terminalClient.send(.selectTabAtIndex(worktree, index: tabNumber))
+          await terminalClient.send(.selectTabAtIndex(worktree.id, index: tabNumber))
         }
 
       case .selectNextTerminalTab:
@@ -1199,7 +1199,7 @@ struct AppFeature {
           return .none
         }
         return .run { _ in
-          await terminalClient.send(.selectRelativeTab(worktree, forward: true))
+          await terminalClient.send(.selectRelativeTab(worktree.id, forward: true))
         }
 
       case .selectPreviousTerminalTab:
@@ -1209,7 +1209,7 @@ struct AppFeature {
           return .none
         }
         return .run { _ in
-          await terminalClient.send(.selectRelativeTab(worktree, forward: false))
+          await terminalClient.send(.selectRelativeTab(worktree.id, forward: false))
         }
 
       case .splitTerminal(let direction):
@@ -1219,7 +1219,7 @@ struct AppFeature {
           return .none
         }
         return .run { _ in
-          await terminalClient.send(.splitFocusedPane(worktree, direction: direction))
+          await terminalClient.send(.splitFocusedPane(worktree.id, direction: direction))
         }
 
       case .toggleWindowModeForFocusedPane:
@@ -1229,7 +1229,7 @@ struct AppFeature {
           return .none
         }
         return .run { _ in
-          await terminalClient.send(.toggleWindowModeForFocusedPane(worktree))
+          await terminalClient.send(.toggleWindowModeForFocusedPane(worktree.id))
         }
 
       case .toggleSplitZoom:
@@ -1239,7 +1239,7 @@ struct AppFeature {
           return .none
         }
         return .run { _ in
-          await terminalClient.send(.toggleSplitZoom(worktree))
+          await terminalClient.send(.toggleSplitZoom(worktree.id))
         }
 
       case .equalizeSplits:
@@ -1249,7 +1249,7 @@ struct AppFeature {
           return .none
         }
         return .run { _ in
-          await terminalClient.send(.equalizeSplits(worktree))
+          await terminalClient.send(.equalizeSplits(worktree.id))
         }
 
       case .focusSplit(let direction):
@@ -1259,7 +1259,7 @@ struct AppFeature {
           return .none
         }
         return .run { _ in
-          await terminalClient.send(.focusSplit(worktree, direction: direction))
+          await terminalClient.send(.focusSplit(worktree.id, direction: direction))
         }
 
       case .focusRelativePane(let forward):
@@ -1269,7 +1269,7 @@ struct AppFeature {
           return .none
         }
         return .run { _ in
-          await terminalClient.send(.focusRelativePane(worktree, forward: forward))
+          await terminalClient.send(.focusRelativePane(worktree.id, forward: forward))
         }
 
       case .jumpToLatestUnread:
@@ -3291,16 +3291,16 @@ struct AppFeature {
       }
       // Layout topology has no distinct completion signal, so this acks immediately.
       return sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .moveTabToSplit(worktree, tabID: tabID, direction: direction, focusing: !background)
+        .moveTabToSplit(worktree.id, tabID: tabID, direction: direction, focusing: !background)
       }
     case .paneFocus(let token):
       guard validatePane(worktreeID: worktreeID, token: token, state: &state) else { return .none }
       return sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .focusPane(worktree, paneToken: token)
+        .focusPane(worktree.id, paneToken: token)
       }
     case .paneFocusDirection(let direction):
       return sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .focusSplit(worktree, direction: direction)
+        .focusSplit(worktree.id, direction: direction)
       }
     case .paneSplit(let token, let direction, let input, let id):
       guard validatePane(worktreeID: worktreeID, token: token, state: &state) else { return .none }
@@ -3353,16 +3353,16 @@ struct AppFeature {
     case .paneZoom(let token):
       guard validatePane(worktreeID: worktreeID, token: token, state: &state) else { return .none }
       return sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .toggleZoomPane(worktree, paneToken: token)
+        .toggleZoomPane(worktree.id, paneToken: token)
       }
     case .paneWindow(let token):
       guard validatePane(worktreeID: worktreeID, token: token, state: &state) else { return .none }
       return sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .toggleWindowModeForPane(worktree, paneToken: token)
+        .toggleWindowModeForPane(worktree.id, paneToken: token)
       }
     case .paneEqualize:
       return sendTerminalCommand(worktreeID: worktreeID, state: &state) { worktree in
-        .equalizeSplits(worktree)
+        .equalizeSplits(worktree.id)
       }
     }
   }

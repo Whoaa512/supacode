@@ -91,22 +91,22 @@ struct TerminalClient {
     case runBlockingScript(Worktree, kind: BlockingScriptKind, script: String, focusing: Bool = true)
     case closeFocusedTab(Worktree)
     case closeFocusedSurface(Worktree)
-    case splitFocusedPane(Worktree, direction: TerminalSplitMenuDirection)
-    case focusSplit(Worktree, direction: TerminalSplitMenuDirection)
+    case splitFocusedPane(LayoutID, direction: TerminalSplitMenuDirection)
+    case focusSplit(LayoutID, direction: TerminalSplitMenuDirection)
     /// Cycles focus to the next or previous pane in visual tree order, wrapping at the ends.
-    case focusRelativePane(Worktree, forward: Bool)
-    case toggleSplitZoom(Worktree)
-    case equalizeSplits(Worktree)
+    case focusRelativePane(LayoutID, forward: Bool)
+    case toggleSplitZoom(LayoutID)
+    case equalizeSplits(LayoutID)
     /// Pane-addressed layout ops from the CLI / deeplinks. `paneToken` is a pane
     /// id, or the id of a tab / content the pane hosts.
     case splitPane(
       Worktree, paneToken: UUID, direction: SplitDirection, input: String?, id: UUID? = nil,
       focusing: Bool = true)
-    case focusPane(Worktree, paneToken: UUID)
+    case focusPane(LayoutID, paneToken: UUID)
     case closePane(Worktree, paneToken: UUID)
-    case toggleZoomPane(Worktree, paneToken: UUID)
-    case toggleWindowModeForPane(Worktree, paneToken: UUID)
-    case moveTabToSplit(Worktree, tabID: UUID, direction: TerminalSplitMenuDirection, focusing: Bool = true)
+    case toggleZoomPane(LayoutID, paneToken: UUID)
+    case toggleWindowModeForPane(LayoutID, paneToken: UUID)
+    case moveTabToSplit(LayoutID, tabID: UUID, direction: TerminalSplitMenuDirection, focusing: Bool = true)
     case performBindingAction(Worktree, action: String)
     case performBindingActionOnSurface(Worktree, surfaceID: UUID, action: String)
     case setImagePasteAgents(surfaceID: UUID, agents: Set<SkillAgent>)
@@ -115,9 +115,9 @@ struct TerminalClient {
     case navigateSearchNext(Worktree)
     case navigateSearchPrevious(Worktree)
     case selectTab(Worktree, tabID: TabID)
-    case selectTabAtIndex(Worktree, index: Int)
+    case selectTabAtIndex(LayoutID, index: Int)
     /// Cycles to the next or previous tab in the focused pane, wrapping at the ends.
-    case selectRelativeTab(Worktree, forward: Bool)
+    case selectRelativeTab(LayoutID, forward: Bool)
     case focusSurface(Worktree, tabID: TabID, surfaceID: UUID, input: String? = nil)
     case splitSurface(
       Worktree, tabID: TabID, surfaceID: UUID, direction: SplitDirection,
@@ -126,7 +126,7 @@ struct TerminalClient {
     case destroySurface(Worktree, tabID: TabID, surfaceID: UUID, focusing: Bool = true)
     case beginTabRename(Worktree, tabID: TabID? = nil)
     /// Moves the worktree's focused pane into its own window, or back.
-    case toggleWindowModeForFocusedPane(Worktree)
+    case toggleWindowModeForFocusedPane(LayoutID)
     case renameTab(Worktree, tabID: TabID, title: String)
     case prune(keeping: Set<Worktree.ID>, protectingRepositoryIDs: Set<Repository.ID>)
     /// Explicitly deleted worktree: its layout, sessions, and persisted record

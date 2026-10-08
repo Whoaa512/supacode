@@ -401,10 +401,10 @@ final class WorktreeTerminalManager {
       sendLayout(worktree.id, .wakeTab(id: tabID))
       sendLayout(worktree.id, .selectTab(id: tabID))
       host(for: worktree).focusSelectedTab()
-    case .selectTabAtIndex(let worktree, let index):
-      selectTab(atIndex: index, in: worktree)
-    case .selectRelativeTab(let worktree, let forward):
-      selectRelativeTab(forward: forward, in: worktree)
+    case .selectTabAtIndex(let layoutID, let index):
+      selectTab(atIndex: index, in: layoutID)
+    case .selectRelativeTab(let layoutID, let forward):
+      selectRelativeTab(forward: forward, in: layoutID)
     case .focusSurface(let worktree, let tabID, let surfaceID, let input):
       let host = host(for: worktree)
       // Surface-first: the tab ID is a hint; the surface's actual owner wins.
@@ -461,19 +461,19 @@ final class WorktreeTerminalManager {
 
   /// Selects the tab at a 1-based index, clamped to the strip, matching Ghostty
   /// goto_tab semantics.
-  private func selectTab(atIndex index: Int, in worktree: Worktree) {
-    guard let layout = layoutState(for: worktree.id)?.layout,
+  private func selectTab(atIndex index: Int, in layoutID: LayoutID) {
+    guard let layout = layoutState(for: layoutID)?.layout,
       let focusedPane = layout.focusedPaneID.flatMap({ layout.panes[id: $0] }),
       !focusedPane.tabs.isEmpty
     else { return }
     let target = focusedPane.tabs[min(max(index, 1), focusedPane.tabs.count) - 1]
-    sendLayout(worktree.id, .wakeTab(id: target.id))
-    sendLayout(worktree.id, .selectTab(id: target.id))
+    sendLayout(layoutID, .wakeTab(id: target.id))
+    sendLayout(layoutID, .selectTab(id: target.id))
   }
 
   /// Selects the next (or previous) tab in the focused pane, wrapping around.
-  private func selectRelativeTab(forward: Bool, in worktree: Worktree) {
-    guard let layout = layoutState(for: worktree.id)?.layout,
+  private func selectRelativeTab(forward: Bool, in layoutID: LayoutID) {
+    guard let layout = layoutState(for: layoutID)?.layout,
       let focusedPane = layout.focusedPaneID.flatMap({ layout.panes[id: $0] }),
       focusedPane.tabs.count > 1,
       let selectedID = focusedPane.selectedTabID,
@@ -482,14 +482,14 @@ final class WorktreeTerminalManager {
     let count = focusedPane.tabs.count
     let targetIndex = forward ? (index + 1) % count : (index - 1 + count) % count
     let target = focusedPane.tabs[targetIndex]
-    sendLayout(worktree.id, .wakeTab(id: target.id))
-    sendLayout(worktree.id, .selectTab(id: target.id))
+    sendLayout(layoutID, .wakeTab(id: target.id))
+    sendLayout(layoutID, .selectTab(id: target.id))
   }
 
   /// Focuses the next (or previous) pane in visual tree order, wrapping around.
   /// Windowed panes are placeholders in the tree, so they are skipped like `focusSplit` does.
-  private func focusRelativePane(forward: Bool, in worktree: Worktree) {
-    guard let state = layoutState(for: worktree.id) else { return }
+  private func focusRelativePane(forward: Bool, in layoutID: LayoutID) {
+    guard let state = layoutState(for: layoutID) else { return }
     let layout = state.layout
     let leaves = layout.tree.leaves().filter { !state.windowedPaneIDs.contains($0) }
     guard leaves.count > 1,
@@ -499,9 +499,9 @@ final class WorktreeTerminalManager {
     let count = leaves.count
     let target = leaves[forward ? (index + 1) % count : (index - 1 + count) % count]
     if let selectedTab = layout.panes[id: target]?.selectedTabID {
-      sendLayout(worktree.id, .wakeTab(id: selectedTab))
+      sendLayout(layoutID, .wakeTab(id: selectedTab))
     }
-    sendLayout(worktree.id, .focusPane(.pane(target)))
+    sendLayout(layoutID, .focusPane(.pane(target)))
   }
 
   /// The tab ID when it exists in the worktree's layout, else nil.
@@ -534,32 +534,32 @@ final class WorktreeTerminalManager {
 
   private func handleBindingActionCommand(_ command: TerminalClient.Command) -> Bool {
     switch command {
-    case .splitFocusedPane(let worktree, let direction):
-      sendFocusedContentLayoutAction(worktree.id) {
+    case .splitFocusedPane(let layoutID, let direction):
+      sendFocusedContentLayoutAction(layoutID) {
         .contentRequestedSplit(content: $0, direction: direction.newSplitDirection)
       }
-    case .focusSplit(let worktree, let direction):
-      sendFocusedContentLayoutAction(worktree.id) {
+    case .focusSplit(let layoutID, let direction):
+      sendFocusedContentLayoutAction(layoutID) {
         .contentRequestedFocusSplit(content: $0, direction: direction.focusSplitDirection)
       }
-    case .focusRelativePane(let worktree, let forward):
-      focusRelativePane(forward: forward, in: worktree)
-    case .toggleSplitZoom(let worktree):
-      sendFocusedContentLayoutAction(worktree.id) { .contentRequestedToggleZoom(content: $0) }
-    case .equalizeSplits(let worktree):
-      sendLayout(worktree.id, .equalizePanes)
+    case .focusRelativePane(let layoutID, let forward):
+      focusRelativePane(forward: forward, in: layoutID)
+    case .toggleSplitZoom(let layoutID):
+      sendFocusedContentLayoutAction(layoutID) { .contentRequestedToggleZoom(content: $0) }
+    case .equalizeSplits(let layoutID):
+      sendLayout(layoutID, .equalizePanes)
     case .splitPane(let worktree, let token, let direction, let input, let id, let focusing):
       splitPane(in: worktree, paneToken: token, direction: direction, input: input, id: id, focusing: focusing)
-    case .focusPane(let worktree, let paneToken):
-      focusPane(in: worktree, paneToken: paneToken)
+    case .focusPane(let layoutID, let paneToken):
+      focusPane(in: layoutID, paneToken: paneToken)
     case .closePane(let worktree, let token):
       closePane(in: worktree, paneToken: token)
-    case .toggleZoomPane(let worktree, let token):
-      toggleZoomPane(in: worktree, paneToken: token)
-    case .toggleWindowModeForPane(let worktree, let token):
-      toggleWindowModeForPane(in: worktree, paneToken: token)
-    case .moveTabToSplit(let worktree, let tabID, let direction, let focusing):
-      moveTabToSplit(in: worktree, tabID: tabID, direction: direction, focusing: focusing)
+    case .toggleZoomPane(let layoutID, let token):
+      toggleZoomPane(in: layoutID, paneToken: token)
+    case .toggleWindowModeForPane(let layoutID, let token):
+      toggleWindowModeForPane(in: layoutID, paneToken: token)
+    case .moveTabToSplit(let layoutID, let tabID, let direction, let focusing):
+      moveTabToSplit(in: layoutID, tabID: tabID, direction: direction, focusing: focusing)
     case .performBindingAction(let worktree, let action):
       host(for: worktree).performBindingActionOnFocusedSurface(action)
     case .performBindingActionOnSurface(let worktree, let surfaceID, let action):
@@ -595,8 +595,8 @@ final class WorktreeTerminalManager {
       enforceNotificationRetentionLimit()
     case .setTerminalHibernationEnabled:
       sendTerminals(.hibernationPolicyChanged)
-    case .toggleWindowModeForFocusedPane(let worktree):
-      toggleWindowModeForFocusedPane(of: worktree)
+    case .toggleWindowModeForFocusedPane(let layoutID):
+      toggleWindowModeForFocusedPane(of: layoutID)
     case .setSelectedWorktreeID(let id):
       guard id != selectedWorktreeID else { return }
       if let previousID = selectedWorktreeID, let previousHost = hosts[previousID] {
@@ -630,7 +630,7 @@ final class WorktreeTerminalManager {
   /// Toggles window mode for the worktree's focused pane. A key pane window
   /// (or its palette child) wins over the selected worktree, so the command
   /// returns THAT pane inline.
-  private func toggleWindowModeForFocusedPane(of worktree: Worktree) {
+  private func toggleWindowModeForFocusedPane(of layoutID: LayoutID) {
     let keyPaneWindow = (NSApp.keyWindow as? PaneWindow) ?? (NSApp.keyWindow?.parent as? PaneWindow)
     if let keyPaneWindow, let worktreeID = keyPaneWindow.hostedWorktreeID,
       let paneID = keyPaneWindow.hostedPaneID
@@ -638,19 +638,19 @@ final class WorktreeTerminalManager {
       sendLayout(worktreeID, .exitWindowMode(paneID: paneID))
       return
     }
-    guard let layout = layoutState(for: worktree.id) else {
-      terminalLogger.warning("toggleWindowMode: no layout state for \(worktree.id).")
+    guard let layout = layoutState(for: layoutID) else {
+      terminalLogger.warning("toggleWindowMode: no layout state for \(layoutID).")
       return
     }
     guard let paneID = layout.layout.focusedPaneID else {
-      terminalLogger.debug("toggleWindowMode: no focused pane in \(worktree.id).")
+      terminalLogger.debug("toggleWindowMode: no focused pane in \(layoutID).")
       return
     }
     let action: LayoutFeature.Action =
       layout.windowedPaneIDs.contains(paneID)
       ? .exitWindowMode(paneID: paneID)
       : .enterWindowMode(paneID: paneID)
-    sendLayout(worktree.id, action)
+    sendLayout(layoutID, action)
   }
 
   /// The content's OSC 11 background, nil when unset or unmounted.
@@ -1462,22 +1462,22 @@ final class WorktreeTerminalManager {
     emit(.surfaceCreated(layoutID: worktree.id, id: id))
   }
 
-  private func focusPane(in worktree: Worktree, paneToken: UUID) {
-    guard let paneID = resolvePane(paneToken, in: worktree.id),
-      let state = layoutState(for: worktree.id),
+  private func focusPane(in layoutID: LayoutID, paneToken: UUID) {
+    guard let paneID = resolvePane(paneToken, in: layoutID),
+      let state = layoutState(for: layoutID),
       let pane = state.layout.panes[id: paneID]
     else {
-      terminalLogger.warning("focusPane: pane token \(paneToken) not found in worktree \(worktree.id).")
+      terminalLogger.warning("focusPane: pane token \(paneToken) not found in worktree \(layoutID).")
       return
     }
     if let selectedTab = pane.selectedTabID {
-      sendLayout(worktree.id, .wakeTab(id: selectedTab))
+      sendLayout(layoutID, .wakeTab(id: selectedTab))
     }
-    sendLayout(worktree.id, .focusPane(.pane(paneID)))
+    sendLayout(layoutID, .focusPane(.pane(paneID)))
     // A windowed pane lives in its own window; bring it forward and make it key,
     // or the CLI / deeplink reports success while the pane stays hidden.
     if state.windowedPaneIDs.contains(paneID) {
-      paneWindows.orderFront(worktreeID: worktree.id, paneID: paneID)
+      paneWindows.orderFront(worktreeID: layoutID, paneID: paneID)
     }
   }
 
@@ -1492,39 +1492,39 @@ final class WorktreeTerminalManager {
     sendLayout(worktree.id, .closePane(id: paneID))
   }
 
-  private func toggleZoomPane(in worktree: Worktree, paneToken: UUID) {
-    guard let paneID = resolvePane(paneToken, in: worktree.id) else {
-      terminalLogger.warning("toggleZoomPane: pane token \(paneToken) not found in worktree \(worktree.id).")
+  private func toggleZoomPane(in layoutID: LayoutID, paneToken: UUID) {
+    guard let paneID = resolvePane(paneToken, in: layoutID) else {
+      terminalLogger.warning("toggleZoomPane: pane token \(paneToken) not found in worktree \(layoutID).")
       return
     }
-    sendLayout(worktree.id, .toggleZoom(paneID: paneID))
+    sendLayout(layoutID, .toggleZoom(paneID: paneID))
   }
 
-  private func toggleWindowModeForPane(in worktree: Worktree, paneToken: UUID) {
-    guard let layout = layoutState(for: worktree.id),
-      let paneID = resolvePane(paneToken, in: worktree.id)
+  private func toggleWindowModeForPane(in layoutID: LayoutID, paneToken: UUID) {
+    guard let layout = layoutState(for: layoutID),
+      let paneID = resolvePane(paneToken, in: layoutID)
     else {
-      terminalLogger.warning("toggleWindowMode: pane token \(paneToken) not found in worktree \(worktree.id).")
+      terminalLogger.warning("toggleWindowMode: pane token \(paneToken) not found in worktree \(layoutID).")
       return
     }
     let action: LayoutFeature.Action =
       layout.windowedPaneIDs.contains(paneID)
       ? .exitWindowMode(paneID: paneID)
       : .enterWindowMode(paneID: paneID)
-    sendLayout(worktree.id, action)
+    sendLayout(layoutID, action)
   }
 
   private func moveTabToSplit(
-    in worktree: Worktree, tabID: UUID, direction: TerminalSplitMenuDirection, focusing: Bool
+    in layoutID: LayoutID, tabID: UUID, direction: TerminalSplitMenuDirection, focusing: Bool
   ) {
     let tab = TabID(rawValue: tabID)
-    guard let anchorPane = layoutState(for: worktree.id)?.layout.pane(containingTab: tab) else {
-      terminalLogger.warning("moveTab: tab \(tabID) not found in worktree \(worktree.id).")
+    guard let anchorPane = layoutState(for: layoutID)?.layout.pane(containingTab: tab) else {
+      terminalLogger.warning("moveTab: tab \(tabID) not found in worktree \(layoutID).")
       return
     }
-    sendLayout(worktree.id, .wakeTab(id: tab))
+    sendLayout(layoutID, .wakeTab(id: tab))
     sendLayout(
-      worktree.id,
+      layoutID,
       .moveTabToSplit(id: tab, anchor: anchorPane.id, direction: direction.newSplitDirection, select: focusing)
     )
   }

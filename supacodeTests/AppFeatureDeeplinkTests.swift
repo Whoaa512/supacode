@@ -154,7 +154,7 @@ struct AppFeatureDeeplinkTests {
     #expect(
       sent.value.contains {
         if case .toggleZoomPane(let target, let paneToken) = $0 {
-          return target.id == worktree.id && paneToken == token
+          return target == worktree.id && paneToken == token
         }
         return false
       })
@@ -183,7 +183,7 @@ struct AppFeatureDeeplinkTests {
     #expect(
       sent.value.contains {
         if case .moveTabToSplit(let target, let tab, let direction, _) = $0 {
-          return target.id == worktree.id && tab == tabID && direction == .right
+          return target == worktree.id && tab == tabID && direction == .right
         }
         return false
       })
@@ -235,7 +235,7 @@ struct AppFeatureDeeplinkTests {
     await store.finish()
     #expect(
       sent.value.contains {
-        if case .equalizeSplits(let target) = $0 { return target.id == worktree.id }
+        if case .equalizeSplits(let target) = $0 { return target == worktree.id }
         return false
       })
   }
