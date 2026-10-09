@@ -2876,3 +2876,35 @@ deviation.
   Gate: check 0; `supacodeFeatureTests` + the three sessions suites of
   `supacodeTests` (task rows, CLI, observation) exit 2 with 1228 tests and
   only two baseline failures (ack flake, settings-changed); build-app 0.
+- S1 review r2, 2026-10-09. One finding (P1), held: a dormant task row
+  resumed by its primary's key alone, so with two closed tasks on one
+  directory listing the same primary, clicking the higher-key one reopened
+  the other.
+  - Fixed: `resumeSession(key, task:)` carries the clicked row's `LayoutID`
+    (nil for `.implicit` rows and every other caller, which keep key-only
+    resolution). It rides on `PendingSessionLaunch.task` through the branch
+    probe, the mismatch confirmation and folder registration, and
+    `task(listing:onDirectory:preferring:)` checks it again at launch: it
+    wins only while it still exists, lists the session and sits on the
+    resume directory; otherwise lowest key, then a minted task, as before.
+  - Decided (not in the plan): a dormant task whose primary is running in
+    another task. One session never gets a second agent, so the click
+    shows where it runs (the other task) and launches nothing. Starting a
+    second agent on a session already being written was the alternative;
+    refused as the only option that can damage a session. The clicked task
+    stays closed until its primary is free. Unchanged behaviour, now
+    pinned by a test.
+  Left for later:
+  - S2: a dormant sub-row's resume should pass its task the same way
+    (`resumeSession(key, task:)`); today only task rows do.
+  - The 10s `recentSessionLaunchDate` guard is per key, so clicking the
+    second task sharing a primary within 10s of reopening the first is
+    ignored (it would be the "already running elsewhere" case anyway).
+  Tests: `AppFeatureSessionsTaskSettleTests` (reopen the higher-key task of
+  two closed owners; shared primary live in the other task; fallback when
+  the task asked for no longer lists the session); the first and third
+  fail without the preference (checked by disabling that line: exit 2,
+  those two). `SessionsSidebarTaskRowsTests` activation asserts the task.
+  Gate: check 0; `AppFeatureSessionsTaskSettleTests`,
+  `AppFeatureSessionsTests`, `RepositoriesFeatureSessionsTests`,
+  `SessionsSidebarTaskRowsTests` exit 0 with 250 tests; build-app 0.
