@@ -2565,6 +2565,47 @@ struct AppFeatureSessionsTests {
     #expect(probes.value.isEmpty)
   }
 
+  /// A new tab records no cwd and can inherit another tab's; a restored one can
+  /// `cd` away. The running surface's directory is what capture goes by.
+  @Test(.dependencies, arguments: ["no recorded cwd", "recorded in the task directory"])
+  func aSurfaceRunningElsewhereThanRecordedCapturesTheBranchOfWhereItRuns(recorded: String) async {
+    var initial = twoTasksOnOneDirectory()
+    initial.repositories.sidebarItems = [directoryRow(branch: "a-branch")]
+    let target = recorded == "no recorded cwd" ? firstSurface : surface
+    let layoutID = recorded == "no recorded cwd" ? first : worktree.id.layoutID
+    let probes = LockIsolated<[String]>([])
+    let asked = LockIsolated<[LayoutID]>([])
+    let store = captureStore(initial, probes: probes)
+    store.dependencies.terminalClient.surfaceWorkingDirectory = { layout, surfaceID in
+      asked.withValue { $0.append(layout) }
+      return surfaceID == target ? "/elsewhere" : nil
+    }
+
+    await store.send(busy(target, ref: "moved"))
+    await store.finish()
+
+    #expect(
+      store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "moved")]?.branches == ["b-branch"])
+    #expect(probes.value == ["/elsewhere"])
+    #expect(asked.value == [layoutID])
+  }
+
+  @Test(.dependencies) func aSurfaceBackInTheTaskDirectoryCapturesTheCachedBranch() async {
+    var initial = twoTasksOnOneDirectory()
+    initial.repositories.sidebarItems = [directoryRow(branch: "cached-branch")]
+    let probes = LockIsolated<[String]>([])
+    let store = captureStore(initial, probes: probes)
+    store.dependencies.terminalClient.surfaceWorkingDirectory = { _, _ in "/workspace/" }
+
+    // Recorded in /elsewhere, running in the task directory again.
+    await store.send(busy(secondSurface, ref: "two"))
+    await store.finish()
+
+    #expect(
+      store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "two")]?.branches == ["cached-branch"])
+    #expect(probes.value.isEmpty)
+  }
+
   /// A tangent that ran in B inside a task on A recorded B's branch. Resuming
   /// it where it ran compares against B; resuming it in A compares against A.
   @Test(.dependencies, arguments: [true, false])

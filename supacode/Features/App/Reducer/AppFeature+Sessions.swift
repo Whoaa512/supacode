@@ -743,8 +743,14 @@ extension AppFeature {
     guard let entry = surfaceIndex(state: state)[event.surfaceID] else { return .none }
     // The branch is the one the surface runs on. The directory's cached branch
     // only speaks for a surface sitting in that directory; a tab elsewhere is probed.
-    let cwd = URL(fileURLWithPath: entry.cwd).standardizedFileURL
-    let runsInTaskDirectory = cwd == URL(fileURLWithPath: entry.directoryPath).standardizedFileURL
+    // The layout records a tab's cwd only at launch or restore (a new tab records
+    // none and may inherit another's), so the running surface is asked first.
+    @Dependency(TerminalClient.self) var terminalClient
+    let liveCwd = terminalClient.surfaceWorkingDirectory(entry.layoutID, event.surfaceID)
+      .flatMap { $0.isEmpty ? nil : $0 }
+    let cwd = URL(fileURLWithPath: liveCwd ?? entry.cwd).standardizedFileURL
+    // Paths, not URLs: a reported directory may carry a trailing slash.
+    let runsInTaskDirectory = cwd.path == URL(fileURLWithPath: entry.directoryPath).standardizedFileURL.path
     if runsInTaskDirectory,
       let branch = state.repositories.sidebarItems[id: entry.directoryID]?.branchName, !branch.isEmpty
     {

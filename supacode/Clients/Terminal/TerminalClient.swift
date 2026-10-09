@@ -46,6 +46,9 @@ struct TerminalClient {
   var hasInflightBlockingScripts: @MainActor @Sendable () -> Bool
   var markUserCloseIntent: @MainActor @Sendable (LayoutID, Set<UUID>) -> Void = { _, _ in }
   var isHarnessEndSuppressed: @MainActor @Sendable (UUID) -> Bool = { _ in false }
+  /// The directory a live surface's shell last reported. `nil` when the
+  /// surface is gone, dormant, or has reported none.
+  var surfaceWorkingDirectory: @MainActor @Sendable (LayoutID, UUID) -> String? = { _, _ in nil }
   /// Close every tracked surface and kill its zmx session in parallel.
   /// Awaited from the quit path so teardown completes before process exit.
   var terminateAllSessions: @MainActor @Sendable () async -> Void

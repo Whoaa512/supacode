@@ -377,6 +377,9 @@ struct SupacodeApp: App {
       isHarnessEndSuppressed: { surfaceID in
         terminalManager.isHarnessEndSuppressed(surfaceID: surfaceID)
       },
+      surfaceWorkingDirectory: { layoutID, surfaceID in
+        terminalManager.hostIfExists(for: layoutID)?.liveSurface(surfaceID)?.bridge.state.pwd
+      },
       terminateAllSessions: {
         await terminalManager.terminateAllSessions()
       },
