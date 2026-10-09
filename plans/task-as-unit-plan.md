@@ -2971,3 +2971,25 @@ deviation.
   `AppFeatureSessionsTaskSettleTests`, `RepositoriesFeatureSessionsTests`,
   `RepositoriesFeatureSessionsScaleTests` exit 0 with 271 tests;
   build-app 0. No full run (not the phase's last slice).
+- S2 r1 (review fix), 2026-10-09. Test only; no source change.
+  - P1 held: the targeted resume had no test for a task that is only its
+    stored record, so `taskDirectory`'s stored directory and membership
+    fallbacks ran in no test. Added
+    `aTangentOfAStoredOnlyTaskResumesInItAndTheTaskIsShown` in
+    `AppFeatureSessionsTests`: a persisted record listing [primary,
+    tangent], no runtime layout, directory or member. It pins the stored
+    task's own id and directory, the `cd` input, no primary seed, no folder
+    registered, the task selected only once its first tab exists, members
+    still [primary, tangent] after the agent reports, the primary neither
+    launched nor unsettled. It passed against the unchanged source, so the
+    finding was a coverage gap, not a defect.
+  - Runs twice: with the stored sessions read before the resume (the usual
+    launch order, where runtime members already list both) and after it
+    (the stored membership fallback proper). Corrects the note above:
+    "stored-only dormant task" is no longer untested; a remote task and the
+    mismatch-cancel variant still are.
+  - Read from the source, not asserted or changed (pre-existing, T-phase
+    behaviour): while the
+    stored sessions are still pending, the run's own list for that task is
+    [tangent] alone until the read replays onto the stored order.
+  Gate: check 0; `AppFeatureSessionsTests` exit 0 (154 tests); build-app 0.

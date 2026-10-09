@@ -4024,6 +4024,72 @@ struct AppFeatureSessionsTests {
     #expect(sidecar[piKey("primary")]?.settledAt != nil, "a tangent resuming leaves the primary's mark")
   }
 
+  /// The task is only what the store holds: nothing of it is live this run.
+  /// Its sessions are read at launch ahead of the layouts, so a resume can
+  /// come either side of that read.
+  @Test(.dependencies, arguments: [true, false])
+  func aTangentOfAStoredOnlyTaskResumesInItAndTheTaskIsShown(sessionsLoadedFirst: Bool) async throws {
+    let directory = try temporaryDirectory(named: "tangent-stored")
+    let elsewhere = try temporaryDirectory(named: "tangent-stored-elsewhere")
+    defer { for url in [directory, elsewhere] { try? FileManager.default.removeItem(at: url) } }
+    var (initial, onDisk) = stateOnDisk(directory)
+    let members = [piKey("primary"), piKey("tangent")]
+    let stored = TaskLayoutsFile(tasks: [
+      first.persistenceKey: TaskRecord(
+        id: first, directory: TaskRecord.Directory(worktreeID: onDisk.id), sessions: members, createdAt: .distantPast)
+    ])
+    initial.repositories.$persistedLayouts = SharedReader(value: stored)
+    initial.repositories.sessionSummaries = [("primary", directory), ("tangent", elsewhere)].map {
+      SessionSummary(
+        harness: .pi, sessionID: $0.0, createdAt: .distantPast, cwd: $0.1.path(percentEncoded: false),
+        title: $0.0, messageCount: 4, lastActivity: .distantPast)
+    }
+    initial.repositories.$sessions.withLock {
+      for key in members { $0[key] = SessionSidecarEntry(settledAt: .distantPast) }
+    }
+    // The resumed agent's report, counted once its surface is in a task.
+    initial.agentPresence.records[.init(agent: .pi, surfaceID: thirdSurface)] = record(ref: "tangent")
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+    if sessionsLoadedFirst { await store.send(.terminals(.storedSessionsLoaded(stored))) }
+    #expect(store.state.terminals.layouts.isEmpty && store.state.terminals.directories.isEmpty)
+    let roster = store.state.repositories.repositories
+
+    await store.send(.repositories(.delegate(.resumeSession(piKey("tangent"), task: first))))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    #expect(launches(recorded).map(\.layoutID) == [first], "the stored task, not one minted for the session")
+    #expect(launches(recorded).map(\.directory) == [onDisk.id])
+    #expect(launches(recorded).map(\.input) == ["cd \(ZmxAttach.shellQuote(elsewhere.path)) && pi --session tangent"])
+    #expect(store.state.pendingTaskLaunches == [PendingTaskLaunch(layoutID: first, directoryID: onDisk.id)])
+    #expect(store.state.repositories.repositories == roster, "no folder is registered for the session")
+    #expect(store.state.repositories.selectedTask == nil, "not shown before it holds a tab")
+
+    await store.send(
+      .terminals(
+        .attachLayout(worktreeID: first, directory: TaskRecord.Directory(worktreeID: onDisk.id), titlePrefix: "disk")))
+    let filled = agentTask(first, surface: thirdSurface).layout
+    await store.send(.terminals(.replaceRestoredLayout(worktreeID: first, layout: filled)))
+    await store.receive(\.repositories.selectTask)
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+    if !sessionsLoadedFirst {
+      await store.send(.terminals(.storedSessionsLoaded(stored)))
+      await store.finish()
+      await store.skipReceivedActions(strict: false)
+    }
+
+    #expect(store.state.repositories.selectedTask?.id == first)
+    #expect(store.state.pendingTaskLaunches.isEmpty)
+    #expect(store.state.terminals.members[first] == members.map(TaskMember.session))
+    #expect(AppFeature.primarySession(of: first, state: store.state) == piKey("primary"))
+    #expect(launches(recorded).count == 1, "the primary is not launched")
+    let sidecar = store.state.repositories.sessions
+    #expect(sidecar[piKey("tangent")]?.settledAt == nil)
+    #expect(sidecar[piKey("primary")]?.settledAt != nil, "a tangent resuming leaves the primary's mark")
+  }
+
   @Test(.dependencies) func aTangentInItsTasksDirectoryIsResumedWithTheBareCommand() async throws {
     let directory = try temporaryDirectory(named: "tangent-home")
     defer { try? FileManager.default.removeItem(at: directory) }
