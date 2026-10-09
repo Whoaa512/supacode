@@ -245,6 +245,26 @@ struct LayoutsTaskSplitMigrationTests {
     #expect(file.activeTasks[Self.mixed] == Self.task(holdingTab: 2, in: file)?.id.persistenceKey)
   }
 
+  /// A hint is only as good as the directory it names: hydration ignores one
+  /// that points at another directory's task, so the split must too.
+  @Test func hintNamingAnotherDirectorysTaskDoesNotCostAnAllAgentDirectoryItsMapping() throws {
+    var unsplit = TaskLayoutsFile(oneTaskPerDirectory: try Self.v2Fixture())
+    unsplit.activeTasks = [Self.allAgents: Self.shells, Self.mixed: Self.shells]
+    let defaults = UserDefaults.inMemory
+    defaults.set(try JSONEncoder().encode(unsplit), forKey: LayoutsFile.userDefaultsKey)
+
+    Self.migrate(defaults)
+
+    let file = try Self.stored(defaults)
+    #expect(file.tasksSplit)
+    #expect(file.tasks[Self.shells] != nil, "the hinted task survives the split")
+    #expect(file.activeTasks[Self.allAgents] == Self.task(holdingTab: 7, in: file)?.id.persistenceKey)
+    #expect(file.activeTasks[Self.mixed] == Self.task(holdingTab: 2, in: file)?.id.persistenceKey)
+    for (directory, key) in file.activeTasks {
+      #expect(file.tasks[key]?.directory.worktreeID.rawValue == directory)
+    }
+  }
+
   /// A directory with no tabs yields no task, which is not a loss: it must
   /// not hold back the split of every other directory.
   @Test(arguments: [true, false])
@@ -488,6 +508,10 @@ struct LayoutsTaskSplitMigrationTests {
     var unmapped = good
     unmapped.activeTasks[Self.allAgents] = nil
     #expect(LayoutsMigrator.splitIntegrityFailure(from: source, to: unmapped) == "directory left without a task")
+
+    var crossed = good
+    crossed.activeTasks[Self.allAgents] = Self.shells
+    #expect(LayoutsMigrator.splitIntegrityFailure(from: source, to: crossed) == "active task on another directory")
 
     var misfiled = good
     misfiled.tasks["elsewhere"] = misfiled.tasks.removeValue(forKey: Self.shells)

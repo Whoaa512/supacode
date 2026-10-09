@@ -588,7 +588,8 @@ nonisolated extension LayoutsMigrator {
   /// Why `split` is not a lossless regrouping of `source`, or nil when it is:
   /// same tabs with the same content (ids are compared as multisets, so a
   /// duplicated tab fails too), same origins, same reaper and presence-restore
-  /// coverage, and no directory resolving to a task that does not exist.
+  /// coverage, and no directory resolving to a task that does not exist or
+  /// sits on another directory.
   static func splitIntegrityFailure(from source: TaskLayoutsFile, to split: TaskLayoutsFile) -> String? {
     func tabs(_ file: TaskLayoutsFile) -> [TabItem] {
       file.tasks.values
@@ -611,11 +612,17 @@ nonisolated extension LayoutsMigrator {
       return "task stored under another id"
     }
     guard split.activeTasks.values.allSatisfy({ split.tasks[$0] != nil }) else { return "active task missing" }
+    // Hydration ignores an entry naming another directory's task.
+    guard
+      split.activeTasks.allSatisfy({ LayoutsTaskSplitter.isTask($0.value, in: split, onDirectory: $0.key) })
+    else { return "active task on another directory" }
     // A directory that had tabs under its own key must still resolve to a
     // task. One with none yields no task, which is not a loss.
     for (key, record) in source.tasks where record.directory.worktreeID.rawValue == key {
       guard record.layout.panes.contains(where: { !$0.tabs.isEmpty }) else { continue }
-      guard split.tasks[split.activeTasks[key] ?? key] != nil else { return "directory left without a task" }
+      guard LayoutsTaskSplitter.isTask(split.activeTasks[key] ?? key, in: split, onDirectory: key) else {
+        return "directory left without a task"
+      }
     }
     return nil
   }

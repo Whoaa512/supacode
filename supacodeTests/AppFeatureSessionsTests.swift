@@ -3035,6 +3035,26 @@ struct AppFeatureSessionsTests {
     #expect(store.state.terminals.layouts[id: resolved] != nil)
   }
 
+  /// A hint naming a surviving task on another directory is one hydration
+  /// ignores, so the split must not let it stand in for the directory's own.
+  @Test(.dependencies)
+  func allAgentDirectoryWithACrossDirectoryHintResolvesToItsOwnMigratedTask() async throws {
+    let (unhydrated, split) = migratedStore(activeTasks: ["/other": "/workspace"])
+    // Through the codec, as the launch migration writes it and hydration reads it.
+    let file = try JSONDecoder().decode(TaskLayoutsFile.self, from: JSONEncoder().encode(split))
+    let onOther = Set(file.tasks.values.filter { $0.directory.worktreeID == "/other" }.map(\.id))
+    #expect(onOther.count == 2)
+    #expect(file.tasks["/other"] == nil)
+    #expect(file.tasks["/workspace"] != nil, "the hinted task survives the split")
+    let store = taskStore(unhydrated, recorded: Recorded())
+    await store.send(.terminals(.layoutsHydrated(file)))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+    let resolved = store.state.layoutID(forDirectory: "/other")
+    #expect(onOther.contains(resolved))
+    #expect(store.state.terminals.layouts[id: resolved] != nil)
+  }
+
   @Test(.dependencies, arguments: [1, -1])
   func everyMigratedTaskHasARowAndIsInTheCycle(offset: Int) async {
     let (unhydrated, file) = migratedStore()

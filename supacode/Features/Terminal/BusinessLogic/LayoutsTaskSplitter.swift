@@ -18,7 +18,8 @@ nonisolated enum LayoutsTaskSplitter {
   /// Splits an unsplit v3 file. Origins stay with their directory. A
   /// directory follows the task that took its focused tab, and one left with
   /// no task under its own key follows its first agent task whatever its hint
-  /// said, so it never resolves to a task that does not exist.
+  /// said, so it never resolves to a task that does not exist or that sits on
+  /// another directory.
   static func split(
     _ file: TaskLayoutsFile,
     now: Date,
@@ -60,18 +61,22 @@ nonisolated enum LayoutsTaskSplitter {
       }
       let directory = record.directory.worktreeID.rawValue
       if key == directory, leftover == nil { fallbacks[directory] = minted.first }
-      // A hint naming a task that is not in the file reads as no hint.
-      let hint = file.activeTasks[directory].flatMap { file.tasks[$0] == nil ? nil : $0 }
+      // A hint naming no task on this directory reads as no hint, as it does at hydration.
+      let hint = file.activeTasks[directory].flatMap { isTask($0, in: file, onDirectory: directory) ? $0 : nil }
       guard (hint ?? directory) == key,
         let active = focused ?? (leftover == nil ? minted.first : nil)
       else { continue }
       result.activeTasks[directory] = active.persistenceKey
     }
-    result.activeTasks = result.activeTasks.filter { result.tasks[$0.value] != nil }
+    result.activeTasks = result.activeTasks.filter { isTask($0.value, in: result, onDirectory: $0.key) }
     for (directory, task) in fallbacks where result.activeTasks[directory] == nil {
       result.activeTasks[directory] = task.persistenceKey
     }
     return result
+  }
+
+  static func isTask(_ key: String, in file: TaskLayoutsFile, onDirectory directory: String) -> Bool {
+    file.tasks[key]?.directory.worktreeID.rawValue == directory
   }
 
   /// A minted task holding exactly one agent tab is what a split produces. Left
