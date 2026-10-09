@@ -3061,3 +3061,20 @@ deviation.
   task settle, manager ack) exit 2 with 281 tests and one failure of mine
   (8b's assertion, corrected as above); full `make test` on the final tree
   exit 2 with 4407 tests and only the 5 known failures; build-app 0.
+- S3 r1, 2026-10-09, `5326bfa4`: review fix, tests only.
+  - Held (P1): `theFirstAgentOfAShellBornTaskQuittingClosesItsTabsLikeAnyPrimary`
+    asserted `recorded.closed`, which only `markUserCloseIntent` fills, so
+    it pinned intent and not the close. It now also asserts the task's
+    layout holds no surface. The S3 line above ("closes every tab") was
+    unsupported until this commit.
+  - Siblings, same gap, same assertion added: `thePrimaryQuittingAloneSettlesTheTask`
+    and `settleAndAdvanceOnAShellOnlyTaskClosesItAndMovesOn` (the latter
+    also needed `skipReceivedActions` to see the layout's close in state).
+  - Mutation run, done this time: with `LayoutFeature`'s
+    `.closeAllTabsRequested` case returning `.none`, the S3 test went red
+    on the new assertion; `thePrimaryQuittingAloneSettlesTheTask` and the
+    shell-only settle-and-advance test stayed green before theirs was
+    added. Handler restored; no source change committed.
+  Gate: check 0; `AppFeatureSessionsTaskSettleTests` exit 0 (39 tests);
+  full `make test` exit 2 with 4407 tests and only the 5 known failures;
+  build-app 0.
