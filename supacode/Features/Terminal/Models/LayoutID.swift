@@ -1,3 +1,5 @@
+import Foundation
+
 /// The key a terminal layout is stored under. Distinct from `Worktree.ID` so a directory id
 /// can only become a layout id through the resolver seam (`layoutID(forDirectory:)`).
 nonisolated struct LayoutID: Hashable, Sendable, Codable, CustomStringConvertible {
@@ -5,6 +7,9 @@ nonisolated struct LayoutID: Hashable, Sendable, Codable, CustomStringConvertibl
 
   /// A layout id read from a persisted layouts blob, whose keys are worktree paths.
   init(legacyWorktreeKey key: String) { rawValue = key }
+
+  /// A task minted by the app; never derived from a directory.
+  init(task uuid: UUID) { rawValue = uuid.uuidString }
 
   /// The key this layout is written under in the persisted layouts blob.
   var persistenceKey: String { rawValue }
