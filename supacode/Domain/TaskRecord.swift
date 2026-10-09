@@ -220,12 +220,22 @@ nonisolated enum TaskMembership {
   ) -> [SessionKey] {
     var result = stored
     var appended: [SessionKey] = []
+    var placed: Set<SessionKey> = []
+    // Everything placed so far follows `session` in the caller's list, so it
+    // goes ahead of whatever was already placed in front of its slot: two
+    // sessions that replaced the same one keep the caller's order.
+    func place(_ session: SessionKey, at slot: Int) {
+      var index = slot
+      while index > 0, placed.contains(result[index - 1]) { index -= 1 }
+      result.insert(session, at: index)
+      placed.insert(session)
+    }
     // Newest replacement first in the caller's list, so walking it backwards
     // places a chain (C replaced B replaced A) one link at a time.
     for session in sessions.reversed() {
       let slot = replaced[session].flatMap { result.firstIndex(of: $0) }
       guard let current = result.firstIndex(of: session) else {
-        if let slot { result.insert(session, at: slot) } else { appended.insert(session, at: 0) }
+        if let slot { place(session, at: slot) } else { appended.insert(session, at: 0) }
         continue
       }
       guard let slot, slot < current, let old = replaced[session],
@@ -233,7 +243,7 @@ nonisolated enum TaskMembership {
         callerNew < callerOld
       else { continue }
       result.remove(at: current)
-      result.insert(session, at: slot)
+      place(session, at: slot)
     }
     return result + appended
   }

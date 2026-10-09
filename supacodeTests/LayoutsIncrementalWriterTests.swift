@@ -631,6 +631,51 @@ struct LayoutsIncrementalWriterTests {
     #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [one, new, two])
   }
 
+  /// Two sessions that each replaced the same one (it was resumed on another
+  /// tab in between) keep the order the run has them in.
+  @Test(arguments: [false, true])
+  func twoReplacementsOfTheSameSessionKeepTheRunsOrder(writtenBetween: Bool) async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let minted = LayoutID(task: UUID())
+    let (one, two, new) = (sessionKey("one"), sessionKey("two"), sessionKey("new"))
+    await writer.flush(records: [minted: change(layout("/w1"), sessions: [one, two])])
+
+    // The tangent resumed over the primary; then the old primary resumed on
+    // another tab and `/new` there.
+    if writtenBetween {
+      await writer.flush(records: [minted: change(sessions: [two, one], replaced: [two: one])])
+      #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [two, one])
+    }
+    let both = change(sessions: [two, new, one], replaced: [two: one, new: one])
+    await writer.flush(records: [minted: both])
+    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [two, new, one])
+
+    // Stable however often it is written.
+    await writer.flush(records: [minted: both])
+    await writer.flush(records: [minted: both])
+    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [two, new, one])
+  }
+
+  @Test func replacementsSharingASessionKeepTheRunsOrderAmongChainsAndBystanders() {
+    let key = { SessionKey(harness: .pi, sessionID: $0) }
+    let (one, two, three, four, tail) = (key("1"), key("2"), key("3"), key("4"), key("tail"))
+
+    // `two` replaced `one`, `three` replaced `two`, then `four` replaced `one`.
+    #expect(
+      TaskMembership.storing(
+        [three, two, four, one, tail], replaced: [two: one, three: two, four: one], into: [one, tail])
+        == [three, two, four, one, tail])
+    // A stored bystander ahead of the replaced session keeps its place, and
+    // a partial list still moves nothing it does not name in full.
+    #expect(
+      TaskMembership.storing([two, four, one], replaced: [two: one, four: one], into: [tail, one, two])
+        == [tail, two, four, one])
+    #expect(
+      TaskMembership.storing([two, four], replaced: [two: one, four: one], into: [tail, one, two])
+        == [tail, four, one, two])
+  }
+
   @Test func taskWithSessionsKeepsItsRecordWhenItsLastTabCloses() async {
     let defaults = makeDefaults()
     let writer = makeWriter(defaults)

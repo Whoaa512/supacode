@@ -1060,6 +1060,27 @@ struct TerminalsFeatureTests {
         == [.session(key("new")), .session(key("one")), .session(key("two")), .session(key("three")), waiting])
   }
 
+  @Test(.dependencies) func hydrationKeepsTheOrderOfTwoReplacementsOfTheSameSession() async {
+    let minted = LayoutID(task: UUID())
+    let key = { SessionKey(harness: .pi, sessionID: $0) }
+    var record = Self.task(minted, on: "/tmp/repo")
+    record.sessions = [key("one"), key("two")]
+    var initial = TerminalsFeature.State()
+    // Before the file loaded: the tangent resumed over the primary, then
+    // the old primary resumed on another tab and `/new` there.
+    let members: [TaskMember] = [.session(key("two")), .session(key("new")), .session(key("one"))]
+    initial.members[minted] = members
+    initial.replacedSessions[minted] = [key("two"): key("one"), key("new"): key("one")]
+    let store = TestStore(initialState: initial) { TerminalsFeature() }
+    store.exhaustivity = .off
+
+    await store.send(.layoutsHydrated(Self.file([record])))
+    #expect(store.state.members[minted] == members, "the primary the run chose survives the load")
+
+    await store.send(.layoutsHydrated(Self.file([record])))
+    #expect(store.state.members[minted] == members)
+  }
+
   @Test(.dependencies) func detachingATaskForgetsItsMembers() async {
     let minted = LayoutID(task: UUID())
     let kept = LayoutID(task: UUID())
