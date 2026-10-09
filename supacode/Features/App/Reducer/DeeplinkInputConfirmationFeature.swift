@@ -37,6 +37,10 @@ struct DeeplinkInputConfirmationFeature {
     var background: Bool = false
     /// The task the deeplink named, so confirming re-runs the action there.
     var task: LayoutID?
+    /// The layout the action resolved to when the dialog went up. A command
+    /// that carries no tab, pane or surface id runs there on confirm or not at
+    /// all: the directory may show another task by then.
+    var target: LayoutID?
     /// Generation stamp so a stale timeout action can't fire against a later
     /// dialog that recycled the same `responseFD`.
     var timeoutToken: Int = 0

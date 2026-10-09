@@ -378,6 +378,94 @@ struct AppFeatureDeeplinkTaskTests {
     #expect(created == [other.id])
   }
 
+  // MARK: - A bare command waiting for its confirmation.
+
+  /// Raises the dialog for a bare command while the directory shows `shown`,
+  /// and hands back the state it waits in.
+  private func waiting(on action: Deeplink.WorktreeAction) async -> AppFeature.State {
+    let (store, sent) = makeStore(confirming())
+    await store.send(.deeplink(.worktree(id: worktree.id, action: action, background: true)))
+    await store.finish()
+    #expect(sent.value.isEmpty)
+    #expect(store.state.deeplinkInputConfirmation?.task == nil)
+    #expect(store.state.deeplinkInputConfirmation?.target == shown.id)
+    return store.state
+  }
+
+  private func createdTabs(_ commands: [TerminalClient.Command]) -> [LayoutID] {
+    commands.compactMap {
+      if case .createTabWithInput(let layoutID, _, _, _, _, _, _, _) = $0 { return layoutID }
+      return nil
+    }
+  }
+
+  /// The directory moves to a sibling task while the dialog waits. The
+  /// command was confirmed for the task it was raised on.
+  @Test(.dependencies) func aBareTabNewStaysInItsTaskWhenTheDirectorySwitchesDuringTheConfirmation() async {
+    let action = Deeplink.WorktreeAction.tabNew(input: "echo hi", id: nil)
+    var switched = await waiting(on: action)
+    switched.terminals.activeTasks[worktree.id] = other.id
+    let (store, sent) = makeStore(switched)
+    await confirm(action, in: store)
+    #expect(createdTabs(sent.value) == [shown.id])
+    #expect(sent.value.count == 1)
+  }
+
+  /// Its task is removed while the dialog waits. Nothing is typed into the
+  /// sibling the directory shows instead.
+  @Test(.dependencies) func aBareTabNewWhoseTaskWentAwayDuringTheConfirmationCreatesNothing() async {
+    let action = Deeplink.WorktreeAction.tabNew(input: "echo hi", id: nil)
+    var removed = await waiting(on: action)
+    removed.terminals.layouts.remove(id: shown.id)
+    removed.terminals.directories[shown.id] = nil
+    removed.terminals.activeTasks[worktree.id] = other.id
+    let (store, sent) = makeStore(removed)
+    await confirm(action, in: store)
+    #expect(sent.value.isEmpty)
+    #expect(store.state.alert != nil)
+  }
+
+  @Test(.dependencies) func aBareScriptStaysInItsTaskWhenTheDirectorySwitchesDuringTheConfirmation() async {
+    await withScripts {
+      let action = Deeplink.WorktreeAction.runScript(scriptID: testScript.id)
+      var switched = await waiting(on: action)
+      switched.terminals.activeTasks[worktree.id] = other.id
+      let (store, sent) = makeStore(switched)
+      await confirm(action, in: store)
+      #expect(scriptCommands(sent.value) == ["run \(shown.id.externalID) \(testScript.id)"])
+    }
+  }
+
+  @Test(.dependencies) func aBareScriptWhoseTaskWentAwayDuringTheConfirmationRunsNothing() async {
+    await withScripts {
+      let action = Deeplink.WorktreeAction.runScript(scriptID: testScript.id)
+      var removed = await waiting(on: action)
+      removed.terminals.layouts.remove(id: shown.id)
+      removed.terminals.directories[shown.id] = nil
+      removed.terminals.activeTasks[worktree.id] = other.id
+      let (store, sent) = makeStore(removed)
+      await confirm(action, in: store)
+      #expect(sent.value.isEmpty)
+      #expect(store.state.alert != nil)
+    }
+  }
+
+  /// A directory with no task yet: the command was raised for where its first
+  /// tab lands, and still goes there.
+  @Test(.dependencies) func aBareTabNewOnADirectoryWithNoTaskStillLandsAfterTheConfirmation() async {
+    var empty = confirming()
+    empty.terminals.layouts = [elsewhere.layout]
+    empty.terminals.directories = [elsewhere.id: TaskRecord.Directory(worktreeID: sibling.id)]
+    empty.terminals.activeTasks[worktree.id] = nil
+    let landing = TerminalsFeature.State.ownKeyLayoutID(forDirectory: worktree.id)
+    let action = Deeplink.WorktreeAction.tabNew(input: "echo hi", id: nil)
+    let (store, sent) = makeStore(empty)
+    await store.send(.deeplink(.worktree(id: worktree.id, action: action, background: true)))
+    #expect(store.state.deeplinkInputConfirmation?.target == landing)
+    await confirm(action, in: store)
+    #expect(createdTabs(sent.value) == [landing])
+  }
+
   // MARK: - A task selected, not yet echoed by the terminal.
 
   /// The user picked `other`; the directory's active task still says `shown`.

@@ -1762,6 +1762,7 @@ struct AppFeature {
           state.deeplinkInputConfirmation?.timeoutSeconds ?? defaultCommandTimeoutSeconds
         let background = state.deeplinkInputConfirmation?.background ?? false
         let task = state.deeplinkInputConfirmation?.task
+        let target = state.deeplinkInputConfirmation?.target
         state.deeplinkInputConfirmation = nil
         // The initial deeplink dispatch already ran the select (or deliberately
         // skipped it when backgrounded). Re-dispatch only the action effect.
@@ -1775,6 +1776,7 @@ struct AppFeature {
             timeoutSeconds: timeoutSeconds,
             background: background,
             task: task,
+            confirmedTarget: target,
           )
         }
         let responseEffect: Effect<Action>
@@ -3057,7 +3059,8 @@ struct AppFeature {
     responseFD: Int32? = nil,
     timeoutSeconds: Int = defaultCommandTimeoutSeconds,
     background: Bool = false,
-    task: LayoutID? = nil
+    task: LayoutID? = nil,
+    confirmedTarget: LayoutID? = nil
   ) -> Effect<Action> {
     // Block only the actions that would spawn a shell/script at the
     // missing working dir. Cleanup actions (delete/archive/pin) and
@@ -3093,11 +3096,16 @@ struct AppFeature {
       return .none
     }
     // Resolved again here, not carried from the dispatch: a confirmation can
-    // sit between the two, and the task or tab may be gone by then.
-    guard
-      let layoutID = state.commandLayoutID(
-        forDirectory: worktreeID, task: task, holding: action.addressedIDs)
-    else {
+    // sit between the two, and the task or tab may be gone by then. An id the
+    // action carries still finds its owner; an action with none keeps the
+    // layout the dialog was raised for, or fails if that is gone.
+    let resolved =
+      if let confirmedTarget, action.addressedIDs.isEmpty {
+        state.confirmedLayoutID(confirmedTarget, forDirectory: worktreeID, task: task)
+      } else {
+        state.commandLayoutID(forDirectory: worktreeID, task: task, holding: action.addressedIDs)
+      }
+    guard let layoutID = resolved else {
       state.alert = taskNotFoundAlert()
       return .none
     }
@@ -3305,8 +3313,9 @@ struct AppFeature {
       }
       if requiresInputConfirmation(state: state, bypassConfirmation: bypassConfirmation) {
         return presentDeeplinkConfirmation(
-          worktreeID: worktreeID, task: task, responseFD: responseFD, timeoutSeconds: timeoutSeconds,
-          message: .command(input), action: action, state: &state, background: background)
+          worktreeID: worktreeID, task: task, target: layoutID, responseFD: responseFD,
+          timeoutSeconds: timeoutSeconds, message: .command(input), action: action, state: &state,
+          background: background)
       }
       let effect = sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) {
         layoutID, worktree in
@@ -3357,7 +3366,7 @@ struct AppFeature {
       guard validateTab(layoutID: layoutID, worktreeID: worktreeID, tabID: tabID, state: &state) else { return .none }
       guard bypassConfirmation else {
         return presentDeeplinkConfirmation(
-          worktreeID: worktreeID, task: task,
+          worktreeID: worktreeID, task: task, target: layoutID,
           responseFD: responseFD,
           timeoutSeconds: timeoutSeconds,
           message: .confirmation("Close tab \(tabID.uuidString.prefix(8))…?"),
@@ -3381,8 +3390,8 @@ struct AppFeature {
         requiresInputConfirmation(state: state, bypassConfirmation: bypassConfirmation)
       {
         return presentDeeplinkConfirmation(
-          worktreeID: worktreeID, task: task, responseFD: responseFD, timeoutSeconds: timeoutSeconds,
-          message: .command(input), action: action, state: &state)
+          worktreeID: worktreeID, task: task, target: layoutID, responseFD: responseFD,
+          timeoutSeconds: timeoutSeconds, message: .command(input), action: action, state: &state)
       }
       // Focus has no reliable completion signal (the event only fires when
       // focus actually moves), so this acks immediately.
@@ -3418,8 +3427,9 @@ struct AppFeature {
         requiresInputConfirmation(state: state, bypassConfirmation: bypassConfirmation)
       {
         return presentDeeplinkConfirmation(
-          worktreeID: worktreeID, task: task, responseFD: responseFD, timeoutSeconds: timeoutSeconds,
-          message: .command(input), action: action, state: &state, background: background)
+          worktreeID: worktreeID, task: task, target: layoutID, responseFD: responseFD,
+          timeoutSeconds: timeoutSeconds, message: .command(input), action: action, state: &state,
+          background: background)
       }
       let effect = sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) {
         layoutID, worktree in
@@ -3438,7 +3448,7 @@ struct AppFeature {
       }
       guard bypassConfirmation else {
         return presentDeeplinkConfirmation(
-          worktreeID: worktreeID, task: task,
+          worktreeID: worktreeID, task: task, target: layoutID,
           responseFD: responseFD,
           timeoutSeconds: timeoutSeconds,
           message: .confirmation("Close surface \(surfaceID.uuidString.prefix(8))…?"),
@@ -3506,8 +3516,9 @@ struct AppFeature {
         requiresInputConfirmation(state: state, bypassConfirmation: bypassConfirmation)
       {
         return presentDeeplinkConfirmation(
-          worktreeID: worktreeID, task: task, responseFD: responseFD, timeoutSeconds: timeoutSeconds,
-          message: .command(input), action: action, state: &state, background: background)
+          worktreeID: worktreeID, task: task, target: layoutID, responseFD: responseFD,
+          timeoutSeconds: timeoutSeconds, message: .command(input), action: action, state: &state,
+          background: background)
       }
       let effect = sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) {
         layoutID, worktree in
@@ -3522,7 +3533,7 @@ struct AppFeature {
       guard validatePane(layoutID: layoutID, worktreeID: worktreeID, token: token, state: &state) else { return .none }
       guard bypassConfirmation else {
         return presentDeeplinkConfirmation(
-          worktreeID: worktreeID, task: task,
+          worktreeID: worktreeID, task: task, target: layoutID,
           responseFD: responseFD,
           timeoutSeconds: timeoutSeconds,
           message: .confirmation("Close pane \(token.uuidString.prefix(8))… and its tabs?"),
@@ -3590,7 +3601,7 @@ struct AppFeature {
     }
     if requiresInputConfirmation(state: state, bypassConfirmation: bypassConfirmation) {
       return presentDeeplinkConfirmation(
-        worktreeID: worktreeID, task: task,
+        worktreeID: worktreeID, task: task, target: layoutID,
         responseFD: responseFD,
         timeoutSeconds: timeoutSeconds,
         message: .command(definition.command),
@@ -4308,6 +4319,7 @@ struct AppFeature {
   private func presentDeeplinkConfirmation(
     worktreeID: Worktree.ID,
     task: LayoutID? = nil,
+    target: LayoutID? = nil,
     responseFD: Int32? = nil,
     timeoutSeconds: Int = defaultCommandTimeoutSeconds,
     message: DeeplinkConfirmationMessage,
@@ -4341,6 +4353,7 @@ struct AppFeature {
       timeoutSeconds: timeoutSeconds,
       background: background,
       task: task,
+      target: target,
       timeoutToken: token
     )
     // A socket-backed dialog left open would strand its fd, so time it out on the
@@ -4537,6 +4550,20 @@ extension AppFeature.State {
   ) -> LayoutID? {
     terminals.commandLayoutID(
       forDirectory: worktreeID, task: task, holding: ids, shown: shownTask(forDirectory: worktreeID))
+  }
+
+  /// The layout a confirmed command with no id of its own still means: the
+  /// one it resolved to when the dialog went up, while that is still a task
+  /// of the directory. A layout with no record is one only while the
+  /// directory resolves to it (where a first tab lands). Nil sends the
+  /// command nowhere rather than to whichever task the directory shows now.
+  func confirmedLayoutID(
+    _ target: LayoutID, forDirectory worktreeID: Worktree.ID, task: LayoutID?
+  ) -> LayoutID? {
+    if let record = terminals.directories[target] {
+      return record.worktreeID == worktreeID ? target : nil
+    }
+    return commandLayoutID(forDirectory: worktreeID, task: task) == target ? target : nil
   }
 
   /// See `AppFeature.resolveWorktreeID`: the one place a parsed directory id
