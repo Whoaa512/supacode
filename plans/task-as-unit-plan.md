@@ -1123,10 +1123,16 @@ deviation.
     `wireSurface`, `killSession` (now `layoutID:`-typed, off the A2
     allow-list), `terminalSessions`, the pane-window header, and the
     layout-keyed events that feed directory actions (`tabCreated`,
-    `initialTabCreationFailed`, `setupScriptConsumed`,
-    `commandPaletteToggleRequested`). A layout whose directory is not in the
-    roster now skips that directory half (before: the action was sent with
-    an id no worktree matched). T3 replaces the scan with the task record.
+    `initialTabCreationFailed`, `setupScriptConsumed`). A layout whose
+    directory is not in the roster now skips that directory half (before:
+    the action was sent with an id no worktree matched). T3 replaces the
+    scan with the task record.
+  - Review fix: `commandPaletteToggleRequested` is not one of those. Its
+    `selectWorktree` moves the selection even for an id the roster lacks, so
+    skipping it changed behaviour. The event now carries the host's
+    `worktreeID` next to `layoutID` and the reducer selects it
+    unconditionally, as before F1. Test:
+    `terminalToggleFromNonRosterOriginStillSelectsIt`.
   - Ack matchers compare `layoutID(forDirectory: ackWorktree)` to the
     event's layout id.
   - Manager: worktree-facing events (`notificationReceived`,
