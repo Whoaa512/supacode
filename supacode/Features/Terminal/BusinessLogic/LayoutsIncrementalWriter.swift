@@ -15,7 +15,13 @@ nonisolated struct LayoutsUserDefaultsStore: @unchecked Sendable {
   /// Stashes an undecodable blob under a sibling key so a wholly-unreadable value
   /// (genuine corruption, or a newer schema after a downgrade) survives for
   /// diagnosis while the live store recovers to a fresh value.
-  func stashCorrupt(_ data: Data) { defaults.set(data, forKey: LayoutsFile.userDefaultsKey + ".corrupt") }
+  /// False when the stash does not hold these bytes afterwards; the caller
+  /// must then leave the live value alone, since it is the only copy.
+  func stashCorrupt(_ data: Data) -> Bool {
+    let key = LayoutsFile.userDefaultsKey + ".corrupt"
+    defaults.set(data, forKey: key)
+    return defaults.data(forKey: key) == data
+  }
 
   /// Keeps the pre-v3 bytes before v3 replaces them. Write-once: a later
   /// legacy blob never overwrites the first backup. False when no backup is
@@ -164,7 +170,7 @@ actor LayoutsIncrementalWriter {
   /// lossy-but-decodable value, so the caller never makes partial loss
   /// permanent, and on a newer schema, which is read-only for this build.
   /// A v2 blob is backed up before the caller's v3 write replaces it, and a
-  /// failed backup aborts the flush too.
+  /// failed backup or stash aborts the flush too.
   private nonisolated func readPersisted() -> TaskLayoutsFile? {
     guard let data = store.read() else { return TaskLayoutsFile() }
     switch TaskLayoutsFile.classify(data) {
@@ -183,8 +189,11 @@ actor LayoutsIncrementalWriter {
       Self.logger.error("Aborting layout flush: persisted blob has unreadable entries.")
       return nil
     case .undecodable:
-      Self.logger.error("Persisted layouts blob undecodable; stashing it aside and starting fresh.")
-      store.stashCorrupt(data)
+      guard store.stashCorrupt(data) else {
+        Self.logger.error("Aborting layout flush: the undecodable layouts blob could not be stashed aside.")
+        return nil
+      }
+      Self.logger.error("Persisted layouts blob undecodable; stashed it aside and starting fresh.")
       return TaskLayoutsFile()
     }
   }

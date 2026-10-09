@@ -168,6 +168,27 @@ struct SettingsRelocationMigratorTests {
     #expect(fileSystem.data(at: layoutsBackupURL) == v2Data)
   }
 
+  @Test(.dependencies) func legacyLayoutsAreNotSeededOverAnUnreadableValueThatCannotBeStashed() throws {
+    let defaults = RecordingUserDefaults(refusingWritesTo: [LayoutsFile.userDefaultsKey + ".corrupt"])
+    let garbage = Data("not json".utf8)
+    defaults.set(garbage, forKey: LayoutsFile.userDefaultsKey)
+    let v2Data = try JSONEncoder().encode(
+      LayoutsFile(worktrees: ["/tmp/repo/wt": LayoutRecord(layout: PaneLayout())]))
+    let fileSystem = try completeStore(legacyLayouts: v2Data)
+
+    let problems = withDependencies {
+      $0.settingsFileStorage = fileSystem.settingsStorage()
+      $0.defaultAppStorage = defaults
+    } operation: {
+      SettingsRelocationMigrator.finishSeeding(fileSystem: fileSystem.system)
+    }
+
+    #expect(problems.contains("Your terminal layouts could not be backed up, so they were left untouched."))
+    #expect(fileSystem.data(at: SupacodePaths.relocationMarkerURL) == nil)
+    #expect(defaults.data(forKey: LayoutsFile.userDefaultsKey) == garbage)
+    #expect(fileSystem.data(at: SupacodePaths.legacyLayoutsURL) == v2Data)
+  }
+
   @Test(.dependencies) func legacyLayoutsStayPutWhenTheBackupCannotBeMade() throws {
     let defaults = RecordingUserDefaults(refusingWritesTo: [LayoutsFile.preTasksBackupKey])
     let v2Data = try JSONEncoder().encode(

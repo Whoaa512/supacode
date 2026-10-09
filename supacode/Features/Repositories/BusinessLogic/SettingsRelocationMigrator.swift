@@ -182,6 +182,7 @@ enum SettingsRelocationMigrator {
     if !userDefaultsHoldValidLayouts(defaults),
       presentButUnreadable(SupacodePaths.legacyLayoutsURL, fileSystem)
         || legacyLayoutsAwaitBackup(defaults, fileSystem)
+        || legacyLayoutsAwaitStash(defaults, fileSystem)
     {
       names.append("terminal layouts")
     }
@@ -202,6 +203,20 @@ enum SettingsRelocationMigrator {
       case .legacy = TaskLayoutsFile.classify(data)
     else { return false }
     return true
+  }
+
+  /// A seedable `layouts.json` held back because the unreadable value under
+  /// the key could not be stashed aside. Only asked when the key holds no
+  /// valid value, so a value present here is that unreadable one. Retried,
+  /// for the same reason as a missing backup.
+  private static func legacyLayoutsAwaitStash(_ defaults: UserDefaults, _ fileSystem: RelocationFileSystem) -> Bool {
+    guard defaults.data(forKey: LayoutsFile.userDefaultsKey) != nil,
+      let data = fileSystem.readData(SupacodePaths.legacyLayoutsURL)
+    else { return false }
+    switch TaskLayoutsFile.classify(data) {
+    case .tasks, .legacy: return true
+    case .newer, .lossy, .undecodable: return false
+    }
   }
 
   private static func presentButUnreadable(_ url: URL, _ fileSystem: RelocationFileSystem) -> Bool {
@@ -314,7 +329,14 @@ enum SettingsRelocationMigrator {
       logger.error("Encoding v3 layouts failed; leaving layouts.json in place, not seeding.")
       return ["Your terminal layouts could not be read, so they were left untouched."]
     }
-    stashCorruptUserDefaults(forKey: LayoutsFile.userDefaultsKey, defaults)
+    // An unreadable value already under the key is replaced only once it is
+    // held aside; otherwise it is the only copy and the seed waits.
+    if let unreadable = defaults.data(forKey: LayoutsFile.userDefaultsKey),
+      !LayoutsUserDefaultsStore(defaults: defaults).stashCorrupt(unreadable)
+    {
+      logger.error("Unreadable layouts could not be stashed aside; leaving them and layouts.json in place.")
+      return ["Your terminal layouts could not be backed up, so they were left untouched."]
+    }
     defaults.set(encoded, forKey: LayoutsFile.userDefaultsKey)
     // Flush before retiring the source (UserDefaults writes are deferred).
     defaults.synchronize()

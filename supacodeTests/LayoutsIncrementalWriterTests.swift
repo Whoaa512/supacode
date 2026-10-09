@@ -50,6 +50,22 @@ struct LayoutsIncrementalWriterTests {
     #expect(readFile(defaults)?.tasks["w1"] != nil)
   }
 
+  @Test func aCorruptBlobThatCannotBeStashedIsLeftInPlace() async {
+    let corruptKey = LayoutsFile.userDefaultsKey + ".corrupt"
+    let defaults = RecordingUserDefaults(refusingWritesTo: [corruptKey])
+    let garbage = Data("not json".utf8)
+    defaults.set(garbage, forKey: LayoutsFile.userDefaultsKey)
+    let writer = makeWriter(defaults)
+
+    await writer.flush(records: ["w1": record("/w1")])
+    await writer.flush(activeTask: LayoutID(task: UUID()), forDirectory: "/w1")
+    writer.flushSync(records: ["w2": record("/w2")])
+
+    // The only copy of the unreadable bytes is the live one: it stays.
+    #expect(defaults.data(forKey: LayoutsFile.userDefaultsKey) == garbage)
+    #expect(defaults.writtenKeys == [LayoutsFile.userDefaultsKey])
+  }
+
   @Test func emptyChangesIsNoOp() async {
     let defaults = makeDefaults()
     let writer = makeWriter(defaults)
