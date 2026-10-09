@@ -2674,3 +2674,45 @@ deviation.
   Gate: check 0, focused `supacodeFeatureTests/AppFeatureDeeplinkTaskTests`
   exit 0 with 28 tests, build-app 0, full `make test` exit 2 with 4311 tests
   and only the 5 known failures.
+- T11 r2 (review fixes), 2026-10-09, `2047cd07` + `e70c81af` + `60ab217a`.
+  - P2, held (seen red). A script stop was validated against the row's
+    mirror, which covers the whole directory, then sent to the resolved task:
+    with the script in task A and the command meaning task B the terminal
+    did nothing and the socket answered `ok: true`. The reducer now asks the
+    terminal per task (`TerminalClient.runningScripts(LayoutID)`, the host's
+    own tracking, so it cannot lag like the mirror). Decisions the plan did
+    not make:
+    - `stop --script` naming a task stops it only there; if that task does
+      not run it the command fails ("not running in that task") and the task
+      that does run it is untouched.
+    - A bare `stop --script` stops the script in whichever task of the
+      directory runs it, the shown one first. A script runs once per
+      directory (the duplicate-run check stays directory-wide, on the
+      mirror), so the script id names one run, the same way a tab id names
+      its task. No task runs it: "not running", `ok: false`; if the mirror
+      still claims it runs, the old no-match stop is sent to force the
+      projection re-emit (#573).
+  - Same class, fixed: the toolbar/palette `stopScript` and `stopRunScripts`
+    and the bare deeplink `stop` went to the shown task only, while the
+    toolbar lists what runs anywhere on the directory, so a script started
+    in a task the user then left could not be stopped from its sibling. They
+    reach the task(s) that run it; with none, the shown task as before. A
+    `stop` naming a task still stops only there.
+  - P1, held as missing tests; the routes were correct. Added two-task
+    reducer tests for bare `run`, `run` naming a task, `run --script` (named
+    and bare, confirm, cancel, named task removed while the dialog waits,
+    already running on the directory) including the selected-before-echo
+    window, and a new `AppFeatureAgentTaskTests` for agent prompt, send-keys
+    and resume into a task that is not shown (exact layout, surface and
+    bytes; refusal when the surface is not live; resume offer kept on
+    refusal). Checked by mutation: with the three agent routes and the
+    script start sent back through the directory seam, 10 of these tests
+    fail.
+  - P3, unchanged, only the live UI can confirm: an old shell with no
+    `SUPACODE_TASK_ID`, notification/`tab focus` bringing up a hidden task,
+    the reference-sheet rows. Also live-only now: Stop in the toolbar while
+    the script runs in a sibling task closes that task's script tab.
+  Gate: check 0, focused `AppFeatureDeeplinkTaskTests` +
+  `AppFeatureAgentTaskTests` exit 0 with 50 tests (`AppFeatureDeeplinkTests`
+  and `AppFeatureRunScriptTests` also green with the fix), build-app 0, full
+  `make test` exit 2 with 4333 tests and only the 5 known failures.
