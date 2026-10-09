@@ -1537,3 +1537,34 @@ deviation.
   Gate: check 0, `supacodeFeatureTests` + `supacodeTests` 3220 tests with
   only the 3 baseline failures (ack flake, settings-changed, bracket
   chords), build-app 0.
+- T5 review round 2, 2026-10-08:
+  - Missing directory (fixed): a task on a directory that is still a roster
+    worktree but gone from disk (`isMissing`) was hidden behind
+    `MissingWorktreeDetailView`. `AppFeature.State.taskOnMissingDirectory`
+    (selected task that still exists, on a missing roster worktree) now takes
+    precedence: the detail view mounts that task's layout through the normal
+    worktree branch. The toolbar's directory chrome was already off for a
+    missing worktree. Decision the plan did not make: a directory-only
+    `selectedWorktreeChanged` for a different directory now clears
+    `selectedTask`, so selecting the missing directory's own row after
+    leaving shows the placeholder (and its delete action) again instead of
+    the remembered task. While the task is shown the placeholder is one
+    row-switch away. Menu commands still resolve through the seam (T10/T11,
+    as for orphans).
+  - Focus of a populated task (finding rejected, test added): the
+    `.ensureInitialTab` command handler calls `host.focusSelectedTab()`
+    whenever `focusing` is true, after the private bootstrap returns, so a
+    populated layout is focused: at once when its surface is live in the key
+    window (`claimFocus` → `requestFocus`, whatever the first responder
+    was), otherwise latched and claimed by `applySurfaceActivity`. The
+    view's `forceAutoFocus: false` only governs the separate view-level
+    path. Pinned by
+    `WorktreeTerminalManagerAckTests/ensureInitialTabOnAPopulatedOrphanTaskRequestsFocusWithoutATab`
+    (focus requested, no tab made, selection kept). The first-responder
+    handoff itself is not verified in the live UI.
+  - T5 regression found here: `taskSnapshotsChanged` reads `date.now`, which
+    failed 19 `WorktreeTerminalManagerAckTests`/`PaneCycleTests` cases that
+    drive a real `AppFeature` store; T5's gate never ran
+    `supacodeTerminalTests`. Their harnesses now inject a date.
+  Gate: check 0, `supacodeFeatureTests` + `supacodeTerminalTests` +
+  `supacodeTests` 3624 tests with only the 5 baseline failures, build-app 0.
