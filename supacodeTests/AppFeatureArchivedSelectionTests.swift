@@ -122,7 +122,9 @@ struct AppFeatureArchivedSelectionTests {
 
     #expect(
       sentCommands.value == [
-        .prune(keepingDirectories: [activeWorktree.id], protectingRepositoryIDs: [])
+        .prune(
+          keepingDirectories: [activeWorktree.id], protectingRepositoryIDs: [],
+          archivedDirectories: [archivedWorktree.id])
       ]
     )
   }
@@ -192,7 +194,9 @@ struct AppFeatureArchivedSelectionTests {
     // The archived directory alone is pruned: the orphan is always kept.
     #expect(
       sentCommands.value == [
-        .prune(keepingDirectories: [activeWorktree.id, orphanDirectory], protectingRepositoryIDs: [])
+        .prune(
+          keepingDirectories: [activeWorktree.id, orphanDirectory], protectingRepositoryIDs: [],
+          archivedDirectories: [archivedWorktree.id])
       ]
     )
     #expect(watcherCommands.value == [.setWorktrees(watcherInputWithoutTasks)])

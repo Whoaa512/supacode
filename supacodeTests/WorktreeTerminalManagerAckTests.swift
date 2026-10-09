@@ -37,6 +37,7 @@ struct WorktreeTerminalManagerAckTests {
   private func makeHarness(
     storage: SettingsFileStorage = .inMemory(),
     defaults: UserDefaults = .inMemory,
+    killSession: @escaping @Sendable (String) -> Void = { _ in },
     killRemoteSession: @escaping @Sendable (RemoteHost, String) -> Void = { _, _ in }
   ) -> Harness {
     let worktree = makeWorktree()
@@ -46,7 +47,7 @@ struct WorktreeTerminalManagerAckTests {
       $0.zmxClient = ZmxClient(
         executableURL: { nil },
         isBundled: { false },
-        killSession: { _ in },
+        killSession: { session in killSession(session) },
         killRemoteSession: { host, session in killRemoteSession(host, session) },
         listSessionsWithClients: { nil }
       )
@@ -428,6 +429,71 @@ struct WorktreeTerminalManagerAckTests {
     #expect(harness.manager.hostIfExists(for: second) == nil)
     #expect(harness.manager.hostIfExists(for: kept) != nil)
     #expect(harness.store.withState { Array($0.terminals.layouts.ids) } == [kept])
+  }
+
+  @Test(.dependencies) func archivingADirectoryPrunesItsNeverOpenedTasksToo() async throws {
+    let (fileWrites, writeSignal) = AsyncStream<TaskLayoutsFile>.makeStream()
+    let defaults = LayoutsSignalingDefaults { data in
+      if let file = try? JSONDecoder().decode(TaskLayoutsFile.self, from: data) {
+        writeSignal.yield(file)
+      }
+    }
+    let killed = LockIsolated<Set<String>>([])
+    let (kills, killSignal) = AsyncStream<Void>.makeStream()
+    let harness = makeHarness(
+      defaults: defaults,
+      killSession: { session in
+        killed.withValue { _ = $0.insert(session) }
+        killSignal.yield()
+      })
+    let archived = TaskRecord.Directory(worktreeID: "/tmp/repo/wt-archived")
+    let other = TaskRecord.Directory(worktreeID: "/tmp/repo/wt-other")
+    let first = LayoutID(task: UUID())
+    let second = LayoutID(task: UUID())
+    let kept = LayoutID(task: UUID())
+    let firstSurface = UUID()
+    let secondSurface = UUID()
+    let created = Date(timeIntervalSince1970: 1)
+    let tasks = [
+      TaskRecord(id: first, directory: archived, layout: singleTabLayout(contentID: firstSurface), createdAt: created),
+      TaskRecord(
+        id: second, directory: archived, layout: singleTabLayout(contentID: secondSurface), createdAt: created),
+      TaskRecord(id: kept, directory: other, layout: singleTabLayout(contentID: UUID()), createdAt: created),
+    ]
+    let file = TaskLayoutsFile(tasks: Dictionary(uniqueKeysWithValues: tasks.map { ($0.id.persistenceKey, $0) }))
+    defaults.seed(try JSONEncoder().encode(file))
+    // Hydrated, never selected: none of the three has a host.
+    harness.store.send(.terminals(.layoutsHydrated(file)))
+
+    // Absence from the kept set alone prunes no hostless task: its repository
+    // may simply not be listed yet.
+    harness.manager.handleCommand(.prune(keepingDirectories: [other.worktreeID], protectingRepositoryIDs: []))
+    #expect(harness.store.withState { $0.terminals.layouts.count } == 3)
+
+    // A directory still kept (its delete script is running) outranks the archive.
+    harness.manager.handleCommand(
+      .prune(
+        keepingDirectories: [archived.worktreeID, other.worktreeID], protectingRepositoryIDs: [],
+        archivedDirectories: [archived.worktreeID]))
+    #expect(harness.store.withState { $0.terminals.layouts.count } == 3)
+
+    harness.manager.handleCommand(
+      .prune(
+        keepingDirectories: [other.worktreeID], protectingRepositoryIDs: [],
+        archivedDirectories: [archived.worktreeID]))
+
+    try #require(harness.store.withState { Array($0.terminals.layouts.ids) } == [kept])
+    #expect(harness.store.withState { $0.terminals.directories } == [kept: other])
+    var killIterator = kills.makeAsyncIterator()
+    for _ in 0..<2 { await killIterator.next() }
+    var writes = fileWrites.makeAsyncIterator()
+    while let written = await writes.next() {
+      guard written.tasks.count == 1 else { continue }
+      #expect(Array(written.tasks.keys) == [kept.persistenceKey])
+      break
+    }
+    #expect(
+      killed.value == [ZmxSessionID.make(surfaceID: firstSurface), ZmxSessionID.make(surfaceID: secondSurface)])
   }
 
   @Test(.dependencies) func removingADirectoryTearsDownItsNeverOpenedTasksToo() {

@@ -130,7 +130,12 @@ struct TerminalClient {
     /// Moves the worktree's focused pane into its own window, or back.
     case toggleWindowModeForFocusedPane(LayoutID)
     case renameTab(LayoutID, tabID: TabID, title: String)
-    case prune(keepingDirectories: Set<Worktree.ID>, protectingRepositoryIDs: Set<Repository.ID>)
+    /// `archivedDirectories` names the directories whose never-opened tasks go
+    /// too. A hostless task is pruned only when named there: absence from the
+    /// kept set alone can also mean its repository has not loaded yet.
+    case prune(
+      keepingDirectories: Set<Worktree.ID>, protectingRepositoryIDs: Set<Repository.ID>,
+      archivedDirectories: Set<Worktree.ID> = [])
     /// Explicitly deleted worktree: every layout on that directory goes, with
     /// its sessions and persisted record, host or no host.
     case removeLayouts(forDirectory: Worktree.ID, remoteHost: RemoteHost?)

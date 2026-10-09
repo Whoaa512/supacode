@@ -594,8 +594,10 @@ final class WorktreeTerminalManager {
 
   private func handleManagementCommand(_ command: TerminalClient.Command) {
     switch command {
-    case .prune(let ids, let protectedRepositoryIDs):
-      prune(keepingDirectories: ids, protectingRepositoryIDs: protectedRepositoryIDs)
+    case .prune(let ids, let protectedRepositoryIDs, let archivedDirectories):
+      prune(
+        keepingDirectories: ids, protectingRepositoryIDs: protectedRepositoryIDs,
+        archivedDirectories: archivedDirectories)
     case .removeLayouts(let directoryID, let remoteHost):
       removeLayouts(forDirectory: directoryID, remoteHost: remoteHost)
     case .setNotificationsEnabled(let enabled):
@@ -1582,8 +1584,9 @@ final class WorktreeTerminalManager {
 
   /// Explicit worktree deletion: drop every layout on that directory, with
   /// its sessions, whether or not a host exists (a hydrated worktree the user
-  /// never selected has none). Roster prune cannot do this, since a hostless
-  /// layout could also belong to a repository that merely failed to load.
+  /// never selected has none). Roster prune reaches a hostless layout only on
+  /// a directory named as archived, since one merely missing from the kept
+  /// set could belong to a repository that failed to load.
   func removeLayouts(forDirectory directoryID: Worktree.ID, remoteHost: RemoteHost?) {
     var layoutIDs = layoutIDs(onDirectory: directoryID)
     // A hostless layout that names no directory is found through the seam; a
@@ -1651,7 +1654,8 @@ final class WorktreeTerminalManager {
 
   func prune(
     keepingDirectories directoryIDs: Set<Worktree.ID>,
-    protectingRepositoryIDs protectedRepositoryIDs: Set<Repository.ID> = []
+    protectingRepositoryIDs protectedRepositoryIDs: Set<Repository.ID> = [],
+    archivedDirectories: Set<Worktree.ID> = []
   ) {
     // The host's directory decides, never its key: a layout id need not be
     // the directory id, and a mismatch here kills sessions silently.
@@ -1704,6 +1708,25 @@ final class WorktreeTerminalManager {
     killZmxSessions(
       prunedSessionIDs, remoteSessions: prunedRemoteSessions,
       clearingTombstones: prunedSurfaceIDs.map { ContentID(rawValue: $0) })
+    pruneHostlessLayouts(in: archivedDirectories.subtracting(directoryIDs))
+  }
+
+  /// A hydrated task the user never opened has no host, so the roster pass
+  /// above cannot see it. It goes only when its recorded directory is named:
+  /// a hostless task outside the kept set may belong to a repository that has
+  /// not loaded, and one with no recorded directory is never guessed at.
+  private func pruneHostlessLayouts(in directoryIDs: Set<Worktree.ID>) {
+    guard !directoryIDs.isEmpty else { return }
+    let recorded = appStore?.withState { $0.terminals.directories } ?? [:]
+    let hostless =
+      recorded
+      .filter { hosts[$0.key] == nil && directoryIDs.contains($0.value.worktreeID) }
+      .sorted { $0.key.persistenceKey < $1.key.persistenceKey }
+    for (layoutID, directory) in hostless {
+      removeLayout(layoutID, directoryID: directory.worktreeID, remoteHost: directory.host)
+    }
+    guard !hostless.isEmpty else { return }
+    terminalLogger.info("Pruned \(hostless.count) never-opened layout(s)")
   }
 
   /// Host-side zmx sessions owned by the given states, one entry per surface

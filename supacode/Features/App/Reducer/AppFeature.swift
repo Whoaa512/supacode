@@ -700,14 +700,18 @@ struct AppFeature {
         // its repository removed or not loaded) is never pruned; only an
         // archived directory's tasks are.
         let knownDirectories = Set(state.repositories.sidebarItems.ids)
-        let allowed = Set(
+        let keptRows = Set(
           state.repositories.sidebarItems
             .filter { item in
               !archivedIDs.contains(item.id) || item.lifecycle == .deletingScript
             }
             .map(\.id)
         )
-        .union(state.terminals.directories.values.map(\.worktreeID).filter { !knownDirectories.contains($0) })
+        // Named positively so a never-opened task is pruned only for a row
+        // known to be archived, never for one that merely is not listed yet.
+        let archivedDirectories = knownDirectories.subtracting(keptRows)
+        let allowed = keptRows.union(
+          state.terminals.directories.values.map(\.worktreeID).filter { !knownDirectories.contains($0) })
         let recencyIDs = CommandPaletteFeature.recencyRetentionIDs(
           from: repositories,
           scripts: state.allScripts
@@ -740,9 +744,11 @@ struct AppFeature {
           let protectedRepositoryIDs = Set(state.repositories.loadFailuresByID.keys)
             .union(state.repositories.environmentBlockedRepositoryIDs)
           effects.append(
-            .run { [allowed, protectedRepositoryIDs] _ in
+            .run { [allowed, protectedRepositoryIDs, archivedDirectories] _ in
               await terminalClient.send(
-                .prune(keepingDirectories: allowed, protectingRepositoryIDs: protectedRepositoryIDs)
+                .prune(
+                  keepingDirectories: allowed, protectingRepositoryIDs: protectedRepositoryIDs,
+                  archivedDirectories: archivedDirectories)
               )
             }
           )
