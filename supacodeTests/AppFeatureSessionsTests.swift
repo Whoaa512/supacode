@@ -1128,59 +1128,6 @@ struct AppFeatureSessionsTests {
     #expect(store.state.branchCaptureQueue.isEmpty)
   }
 
-  @Test(.dependencies) func newSessionUsesFocusedSessionCwdBeforeSelection() async throws {
-    let focusedCwd = try temporaryDirectory(named: "focused-new-session")
-    let selectedCwd = try temporaryDirectory(named: "selected-new-session")
-    let focusedWorktree = Worktree(
-      id: Worktree.ID(focusedCwd.path(percentEncoded: false)), name: "focused", detail: "",
-      workingDirectory: focusedCwd, repositoryRootURL: focusedCwd)
-    var initial = state()
-    initial.terminals.selectedLayoutID = worktree.id.layoutID
-    initial.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].selectedTabID = tab
-    initial.repositories.repositories.append(
-      Repository(
-        id: RepositoryID(focusedCwd.path(percentEncoded: false)), rootURL: focusedCwd,
-        name: "focused", worktrees: [focusedWorktree])
-    )
-    let focusedKey = SessionKey(harness: .pi, sessionID: "focused")
-    let selectedKey = SessionKey(harness: .pi, sessionID: "selected")
-    initial.repositories.sessionItems = [
-      SessionSidebarItemFeature.State(
-        id: .session(focusedKey), title: "Focused", cwd: focusedCwd.path(percentEncoded: false),
-        createdAt: .distantPast, location: location),
-      SessionSidebarItemFeature.State(
-        id: .session(selectedKey), title: "Selected", cwd: selectedCwd.path(percentEncoded: false),
-        createdAt: .distantPast, location: nil),
-    ]
-    initial.repositories.sessionSnapshots = [
-      SessionLiveSnapshot(
-        harness: .pi, sessionRef: "focused", cwd: focusedCwd.path(percentEncoded: false), location: location)
-    ]
-    initial.repositories.sessionSelection = .session(selectedKey)
-    let sent = LockIsolated<[TerminalClient.Command]>([])
-    let store = TestStore(initialState: initial) {
-      AppFeature()
-    } withDependencies: {
-      $0.uuid = .incrementing
-      $0.date.now = .distantPast
-      $0.continuousClock = ImmediateClock()
-      $0.terminalClient.send = { command in sent.withValue { $0.append(command) } }
-    }
-    store.exhaustivity = .off
-
-    await store.send(.newSession)
-    await store.receive(\.launchSessionCompleted)
-    await store.finish()
-
-    let launches = sent.value.compactMap { command -> (String, String)? in
-      guard case .createTabWithInput(_, let context, let input, _, _, _, _, _) = command else { return nil }
-      return (context.workingDirectory.path(percentEncoded: false), input)
-    }
-    #expect(launches.count == 1)
-    #expect(launches.first?.0 == focusedCwd.path(percentEncoded: false))
-    #expect(launches.first?.1 == "pi")
-  }
-
   @Test(.dependencies) func newSessionFallsBackToSelectedWorktreeWhenNoSessionCwd() async throws {
     let cwd = try temporaryDirectory(named: "selected-worktree-new-session")
     let selectedWorktree = Worktree(
@@ -3417,6 +3364,86 @@ struct AppFeatureSessionsTests {
     #expect(launch.input == "pi")
     #expect(store.state.alert == nil)
     #expect(store.state.pendingTaskSelection == PendingTaskSelection(layoutID: launch.layoutID, directoryID: onDisk.id))
+  }
+
+  /// The shown task sits on `directory`; `elsewhere` is a registered directory too, so a launch there would be instant.
+  private func shownTaskOnDisk(_ directory: URL, elsewhere: URL) -> (AppFeature.State, Worktree) {
+    var (state, onDisk) = stateOnDisk(directory)
+    let path = elsewhere.path(percentEncoded: false)
+    let other = Worktree(
+      id: Worktree.ID(path), name: "elsewhere", detail: "", workingDirectory: elsewhere, repositoryRootURL: elsewhere)
+    state.repositories.repositories.append(
+      Repository(id: RepositoryID(path), rootURL: elsewhere, name: "elsewhere", worktrees: [other]))
+    state.terminals.layouts = [agentTask(first, surface: firstSurface, cwd: path)]
+    state.terminals.directories[first] = TaskRecord.Directory(worktreeID: onDisk.id)
+    state.terminals.selectedLayoutID = first
+    state.repositories.selectedTask = .init(id: first, directoryID: onDisk.id)
+    return (state, onDisk)
+  }
+
+  @Test(.dependencies) func newSessionStartsInTheCurrentTasksDirectoryNotItsFocusedTangents() async throws {
+    let directory = try temporaryDirectory(named: "mint-task-directory")
+    let tangentCwd = try temporaryDirectory(named: "mint-tangent")
+    var (initial, onDisk) = shownTaskOnDisk(directory, elsewhere: tangentCwd)
+    // The focused tab of the task runs an agent in another directory.
+    let location = SessionLocation(
+      layoutID: first, directoryID: onDisk.id, tabID: TabID(rawValue: firstSurface), surfaceID: firstSurface)
+    let tangentPath = tangentCwd.path(percentEncoded: false)
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(piKey("tangent")), title: "Tangent", cwd: tangentPath, createdAt: .distantPast,
+        location: location)
+    ]
+    initial.repositories.sessionSnapshots = [
+      SessionLiveSnapshot(harness: .pi, sessionRef: "tangent", cwd: tangentPath, location: location)
+    ]
+    #expect(AppFeature.focusedSessionRowID(state: initial) == .session(piKey("tangent")))
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newSession)
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    #expect(launches(recorded).map(\.directory) == [onDisk.id])
+    #expect(launches(recorded).first?.layoutID != first)
+  }
+
+  @Test(.dependencies) func newSessionStartsInTheCurrentTasksDirectoryNotTheSelectedHistoryRows() async throws {
+    let directory = try temporaryDirectory(named: "mint-task-directory")
+    let historyCwd = try temporaryDirectory(named: "mint-history")
+    var (initial, onDisk) = shownTaskOnDisk(directory, elsewhere: historyCwd)
+    // A dormant row of another directory is highlighted while the task stays on screen.
+    initial.repositories.sessionItems = [dormantRow(piKey("history"), cwd: historyCwd)]
+    initial.repositories.sessionSelection = .session(piKey("history"))
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newSession)
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    #expect(launches(recorded).map(\.directory) == [onDisk.id])
+  }
+
+  @Test(.dependencies) func newSessionWithNoTaskOnScreenStillFollowsTheSelectedHistoryRow() async throws {
+    let directory = try temporaryDirectory(named: "mint-no-task")
+    let historyCwd = try temporaryDirectory(named: "mint-history")
+    var (initial, _) = shownTaskOnDisk(directory, elsewhere: historyCwd)
+    initial.terminals.layouts = []
+    initial.terminals.directories = [:]
+    initial.terminals.selectedLayoutID = nil
+    initial.repositories.selectedTask = nil
+    initial.repositories.sessionItems = [dormantRow(piKey("history"), cwd: historyCwd)]
+    initial.repositories.sessionSelection = .session(piKey("history"))
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newSession)
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    #expect(launches(recorded).map(\.directory) == [Worktree.ID(historyCwd.path(percentEncoded: false))])
   }
 
   @Test(.dependencies) func aSecondNewSessionMintsAnotherTaskOnTheSameDirectory() async throws {

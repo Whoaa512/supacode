@@ -281,7 +281,23 @@ extension AppFeature {
 
   // MARK: - Launch orchestration
 
+  /// The directory of the task on screen, when it is a local one. A tab of
+  /// that task may run elsewhere (a tangent); the task's directory is still
+  /// where its next sibling starts.
+  static func currentTaskDirectory(state: State) -> URL? {
+    guard let layoutID = state.repositories.selectedTaskID ?? state.terminals.selectedLayoutID,
+      hasTask(layoutID, state: state),
+      let directoryID = state.terminals.directories[layoutID]?.worktreeID
+        ?? storedTask(layoutID, state: state)?.directory.worktreeID
+        ?? state.worktree(forLayout: layoutID)?.id
+    else { return nil }
+    let context = directoryContext(forTask: layoutID, directoryID: directoryID, state: state)
+    guard context.host == nil else { return nil }
+    return context.workingDirectory.standardizedFileURL
+  }
+
   static func newSessionCwdFallback(state: State) -> URL {
+    if let taskDirectory = currentTaskDirectory(state: state) { return taskDirectory }
     if let focused = focusedSessionRowID(state: state),
       let cwd = cwd(for: focused, state: state)
     {
