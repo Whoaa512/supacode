@@ -1237,6 +1237,71 @@ struct WorktreeTerminalManagerAckTests {
     #expect(recorder.remoteKills.value.isEmpty)
   }
 
+  /// A task that began as shells is on disk with no session. Its first
+  /// agent's session, and any later one, must reach that record in order,
+  /// and from then on closing its last tab keeps the task.
+  @Test(.dependencies) func aSessionlessTaskThatGainedASessionIsKeptWhenItsLastTabCloses() async {
+    let recorder = TeardownRecorder()
+    let clock = TestClock()
+    let harness = makeHarness(
+      defaults: recorder.defaults, persistingOn: clock, killSession: recorder.killSession,
+      killRemoteSession: recorder.killRemoteSession)
+    let pump = CreationEvents(harness.manager)
+    let task = LayoutID(task: UUID())
+    let surface = await openLayout(task, on: makeWorktree(id: "/tmp/repo/wt-shell-born"), in: harness, pump: pump)
+    let key = SessionKey(harness: .pi, sessionID: "first")
+    let later = SessionKey(harness: .pi, sessionID: "later")
+    await harness.store.send(.terminals(.layoutsHydrated(TaskLayoutsFile()))).finish()
+    let shellOnly = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey] != nil }
+    #expect(shellOnly.tasks[task.persistenceKey]?.sessions == [])
+
+    await harness.store.send(.terminals(.membersChanged([task: [.session(key)]]))).finish()
+    _ = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey]?.sessions == [key] }
+    await harness.store.send(.terminals(.membersChanged([task: [.session(key), .session(later)]]))).finish()
+    _ = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey]?.sessions == [key, later] }
+
+    await closeTab(surface, of: task, in: harness)
+
+    let emptied = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey]?.layout.panes.isEmpty != false }
+    #expect(emptied.tasks[task.persistenceKey]?.sessions == [key, later], "the task is still there to resume")
+    #expect(harness.manager.hostIfExists(for: task) != nil)
+    harness.store.withState { state in
+      #expect(state.terminals.layouts[id: task] != nil)
+      #expect(state.terminals.removedLayoutIDs.isEmpty)
+    }
+    #expect(recorder.localKills.value.isEmpty)
+    #expect(recorder.remoteKills.value.isEmpty)
+
+    let relaunched = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
+    relaunched.exhaustivity = .off
+    await relaunched.send(.layoutsHydrated(emptied))
+    #expect(relaunched.state.members[task] == [.session(key), .session(later)])
+  }
+
+  /// The reducer's list decides, not the store: the session was listed, the
+  /// debounced write carrying it has not run.
+  @Test(.dependencies) func aSessionListedButNotYetWrittenKeepsTheTaskWhenItsLastTabCloses() async {
+    let recorder = TeardownRecorder()
+    let clock = TestClock()
+    let harness = makeHarness(defaults: recorder.defaults, persistingOn: clock)
+    let pump = CreationEvents(harness.manager)
+    let task = LayoutID(task: UUID())
+    let surface = await openLayout(task, on: makeWorktree(id: "/tmp/repo/wt-unwritten"), in: harness, pump: pump)
+    let key = SessionKey(harness: .pi, sessionID: "first")
+    await harness.store.send(.terminals(.layoutsHydrated(TaskLayoutsFile()))).finish()
+    let shellOnly = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey] != nil }
+    #expect(shellOnly.tasks[task.persistenceKey]?.sessions == [])
+
+    await harness.store.send(.terminals(.membersChanged([task: [.session(key)]]))).finish()
+    await closeTab(surface, of: task, in: harness)
+
+    #expect(harness.manager.hostIfExists(for: task) != nil)
+    #expect(harness.store.withState { $0.terminals.layouts[id: task] } != nil)
+    let emptied = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey]?.layout.panes.isEmpty != false }
+    #expect(emptied.tasks[task.persistenceKey]?.sessions == [key], "the next write carries the session")
+    #expect(harness.manager.hostIfExists(for: task) != nil)
+  }
+
   /// The store alone decides here: the record was written after launch, so it
   /// is in neither the runtime members nor the launch-time file.
   @Test(.dependencies, arguments: [true, false])

@@ -432,6 +432,79 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(store.state.repositories.sessions.isEmpty)
   }
 
+  // MARK: - Quit in a task that began as shells (A27)
+
+  /// The task's two tabs are plain shells: no agent, no session listed.
+  private func shellBornState(primary: SkillAgent = .pi) -> AppFeature.State {
+    var initial = state(primary: primary)
+    initial.agentPresence.records[.init(agent: primary, surfaceID: primarySurface)] = nil
+    initial.terminals.members[task] = nil
+    return withRows(initial)
+  }
+
+  @Test(.dependencies) func theFirstAgentOfAShellBornTaskQuittingClosesItsTabsLikeAnyPrimary() async {
+    confirmClose(.never)
+    let recorded = Recorded()
+    let store = store(shellBornState(), recorded: recorded)
+    #expect(AppFeature.primarySession(of: task, state: store.state) == nil)
+
+    await send("session_start", on: primarySurface, ref: "a", to: store)
+    #expect(store.state.terminals.members[task] == [.session(key("a"))])
+    #expect(recorded.closed.value.isEmpty)
+    #expect(store.state.repositories.sessions.isEmpty)
+
+    await send("session_end", on: primarySurface, ref: "a", reason: "quit", to: store)
+
+    #expect(settledAt("a", in: store) == now)
+    #expect(recorded.closed.value == [primarySurface, secondSurface], "the shell beside it closes with the task")
+    #expect(store.state.terminals.members[task] == [.session(key("a"))], "still there to reopen")
+    #expect(surfaces(of: otherTask, in: store) == [otherSurface])
+    #expect(settledAt("other", in: store) == nil)
+  }
+
+  @Test(.dependencies) func aShellBornTasksCloseOnQuitStillAsksWhenConfirmationIsOn() async {
+    confirmClose(.always)
+    let recorded = Recorded()
+    let store = store(shellBornState(), recorded: recorded)
+
+    await send("session_start", on: primarySurface, ref: "a", to: store)
+    await send("session_end", on: primarySurface, ref: "a", reason: "quit", to: store)
+
+    #expect(store.state.terminals.layouts[id: task]?.alert != nil)
+    #expect(surfaces(of: task, in: store) == [primarySurface, secondSurface], "nothing closes until the user answers")
+    #expect(settledAt("a", in: store) == now, "the session is over whatever the answer")
+  }
+
+  @Test(.dependencies) func anUnreportedAgentEndingInAShellOnlyTaskClosesAndMarksNothing() async {
+    confirmClose(.never)
+    let recorded = Recorded()
+    var initial = shellBornState()
+    initial.agentPresence.records[.init(agent: .pi, surfaceID: primarySurface)] = live(nil)
+    initial.terminals.members[task] = [.provisional(harness: .pi, surfaceID: primarySurface)]
+    let store = store(withRows(initial), recorded: recorded)
+
+    await send("session_end", on: primarySurface, ref: nil, reason: "quit", to: store)
+
+    #expect(recorded.closed.value.isEmpty)
+    #expect(store.state.repositories.sessions.isEmpty)
+    #expect(surfaces(of: task, in: store) == [primarySurface, secondSurface])
+    #expect(AppFeature.primarySession(of: task, state: store.state) == nil, "the task is shell-only again")
+  }
+
+  @Test(.dependencies) func aBareEndOfAShellBornTasksFirstAgentClosesNothing() async {
+    confirmClose(.never)
+    let recorded = Recorded()
+    let store = store(shellBornState(primary: .claude), recorded: recorded)
+
+    await send("session_start", on: primarySurface, ref: "a", agent: "claude", to: store)
+    #expect(store.state.terminals.members[task] == [.session(key("a", .claude))])
+    await send("session_end", on: primarySurface, ref: "a", agent: "claude", to: store)
+
+    #expect(settledAt("a", .claude, in: store) == now, "the session is marked")
+    #expect(recorded.closed.value.isEmpty, "a bare end may be a `/clear`")
+    #expect(surfaces(of: task, in: store) == [primarySurface, secondSurface])
+  }
+
   // MARK: - An agent inside the agent (workflow sub-agents)
 
   @Test(.dependencies) func aSubAgentStartingAndEndingLeavesTheSurfacesSessionAlone() async {
