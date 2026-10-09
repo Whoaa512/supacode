@@ -889,6 +889,11 @@ them at the marked checkpoints, on his real state.
    user settles them.
 6. Auto-settle rule for a task with mixed members? **Assumed** never while
    any member is live; idle age is the newest member's activity.
+   **Decided 2026-10-09**: auto-settle never closes a tab. A task that still
+   has any open tab (shell, or an agent tab whose agent has ended) is not
+   auto-settled at all; only a task with no open tabs is, by sidecar mark as
+   today. Closing tabs is reserved for the settle the user asks for (D6), so
+   nothing running is ever killed by a timer.
 7. Harness-end of a tangent? **Assumed** it does not settle the task. The
    primary quitting settles the task only when no other member is live
    (otherwise settle would kill live tangents).
