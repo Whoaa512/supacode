@@ -844,7 +844,7 @@ final class WorktreeTerminalManager {
       self?.forceEmitProjection(for: layoutID)
     }
     host.onCommandPaletteToggle = { [weak self] in
-      self?.emit(.commandPaletteToggleRequested(layoutID: layoutID))
+      self?.emit(.commandPaletteToggleRequested(layoutID: layoutID, worktreeID: directoryID))
     }
     host.onSetupScriptConsumed = { [weak self] in
       self?.emit(.setupScriptConsumed(layoutID: layoutID))

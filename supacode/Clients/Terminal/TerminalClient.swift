@@ -152,7 +152,9 @@ struct TerminalClient {
     case runStatusChanged(worktreeID: Worktree.ID, status: WorktreeRunStatus)
     case blockingScriptCompleted(
       worktreeID: Worktree.ID, kind: BlockingScriptKind, exitCode: Int?, tabId: TabID?)
-    case commandPaletteToggleRequested(layoutID: LayoutID)
+    /// Carries the host's directory too: the originating worktree is selected even when
+    /// the roster no longer lists it, which a roster lookup by layout cannot express.
+    case commandPaletteToggleRequested(layoutID: LayoutID, worktreeID: Worktree.ID)
     case setupScriptConsumed(layoutID: LayoutID)
     /// Per-worktree projection emitted when surfaces / task-running / unseen / notifications drift.
     /// Routed by the parent into the matching `SidebarItemFeature` via the row's id.

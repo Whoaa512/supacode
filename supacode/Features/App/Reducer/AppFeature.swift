@@ -2166,14 +2166,11 @@ struct AppFeature {
         state.hasAnyTerminalSurface = hasAny
         return .none
 
-      case .terminalEvent(.commandPaletteToggleRequested(let layoutID)):
+      case .terminalEvent(.commandPaletteToggleRequested(_, let worktreeID)):
         // Ghostty's toggle action targets the command palette specifically, so force
         // `.commands`; otherwise it would inherit the last-used mode. Selecting the
         // originating worktree only makes sense when the palette is opening.
         guard !state.commandPalette.isPresented else {
-          return .send(.commandPalette(.togglePresentInMode(.commands)))
-        }
-        guard let worktreeID = state.worktree(forLayout: layoutID)?.id else {
           return .send(.commandPalette(.togglePresentInMode(.commands)))
         }
         return .merge(

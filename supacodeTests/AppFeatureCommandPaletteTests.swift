@@ -814,7 +814,8 @@ struct AppFeatureCommandPaletteTests {
     store.exhaustivity = .off
 
     // Ghostty's toggle opens the command palette, never the last-used switcher.
-    await store.send(.terminalEvent(.commandPaletteToggleRequested(layoutID: worktree.id.layoutID)))
+    await store.send(
+      .terminalEvent(.commandPaletteToggleRequested(layoutID: worktree.id.layoutID, worktreeID: worktree.id)))
     await store.receive(\.commandPalette.togglePresentInMode)
     #expect(store.state.commandPalette.mode == .commands)
     #expect(store.state.commandPalette.isPresented == true)
@@ -837,7 +838,8 @@ struct AppFeatureCommandPaletteTests {
     store.exhaustivity = .off
 
     // The switcher swaps to the command palette rather than closing.
-    await store.send(.terminalEvent(.commandPaletteToggleRequested(layoutID: worktree.id.layoutID)))
+    await store.send(
+      .terminalEvent(.commandPaletteToggleRequested(layoutID: worktree.id.layoutID, worktreeID: worktree.id)))
     await store.receive(\.commandPalette.togglePresentInMode)
     #expect(store.state.commandPalette.mode == .commands)
     #expect(store.state.commandPalette.isPresented == true)
@@ -862,12 +864,40 @@ struct AppFeatureCommandPaletteTests {
 
     // The toggle fires from wt-b's surface while wt-a is selected. Closing must not
     // drag the selection onto the originating worktree.
-    await store.send(.terminalEvent(.commandPaletteToggleRequested(layoutID: origin.id.layoutID)))
+    await store.send(
+      .terminalEvent(.commandPaletteToggleRequested(layoutID: origin.id.layoutID, worktreeID: origin.id)))
     await store.receive(\.commandPalette.togglePresentInMode)
     await store.receive(\.commandPalette.setPresented)
     await store.receive(\.commandPalette.delegate.dismissedWithoutSelection)
     #expect(store.state.commandPalette.isPresented == false)
     #expect(store.state.repositories.selectedWorktreeID == selected.id)
+  }
+
+  @Test(.dependencies) func terminalToggleFromNonRosterOriginStillSelectsIt() async {
+    let selected = makeWorktree(id: "/tmp/repo-gone/wt-a", name: "wt-a", repoRoot: "/tmp/repo-gone")
+    let repository = makeRepository(id: "/tmp/repo-gone", worktrees: [selected])
+    var repositoriesState = RepositoriesFeature.State()
+    repositoriesState.repositories = [repository]
+    repositoriesState.repositoryRoots = [repository.rootURL]
+    repositoriesState.reconcileSidebarForTesting()
+    repositoriesState.setSingleWorktreeSelection(selected.id)
+    let appState = AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
+    let store = TestStore(initialState: appState) {
+      AppFeature()
+    }
+    store.exhaustivity = .off
+
+    // The toggle fires from a host whose directory the roster no longer lists. The
+    // selection still moves off wt-a, exactly as it did when the event carried the
+    // worktree id directly.
+    let origin = WorktreeID("/tmp/repo-gone/wt-removed")
+    await store.send(
+      .terminalEvent(.commandPaletteToggleRequested(layoutID: origin.layoutID, worktreeID: origin))
+    )
+    await store.receive(\.repositories.selectWorktree)
+    await store.receive(\.commandPalette.togglePresentInMode)
+    #expect(store.state.commandPalette.isPresented == true)
+    #expect(store.state.repositories.selectedWorktreeID != selected.id)
   }
 
 }
