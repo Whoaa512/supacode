@@ -451,4 +451,99 @@ struct LayoutsIncrementalWriterTests {
     #expect(asV2.schemaVersion == 3)
     #expect(asV2.worktrees.isEmpty)
   }
+
+  // MARK: - Sessions and the last tab
+
+  private func sessionKey(_ ref: String) -> SessionKey { SessionKey(harness: .pi, sessionID: ref) }
+
+  private func change(
+    _ layout: PaneLayout, directory: Worktree.ID = "/w1", sessions: [SessionKey] = []
+  ) -> LayoutsIncrementalWriter.RecordChange {
+    .record(
+      layout: layout, directory: TaskRecord.Directory(worktreeID: directory), sessions: sessions,
+      createdAt: Self.createdAt)
+  }
+
+  @Test func recordStoresATasksSessionsPrimaryFirst() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let minted = LayoutID(task: UUID())
+
+    await writer.flush(records: [minted: change(layout("/w1"), sessions: [sessionKey("one"), sessionKey("two")])])
+
+    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [sessionKey("one"), sessionKey("two")])
+  }
+
+  @Test func recordNeverDropsAStoredSession() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let minted = LayoutID(task: UUID())
+    await writer.flush(records: [minted: change(layout("/w1"), sessions: [sessionKey("one"), sessionKey("two")])])
+
+    // A caller that has not loaded the stored sessions sends what it has.
+    await writer.flush(records: [minted: change(layout("/w1"), sessions: [])])
+    await writer.flush(records: [minted: change(layout("/w1"), sessions: [sessionKey("three")])])
+
+    #expect(
+      Set(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions ?? [])
+        == [sessionKey("one"), sessionKey("two"), sessionKey("three")])
+  }
+
+  @Test func taskWithSessionsKeepsItsRecordWhenItsLastTabCloses() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let minted = LayoutID(task: UUID())
+    await writer.flush(records: [minted: change(layout("/w1"), sessions: [sessionKey("one")])])
+    await writer.flush(activeTask: minted, forDirectory: "/w1")
+
+    // The caller lists no session: the stored record decides.
+    await writer.flush(records: [minted: change(PaneLayout())])
+
+    let file = readFile(defaults)
+    let task = file?.tasks[minted.persistenceKey]
+    #expect(task?.layout.panes.isEmpty == true)
+    #expect(task?.sessions == [sessionKey("one")])
+    #expect(task?.directory == TaskRecord.Directory(worktreeID: "/w1"))
+    #expect(file?.activeTasks == ["/w1": minted.persistenceKey])
+  }
+
+  @Test func taskWithoutSessionsIsDeletedWhenItsLastTabCloses() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let minted = LayoutID(task: UUID())
+    let sibling = LayoutID(task: UUID())
+    await writer.flush(records: [minted: change(layout("/w1")), sibling: change(layout("/w2"), directory: "/w2")])
+    await writer.flush(activeTask: minted, forDirectory: "/w1")
+
+    await writer.flush(records: [minted: change(PaneLayout())])
+
+    let file = readFile(defaults)
+    #expect(Set(file?.tasks.keys.map { $0 } ?? []) == [sibling.persistenceKey])
+    #expect(file?.activeTasks.isEmpty == true)
+  }
+
+  @Test func aTaskThatNeverHadATabOrASessionIsNeverWritten() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+
+    await writer.flush(records: [LayoutID(task: UUID()): change(PaneLayout())])
+
+    #expect(readFile(defaults)?.tasks.isEmpty != false)
+  }
+
+  @Test func emptiedTaskWithSessionsStillHoldsItsDirectorysOrigin() async throws {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let minted = LayoutID(task: UUID())
+    var seeded = TaskLayoutsFile()
+    seeded.origins = ["/w1": TerminalLayoutSnapshot(tabs: [], selectedTabIndex: 0)]
+    seeded.tasks[minted.persistenceKey] = TaskRecord(
+      id: minted, directory: TaskRecord.Directory(worktreeID: "/w1"), layout: layout("/w1"),
+      sessions: [sessionKey("one")], createdAt: Self.createdAt)
+    defaults.set(try JSONEncoder().encode(seeded), forKey: LayoutsFile.userDefaultsKey)
+
+    await writer.flush(records: [minted: change(PaneLayout())])
+
+    #expect(readFile(defaults)?.origins.keys.map { $0 } == ["/w1"])
+  }
 }

@@ -50,9 +50,11 @@ actor LayoutsIncrementalWriter {
   /// tombstone: absence from a flush means "leave the key alone", so a pruned
   /// layout must be carried as `.delete`, never as omission.
   enum RecordChange: Sendable {
-    /// Upsert: an existing task only takes the layout (its directory, sessions
-    /// and `createdAt` are kept); a new one is created from all three.
-    case record(layout: PaneLayout, directory: TaskRecord.Directory, createdAt: Date)
+    /// Upsert: an existing task takes the layout and any session it does not
+    /// list yet (its directory and `createdAt` are kept, and no stored session
+    /// is ever dropped); a new one is created from all four. A task left with
+    /// no tab and no session is removed like a `.delete`.
+    case record(layout: PaneLayout, directory: TaskRecord.Directory, sessions: [SessionKey] = [], createdAt: Date)
     case delete
     /// A delete keyed on a guess from the directory: a stored record that
     /// names another directory is that directory's task and stays.
@@ -114,24 +116,36 @@ actor LayoutsIncrementalWriter {
 
   private nonisolated static func apply(_ changes: [LayoutID: RecordChange], to file: inout TaskLayoutsFile) {
     var vacatedDirectories: Set<String> = []
+    func remove(_ key: String) {
+      // A task that was never written can only be a directory's own-key
+      // one, whose key is the directory.
+      let removed = file.tasks.removeValue(forKey: key)
+      vacatedDirectories.insert(removed?.directory.worktreeID.rawValue ?? key)
+      file.activeTasks = file.activeTasks.filter { $0.value != key }
+    }
     for (id, change) in changes {
       let key = id.persistenceKey
       switch change {
-      case .record(let layout, let directory, let createdAt):
+      case .record(let layout, let directory, let sessions, let createdAt):
         var task = file.tasks[key] ?? TaskRecord(id: id, directory: directory, createdAt: createdAt)
         task.layout = layout
-        file.tasks[key] = task
+        // The caller may not have loaded the stored sessions, so its list
+        // adds to them and never replaces them.
+        task.sessions = sessions + task.sessions.filter { !sessions.contains($0) }
+        // Nothing open and nothing to resume: the task leaves no trace. One
+        // with sessions stays, so its members are still there to resume.
+        guard layout.panes.isEmpty, task.sessions.isEmpty else {
+          file.tasks[key] = task
+          continue
+        }
+        remove(key)
       case .deleteIfOn(let directoryID):
         // The directory itself is going, whoever holds its key.
         vacatedDirectories.insert(directoryID.rawValue)
         if let stored = file.tasks[key], stored.directory.worktreeID != directoryID { continue }
-        fallthrough
+        remove(key)
       case .delete:
-        // A task that was never written can only be a directory's own-key
-        // one, whose key is the directory.
-        let removed = file.tasks.removeValue(forKey: key)
-        vacatedDirectories.insert(removed?.directory.worktreeID.rawValue ?? key)
-        file.activeTasks = file.activeTasks.filter { $0.value != key }
+        remove(key)
       }
     }
     // An origin belongs to its directory, not to the task stored under the

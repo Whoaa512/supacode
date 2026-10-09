@@ -1786,8 +1786,6 @@ final class WorktreeTerminalManager {
       runtime: ContentRuntime.liveValue,
       agentsBySurface: currentAgentsBySurface?() ?? [:]
     )
-    // An empty layout clears the key rather than persisting an empty record,
-    // matching the on-disk "no trace" semantics for emptiness.
     let change = recordChange(for: worktreeID, layout: record.layout)
     let writer = layoutsWriter
     layoutFlushGeneration += 1
@@ -1810,15 +1808,18 @@ final class WorktreeTerminalManager {
     Task { await writer.flush(activeTask: layoutID, forDirectory: directoryID) }
   }
 
-  /// An empty layout clears the key; anything else upserts the task. The
+  /// Upserts the task with its layout and sessions. The writer drops a task
+  /// left with no tab only when the stored record lists no session either,
+  /// so an empty layout is sent as is, never as a delete decided here. The
   /// directory only matters for a task not persisted yet: the host's, or for
   /// a hostless layout the one its legacy key spells.
   private func recordChange(for layoutID: LayoutID, layout: PaneLayout) -> LayoutsIncrementalWriter.RecordChange {
-    guard !layout.panes.isEmpty else { return .delete }
     let directory =
       hosts[layoutID].map { TaskRecord.Directory(worktreeID: $0.worktreeID, host: $0.context.host) }
       ?? LayoutsTaskSplitter.directory(forLegacyKey: layoutID.persistenceKey)
-    return .record(layout: layout, directory: directory, createdAt: Date())
+    let members = appStore?.withState { $0.terminals.members[layoutID] } ?? []
+    return .record(
+      layout: layout, directory: directory, sessions: members.compactMap(\.sessionKey), createdAt: Date())
   }
 
   /// Removes `worktreeID` from disk immediately, bypassing the debounce and

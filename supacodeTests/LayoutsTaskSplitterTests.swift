@@ -333,4 +333,29 @@ struct LayoutsTaskSplitterTests {
     #expect(decoded.origins.isEmpty)
     #expect(decoded.undecodedEntryCount == 2)
   }
+
+  @Test func recordThatListsSessionsIsLeftAsItIs() throws {
+    // What a task looks like after tasks own membership: several agent tabs,
+    // or no tab at all, with sessions. A rerun on a store that lost its
+    // marker must not regroup the tabs or drop the members.
+    let key = SessionKey(rawValue: "pi:kept")
+    let busy = TaskRecord(
+      id: LayoutID(task: Self.uuid(901)), directory: TaskRecord.Directory(worktreeID: WorktreeID(Self.local)),
+      layout: try Self.layout(
+        [
+          Self.pane(
+            1, [Self.tab(1, agents: [Self.agent(ref: "a")]), Self.tab(2, agents: [Self.agent(ref: "b")])],
+            selected: 1)
+        ], focused: 1),
+      sessions: [key, SessionKey(rawValue: "pi:a"), SessionKey(rawValue: "pi:b")], createdAt: Self.now)
+    let closed = TaskRecord(
+      id: LayoutID(task: Self.uuid(902)), directory: TaskRecord.Directory(worktreeID: WorktreeID(Self.local)),
+      sessions: [key], createdAt: Self.now)
+    var file = TaskLayoutsFile(tasks: [busy.id.persistenceKey: busy, closed.id.persistenceKey: closed])
+    file.tasksSplit = false
+
+    let result = LayoutsTaskSplitter.split(file, now: Self.now.addingTimeInterval(60)) { Self.uuid(999) }
+
+    #expect(result.tasks == file.tasks)
+  }
 }

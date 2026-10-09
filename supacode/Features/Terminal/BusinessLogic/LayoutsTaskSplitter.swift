@@ -81,8 +81,11 @@ nonisolated enum LayoutsTaskSplitter {
 
   /// A minted task holding exactly one agent tab is what a split produces. Left
   /// alone so a store that lost its marker (rewritten by an older build) is
-  /// not re-identified, which would drop the task's sessions.
+  /// not re-identified, which would drop the task's sessions. A record that
+  /// lists sessions is a task already, whatever it holds: its members may
+  /// have no tab left, and regrouping its tabs would lose them.
   private static func isAlreadySplit(_ record: TaskRecord) -> Bool {
+    guard record.sessions.isEmpty else { return true }
     guard record.id.persistenceKey != record.directory.worktreeID.rawValue,
       record.layout.panes.count == 1, let pane = record.layout.panes.first,
       pane.tabs.count == 1, let tab = pane.tabs.first
