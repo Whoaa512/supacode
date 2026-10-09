@@ -763,6 +763,52 @@ struct LayoutsMigratorTests {
     }
   }
 
+  /// The v2 fixture with one directory's `origin` replaced by `value`.
+  nonisolated private static func v2Data(settingOrigin value: Any, of key: String = "/tmp/a") throws -> Data {
+    let encoded = try JSONEncoder().encode(v2Fixture().file)
+    var root = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    var worktrees = try #require(root["worktrees"] as? [String: Any])
+    var record = try #require(worktrees[key] as? [String: Any])
+    record["origin"] = value
+    worktrees[key] = record
+    root["worktrees"] = worktrees
+    return try JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])
+  }
+
+  @Test func malformedV2OriginDefersTheUpgradeAndIsLeftUntouched() throws {
+    // A rotten origin still owns surface ids nothing else references: mapping
+    // it away would hand them to the orphan reaper.
+    let defaults = UserDefaults.inMemory
+    let malformed = try Self.v2Data(settingOrigin: "not a snapshot")
+    defaults.set(malformed, forKey: LayoutsFile.userDefaultsKey)
+
+    LayoutsMigrator.migrateStoreToTasksIfNeeded(defaults: defaults)
+
+    #expect(defaults.data(forKey: LayoutsFile.userDefaultsKey) == malformed)
+    #expect(defaults.data(forKey: LayoutsFile.preTasksBackupKey) == nil)
+    guard case .unreadable = TaskLayoutsFile.readPersisted(from: defaults) else {
+      Issue.record("Expected a v2 store with a malformed origin to stay unreadable.")
+      return
+    }
+  }
+
+  @Test func nullV2OriginStillUpgrades() throws {
+    let defaults = UserDefaults.inMemory
+    let v2Data = try Self.v2Data(settingOrigin: NSNull())
+    defaults.set(v2Data, forKey: LayoutsFile.userDefaultsKey)
+
+    LayoutsMigrator.migrateStoreToTasksIfNeeded(defaults: defaults)
+
+    #expect(defaults.data(forKey: LayoutsFile.preTasksBackupKey) == v2Data)
+    guard case .file(let file) = TaskLayoutsFile.readPersisted(from: defaults) else {
+      Issue.record("Expected a null origin to read as absent, not as a loss.")
+      return
+    }
+    #expect(file.schemaVersion == TaskLayoutsFile.currentSchemaVersion)
+    #expect(file.tasks.keys.sorted() == ["/tmp/a", "dev@box:2222/srv/b"])
+    #expect(file.origins.keys.sorted() == ["dev@box:2222/srv/b"])
+  }
+
   @Test func newerSchemaStoreIsLeftUntouchedAndUnreadable() throws {
     let defaults = UserDefaults.inMemory
     let newer = try JSONEncoder().encode(

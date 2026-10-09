@@ -25,12 +25,16 @@ nonisolated struct LayoutRecord: Equatable, Codable, Sendable {
   init(from decoder: any Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     layout = try container.decode(PaneLayout.self, forKey: .layout)
-    // `try?` so origin rot can never take the live layout down with it.
+    // `try?` so origin rot never fails this record's decode outright.
     origin =
       (try? container.decodeIfPresent(TerminalLayoutSnapshot.self, forKey: .origin)) ?? nil
-    if origin == nil, container.contains(.origin) {
-      migrationLogger.error("Dropped an unreadable migration origin; rollback tooling loses it.")
-    }
+    // A present, non-null origin that failed to decode still owns surface ids
+    // nothing else references, so it counts as decode loss: the file reads as
+    // lossy instead of being rewritten (or reaped) without it.
+    guard origin == nil, container.contains(.origin), (try? container.decodeNil(forKey: .origin)) != true
+    else { return }
+    migrationLogger.error("Dropped an unreadable migration origin; treating the layouts as lossy.")
+    (decoder.userInfo[.layoutDecodeLoss] as? LayoutDecodeLoss)?.droppedCount += 1
   }
 }
 

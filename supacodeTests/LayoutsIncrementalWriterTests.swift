@@ -204,6 +204,25 @@ struct LayoutsIncrementalWriterTests {
     #expect(defaults.data(forKey: LayoutsFile.preTasksBackupKey) == nil)
   }
 
+  @Test func malformedV2OriginAbortsTheFlushAndIsLeftUntouched() async throws {
+    let defaults = makeDefaults()
+    let encoded = try JSONEncoder().encode(LayoutsFile(worktrees: ["/w1": LayoutRecord(layout: layout("/w1"))]))
+    var root = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    var worktrees = try #require(root["worktrees"] as? [String: Any])
+    var entry = try #require(worktrees["/w1"] as? [String: Any])
+    entry["origin"] = "not a snapshot"
+    worktrees["/w1"] = entry
+    root["worktrees"] = worktrees
+    let malformed = try JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])
+    defaults.set(malformed, forKey: LayoutsFile.userDefaultsKey)
+    let writer = makeWriter(defaults)
+
+    await writer.flush(records: ["/w2": record("/w2")])
+
+    #expect(defaults.data(forKey: LayoutsFile.userDefaultsKey) == malformed)
+    #expect(defaults.data(forKey: LayoutsFile.preTasksBackupKey) == nil)
+  }
+
   @Test func upsertKeepsADirectorysOriginAndDeleteReleasesIt() async throws {
     let defaults = makeDefaults()
     let origin = TerminalLayoutSnapshot(tabs: [], selectedTabIndex: 0)
