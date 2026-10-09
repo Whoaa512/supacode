@@ -3137,3 +3137,48 @@ deviation.
   `SessionsSidebarTaskRowsTests`, `WorktreeTerminalManagerPaneCycleTests`
   exit 0 (220 tests); build-app 0. No full `make test` (K2 closes the
   phase). The first K1 commit was not built on its own.
+- K2, 2026-10-09, `e1cb0f89`. Jump-to-attention lands on the agent that needs
+  it, on its own surface, in whichever task holds it. Two source files
+  (`SessionsSidebarStructure.swift`, `AppFeature+Sessions.swift`); no new
+  state, action, view or persistence.
+  - `RepositoriesFeature.State.nextAttentionTarget(after:focusedSurfaceID:)`
+    replaces `nextNeedingAttention`: walks `liveIDs`, and inside a task
+    row its agents (`sessionSnapshots`) in member order; returns
+    `AttentionTarget { rowID, location }`. `.implicit` / `.provisional`
+    rows still read the row. Computed per press, nothing cached (A26).
+  - `handleNextSessionNeedsMe` no-ops when the target's task is gone
+    (`hasTask`), else selects the row and sends `focusSession` only.
+  - Decided (brief §8, unchanged): list order and circular, not urgency
+    order; own task first from a shell tab; `.error` not jumpable; a gone
+    task is a no-op, not a skip; no stored "last target".
+  - Differences from the brief: (1) the origin row is K1's
+    `sessionCycleOrigin` (K1's left-for-K2 item), not
+    `focusedSessionRowID`; the focused surface is used as the cursor only
+    when that origin is the focused row. A press that outruns the focus
+    still repeats its target. (2) Test 12's masked tangent is done-unseen,
+    not awaiting input: an awaiting-input tangent already outranks a
+    working primary on the row (A24), so the brief's precondition could
+    not hold. The awaiting-input-behind-an-error mask is covered at the
+    structure level.
+  - Red first: not run. The tests name the new function, so they do not
+    compile against the old source; no mutation run either.
+  Left for later:
+  - Settle-and-advance still steps from `focusedSessionRowID` (K1 named
+    it for K2). Not changed: with the asked-for task as origin, a held
+    chord would settle and close a task not yet on screen. Needs cj's
+    call; Z1 or its own slice.
+  - Keyboard reach of a sub-row as a selection (K1 named it): the
+    attention chord now reaches a needy sub-row's surface; a plain
+    "step to sub-row" chord is not in K2's plan text and was not added.
+  Only the live UI can confirm (cj): A33, holding the chord with several
+  needy agents is instant with no highlight or detail flicker across
+  tasks and directories; a tangent that finished behind a working primary
+  is reached, its tab frontmost with keyboard focus; the visited agent's
+  badge clears so the next press moves on; a hibernated target wakes; a
+  target in a pane window behaves sensibly; sub-rows appear for the task
+  jumped into.
+  Gate (final tree): check 0; `SessionsSidebarTaskRowsTests`,
+  `RepositoriesFeatureSessionsScaleTests`, `AppFeatureSessionsTests`
+  exit 0 (229 tests; a first run exit 2 on test 12's precondition, fixed
+  as above); build-app 0; full `make test` exit 2 with 4439 tests and
+  only the 5 known failures.
