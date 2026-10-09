@@ -1357,3 +1357,25 @@ deviation.
   Siblings checked, no change needed: `removeLayouts(forDirectory:)` (explicit
   deletion), `saveAllLayoutSnapshots` (hosts only, never deletes by absence),
   the launch reaper (reads the persisted file, refuses unreadable stores).
+- T3 review fix 5, 2026-10-08, `69ad4e98`: one finding (P0, A12), held.
+  `removeLayouts(forDirectory: A)` fell back to the layout the seam resolves
+  A to whenever it had no host, so a never-opened task stored under A's key
+  but recorded on directory B lost its record and its sessions (killed with
+  A's remote host). Decision: the fallback runs only when no runtime record
+  names that layout's directory (every layout in `TerminalsFeature` state has
+  one, so in practice: not hydrated yet, or dropped at hydration), and its
+  stored delete is the new writer change `.deleteIfOn(directory)`, which
+  leaves a record naming another directory alone while still releasing the
+  deleted directory's own origin. Tests: manager regression, hydrated and
+  unhydrated, asserting the record, origin and both kill sides; writer test.
+  Siblings checked, no change needed: `prune` and `pruneHostlessLayouts`
+  decide by the host's or the record's directory, never the key; every other
+  `deleteLayoutSnapshot` caller acts on a layout the runtime already holds.
+  Left for T5/T6: the seam itself still resolves a directory with no active
+  task to its own-key layout without checking that layout's recorded
+  directory, so opening A would host B's task under A's context (and a later
+  delete of A would then take it, by host directory). No app path writes such
+  a record today (migration keys a task by its own directory, minted tasks
+  use `task:` keys); T5/T6 must make the resolver skip an own-key layout
+  recorded elsewhere before anything can store one. Gate: check 0,
+  build-app 0, full `make test` 4064 with only the 5 baseline failures.
