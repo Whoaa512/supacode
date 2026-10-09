@@ -2524,3 +2524,34 @@ deviation.
   Gate: check 0, focused (`supacodeFeatureTests` + `supacodeTerminalTests` +
   `supacodeTests/TerminalsFeatureTests`) exit 2 with 1632 tests and only 4
   known failures (ack flake, settings-changed, 2 Ghostty), build-app 0.
+- T10 r2, 2026-10-09, `967697ea`: review fix.
+  - Revised (replaces the r1 line "keeps its row and `selectedTask`"): a
+    directory-only selection drops `selectedTask` whenever what it resolves
+    to (the task, else the landing layout) is not that task. Before, a task
+    picked on a missing directory that later lost its last tab but kept a
+    session stayed mounted through `taskOnMissingDirectory` while the
+    terminal was sent to a sibling. Now the pick ends there and the missing
+    directory shows its placeholder, as for any directory-only selection.
+    An emptied task with no sibling that is still the recorded landing
+    layout keeps its pick (view and terminal both name it). Explicit
+    task-addressed selection is unchanged. Chosen over gating
+    `taskOnMissingDirectory` on holding a tab: that would hide an explicitly
+    activated empty task behind the placeholder.
+  - Same class checked, no change needed: a task that empties while shown
+    and keeps a session stays the terminal's selected layout (the manager
+    re-selects the directory only when it removes the task, and then
+    `selectedTaskRemoved` drops the pick); the nil-worktree path already
+    drops the pick on a plain deselect.
+  - Tests: missing directory with an emptied session-bearing pick, with a
+    populated sibling (seen red before the fix) and without; the r1 no-tab
+    test now also pins the pick being dropped or kept. The sibling's
+    selection echo is applied to the state directly, not sent: the reducer
+    action wakes tabs through a test-unimplemented content factory.
+  Left for later, unchanged: Z1 owns the non-optional command seam's
+  cross-directory fallback; T11 owns app-menu command targeting while an
+  orphan task is shown.
+  Only the live UI can confirm: New Task Here appearance, focus after the
+  launch, and the brief empty state during worktree creation.
+  Gate: check 0, focused (`supacodeFeatureTests` + `supacodeTerminalTests` +
+  `supacodeTests/TerminalsFeatureTests`) exit 2 with 1634 tests and only 4
+  known failures (ack flake, settings-changed, 2 Ghostty), build-app 0.
