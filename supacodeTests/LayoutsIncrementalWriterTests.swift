@@ -237,6 +237,92 @@ struct LayoutsIncrementalWriterTests {
     #expect(readFile(defaults)?.tasks.isEmpty == true)
   }
 
+  private func origin(surface: UUID) -> TerminalLayoutSnapshot {
+    TerminalLayoutSnapshot(
+      tabs: [
+        .init(
+          id: surface, title: "Old", customTitle: nil, icon: nil, tintColor: nil,
+          layout: .leaf(.init(id: surface, workingDirectory: nil)), focusedLeafIndex: 0)
+      ],
+      selectedTabIndex: 0
+    )
+  }
+
+  @Test func deletingTheOwnKeyTaskKeepsTheOriginWhileASiblingTaskRemains() async throws {
+    let defaults = makeDefaults()
+    let originSurface = UUID()
+    _ = try seedV2(
+      defaults,
+      LayoutsFile(worktrees: ["/w1": LayoutRecord(layout: layout("/w1"), origin: origin(surface: originSurface))]))
+    let writer = makeWriter(defaults)
+    let sibling = LayoutID(task: UUID())
+    await writer.flush(records: [sibling: record("/w1")])
+
+    await writer.flush(records: ["/w1": .delete])
+
+    // The sibling still sits on the directory, so the origin's sessions stay
+    // in the reaper's known set.
+    var file = try #require(readFile(defaults))
+    #expect(Set(file.tasks.keys) == [sibling.persistenceKey])
+    #expect(file.origins["/w1"] != nil)
+    #expect(file.allKnownSurfaceIDs.contains(originSurface))
+
+    // The directory's last task releases it.
+    await writer.flush(records: [sibling: .delete])
+    file = try #require(readFile(defaults))
+    #expect(file.tasks.isEmpty)
+    #expect(file.origins.isEmpty)
+    #expect(!file.allKnownSurfaceIDs.contains(originSurface))
+  }
+
+  @Test func aDirectoryOfMintedTasksReleasesItsOriginWithTheLastOne() async throws {
+    let defaults = makeDefaults()
+    let originSurface = UUID()
+    let otherSurface = UUID()
+    let first = LayoutID(task: UUID())
+    let second = LayoutID(task: UUID())
+    let elsewhere = LayoutID(task: UUID())
+    // No task is stored under either directory's own key.
+    var seeded = TaskLayoutsFile(origins: [
+      "/w1": origin(surface: originSurface), "/w2": origin(surface: otherSurface),
+    ])
+    for (id, path) in [(first, "/w1"), (second, "/w1"), (elsewhere, "/w2")] {
+      seeded.tasks[id.persistenceKey] = TaskRecord(
+        id: id, directory: TaskRecord.Directory(worktreeID: WorktreeID(path)), layout: layout(path),
+        createdAt: Self.createdAt)
+    }
+    defaults.set(try JSONEncoder().encode(seeded), forKey: LayoutsFile.userDefaultsKey)
+    let writer = makeWriter(defaults)
+
+    await writer.flush(records: [first: .delete])
+    #expect(readFile(defaults)?.allKnownSurfaceIDs.contains(originSurface) == true)
+
+    await writer.flush(records: [second: .delete])
+    let file = try #require(readFile(defaults))
+    #expect(Set(file.tasks.keys) == [elsewhere.persistenceKey])
+    // Only the emptied directory lets go; the other keeps its origin.
+    #expect(Set(file.origins.keys) == ["/w2"])
+    #expect(!file.allKnownSurfaceIDs.contains(originSurface))
+    #expect(file.allKnownSurfaceIDs.contains(otherSurface))
+  }
+
+  @Test func deletingEveryTaskOfADirectoryInOneFlushReleasesItsOrigin() async throws {
+    let defaults = makeDefaults()
+    let originSurface = UUID()
+    _ = try seedV2(
+      defaults,
+      LayoutsFile(worktrees: ["/w1": LayoutRecord(layout: layout("/w1"), origin: origin(surface: originSurface))]))
+    let writer = makeWriter(defaults)
+    let sibling = LayoutID(task: UUID())
+    await writer.flush(records: [sibling: record("/w1")])
+
+    await writer.flush(records: ["/w1": .delete, sibling: .delete])
+
+    let file = try #require(readFile(defaults))
+    #expect(file.tasks.isEmpty)
+    #expect(file.origins.isEmpty)
+  }
+
   @Test func activeTaskIsStoredPerDirectoryAndClearedByNil() async {
     let defaults = makeDefaults()
     let writer = makeWriter(defaults)

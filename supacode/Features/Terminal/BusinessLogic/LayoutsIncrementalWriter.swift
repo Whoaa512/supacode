@@ -100,6 +100,7 @@ actor LayoutsIncrementalWriter {
   }
 
   private nonisolated static func apply(_ changes: [LayoutID: RecordChange], to file: inout TaskLayoutsFile) {
+    var vacatedDirectories: Set<String> = []
     for (id, change) in changes {
       let key = id.persistenceKey
       switch change {
@@ -108,12 +109,19 @@ actor LayoutsIncrementalWriter {
         task.layout = layout
         file.tasks[key] = task
       case .delete:
-        file.tasks.removeValue(forKey: key)
-        // As in v2, where the origin lived on the record: removing a
-        // directory's layout releases its origin's sessions to the reaper.
-        file.origins.removeValue(forKey: key)
+        // A task that was never written can only be a directory's own-key
+        // one, whose key is the directory.
+        let removed = file.tasks.removeValue(forKey: key)
+        vacatedDirectories.insert(removed?.directory.worktreeID.rawValue ?? key)
         file.activeTasks = file.activeTasks.filter { $0.value != key }
       }
+    }
+    // An origin belongs to its directory, not to the task stored under the
+    // directory's key: it is released to the reaper only with the directory's
+    // last task, whichever id that task has.
+    let occupied = Set(file.tasks.values.map(\.directory.worktreeID.rawValue))
+    for directory in vacatedDirectories.subtracting(occupied) {
+      file.origins.removeValue(forKey: directory)
     }
   }
 
