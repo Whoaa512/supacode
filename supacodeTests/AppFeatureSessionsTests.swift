@@ -4328,6 +4328,76 @@ struct AppFeatureSessionsTests {
     #expect(written == [first, second], "each task's stored sessions are written once")
   }
 
+  @Test(.dependencies) func theFirstAgentInAShellOnlyTaskBecomesItsPrimaryOnTheSameRow() async throws {
+    let agent = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: secondSurface)
+    var initial = twoTasksOnOneDirectory()
+    initial.agentPresence.records[agent] = nil
+    initial.terminals.selectedLayoutID = second
+    initial.repositories.selectedTask = .init(id: second, directoryID: worktree.id)
+    initial = withRows(initial)
+    initial.repositories.selectSessionRow(.task(second))
+
+    func expectSameRowSelected(_ state: AppFeature.State, _ step: String) {
+      #expect(state.repositories.sessionSelection == .task(second), "\(step)")
+      #expect(state.repositories.selectedTaskID == second, "\(step)")
+      let rows = state.repositories.sessionItems.filter { $0.location?.layoutID == second }
+      #expect(rows.map(\.id) == [.task(second)], "\(step): one row for the task, none for its agent")
+    }
+
+    let shellOnly = initial.repositories.sessionItems[id: .task(second)]
+    #expect(shellOnly?.title == worktree.workingDirectory.lastPathComponent)
+    #expect(shellOnly?.primary == nil)
+    #expect(AppFeature.primarySession(of: second, state: initial) == nil)
+    expectSameRowSelected(initial, "shell-only")
+
+    // An agent starts in the task's tab and has not said which session it is.
+    initial.agentPresence.records[agent] = record(ref: nil)
+    let (unreported, writtenUnreported) = await observingMembers(initial)
+    #expect(unreported.terminals.members[second] == [.provisional(harness: .pi, surfaceID: secondSurface)])
+    #expect(!writtenUnreported.contains(second), "an unreported agent is never stored")
+    #expect(unreported.repositories.sessionItems[id: .task(second)]?.title == "New session")
+    #expect(unreported.repositories.sessionItems[id: .task(second)]?.primary == nil)
+    expectSameRowSelected(unreported, "unreported")
+
+    var reporting = unreported
+    reporting.agentPresence.records[agent] = record(ref: "two")
+    let (reported, writtenReported) = await observingMembers(reporting)
+    #expect(reported.terminals.members[second] == [.session(piKey("two"))])
+    #expect(writtenReported == [second], "the task's first session is stored once")
+    #expect(reported.repositories.sessionItems[id: .task(second)]?.primary == piKey("two"))
+    #expect(AppFeature.primarySession(of: second, state: reported) == piKey("two"))
+    #expect(reported.repositories.taskSessions[second] == [piKey("two")])
+    expectSameRowSelected(reported, "reported")
+
+    var indexed = reported
+    indexed.repositories.sessionSummaries = [
+      SessionSummary(
+        harness: .pi, sessionID: "two", createdAt: Date(timeIntervalSince1970: 900), cwd: "/workspace",
+        title: "Fix the build", messageCount: 3, lastActivity: Date(timeIntervalSince1970: 900))
+    ]
+    indexed = withRows(indexed)
+    #expect(indexed.repositories.sessionItems[id: .task(second)]?.title == "Fix the build")
+    expectSameRowSelected(indexed, "indexed")
+
+    // The other task on the directory never noticed.
+    #expect(indexed.terminals.members[first] == [.session(piKey("one"))])
+    #expect(indexed.repositories.sessionItems[id: .task(first)]?.primary == piKey("one"))
+
+    // The new primary survives the stored form and a relaunch.
+    let stored = TaskLayoutsFile(tasks: [
+      second.persistenceKey: TaskRecord(
+        id: second, directory: TaskRecord.Directory(worktreeID: worktree.id),
+        layout: try #require(indexed.terminals.layouts[id: second]).layout,
+        sessions: (indexed.terminals.members[second] ?? []).compactMap(\.sessionKey), createdAt: .distantPast)
+    ])
+    let decoded = try JSONDecoder().decode(TaskLayoutsFile.self, from: JSONEncoder().encode(stored))
+    #expect(decoded.undecodedEntryCount == 0)
+    let relaunched = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
+    relaunched.exhaustivity = .off
+    await relaunched.send(.layoutsHydrated(decoded))
+    #expect(relaunched.state.members == [second: [.session(piKey("two"))]])
+  }
+
   @Test(.dependencies) func twoAgentsInOneTaskAreBothMembersOfOneRow() async throws {
     let (state, _) = await observingMembers(oneTaskWithTwoAgents(firstRef: "one", secondRef: "two"))
 

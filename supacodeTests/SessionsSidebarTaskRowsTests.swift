@@ -187,6 +187,170 @@ struct SessionsSidebarTaskRowsTests {
     #expect(state.sessionItems.isEmpty, "never had a turn: nothing to resume")
   }
 
+  // MARK: - Shell-only to agent (A27)
+
+  private func activeOrder(_ state: RepositoriesFeature.State) -> [SessionRowID] {
+    state.sessionsSidebarStructure.sections.first { $0.id == .active }?.rowIDs ?? []
+  }
+
+  @Test(.dependencies) func aShellOnlyTaskTakesItsFirstAgentsTitleOnTheSameRow() {
+    var state = state()
+    state.sessionSummaries = [summary("free", created: 5)]
+    state.taskSnapshots = [tabs(taskA, on: 1, created: 7)]
+
+    func row(_ step: String) -> SessionSidebarItemFeature.State? {
+      state = rebuilt(state)
+      #expect(Set(state.sessionItems.ids) == [.task(taskA), .implicit(key("free"))], "\(step): no row for the agent")
+      #expect(state.sessionsSidebarStructure.liveIDs == [.task(taskA)], "\(step)")
+      #expect(state.sessionsSidebarStructure.subRows.isEmpty, "\(step)")
+      #expect(state.sessionItems[id: .task(taskA)]?.isLive == true, "\(step)")
+      #expect(state.sessionItems[id: .task(taskA)]?.lifecycle == .active, "\(step)")
+      return state.sessionItems[id: .task(taskA)]
+    }
+
+    let shellOnly = row("shell-only")
+    #expect(shellOnly?.title == "main")
+    #expect(shellOnly?.primary == nil)
+    #expect(shellOnly?.status == nil)
+    #expect(shellOnly?.isSynthetic == false)
+
+    state.sessionSnapshots = [agent(nil, in: taskA, on: 1, status: .working)]
+    let unreported = row("unreported agent")
+    #expect(unreported?.title == "New session")
+    #expect(unreported?.primary == nil)
+    #expect(unreported?.status == .working)
+    #expect(unreported?.isSynthetic == true)
+
+    state.sessionSnapshots = [agent("a", in: taskA, on: 1, status: .working)]
+    let reported = row("reported, not listed")
+    #expect(reported?.title == "New session")
+    #expect(reported?.primary == key("a"), "the row has its primary before the membership arrives")
+    #expect(reported?.isSynthetic == true)
+
+    state.taskSessions = [taskA: [key("a")]]
+    #expect(row("listed") == reported, "listing the session changes nothing on the row")
+
+    state.sessionSummaries.append(summary("a", created: 900))
+    let indexed = row("indexed")
+    #expect(indexed?.title == "Title a")
+    #expect(indexed?.primary == key("a"))
+    #expect(indexed?.status == .working)
+    #expect(indexed?.isSynthetic == false)
+    #expect(indexed?.createdAt == Date(timeIntervalSince1970: 900))
+
+    state.sessionSnapshots = []
+    let ended = row("agent ended, tab open")
+    #expect(ended?.title == "Title a")
+    #expect(ended?.status == nil)
+    #expect(ended?.location == location(taskA, 1))
+  }
+
+  @Test(.dependencies) func theRowStaysSelectedWhileAShellOnlyTaskBecomesAnAgentTask() {
+    var state = state()
+    state.sessionSummaries = [summary("free", created: 5)]
+    state.taskSnapshots = [tabs(taskA, on: 1, created: 7), tabs(taskB, on: 9, created: 8)]
+    state = rebuilt(state)
+    state.selectSessionRow(.task(taskA))
+
+    var orders = [activeOrder(state)]
+    func step(_ change: (inout RepositoriesFeature.State) -> Void) {
+      change(&state)
+      state = rebuilt(state)
+      #expect(state.sessionSelection == .task(taskA))
+      if orders.last != activeOrder(state) { orders.append(activeOrder(state)) }
+    }
+    step { $0.sessionSnapshots = [agent(nil, in: taskA, on: 1)] }
+    step { $0.sessionSnapshots = [agent("a", in: taskA, on: 1)] }
+    step { $0.taskSessions = [taskA: [key("a")]] }
+    #expect(orders.count == 1, "nothing moves until the session is on disk")
+    step { $0.sessionSummaries.append(summary("a", created: 900)) }
+
+    #expect(orders.count == 2, "the row re-sorts once, when it takes its session's date")
+    #expect(orders.allSatisfy { Set($0) == [.task(taskA), .task(taskB), .implicit(key("free"))] })
+    let before = orders[0].firstIndex(of: .task(taskA)) ?? 0
+    let after = orders[1].firstIndex(of: .task(taskA)) ?? 0
+    #expect(after < before, "and moves above the later shell-only task")
+  }
+
+  @Test(.dependencies) func aShellOnlyTaskWhoseAgentEndedBeforeAnyTurnIsTitledByItsDirectoryAgain() {
+    var state = state()
+    state.taskSessions = [taskA: [key("fresh")]]
+    state.taskSnapshots = [tabs(taskA, on: 1)]
+    state.sessionSnapshots = [agent("fresh", in: taskA, on: 1)]
+    state = rebuilt(state)
+    #expect(state.sessionItems[id: .task(taskA)]?.title == "New session")
+
+    state.sessionSnapshots = []
+    state = rebuilt(state, dropping: true)
+
+    let row = state.sessionItems[id: .task(taskA)]
+    #expect(row?.title == "main", "its tab is still open: the row stays, under the directory's name")
+    #expect(row?.primary == key("fresh"))
+    #expect(row?.isLive == true)
+    #expect(row?.lifecycle == .active)
+  }
+
+  @Test(.dependencies) func aLaterAgentDoesNotRetitleOrReplaceThePrimary() {
+    var state = state()
+    state.sessionSummaries = [summary("a", created: 30)]
+    state.taskSessions = [taskA: [key("a")]]
+    state.taskSnapshots = [tabs(taskA, on: 1)]
+    state = rebuilt(state)
+    state.selectSessionRow(.task(taskA))
+
+    func expectLedByA(_ step: String) {
+      state = rebuilt(state)
+      #expect(state.sessionItems.map(\.id) == [.task(taskA)], "\(step)")
+      #expect(state.sessionItems[id: .task(taskA)]?.title == "Title a", "\(step)")
+      #expect(state.sessionItems[id: .task(taskA)]?.primary == key("a"), "\(step)")
+    }
+    expectLedByA("first agent ended")
+    state.sessionSnapshots = [agent("b", in: taskA, on: 2, status: .working)]
+    expectLedByA("second agent running")
+    state.taskSessions = [taskA: [key("a"), key("b")]]
+    expectLedByA("second agent listed")
+    state.sessionSummaries.append(summary("b", created: 950))
+    expectLedByA("second agent indexed")
+
+    let subRows = state.sessionsSidebarStructure.subRows
+    #expect(subRows.map(\.id) == [.session(key("a")), .session(key("b"))])
+    #expect(subRows.map(\.isDormant) == [true, false])
+  }
+
+  @Test(.dependencies) func aMarkedSessionJoiningAShellOnlyTaskLeavesTheTaskActiveAndTheMarkAlone() {
+    // `pi --resume` typed into a shell, for a session already settled.
+    var state = state(sidecar: [key("a"): SessionSidecarEntry(settledAt: now)])
+    state.taskSnapshots = [tabs(taskA, on: 1)]
+    state = rebuilt(state)
+
+    state.sessionSnapshots = [agent("a", in: taskA, on: 1)]
+    state.taskSessions = [taskA: [key("a")]]
+    state.sessionSummaries = [summary("a", created: 30)]
+    state = rebuilt(state)
+    #expect(state.sessionItems[id: .task(taskA)]?.lifecycle == .active)
+    #expect(state.sessions[key("a")]?.settledAt == now, "joining writes nothing to the sidecar")
+
+    state.sessionSnapshots = []
+    state.taskSnapshots = []
+    state = rebuilt(state)
+    #expect(state.sessionItems[id: .task(taskA)]?.lifecycle == .settled)
+    #expect(state.sessions[key("a")]?.settledAt == now)
+  }
+
+  @Test(.dependencies) func aShellOnlyTaskThatClosedAfterItsAgentResumesItsPrimary() async {
+    var initial = state()
+    initial.sessionSummaries = [summary("a", created: 30)]
+    initial.taskSessions = [taskA: [key("a")]]
+    initial = rebuilt(initial)
+    #expect(initial.sessionItems[id: .task(taskA)]?.isLive == false)
+    let store = TestStore(initialState: initial) { RepositoriesFeature() }
+    store.exhaustivity = .off
+
+    await store.send(.activateSession(.task(taskA)))
+    await store.receive(\.delegate, .resumeSession(key("a"), task: taskA))
+    await store.finish()
+  }
+
   // MARK: - Settled
 
   @Test(.dependencies, arguments: [true, false])
