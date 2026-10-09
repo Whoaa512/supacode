@@ -11,8 +11,9 @@ struct PendingSessionLaunch: Equatable {
   var probing: Bool = false
   /// A brand-new agent rather than the resume of a known session.
   var isNewSession: Bool = false
-  /// The task whose row asked for the resume. Checked again at launch: it
-  /// may be gone, or no longer list the session, by then.
+  /// The task whose row asked for the resume, whatever directory the
+  /// session ran in. Checked again at launch: it may be gone, or no longer
+  /// list the session, by then.
   var task: LayoutID?
 }
 
@@ -726,7 +727,7 @@ extension AppFeature {
     let key = pending.key
     let cwd = pending.cwd
     let command = pending.command
-    if let location = state.repositories.sessionLocation(for: key) {
+    if let location = runningLocation(of: key, preferring: pending.task, state: state) {
       state.pendingSessionLaunch = nil
       state.pendingBranchMismatchResume = nil
       state.alert = nil
@@ -811,7 +812,10 @@ extension AppFeature {
   ) -> Effect<Action> {
     guard state.pendingSessionLaunch == nil || state.pendingSessionLaunch?.requestID == reservedID
     else { return .none }
-    if let location = state.repositories.sessionLocation(for: prepared.key) {
+    // The reserved launch is the one that was probed and confirmed: its task
+    // goes with it.
+    let target = state.pendingSessionLaunch?.task
+    if let location = runningLocation(of: prepared.key, preferring: target, state: state) {
       state.pendingSessionLaunch = nil
       state.pendingBranchMismatchResume = nil
       state.alert = nil
@@ -819,11 +823,13 @@ extension AppFeature {
     }
     @Dependency(\.uuid) var uuid
     let requestID = reservedID ?? uuid()
-    // The reserved launch is the one that was probed and confirmed: its task
-    // goes with it.
     var pending = PendingSessionLaunch(
-      key: prepared.key, cwd: prepared.cwd, command: prepared.command, requestID: requestID,
-      task: state.pendingSessionLaunch?.task)
+      key: prepared.key, cwd: prepared.cwd, command: prepared.command, requestID: requestID, task: target)
+    if let target, let directory = taskDirectory(target, listing: prepared.key, state: state) {
+      pending.launched = true
+      state.pendingSessionLaunch = pending
+      return launchSessionTab(pending, directory: directory, into: target, state: &state)
+    }
     if let worktree = worktreeForCwd(prepared.cwd, state: state) {
       pending.launched = true
       state.pendingSessionLaunch = pending
@@ -831,6 +837,45 @@ extension AppFeature {
     }
     state.pendingSessionLaunch = pending
     return .send(.repositories(.registerSessionFolder(prepared.cwd)))
+  }
+
+  /// Where a session runs, on the asked-for task's own surface when it runs
+  /// in several.
+  private static func runningLocation(
+    of key: SessionKey, preferring task: LayoutID?, state: State
+  ) -> SessionLocation? {
+    if let task,
+      let inTask = state.repositories.sessionSnapshots.first(where: {
+        $0.sessionKey == key && $0.location.layoutID == task
+      })
+    {
+      return inTask.location
+    }
+    return state.repositories.sessionLocation(for: key)
+  }
+
+  /// The directory of a task a resume named, while the task still exists and
+  /// still lists the session. A removed task is never launched into: a tab
+  /// on its id would bring it back.
+  static func taskDirectory(_ layoutID: LayoutID, listing key: SessionKey, state: State) -> DirectoryContext? {
+    guard hasTask(layoutID, state: state),
+      let recorded = state.terminals.directories[layoutID] ?? storedTask(layoutID, state: state)?.directory
+    else { return nil }
+    let listed =
+      state.terminals.members[layoutID]?.contains(.session(key))
+      ?? storedTask(layoutID, state: state)?.sessions.contains(key) ?? false
+    guard listed else { return nil }
+    return directoryContext(forTask: layoutID, directoryID: recorded.worktreeID, state: state)
+  }
+
+  /// A session resumes where it ran. In its task's own directory the command
+  /// is sent as is; elsewhere it is preceded by a `cd` there.
+  static func resumeInput(_ pending: PendingSessionLaunch, in directory: DirectoryContext) -> String {
+    // Paths, not URLs: either may carry a trailing slash.
+    let cwd = pending.cwd.standardizedFileURL.path
+    let home = directory.workingDirectory.standardizedFileURL.path
+    guard cwd != home else { return pending.command }
+    return "cd \(ZmxAttach.shellQuote(cwd)) && \(pending.command)"
   }
 
   private static func launchPendingSessionIfReady(
@@ -853,14 +898,17 @@ extension AppFeature {
   /// Launches into a task, never into "the directory": a new agent always
   /// gets a task of its own, and so does a session no task lists. The task
   /// is created by its first tab, so no launch leaves an empty one behind.
+  /// `target` is a task the caller already checked (`taskDirectory`): the
+  /// tab goes there and nowhere else, starting in the session's own directory.
   private static func launchSessionTab(
-    _ pending: PendingSessionLaunch, directory: DirectoryContext, state: inout State
+    _ pending: PendingSessionLaunch, directory: DirectoryContext, into target: LayoutID? = nil, state: inout State
   ) -> Effect<Action> {
     @Dependency(TerminalClient.self) var terminalClient
     @Dependency(\.uuid) var uuid
-    let owner =
+    let listed =
       pending.isNewSession
       ? nil : task(listing: pending.key, onDirectory: directory.worktreeID, preferring: pending.task, state: state)
+    let owner = target ?? listed
     let layoutID = owner ?? LayoutID(task: uuid())
     // The resumed session is the minted task's primary before its agent
     // reports. It is listed when the task's first tab exists, not here, so a
@@ -872,7 +920,7 @@ extension AppFeature {
     for index in state.pendingTaskLaunches.indices { state.pendingTaskLaunches[index].isShown = false }
     state.pendingTaskLaunches.append(
       PendingTaskLaunch(layoutID: layoutID, directoryID: directory.worktreeID, primary: primary))
-    let command = pending.command
+    let command = target == nil ? pending.command : resumeInput(pending, in: directory)
     let requestID = pending.requestID
     return .run { send in
       await terminalClient.send(

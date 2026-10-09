@@ -3978,6 +3978,213 @@ struct AppFeatureSessionsTests {
     #expect(store.state.terminals.members[first] == [.session(key)], "the other task keeps its member")
   }
 
+  // MARK: - Resume into a task (A23)
+
+  /// `first` closed on `directory` (no tabs), listing `primary` then
+  /// `tangent`; the tangent ran in `tangentCwd`.
+  private func closedTaskWithATangent(on directory: URL, tangentCwd: URL) -> (AppFeature.State, Worktree) {
+    var (state, onDisk) = stateOnDisk(directory)
+    state.terminals.layouts = [LayoutFeature.State(id: first, layout: PaneLayout())]
+    state.terminals.directories[first] = TaskRecord.Directory(worktreeID: onDisk.id)
+    state.terminals.members[first] = [.session(piKey("primary")), .session(piKey("tangent"))]
+    state.repositories.sessionSummaries = [("primary", directory), ("tangent", tangentCwd)].map {
+      SessionSummary(
+        harness: .pi, sessionID: $0.0, createdAt: .distantPast, cwd: $0.1.path(percentEncoded: false),
+        title: $0.0, messageCount: 4, lastActivity: .distantPast)
+    }
+    return (state, onDisk)
+  }
+
+  @Test(.dependencies) func aTangentThatRanElsewhereResumesInItsTaskFromItsOwnDirectory() async throws {
+    let directory = try temporaryDirectory(named: "tangent-task")
+    let elsewhere = try temporaryDirectory(named: "tangent-elsewhere")
+    defer { for url in [directory, elsewhere] { try? FileManager.default.removeItem(at: url) } }
+    var (initial, onDisk) = closedTaskWithATangent(on: directory, tangentCwd: elsewhere)
+    initial.repositories.$sessions.withLock {
+      $0[piKey("primary")] = SessionSidecarEntry(settledAt: .distantPast)
+      $0[piKey("tangent")] = SessionSidecarEntry(settledAt: .distantPast)
+    }
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.repositories(.delegate(.resumeSession(piKey("tangent"), task: first))))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    #expect(launches(recorded).map(\.layoutID) == [first], "the task that was clicked, not one minted elsewhere")
+    #expect(launches(recorded).map(\.directory) == [onDisk.id])
+    let quoted = ZmxAttach.shellQuote(elsewhere.path)
+    #expect(launches(recorded).map(\.input) == ["cd \(quoted) && pi --session tangent"])
+    #expect(store.state.repositories.repositories.count == 1, "its directory is not registered for it")
+    // No primary is seeded: the task keeps the one it has.
+    #expect(store.state.pendingTaskLaunches == [PendingTaskLaunch(layoutID: first, directoryID: onDisk.id)])
+    #expect(store.state.terminals.members[first] == [.session(piKey("primary")), .session(piKey("tangent"))])
+    let sidecar = store.state.repositories.sessions
+    #expect(sidecar[piKey("tangent")]?.settledAt == nil)
+    #expect(sidecar[piKey("primary")]?.settledAt != nil, "a tangent resuming leaves the primary's mark")
+  }
+
+  @Test(.dependencies) func aTangentInItsTasksDirectoryIsResumedWithTheBareCommand() async throws {
+    let directory = try temporaryDirectory(named: "tangent-home")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let (initial, _) = closedTaskWithATangent(on: directory, tangentCwd: directory)
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.repositories(.delegate(.resumeSession(piKey("tangent"), task: first))))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    #expect(launches(recorded).map(\.layoutID) == [first])
+    #expect(launches(recorded).map(\.input) == ["pi --session tangent"])
+  }
+
+  @Test(.dependencies) func theResumeDirectoryIsQuoted() async throws {
+    let directory = try temporaryDirectory(named: "tangent-quote")
+    let elsewhere = directory.appendingPathComponent("it's here", isDirectory: true).standardizedFileURL
+    try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let (initial, _) = closedTaskWithATangent(on: directory, tangentCwd: elsewhere)
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.repositories(.delegate(.resumeSession(piKey("tangent"), task: first))))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    let input = try #require(launches(recorded).first?.input)
+    #expect(input.hasPrefix("cd '") && input.hasSuffix("/it'\\''s here' && pi --session tangent"))
+  }
+
+  @Test(.dependencies) func aResumedTangentDoesNotChangeTheMemberOrder() async {
+    // The state once the resumed tangent reports on its new tab.
+    var initial = state()
+    initial.terminals.layouts.append(agentTask(first, surface: firstSurface))
+    initial.terminals.directories = [
+      worktree.id.layoutID: TaskRecord.Directory(worktreeID: worktree.id),
+      first: TaskRecord.Directory(worktreeID: worktree.id),
+    ]
+    initial.terminals.members[first] = [.session(piKey("primary")), .session(piKey("tangent"))]
+    initial.agentPresence.records[.init(agent: .pi, surfaceID: firstSurface)] = record(ref: "tangent")
+
+    let (state, _) = await observingMembers(initial)
+
+    #expect(state.terminals.members[first] == [.session(piKey("primary")), .session(piKey("tangent"))])
+    #expect(AppFeature.primarySession(of: first, state: state) == piKey("primary"))
+  }
+
+  @Test(.dependencies) func aTaskRemovedWhileTheProbeRunsIsNotLaunchedInto() async throws {
+    let directory = try temporaryDirectory(named: "tangent-removed")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let (initial, onDisk) = closedTaskWithATangent(on: directory, tangentCwd: directory)
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+    let branches = AsyncStream<String>.makeStream()
+    store.dependencies[GitClientDependency.self].branchName = { _ in
+      for await branch in branches.stream { return branch }
+      return nil
+    }
+
+    await store.send(.repositories(.delegate(.resumeSession(piKey("tangent"), task: first))))
+    #expect(store.state.pendingSessionLaunch?.probing == true)
+    await store.send(.terminals(.detachLayout(worktreeID: first)))
+    branches.continuation.yield("main")
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    #expect(launches(recorded).count == 1)
+    #expect(launches(recorded).first?.layoutID != first, "a tab on a removed task's id would bring it back")
+    #expect(launches(recorded).first?.directory == onDisk.id)
+    #expect(!AppFeature.hasTask(first, state: store.state))
+  }
+
+  @Test(.dependencies) func aBranchMismatchConfirmedStillResumesInTheClickedTask() async throws {
+    let directory = try temporaryDirectory(named: "tangent-mismatch")
+    let elsewhere = try temporaryDirectory(named: "tangent-mismatch-elsewhere")
+    defer { for url in [directory, elsewhere] { try? FileManager.default.removeItem(at: url) } }
+    var (initial, _) = closedTaskWithATangent(on: directory, tangentCwd: elsewhere)
+    initial.repositories.$sessions.withLock { $0[piKey("tangent")] = SessionSidecarEntry(branches: ["feature"]) }
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+    store.dependencies[GitClientDependency.self].branchName = { _ in "main" }
+
+    await store.send(.repositories(.delegate(.resumeSession(piKey("tangent"), task: first))))
+    await store.receive(\.resumeBranchProbeCompleted)
+    #expect(store.state.pendingBranchMismatchResume != nil)
+    #expect(launches(recorded).isEmpty)
+    await store.send(.alert(.presented(.confirmBranchMismatchResume)))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    #expect(launches(recorded).map(\.layoutID) == [first])
+    #expect(launches(recorded).first?.input.hasPrefix("cd ") == true)
+  }
+
+  @Test(.dependencies) func aSessionThatWentLiveInTheTargetTaskIsFocusedNotRelaunched() async throws {
+    let directory = try temporaryDirectory(named: "tangent-live")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var (initial, onDisk) = closedTaskWithATangent(on: directory, tangentCwd: directory)
+    initial.terminals.layouts.append(LayoutFeature.State(id: second, layout: PaneLayout()))
+    initial.terminals.directories[second] = TaskRecord.Directory(worktreeID: onDisk.id)
+    initial.terminals.members[second] = [.session(piKey("tangent"))]
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+    store.dependencies.terminalClient.focusSurface = { layoutID, context, tab, surface in
+      recorded.focused.withValue {
+        $0.append(SessionLocation(layoutID: layoutID, directoryID: context.worktreeID, tabID: tab, surfaceID: surface))
+      }
+    }
+    let branches = AsyncStream<String>.makeStream()
+    store.dependencies[GitClientDependency.self].branchName = { _ in
+      for await branch in branches.stream { return branch }
+      return nil
+    }
+    func running(in task: LayoutID, on surface: UUID) -> SessionLiveSnapshot {
+      SessionLiveSnapshot(
+        harness: .pi, sessionRef: "tangent", cwd: directory.path(percentEncoded: false),
+        location: SessionLocation(
+          layoutID: task, directoryID: onDisk.id, tabID: TabID(rawValue: surface), surfaceID: surface))
+    }
+
+    await store.send(.repositories(.delegate(.resumeSession(piKey("tangent"), task: second))))
+    // It starts in both tasks while the probe runs.
+    await store.send(
+      .repositories(
+        .sessionSnapshotsChanged([running(in: first, on: firstSurface), running(in: second, on: secondSurface)])))
+    branches.continuation.yield("main")
+    await store.receive(\.resumeBranchProbeCompleted)
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(launches(recorded).isEmpty)
+    #expect(recorded.focused.value.map(\.layoutID) == [second], "the surface of the task that was clicked")
+    #expect(store.state.pendingSessionLaunch == nil)
+  }
+
+  @Test(.dependencies) func anOrphanTasksTangentResumesInIt() async throws {
+    let cwd = try temporaryDirectory(named: "tangent-orphan")
+    defer { try? FileManager.default.removeItem(at: cwd) }
+    var initial = orphanTask(TaskRecord.Directory(worktreeID: "/gone/checkout"), isLive: true)
+    initial.terminals.members[first] = [.session(piKey("primary")), .session(piKey("tangent"))]
+    initial.repositories.sessionSummaries = [
+      SessionSummary(
+        harness: .pi, sessionID: "tangent", createdAt: .distantPast, cwd: cwd.path(percentEncoded: false),
+        title: "tangent", messageCount: 4, lastActivity: .distantPast)
+    ]
+    let roster = initial.repositories.repositories
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.repositories(.delegate(.resumeSession(piKey("tangent"), task: first))))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    #expect(launches(recorded).map(\.layoutID) == [first])
+    #expect(launches(recorded).map(\.directory) == ["/gone/checkout"])
+    #expect(launches(recorded).first?.input.hasPrefix("cd ") == true)
+    #expect(store.state.repositories.repositories == roster, "no folder is registered for the session")
+  }
+
   @Test(.dependencies) func aRemovedTaskIsGoneEvenThoughTheLaunchTimeFileStillListsIt() async {
     var initial = twoTasksOnOneDirectory()
     // `first` was restored from the file, which is read once and never again.
