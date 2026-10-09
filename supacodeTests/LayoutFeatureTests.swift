@@ -1758,6 +1758,90 @@ struct LayoutFeatureTests {
     }
   }
 
+  // MARK: - Close every tab of the layout.
+
+  private func closeAllAlert(tabs tabIDs: [TabID], interrupts: Bool) -> AlertState<LayoutFeature.Action.Alert> {
+    AlertState {
+      TextState("Close \(tabIDs.count) Tabs?")
+    } actions: {
+      ButtonState(role: .destructive, action: .confirmCloseAll(tabs: tabIDs)) {
+        TextState("Close")
+      }
+      ButtonState(role: .cancel) {
+        TextState("Cancel")
+      }
+    } message: {
+      TextState(
+        interrupts ? "These tabs have work that closing would interrupt." : "Closing will end these tabs' sessions.")
+    }
+  }
+
+  @Test(.dependencies, arguments: [ConfirmCloseTabMode.always, .busy])
+  func closeAllTabsAsksOnceForEveryPaneAndConfirmingClosesThemAll(mode: ConfirmCloseTabMode) async {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.confirmCloseTab = mode }
+    let harness = await makeHarness()
+    let second = await addTab(harness, title: "Two")
+    let sibling = await splitPane(harness, anchor: harness.paneID)
+    // Only the first pane is busy: one confirmation still covers both.
+    harness.mock?.isBusy = mode == .busy
+    let all = [harness.tabID, second.tabID, sibling.tabID]
+    await harness.store.send(.closeAllTabsRequested) {
+      $0.alert = self.closeAllAlert(tabs: all, interrupts: mode == .busy)
+    }
+    #expect(harness.store.state.alertPaneID == nil, "no pane owns it: the main layout presents it")
+    harness.store.exhaustivity = .off
+    await harness.store.send(.alert(.presented(.confirmCloseAll(tabs: all))))
+    await harness.store.finish()
+    #expect(harness.store.state.layout.panes.isEmpty)
+    #expect(harness.store.state.alert == nil)
+    #expect(harness.runtime.pendingKill.isEmpty)
+    #expect(harness.store.state.layout.isConsistent)
+  }
+
+  @Test(.dependencies) func closeAllTabsCancelledKeepsEveryPane() async {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.confirmCloseTab = .always }
+    let harness = await makeHarness()
+    let sibling = await splitPane(harness, anchor: harness.paneID)
+    await harness.store.send(.closeAllTabsRequested) {
+      $0.alert = self.closeAllAlert(tabs: [harness.tabID, sibling.tabID], interrupts: false)
+    }
+    await harness.store.send(.alert(.dismiss)) {
+      $0.alert = nil
+    }
+    #expect(harness.store.state.layout.panes[id: harness.paneID]?.tabs.count == 1)
+    #expect(harness.store.state.layout.panes[id: sibling.paneID]?.tabs.count == 1)
+  }
+
+  @Test(.dependencies) func closeAllTabsReplacesAPanesPendingConfirmation() async {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.confirmCloseTab = .always }
+    let harness = await makeHarness()
+    let sibling = await splitPane(harness, anchor: harness.paneID)
+    await harness.store.send(.contentRequestedClose(content: sibling.contentID, scope: .tab)) {
+      $0.alertPaneID = sibling.paneID
+      $0.alert = self.closeConfirmAlert(tabs: [sibling.tabID], interrupts: false)
+    }
+    await harness.store.send(.closeAllTabsRequested) {
+      $0.alertPaneID = nil
+      $0.alert = self.closeAllAlert(tabs: [harness.tabID, sibling.tabID], interrupts: false)
+    }
+  }
+
+  @Test(.dependencies) func closeAllTabsWithoutConfirmationClosesEveryPane() async {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.confirmCloseTab = .never }
+    let harness = await makeHarness()
+    _ = await splitPane(harness, anchor: harness.paneID)
+    harness.store.exhaustivity = .off
+    await harness.store.send(.closeAllTabsRequested)
+    await harness.store.finish()
+    #expect(harness.store.state.layout.panes.isEmpty)
+    #expect(harness.store.state.alert == nil)
+    #expect(harness.store.state.layout.isConsistent)
+  }
+
   @Test(.dependencies) func contentRequestedCloseForUnknownContentIsANoOp() async {
     @Shared(.settingsFile) var settingsFile
     $settingsFile.withLock { $0.global.confirmCloseTab = .always }

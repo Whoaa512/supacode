@@ -201,6 +201,9 @@ struct LayoutFeature {
     /// A content asked to close tabs in its pane; gated by the
     /// confirm-close-tab mode.
     case contentRequestedClose(content: ContentID, scope: CloseScope)
+    /// Close every tab of every pane behind one confirmation, gated by the
+    /// same confirm-close-tab mode.
+    case closeAllTabsRequested
     /// A content asked for a sibling tab in its pane, inheriting its config.
     case contentRequestedNewTab(content: ContentID)
     /// A content asked to split its pane; the new pane opens a fresh tab
@@ -221,6 +224,8 @@ struct LayoutFeature {
 
     nonisolated enum Alert: Equatable, Sendable {
       case confirmClose(tabs: [TabID])
+      /// The whole layout's tabs, confirmed together.
+      case confirmCloseAll(tabs: [TabID])
     }
   }
 
@@ -235,7 +240,7 @@ struct LayoutFeature {
     case .newTab, .splitPane, .closeTab, .closePane, .selectTab, .renameTab, .focusPane,
       .moveTab, .moveTabToSplit, .moveTabToSpanningSplit, .enterWindowMode, .exitWindowMode,
       .equalizePanes, .toggleZoom, .hibernateTab, .wakeTab, .runtime(.killConfirmed),
-      .runtime(.titleCommitted), .contentRequestedClose, .contentRequestedNewTab,
+      .runtime(.titleCommitted), .contentRequestedClose, .closeAllTabsRequested, .contentRequestedNewTab,
       .contentRequestedSplit, .contentRequestedFocus, .contentRequestedFocusSplit,
       .contentRequestedToggleZoom, .contentRequestedResize, .contentRequestedGotoTab,
       .contentRequestedMoveTab, .alert:
@@ -315,6 +320,8 @@ struct LayoutFeature {
         return reduceRuntimeEvent(&state, event: event)
       case .contentRequestedClose(let contentID, let scope):
         return reduceContentRequestedClose(&state, contentID: contentID, scope: scope)
+      case .closeAllTabsRequested:
+        return reduceCloseAllTabsRequested(&state)
       case .contentRequestedNewTab(let contentID):
         return reduceContentRequestedNewTab(&state, contentID: contentID)
       case .contentRequestedSplit(let contentID, let direction):
@@ -342,7 +349,7 @@ struct LayoutFeature {
         return reduceContentRequestedGotoTab(&state, contentID: contentID, target: target)
       case .contentRequestedMoveTab(let contentID, let amount):
         return reduceContentRequestedMoveTab(&state, contentID: contentID, amount: amount)
-      case .alert(.presented(.confirmClose(let tabIDs))):
+      case .alert(.presented(.confirmClose(let tabIDs))), .alert(.presented(.confirmCloseAll(let tabIDs))):
         state.alertPaneID = nil
         return closeTabs(&state, tabIDs: tabIDs)
       case .alert:
@@ -435,20 +442,44 @@ extension LayoutFeature {
       }
     guard !targets.isEmpty else { return .none }
     let interrupts = targets.contains { closeWouldInterrupt(pane.tabs[id: $0]?.content) }
-    @Shared(.settingsFile) var settingsFile: SettingsFile
-    let confirms: Bool =
-      switch settingsFile.global.confirmCloseTab {
-      case .always: true
-      case .never: false
-      case .busy: interrupts
-      }
-    guard confirms else { return closeTabs(&state, tabIDs: targets) }
+    guard closeNeedsConfirmation(interrupts: interrupts) else { return closeTabs(&state, tabIDs: targets) }
     if let pending = state.alertPaneID, pending != pane.id {
       Self.logger.warning("Replacing pane \(pending.rawValue)'s pending close confirmation.")
     }
     state.alertPaneID = pane.id
-    state.alert = Self.closeConfirmationAlert(tabs: targets, interrupts: interrupts)
+    state.alert = Self.closeConfirmationAlert(
+      tabs: targets, interrupts: interrupts, action: .confirmClose(tabs: targets))
     return .none
+  }
+
+  /// One confirmation for the whole layout. Asking pane by pane cannot work:
+  /// there is a single alert, so each pane's request would replace the last
+  /// and confirming would close only one pane. The alert has no owning pane,
+  /// so the main layout's host presents it.
+  private func reduceCloseAllTabsRequested(_ state: inout State) -> Effect<Action> {
+    let tabs = state.layout.panes.flatMap(\.tabs)
+    let targets = tabs.map(\.id)
+    guard !targets.isEmpty else { return .none }
+    let interrupts = tabs.contains { closeWouldInterrupt($0.content) }
+    guard closeNeedsConfirmation(interrupts: interrupts) else {
+      // A pane's pending confirmation names tabs that are going anyway.
+      state.alert = nil
+      state.alertPaneID = nil
+      return closeTabs(&state, tabIDs: targets)
+    }
+    state.alertPaneID = nil
+    state.alert = Self.closeConfirmationAlert(
+      tabs: targets, interrupts: interrupts, action: .confirmCloseAll(tabs: targets))
+    return .none
+  }
+
+  private func closeNeedsConfirmation(interrupts: Bool) -> Bool {
+    @Shared(.settingsFile) var settingsFile: SettingsFile
+    switch settingsFile.global.confirmCloseTab {
+    case .always: return true
+    case .never: return false
+    case .busy: return interrupts
+    }
   }
 
   /// Whether closing this content now would interrupt real work: live and
@@ -463,11 +494,13 @@ extension LayoutFeature {
     return content.kind == .terminal && content.renderer == nil
   }
 
-  private static func closeConfirmationAlert(tabs targets: [TabID], interrupts: Bool) -> AlertState<Action.Alert> {
+  private static func closeConfirmationAlert(
+    tabs targets: [TabID], interrupts: Bool, action: Action.Alert
+  ) -> AlertState<Action.Alert> {
     AlertState {
       TextState(targets.count == 1 ? "Close Tab?" : "Close \(targets.count) Tabs?")
     } actions: {
-      ButtonState(role: .destructive, action: .confirmClose(tabs: targets)) {
+      ButtonState(role: .destructive, action: action) {
         TextState("Close")
       }
       ButtonState(role: .cancel) {

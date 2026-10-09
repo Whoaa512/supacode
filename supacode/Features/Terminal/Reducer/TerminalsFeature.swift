@@ -133,7 +133,7 @@ struct TerminalsFeature {
     case .newTab, .splitPane, .closeTab, .closePane, .selectTab, .renameTab, .focusPane,
       .moveTab, .moveTabToSplit, .moveTabToSpanningSplit, .enterWindowMode, .exitWindowMode,
       .equalizePanes, .toggleZoom, .hibernateTab, .wakeTab, .runtime(.killConfirmed),
-      .contentRequestedClose, .contentRequestedNewTab, .contentRequestedSplit,
+      .contentRequestedClose, .closeAllTabsRequested, .contentRequestedNewTab, .contentRequestedSplit,
       .contentRequestedFocus, .contentRequestedFocusSplit, .contentRequestedToggleZoom,
       .contentRequestedResize, .contentRequestedGotoTab, .contentRequestedMoveTab, .alert:
       return true

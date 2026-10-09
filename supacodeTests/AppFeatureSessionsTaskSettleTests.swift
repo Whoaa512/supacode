@@ -45,6 +45,26 @@ struct AppFeatureSessionsTaskSettleTests {
         panes: [Pane(id: paneID, tabs: IdentifiedArray(uniqueElements: tabs), selectedTabID: tabs[0].id)]))
   }
 
+  /// The task's two tabs, one per pane.
+  private func splitIntoTwoPanes(_ state: AppFeature.State) throws -> AppFeature.State {
+    var state = state
+    let first = try #require(state.terminals.layouts[id: task]?.layout.panes.first)
+    let moved = try #require(first.tabs[id: TabID(rawValue: secondSurface)])
+    let paneID = PaneID()
+    var kept = first
+    kept.tabs.remove(id: moved.id)
+    state.terminals.layouts[id: task]?.layout = PaneLayout(
+      tree: try SplitTree(view: first.id).inserting(view: paneID, at: first.id, direction: .right),
+      panes: [kept, Pane(id: paneID, tabs: [moved], selectedTabID: moved.id)],
+      focusedPaneID: first.id)
+    return state
+  }
+
+  private func confirmClose(_ mode: ConfirmCloseTabMode) {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.confirmCloseTab = mode }
+  }
+
   private func live(_ ref: String?, pid: pid_t? = 11) -> AgentPresenceFeature.PresenceRecord {
     var record = AgentPresenceFeature.PresenceRecord(pids: pid.map { [$0] } ?? [], sessionRef: ref)
     record.currentSessionPID = pid
@@ -118,6 +138,7 @@ struct AppFeatureSessionsTaskSettleTests {
       $0.worktreeInfoWatcher.send = { _ in }
       $0[LayoutChangeObserver.self].sessionsChanged = { id in recorded.written.withValue { $0.append(id) } }
       $0.processAncestry.isDescendant = isDescendant
+      $0[ContentSessionKiller.self] = ContentSessionKiller(kill: { _, _ in })
     }
     store.exhaustivity = .off
     return store
@@ -243,6 +264,7 @@ struct AppFeatureSessionsTaskSettleTests {
   // MARK: - Quit (A37)
 
   @Test(.dependencies) func thePrimaryQuittingAloneSettlesTheTask() async {
+    confirmClose(.never)
     let recorded = Recorded()
     // The second tab is a plain shell.
     let store = store(state(), recorded: recorded)
@@ -376,6 +398,7 @@ struct AppFeatureSessionsTaskSettleTests {
   // MARK: - Manual settle (A19)
 
   @Test(.dependencies) func settlingATasksPrimaryClosesEveryTabAndMarksOnlyThePrimary() async {
+    confirmClose(.never)
     let recorded = Recorded()
     let store = store(state(second: live("b", pid: 12)), recorded: recorded)
 
@@ -417,9 +440,100 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(!AppFeature.isTaskSettled(task, state: state), "a primary that has not reported is not settled")
   }
 
+  // MARK: - Close confirmation across panes (A19)
+
+  @Test(.dependencies, arguments: [ConfirmCloseTabMode.always, .busy])
+  func settlingATaskWithTwoPanesAsksOnceAndConfirmingClosesBoth(mode: ConfirmCloseTabMode) async throws {
+    confirmClose(mode)
+    let recorded = Recorded()
+    let store = store(try splitIntoTwoPanes(state(second: live("b", pid: 12))), recorded: recorded)
+
+    await store.send(.repositories(.settleSessionRequested(key("a"))))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    let alert = try #require(store.state.terminals.layouts[id: task]?.alert)
+    let confirm = try #require(alert.buttons.compactMap(\.action.action).first)
+    #expect(
+      confirm
+        == .confirmCloseAll(tabs: [TabID(rawValue: primarySurface), TabID(rawValue: secondSurface)]),
+      "one confirmation names both panes' tabs")
+    #expect(settledAt("a", in: store) == nil, "nothing is settled until the answer")
+    #expect(Set(surfaces(of: task, in: store)) == [primarySurface, secondSurface])
+
+    await store.send(.terminals(.layouts(.element(id: task, action: .alert(.presented(confirm))))))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(surfaces(of: task, in: store).isEmpty, "both panes closed, not only the last asked")
+    #expect(settledAt("a", in: store) == now)
+    #expect(AppFeature.isTaskSettled(task, state: store.state))
+    #expect(surfaces(of: otherTask, in: store) == [otherSurface])
+  }
+
+  @Test(.dependencies) func cancellingTheTaskCloseConfirmationSettlesAndClosesNothing() async throws {
+    confirmClose(.always)
+    let recorded = Recorded()
+    let store = store(try splitIntoTwoPanes(state(second: live("b", pid: 12))), recorded: recorded)
+
+    await store.send(.repositories(.settleSessionRequested(key("a"))))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+    #expect(store.state.terminals.layouts[id: task]?.alert != nil)
+    await store.send(.terminals(.layouts(.element(id: task, action: .alert(.dismiss)))))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(store.state.terminals.layouts[id: task]?.alert == nil)
+    #expect(Set(surfaces(of: task, in: store)) == [primarySurface, secondSurface])
+    #expect(settledAt("a", in: store) == nil)
+    #expect(!AppFeature.isTaskSettled(task, state: store.state))
+  }
+
+  @Test(.dependencies) func settlingATaskWithTwoPanesWithoutConfirmationClosesBoth() async throws {
+    confirmClose(.never)
+    let recorded = Recorded()
+    let store = store(try splitIntoTwoPanes(state(second: live("b", pid: 12))), recorded: recorded)
+
+    await store.send(.repositories(.settleSessionRequested(key("a"))))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(surfaces(of: task, in: store).isEmpty)
+    #expect(settledAt("a", in: store) == now)
+    #expect(settledAt("b", in: store) == nil)
+  }
+
+  @Test(.dependencies) func aQuitMarksThePrimaryEvenWhileTheCloseConfirmationWaits() async throws {
+    confirmClose(.always)
+    let recorded = Recorded()
+    let store = store(try splitIntoTwoPanes(state()), recorded: recorded)
+
+    await send("session_end", on: primarySurface, ref: "a", reason: "quit", to: store)
+
+    #expect(settledAt("a", in: store) == now, "the session is over whatever the answer")
+    #expect(store.state.terminals.layouts[id: task]?.alert != nil)
+    #expect(Set(surfaces(of: task, in: store)) == [primarySurface, secondSurface])
+  }
+
+  @Test(.dependencies) func settlingATaskWithNoTabsOpenOnlyMarksItsPrimary() async {
+    let recorded = Recorded()
+    var initial = state()
+    initial.terminals.layouts.remove(id: task)
+    let store = store(initial, recorded: recorded)
+
+    await store.send(.repositories(.settleSessionRequested(key("a"))))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(settledAt("a", in: store) == now)
+    #expect(recorded.closed.value.isEmpty)
+  }
+
   // MARK: - Settle and advance
 
   @Test(.dependencies) func settleAndAdvanceLeavesTheSettledTaskForTheNextLiveOne() async {
+    confirmClose(.never)
     let recorded = Recorded()
     // The primary's row is current; the next live row is its own task's tangent.
     var initial = state(second: live("b", pid: 12))
@@ -437,6 +551,7 @@ struct AppFeatureSessionsTaskSettleTests {
   }
 
   @Test(.dependencies) func settleAndAdvanceOnAShellOnlyTaskClosesItAndMovesOn() async {
+    confirmClose(.never)
     let recorded = Recorded()
     var initial = state()
     initial.agentPresence.records[.init(agent: .pi, surfaceID: primarySurface)] = nil

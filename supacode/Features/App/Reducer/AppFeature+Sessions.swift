@@ -171,6 +171,11 @@ extension AppFeature {
         .repositories(.delegate(.repositoriesChanged)):
         Self.syncSessionSelectionToFocus(state: &state)
         var effects: [Effect<Action>] = []
+        if let settled = Self.taskClosedForSettle(action, state: state),
+          let primary = Self.primarySession(of: settled, state: state)
+        {
+          effects.append(.send(.repositories(.settleSession(primary))))
+        }
         let keys = Self.liveSessionKeys(state: state)
         let tasks = Self.taskEntries(state: state)
         let index = Self.surfaceIndex(tasks: tasks)
@@ -335,7 +340,8 @@ extension AppFeature {
     // Tabs close only for a quit the harness named, from a local process. A
     // bare or remote end cannot be told from an agent that is still there.
     guard isQuit, event.pid != nil else { return .send(.repositories(.settleSession(key))) }
-    return settleTask(layoutID, state: state)
+    // The session is over whatever the close confirmation says.
+    return .merge(.send(.repositories(.settleSession(key))), settleTask(layoutID, state: state))
   }
 
   /// `new` takes `old`'s slot in the task that owns the surface. `old` is
@@ -370,24 +376,32 @@ extension AppFeature {
     return state.repositories.sessions[primary]?.settledAt != nil
   }
 
-  /// Settles the task: marks its current primary and closes every tab the
-  /// way Cmd-W would, so the close-confirmation setting still guards a busy
-  /// one. A shell-only task has no session to mark; its last tab closing
-  /// removes it.
+  /// Settles the task: closes every tab behind one confirmation (the
+  /// close-confirmation setting still guards a busy one) and marks its
+  /// current primary once they are closing, so a cancelled confirmation
+  /// settles nothing. A task with no tabs open is only marked. A shell-only
+  /// task has no session to mark; its last tab closing removes it.
   static func settleTask(_ layoutID: LayoutID, state: State) -> Effect<Action> {
-    var effects: [Effect<Action>] = []
-    if let primary = primarySession(of: layoutID, state: state) {
-      effects.append(.send(.repositories(.settleSession(primary))))
+    guard let layout = state.terminals.layouts[id: layoutID], !layout.layout.allContentIDs.isEmpty else {
+      guard let primary = primarySession(of: layoutID, state: state) else { return .none }
+      return .send(.repositories(.settleSession(primary)))
     }
-    for pane in state.terminals.layouts[id: layoutID]?.layout.panes ?? [] {
-      guard let tab = pane.tabs.first else { continue }
-      effects.append(
-        .send(
-          .terminals(
-            .layouts(.element(id: layoutID, action: .contentRequestedClose(content: tab.content.id, scope: .allTabs)))
-          )))
+    return .send(.terminals(.layouts(.element(id: layoutID, action: .closeAllTabsRequested))))
+  }
+
+  /// The task whose tabs this action just closed for a settle: a close-all
+  /// that needed no confirmation, or its confirmation. Read after the
+  /// layout reducer ran.
+  static func taskClosedForSettle(_ action: Action, state: State) -> LayoutID? {
+    switch action {
+    case .terminals(.layouts(.element(let layoutID, .closeAllTabsRequested))):
+      // Still asking: the mark waits for the answer.
+      return state.terminals.layouts[id: layoutID]?.alert == nil ? layoutID : nil
+    case .terminals(.layouts(.element(let layoutID, .alert(.presented(.confirmCloseAll))))):
+      return layoutID
+    default:
+      return nil
     }
-    return .merge(effects)
   }
 
   /// The task a session leads. A session two tasks lead resolves to the one

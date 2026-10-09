@@ -980,11 +980,15 @@ final class WorktreeTerminalManager {
 
   private func pruneUserCloseIntentsAfterLayoutChange(worktreeID: LayoutID) {
     guard let host = hosts[worktreeID], let state = layoutState(for: worktreeID) else { return }
-    guard state.alert != nil, let paneID = state.alertPaneID, let pane = state.layout.panes[id: paneID] else {
+    guard state.alert != nil else {
       host.pruneStaleUserCloseIntents(retaining: [])
       return
     }
-    host.pruneStaleUserCloseIntents(retaining: Set(pane.tabs.map(\.content.id.rawValue)))
+    // A confirmation with no owning pane covers every tab of the layout.
+    let pending =
+      state.alertPaneID.map { state.layout.panes[id: $0]?.tabs.elements ?? [] }
+      ?? state.layout.panes.flatMap(\.tabs)
+    host.pruneStaleUserCloseIntents(retaining: Set(pending.map(\.content.id.rawValue)))
   }
 
   enum SessionKillLimit {

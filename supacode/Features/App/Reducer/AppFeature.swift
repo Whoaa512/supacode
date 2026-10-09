@@ -2372,6 +2372,11 @@ struct AppFeature {
         terminalClient.markUserCloseIntent(worktreeID, ids)
         return .none
 
+      case .terminals(.layouts(.element(let layoutID, .closeAllTabsRequested))):
+        let ids = state.terminals.layouts[id: layoutID]?.layout.allContentIDs.map(\.rawValue) ?? []
+        terminalClient.markUserCloseIntent(layoutID, Set(ids))
+        return .none
+
       case .terminals(.layouts(.element(let worktreeID, .wakeTab(let tabID)))):
         // A woken content is a fresh instance whose chrome missed any presence
         // fan-out that ran while the tab was unprovisioned (restored layouts);
