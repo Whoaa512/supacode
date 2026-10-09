@@ -28,3 +28,17 @@ ignoring refs under `~/.pi/agent/subagent-sessions` (the index already
 excludes those). Add a reducer test for: child ref arrives and ends while the
 parent is live; the parent row keeps its title, stays unsettled and stays
 primary.
+
+## A task with a member that has no summary never auto-settles (T9 r4, 2026-10-09)
+
+Auto-settle waits until every session of a multi-session task is verified
+in one refresh, and a member the refresh lists nothing for counts as unread
+(`TaskIdleness` in `SessionsSidebarStructure.swift`). That is the safe side,
+but a member whose transcript was deleted or never written, or whose harness
+has no session source (all but pi today), holds its task for good; only
+manual settle clears it.
+
+**Fix with**: whichever slice next touches the session index. The source
+would have to report "read failed" apart from "no such file" (and a harness
+with no source as positively unreadable), so absence can release the hold.
+

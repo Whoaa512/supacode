@@ -2242,3 +2242,58 @@ deviation.
   `supacodeTerminalTests/LayoutFeatureTests` + `LayoutsIncrementalWriterTests`
   exit 2 with 3449 tests and only three of the five baseline failures;
   build-app 0. No full run.
+- T9 r4 (review fixes), 2026-10-09, `88f8a85a` + `7c54240b`. **Revised**:
+  this overrides the T9 and r1-r3 entries where they differ.
+  - Resume over a session's own replacement (P1). Stored `[A]`,
+    A→B→C→resume B: `replacedSessions[B]` was overwritten from A to C,
+    leaving B→C→B with no link to A, so writer and hydration produced
+    `[A,B,C]`. `TaskMembership.recording` now hands the moved session's
+    link on to whatever had replaced it (`{C:A, B:C}`).
+  - Same class, wider (found by an exhaustive walk of four replacements
+    over two stored sessions): the "sits ahead of" map cannot express
+    every order a run reaches (a>b, b>a, b>c, a>b gives `[b,a,c]`, the map
+    stores `[b,c,a]`), with or without the fix above. Decision: the map is
+    used only until the stored sessions are loaded. New
+    `TerminalsFeature.State.storedSessionsLoaded`, set by
+    `layoutsHydrated`; from then on `members` lists every stored session
+    (hydration merges them, nothing removes one), so the writer
+    (`RecordChange.record(sessionsLoaded:)`) and any later hydration take
+    the reducer's order as it is, stored sessions it lacks appended, never
+    dropped. `hydrateLayouts` now also sends an empty file when the store
+    is `.absent` (nothing stored is loaded too); `.unreadable` still sends
+    nothing and stays on the map. Before the load the map is still an
+    approximation: several replacements on one task inside the launch
+    window can store an order that differs from the run's, never a lost
+    session.
+  - Auto-settle with an unread member (P1). A task of several sessions
+    settles only when every member has a verified summary in that
+    refresh. Decision: a member with no summary at all counts as unread,
+    because `PiSessionSource` leaves out a file it cannot parse exactly as
+    one that is gone, so absence is not proof of no activity. Cost,
+    accepted as the non-destructive side: a task with a member that never
+    gets a summary (transcript deleted or never written, or a harness
+    with no session source, which today is every harness but pi) is not
+    auto-settled; manual settle is unaffected. Lifting that needs the
+    source to report failed reads apart from absent files; recorded in
+    `task-as-unit-followups.md`. One-session tasks are unchanged.
+  Only the live UI can confirm (cj), unchanged from r2/r3: a workflow
+  leaves the parent row alone; `/new` and `/resume` change title and row
+  as described; the single "Close N Tabs?" alert in the main window with
+  a pane detached, Cancel leaving the row Active, and the re-ask after a
+  late tab.
+  Tests: `TerminalsFeatureTests` (A→B→C→B and a moved session's
+  replacements, before the load, hydrated twice; order stands after the
+  load), `LayoutsIncrementalWriterTests` (A→B→C→B with each intermediate
+  write present or missing, which is what a failed write leaves; loaded
+  order written and nothing dropped; exhaustive loaded walk),
+  `WorktreeTerminalManagerAckTests` (loaded order reaches the store
+  end to end), `RepositoriesFeatureAutoSettleTests` (unverified tangent,
+  either membership order, released by a verified refresh; missing
+  member, either order; one-session task still settles). The reducer and
+  auto-settle tests were seen failing before their fixes; the manager
+  test was not run without the fix, the writer test asserts the map alone
+  gets that order wrong.
+  Gate: check 0; `supacodeFeatureTests` + `supacodeTests` +
+  `supacodeTerminalTests/LayoutFeatureTests` + `LayoutsIncrementalWriterTests`
+  + `WorktreeTerminalManagerAckTests` exit 2 with 3494 tests and only
+  three of the five baseline failures; build-app 0. No full run.
