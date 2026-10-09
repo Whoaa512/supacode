@@ -62,13 +62,14 @@ extension AppFeature {
     return Reduce { state, action in
       switch action {
       case .agentPresence(.restoreFromSnapshotChecked):
+        let index = Self.surfaceIndex(state: state)
         return .concatenate(
-          .send(.repositories(.sessionSnapshotsChanged(Self.sessionSnapshots(state: state)))),
+          .send(.repositories(.sessionSnapshotsChanged(Self.sessionSnapshots(state: state, index: index)))),
           .send(
             .repositories(
               .sessionsRestorationCompleted(
                 Self.liveSessionKeys(state: state),
-                hasUnresolvedLivePresence: Self.hasUnresolvedLivePresence(state: state)))))
+                hasUnresolvedLivePresence: Self.hasUnresolvedLivePresence(state: state, index: index)))))
 
       case .repositories(.sessionSnapshotsChanged):
         Self.syncSessionSelectionToFocus(state: &state)
@@ -79,13 +80,14 @@ extension AppFeature {
         Self.syncSessionSelectionToFocus(state: &state)
         var effects: [Effect<Action>] = []
         let keys = Self.liveSessionKeys(state: state)
-        let unresolved = Self.hasUnresolvedLivePresence(state: state)
+        let index = Self.surfaceIndex(state: state)
+        let unresolved = Self.hasUnresolvedLivePresence(state: state, index: index)
         if keys != state.repositories.sessionsLiveKeys
           || unresolved != state.repositories.sessionsHasUnresolvedLivePresence
         {
           effects.append(.send(.repositories(.sessionsLiveKeysChanged(keys, hasUnresolvedLivePresence: unresolved))))
         }
-        let snapshots = Self.sessionSnapshots(state: state)
+        let snapshots = Self.sessionSnapshots(state: state, index: index)
         if snapshots != state.repositories.sessionSnapshots {
           effects.append(.send(.repositories(.sessionSnapshotsChanged(snapshots))))
         }
@@ -569,41 +571,69 @@ extension AppFeature {
   }
 
   private static func worktreeIDForSurface(_ surfaceID: UUID, state: State) -> Worktree.ID? {
-    for repository in state.repositories.repositories {
-      for worktree in repository.worktrees {
-        let layout =
-          state.terminals.layouts[id: state.layoutID(forDirectory: worktree.id)]?.layout
-          ?? state.persistedLayout(forDirectory: worktree.id)
-        guard let layout else { continue }
-        for pane in layout.panes {
-          for tab in pane.tabs where tab.content.id.rawValue == surfaceID {
-            return worktree.id
+    surfaceIndex(state: state)[surfaceID]?.directoryID
+  }
+
+  // MARK: - Surface index
+
+  /// Where a surface lives: the task that owns it and the directory it runs in.
+  struct SurfaceEntry: Equatable {
+    var layoutID: LayoutID
+    var tabID: TabID
+    /// The owning task's directory, in the roster or not.
+    var directoryID: Worktree.ID
+    var directoryPath: String
+    /// The tab's own working directory, or the task's when the tab recorded none.
+    var cwd: String
+  }
+
+  /// Every surface of every task, live layout first, else the persisted record.
+  /// Walks tasks, not the roster, so several tasks on one directory and tasks
+  /// whose directory is no known worktree are all found.
+  static func surfaceIndex(state: State) -> [UUID: SurfaceEntry] {
+    var index: [UUID: SurfaceEntry] = [:]
+    func add(_ layout: PaneLayout, layoutID: LayoutID, directoryID: Worktree.ID) {
+      let directoryPath =
+        state.repositories.worktree(for: directoryID)?.workingDirectory.path(percentEncoded: false)
+        ?? RepositoryLocation.parse(persistedID: directoryID.rawValue)?.path
+        ?? directoryID.rawValue
+      for pane in layout.panes {
+        for tab in pane.tabs {
+          let surfaceID = tab.content.id.rawValue
+          guard index[surfaceID] == nil else { continue }
+          var cwd = directoryPath
+          if case .terminal(let terminal) = tab.content.state,
+            let recorded = terminal.workingDirectory, !recorded.isEmpty
+          {
+            cwd = recorded
           }
+          index[surfaceID] = SurfaceEntry(
+            layoutID: layoutID, tabID: tab.id, directoryID: directoryID, directoryPath: directoryPath, cwd: cwd)
         }
       }
     }
-    return nil
+    for live in state.terminals.layouts {
+      // A layout attached without a directory (none yet names one) is found through the seam.
+      guard
+        let directoryID = state.terminals.directories[live.id]?.worktreeID
+          ?? state.worktree(forLayout: live.id)?.id
+      else { continue }
+      add(live.layout, layoutID: live.id, directoryID: directoryID)
+    }
+    let dormant = state.repositories.persistedLayouts.tasks.values
+      .filter { state.terminals.layouts[id: $0.id] == nil }
+      .sorted { $0.id.persistenceKey < $1.id.persistenceKey }
+    for record in dormant {
+      add(record.layout, layoutID: record.id, directoryID: record.directory.worktreeID)
+    }
+    return index
   }
 
   // MARK: - Snapshot helper
 
-  static func hasUnresolvedLivePresence(state: State) -> Bool {
-    var mappedSurfaceIDs: Set<UUID> = []
-    for repository in state.repositories.repositories {
-      for worktree in repository.worktrees {
-        let layout =
-          state.terminals.layouts[id: state.layoutID(forDirectory: worktree.id)]?.layout
-          ?? state.persistedLayout(forDirectory: worktree.id)
-        guard let layout else { continue }
-        for pane in layout.panes {
-          for tab in pane.tabs {
-            mappedSurfaceIDs.insert(tab.content.id.rawValue)
-          }
-        }
-      }
-    }
-    return state.agentPresence.records.contains { key, record in
-      record.sessionRef == nil && !mappedSurfaceIDs.contains(key.surfaceID)
+  static func hasUnresolvedLivePresence(state: State, index: [UUID: SurfaceEntry]) -> Bool {
+    state.agentPresence.records.contains { key, record in
+      record.sessionRef == nil && index[key.surfaceID] == nil
     }
   }
 
@@ -615,30 +645,16 @@ extension AppFeature {
   }
 
   static func sessionSnapshots(state: State) -> [SessionLiveSnapshot] {
-    var locations: [UUID: (SessionLocation, String)] = [:]
-    for repository in state.repositories.repositories {
-      for worktree in repository.worktrees {
-        guard
-          let layout = state.terminals.layouts[id: state.layoutID(forDirectory: worktree.id)]?.layout
-            ?? state.persistedLayout(forDirectory: worktree.id)
-        else { continue }
-        for pane in layout.panes {
-          for tab in pane.tabs {
-            let id = tab.content.id.rawValue
-            locations[id] = (
-              SessionLocation(
-                layoutID: state.layoutID(forDirectory: worktree.id), directoryID: worktree.id, tabID: tab.id,
-                surfaceID: id),
-              worktree.workingDirectory.path(percentEncoded: false)
-            )
-          }
-        }
-      }
-    }
+    sessionSnapshots(state: state, index: surfaceIndex(state: state))
+  }
+
+  static func sessionSnapshots(state: State, index: [UUID: SurfaceEntry]) -> [SessionLiveSnapshot] {
     return state.agentPresence.records.compactMap { key, record in
-      guard let (location, cwd) = locations[key.surfaceID] else { return nil }
+      guard let entry = index[key.surfaceID] else { return nil }
       return SessionLiveSnapshot(
-        harness: key.agent, sessionRef: record.sessionRef, cwd: cwd, location: location,
+        harness: key.agent, sessionRef: record.sessionRef, cwd: entry.directoryPath,
+        location: SessionLocation(
+          layoutID: entry.layoutID, directoryID: entry.directoryID, tabID: entry.tabID, surfaceID: key.surfaceID),
         status: sessionStatus(for: record),
         allowsAttentionNavigation: record.activity == .awaitingInput || record.isDoneUnseen)
     }.sorted {

@@ -2442,4 +2442,125 @@ struct AppFeatureSessionsTests {
       })
   }
 
+  // MARK: - Surface discovery walks tasks
+
+  private func agentTask(
+    _ id: LayoutID, surface: UUID, cwd: String? = nil
+  ) -> LayoutFeature.State {
+    let paneID = PaneID()
+    let tab = TabItem(
+      id: TabID(rawValue: surface), title: "Agent",
+      content: ContentSnapshot(
+        id: ContentID(rawValue: surface), state: .terminal(TerminalContentState(workingDirectory: cwd))))
+    return LayoutFeature.State(
+      id: id,
+      layout: PaneLayout(tree: SplitTree(view: paneID), panes: [Pane(id: paneID, tabs: [tab], selectedTabID: tab.id)]))
+  }
+
+  private let first = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!)
+  private let second = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A2")!)
+  private let firstSurface = UUID(uuidString: "00000000-0000-0000-0000-0000000000B1")!
+  private let secondSurface = UUID(uuidString: "00000000-0000-0000-0000-0000000000B2")!
+
+  /// Two minted tasks beside the own-key one on the fixture worktree; the seam resolves it to the first.
+  private func twoTasksOnOneDirectory() -> AppFeature.State {
+    var state = state()
+    state.terminals.layouts.append(agentTask(first, surface: firstSurface))
+    state.terminals.layouts.append(agentTask(second, surface: secondSurface, cwd: "/elsewhere"))
+    let directory = TaskRecord.Directory(worktreeID: worktree.id)
+    state.terminals.directories = [worktree.id.layoutID: directory, first: directory, second: directory]
+    state.terminals.activeTasks[worktree.id] = first
+    state.agentPresence.records[.init(agent: .pi, surfaceID: firstSurface)] = record(ref: "one")
+    state.agentPresence.records[.init(agent: .pi, surfaceID: secondSurface)] = record(ref: "two")
+    return state
+  }
+
+  @Test func twoTasksOnOneDirectoryEachListTheirAgentUnderTheirOwnLayout() {
+    let state = twoTasksOnOneDirectory()
+
+    let snapshots = AppFeature.sessionSnapshots(state: state)
+
+    #expect(
+      snapshots.map(\.location) == [
+        SessionLocation(
+          layoutID: first, directoryID: worktree.id, tabID: TabID(rawValue: firstSurface), surfaceID: firstSurface),
+        SessionLocation(
+          layoutID: second, directoryID: worktree.id, tabID: TabID(rawValue: secondSurface),
+          surfaceID: secondSurface),
+      ])
+    #expect(snapshots.map(\.sessionRef) == ["one", "two"])
+    #expect(snapshots.map(\.cwd) == ["/workspace", "/workspace"])
+  }
+
+  @Test func surfaceIndexCoversEveryTaskAndReportsTheTabCwd() {
+    let state = twoTasksOnOneDirectory()
+
+    let index = AppFeature.surfaceIndex(state: state)
+
+    #expect(index.count == 4)
+    #expect(index[surface]?.layoutID == worktree.id.layoutID)
+    #expect(index[shell]?.layoutID == worktree.id.layoutID)
+    #expect(
+      index[firstSurface]
+        == AppFeature.SurfaceEntry(
+          layoutID: first, tabID: TabID(rawValue: firstSurface), directoryID: worktree.id,
+          directoryPath: "/workspace", cwd: "/workspace"))
+    #expect(
+      index[secondSurface]
+        == AppFeature.SurfaceEntry(
+          layoutID: second, tabID: TabID(rawValue: secondSurface), directoryID: worktree.id,
+          directoryPath: "/workspace", cwd: "/elsewhere"))
+  }
+
+  @Test func provisionalAgentInNonActiveTaskIsNotUnresolved() {
+    var state = twoTasksOnOneDirectory()
+    state.agentPresence.records[.init(agent: .pi, surfaceID: secondSurface)] = record(ref: nil)
+
+    #expect(!AppFeature.hasUnresolvedLivePresence(state: state, index: AppFeature.surfaceIndex(state: state)))
+    #expect(AppFeature.sessionSnapshots(state: state).map(\.id).contains(.provisional(.pi, secondSurface)))
+
+    let stray = UUID(uuidString: "00000000-0000-0000-0000-0000000000B9")!
+    state.agentPresence.records[.init(agent: .pi, surfaceID: stray)] = record(ref: nil)
+    #expect(AppFeature.hasUnresolvedLivePresence(state: state, index: AppFeature.surfaceIndex(state: state)))
+  }
+
+  @Test func orphanTaskAgentIsListed() {
+    let orphan = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A3")!)
+    let orphanSurface = UUID(uuidString: "00000000-0000-0000-0000-0000000000B3")!
+    let gone: Worktree.ID = "/gone/checkout"
+    var state = state()
+    state.terminals.layouts.append(agentTask(orphan, surface: orphanSurface))
+    state.terminals.directories[orphan] = TaskRecord.Directory(worktreeID: gone)
+    state.agentPresence.records[.init(agent: .pi, surfaceID: orphanSurface)] = record(ref: "orphan")
+
+    let snapshots = AppFeature.sessionSnapshots(state: state)
+
+    #expect(snapshots.count == 1)
+    #expect(
+      snapshots.first?.location
+        == SessionLocation(
+          layoutID: orphan, directoryID: gone, tabID: TabID(rawValue: orphanSurface), surfaceID: orphanSurface))
+    #expect(snapshots.first?.cwd == "/gone/checkout")
+  }
+
+  @Test func neverOpenedOrphanTaskAgentIsListedFromItsRecord() {
+    let orphan = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A4")!)
+    let orphanSurface = UUID(uuidString: "00000000-0000-0000-0000-0000000000B4")!
+    let gone: Worktree.ID = "/gone/checkout"
+    var state = state()
+    state.repositories.$persistedLayouts = SharedReader(
+      value: TaskLayoutsFile(tasks: [
+        orphan.persistenceKey: TaskRecord(
+          id: orphan, directory: TaskRecord.Directory(worktreeID: gone),
+          layout: agentTask(orphan, surface: orphanSurface).layout, createdAt: .distantPast)
+      ]))
+    state.agentPresence.records[.init(agent: .pi, surfaceID: orphanSurface)] = record(ref: nil)
+
+    let index = AppFeature.surfaceIndex(state: state)
+
+    #expect(index[orphanSurface]?.layoutID == orphan)
+    #expect(index[orphanSurface]?.directoryID == gone)
+    #expect(!AppFeature.hasUnresolvedLivePresence(state: state, index: index))
+    #expect(AppFeature.sessionSnapshots(state: state, index: index).map(\.location.layoutID) == [orphan])
+  }
 }
