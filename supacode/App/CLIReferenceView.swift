@@ -237,6 +237,9 @@ struct CLIReferenceView: View {
 
   private static let flagRows: [CLIEntry] = [
     .init(command: "-w, --worktree", description: "Worktree ID. Pane / tab commands default to the focused worktree."),
+    .init(
+      command: "--task",
+      description: "Task ID for pane / tab commands. Defaults to $SUPACODE_TASK_ID in the task's own worktree."),
     .init(command: "-p, --pane", description: "Pane, tab, or content UUID. Defaults to the focused pane."),
     .init(command: "-t, --tab", description: "Tab UUID. Defaults to the focused tab."),
     .init(command: "-c, --script", description: "Script UUID (for `worktree run`/`stop`)."),

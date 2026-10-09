@@ -11,6 +11,12 @@ nonisolated enum EnvironmentDefaults {
     ProcessInfo.processInfo.environment["SUPACODE_WORKTREE_ID"]
   }
 
+  /// Already percent-encoded by the host app. Absent in a shell started
+  /// before tasks existed.
+  static var taskID: String? {
+    ProcessInfo.processInfo.environment["SUPACODE_TASK_ID"]
+  }
+
   static var tabID: String? {
     ProcessInfo.processInfo.environment["SUPACODE_TAB_ID"]
   }

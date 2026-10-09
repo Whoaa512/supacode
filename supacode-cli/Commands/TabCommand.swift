@@ -29,13 +29,16 @@ extension TabCommand {
     @Flag(name: [.short, .long], help: "Print only the focused tab.")
     var focused = false
 
+    @OptionGroup var taskOption: TaskOption
+
     @OptionGroup var timeoutOption: TimeoutOption
 
     func run() throws {
       let wID = try IDResolvers.resolveFocusedWorktreeID(worktree, timeoutSeconds: timeoutOption.timeout)
+      let target = taskOption.target(worktreeID: wID)
       let items = try QueryDispatcher.query(
         resource: "tabs",
-        params: ["worktreeID": wID],
+        params: target.queryParams,
         timeoutSeconds: timeoutOption.timeout
       )
       for item in items {
@@ -55,13 +58,16 @@ extension TabCommand {
     @Option(name: [.short, .long], help: "Tab ID. Defaults to the focused tab.")
     var tab: String?
 
+    @OptionGroup var taskOption: TaskOption
+
     @OptionGroup var timeoutOption: TimeoutOption
 
     func run() throws {
       let wID = try IDResolvers.resolveFocusedWorktreeID(worktree, timeoutSeconds: timeoutOption.timeout)
-      let tID = try IDResolvers.resolveFocusedTabID(tab, worktreeID: wID, timeoutSeconds: timeoutOption.timeout)
+      let target = taskOption.target(worktreeID: wID)
+      let tID = try IDResolvers.resolveFocusedTabID(tab, target: target, timeoutSeconds: timeoutOption.timeout)
       try Dispatcher.dispatch(
-        deeplinkURL: DeeplinkURLBuilder.tabFocus(worktreeID: wID, tabID: tID),
+        deeplinkURL: DeeplinkURLBuilder.tabFocus(worktreeID: target.urlSegment, tabID: tID),
         timeoutSeconds: timeoutOption.timeout
       )
     }
@@ -89,6 +95,8 @@ extension TabCommand {
 
     @OptionGroup var backgroundOption: BackgroundOption
 
+    @OptionGroup var taskOption: TaskOption
+
     @OptionGroup var timeoutOption: TimeoutOption
 
     func validate() throws {
@@ -103,11 +111,12 @@ extension TabCommand {
 
     func run() throws {
       let wID = try IDResolvers.resolveFocusedWorktreeID(worktree, timeoutSeconds: timeoutOption.timeout)
+      let target = taskOption.target(worktreeID: wID)
       let resolvedID = newID ?? UUID().uuidString
       try Dispatcher.dispatch(
         deeplinkURL: backgroundOption.applied(
           to: DeeplinkURLBuilder.tabNew(
-            worktreeID: wID,
+            worktreeID: target.urlSegment,
             input: input,
             id: resolvedID,
             title: title,
@@ -131,13 +140,16 @@ extension TabCommand {
     @Option(name: .long, help: "Persistent title for the tab. An empty title clears the override.")
     var title: String
 
+    @OptionGroup var taskOption: TaskOption
+
     @OptionGroup var timeoutOption: TimeoutOption
 
     func run() throws {
       let wID = try IDResolvers.resolveFocusedWorktreeID(worktree, timeoutSeconds: timeoutOption.timeout)
-      let tID = try IDResolvers.resolveFocusedTabID(tab, worktreeID: wID, timeoutSeconds: timeoutOption.timeout)
+      let target = taskOption.target(worktreeID: wID)
+      let tID = try IDResolvers.resolveFocusedTabID(tab, target: target, timeoutSeconds: timeoutOption.timeout)
       try Dispatcher.dispatch(
-        deeplinkURL: DeeplinkURLBuilder.tabRename(worktreeID: wID, tabID: tID, title: title),
+        deeplinkURL: DeeplinkURLBuilder.tabRename(worktreeID: target.urlSegment, tabID: tID, title: title),
         timeoutSeconds: timeoutOption.timeout
       )
     }
@@ -157,14 +169,17 @@ extension TabCommand {
 
     @OptionGroup var backgroundOption: BackgroundOption
 
+    @OptionGroup var taskOption: TaskOption
+
     @OptionGroup var timeoutOption: TimeoutOption
 
     func run() throws {
       let wID = try IDResolvers.resolveFocusedWorktreeID(worktree, timeoutSeconds: timeoutOption.timeout)
-      let tID = try IDResolvers.resolveFocusedTabID(tab, worktreeID: wID, timeoutSeconds: timeoutOption.timeout)
+      let target = taskOption.target(worktreeID: wID)
+      let tID = try IDResolvers.resolveFocusedTabID(tab, target: target, timeoutSeconds: timeoutOption.timeout)
       try Dispatcher.dispatch(
         deeplinkURL: backgroundOption.applied(
-          to: DeeplinkURLBuilder.tabMove(worktreeID: wID, tabID: tID, direction: direction.rawValue)),
+          to: DeeplinkURLBuilder.tabMove(worktreeID: target.urlSegment, tabID: tID, direction: direction.rawValue)),
         timeoutSeconds: timeoutOption.timeout
       )
     }
@@ -181,14 +196,17 @@ extension TabCommand {
 
     @OptionGroup var backgroundOption: BackgroundOption
 
+    @OptionGroup var taskOption: TaskOption
+
     @OptionGroup var timeoutOption: TimeoutOption
 
     func run() throws {
       let wID = try IDResolvers.resolveFocusedWorktreeID(worktree, timeoutSeconds: timeoutOption.timeout)
-      let tID = try IDResolvers.resolveFocusedTabID(tab, worktreeID: wID, timeoutSeconds: timeoutOption.timeout)
+      let target = taskOption.target(worktreeID: wID)
+      let tID = try IDResolvers.resolveFocusedTabID(tab, target: target, timeoutSeconds: timeoutOption.timeout)
       try Dispatcher.dispatch(
         deeplinkURL: backgroundOption.applied(
-          to: DeeplinkURLBuilder.tabClose(worktreeID: wID, tabID: tID)),
+          to: DeeplinkURLBuilder.tabClose(worktreeID: target.urlSegment, tabID: tID)),
         timeoutSeconds: timeoutOption.timeout
       )
     }

@@ -42,23 +42,45 @@ enum IDResolvers {
       noneFocused: "No worktree is focused. Pass -w <id> (see `supacode worktree list`).")
   }
 
+  /// Resolves the task a worktree-addressed command means: the explicit flag,
+  /// else this terminal's own task when the command targets this terminal's
+  /// own worktree, else none (the app picks the task the worktree shows). The
+  /// environment's task belongs to the environment's worktree, so it is never
+  /// applied to another one.
+  nonisolated static func resolveTaskID(
+    _ explicit: String?, worktreeID: String, environmentWorktreeID: String?, environmentTaskID: String?
+  ) -> String? {
+    if let explicit = Self.nonEmpty(explicit) { return explicit }
+    guard let task = Self.nonEmpty(environmentTaskID), let home = Self.nonEmpty(environmentWorktreeID),
+      Self.comparableWorktreeID(home) == Self.comparableWorktreeID(worktreeID)
+    else { return nil }
+    return task
+  }
+
+  /// A worktree id with its encoding and trailing slash taken out, so the
+  /// app's and the environment's spelling of one path compare equal.
+  private nonisolated static func comparableWorktreeID(_ value: String) -> String {
+    let decoded = value.removingPercentEncoding ?? value
+    return decoded.hasSuffix("/") && decoded.count > 1 ? String(decoded.dropLast()) : decoded
+  }
+
   /// Resolves the pane token for a go-forward command: the explicit flag, else the
   /// app's focused pane. Never reads a session env var.
   nonisolated static func resolveFocusedPaneToken(
-    _ explicit: String?, worktreeID: String, timeoutSeconds: Int
+    _ explicit: String?, target: WorktreeTarget, timeoutSeconds: Int
   ) throws -> String {
     try Self.resolveFocused(
-      explicit, resource: "panes", params: ["worktreeID": worktreeID], timeoutSeconds: timeoutSeconds,
+      explicit, resource: "panes", params: target.queryParams, timeoutSeconds: timeoutSeconds,
       noneFocused: "No pane is focused in this worktree. Pass -p <id> (see `supacode pane list`).")
   }
 
   /// Resolves the tab for a go-forward command: the explicit flag, else the app's
   /// focused tab. Never reads the deprecated `$SUPACODE_TAB_ID`.
   nonisolated static func resolveFocusedTabID(
-    _ explicit: String?, worktreeID: String, timeoutSeconds: Int
+    _ explicit: String?, target: WorktreeTarget, timeoutSeconds: Int
   ) throws -> String {
     try Self.resolveFocused(
-      explicit, resource: "tabs", params: ["worktreeID": worktreeID], timeoutSeconds: timeoutSeconds,
+      explicit, resource: "tabs", params: target.queryParams, timeoutSeconds: timeoutSeconds,
       noneFocused: "No tab is focused in this worktree. Pass -t <id> (see `supacode tab list`).")
   }
 
