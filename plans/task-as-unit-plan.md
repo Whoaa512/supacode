@@ -3182,3 +3182,43 @@ deviation.
   exit 0 (229 tests; a first run exit 2 on test 12's precondition, fixed
   as above); build-app 0; full `make test` exit 2 with 4439 tests and
   only the 5 known failures.
+- M1, 2026-10-09, `8ece6b08`. Pure layout operations: new
+  `LayoutTransfer` (`flatten`, `extract`) and `LayoutsTransferTests`
+  (23 tests, Terminal bundle). No existing file changed; nothing calls it
+  until M2/M3. Built to `plans/briefs/M1.md`; no K1/K2 cross-pane order
+  helper exists on `PaneLayout`, so the brief's own order rule is used.
+  Decisions (the brief's, taken as written):
+  - "Splits inside a tab kept" no longer describes the model: a tab holds
+    one content and splits are between panes. A's panes dissolve; every
+    tab lands in B's focused pane after B's tabs, in tree leaf (visual)
+    order then strip order, not `panes` (creation) order.
+  - Flatten leaves B's selection, focus, tree and zoom alone and returns
+    `sourceActiveTabID`; an empty B gets one fresh pane showing A's active
+    tab; both empty invents no pane (`targetPaneID` nil).
+  - Extract always uses a fresh pane id, follows the close-tab rules for
+    the remainder (selection to previous else first; an emptied pane is
+    removed, focus to `focusTargetAfterClosing`, zoom cleared), and allows
+    the last tab (empty remainder).
+  - Inconsistent input or a shared tab/content id throws; nothing is
+    repaired and no partial result is returned.
+  - Test helper `ids` returns "tab/content" strings instead of tuples so
+    multisets compare with `sorted()`; same intent.
+  - Red first: not run. The tests name the new type, so they do not
+    compile against the old source; no mutation run either.
+  Left for later:
+  - M2: `LayoutFeature.State` bookkeeping for a `collapsedPaneID` and for
+    every pane of a flattened source (`windowedPaneIDs`, `alert` /
+    `alertPaneID`, `editingTabID`, `equalizeIfEnabled`).
+  - M2/M3: whether to refuse a merge or detach while a tab is a locked
+    blocking-script runner (it has no zmx session to re-home); M1 moves it
+    unchanged.
+  - M3: sessions riding with a tab, primary refusal on detach (Q8),
+    deleting A's record, whether extracting a task's last tab is allowed
+    (Q4), and whether to select `sourceActiveTabID` after a merge. Read
+    both layouts and apply the result in one reducer turn; leave both
+    tasks untouched on a throw.
+  Only the live UI can confirm (cj): nothing in M1. For M3's A35: merged
+  tabs appear right of B's focused pane's tabs in A's visual pane order,
+  and B keeps showing the tab it was showing.
+  Gate (final tree): check 0; `LayoutsTransferTests` exit 0 (23 tests);
+  build-app 0. No full `make test` (not a phase end, not destructive).
