@@ -2101,3 +2101,56 @@ deviation.
   running-tangent guard and task-level liveness each fail their tests.
   Gate: check 0, full `make test` exit 2 with 4212 tests and only the 5
   baseline failures, build-app 0.
+- T9 r1 (review fixes), 2026-10-09, `6f4a37c1` + `15745cd1`. **Revised**:
+  this overrides the T9 entry above where they differ.
+  - Task settle and close confirmation (P1). `settleTask` no longer asks
+    each pane: a layout has one alert, so the requests replaced each other
+    and confirming closed one pane. It sends `LayoutFeature`
+    `.closeAllTabsRequested`: one confirmation naming every tab of every
+    pane (`.confirmCloseAll`), same confirm-close-tab mode, no owning pane
+    (`alertPaneID` nil, so the main layout's host presents it and the
+    user-close intents of all tabs are kept while it waits). The primary is
+    marked after the layout reducer ran, when the tabs closed without a
+    confirmation or on `.confirmCloseAll`; cancelling marks and closes
+    nothing. A task with no tab open is only marked.
+    Decision: a named local quit still marks the ended primary at once and
+    then asks; the session is over whatever the answer, as before T9.
+  - Replacement of a session already listed (P1, A37). It now moves up
+    into the replaced one's slot (`/new` then `/resume` of the old primary
+    makes it primary again; a dormant tangent resumed over the primary
+    leads). Decision: it only moves up. A session already ahead of the one
+    it replaced stays (a primary resumed on a tangent's surface is still
+    the primary); moving it down would hand the title to a dormant tangent,
+    against D5. This drops the S1 item "a session already listed keeps its
+    slot".
+  - Stored order. `TaskMembership.storing` moves a stored session only for
+    a replacement the caller names, only upwards, and only when both
+    sessions are in the caller's list in that order. `replacedSessions` is
+    never retired, so that last check is what stops a stale entry undoing a
+    later replacement on every write. Hydration (`merged`) applies the same
+    rule to a replacement made before the file loaded.
+  Left for later:
+  - S1: `settleAndCloseSession` on a non-primary session sends one `.tab`
+    close per surface showing it; a session on two surfaces under a
+    confirming mode would still overwrite its own alert (closes one tab,
+    nothing wrongly marked beyond the session itself).
+  - A close-all confirmation on a task that is not on screen waits until
+    the task is selected (the main host only shows the selected layout),
+    as pane confirmations already did.
+  Only the live UI can confirm (cj): Pi quit closes the task's tabs and
+  the row moves to Settled; `/new` keeps tab and row; `/new` then `/resume`
+  of the old session shows it as the row again; a workflow no longer flips
+  the parent row; the single "Close N Tabs?" alert for a task with split
+  panes, in the main window even when a pane is in its own window, and
+  Cancel leaving the row Active.
+  Tests: `AppFeatureSessionsTaskSettleTests` (two panes under always/busy:
+  confirm, cancel, no confirmation, quit; replacement of a listed
+  session), `LayoutFeatureTests` (close-all), `LayoutsIncrementalWriterTests`
+  (named move, stale and partial lists, both halves at once),
+  `TerminalsFeatureTests` (move up, never down, hydration). The ordering
+  tests were seen failing before the fix; the confirmation tests were
+  written with it. Existing direct-close settle tests now set the mode to
+  never and stub the session killer: under the default (busy) they had
+  only ever raised an alert.
+  Gate: check 0, full `make test` exit 2 with 4226 tests and only the 5
+  baseline failures, build-app 0.
