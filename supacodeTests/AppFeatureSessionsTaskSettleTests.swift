@@ -175,6 +175,41 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(store.state.repositories.sessionItems[id: .session(key("n"))]?.location?.layoutID == task)
   }
 
+  @Test(.dependencies) func resumingThePreviousPrimaryAfterANewMakesItThePrimaryAgain() async {
+    let recorded = Recorded()
+    let store = store(state(second: live("b", pid: 12)), recorded: recorded)
+    await send("session_end", on: primarySurface, ref: "a", reason: "new", to: store)
+    await send("session_start", on: primarySurface, ref: "n", to: store)
+    #expect(store.state.terminals.members[task] == [.session(key("n")), .session(key("a")), .session(key("b"))])
+
+    await send("session_end", on: primarySurface, ref: "n", reason: "resume", to: store)
+    await send("session_start", on: primarySurface, ref: "a", to: store)
+
+    #expect(store.state.terminals.members[task] == [.session(key("a")), .session(key("n")), .session(key("b"))])
+    #expect(AppFeature.primarySession(of: task, state: store.state) == key("a"))
+    #expect(settledAt("a", in: store) == nil, "it is running again")
+    #expect(settledAt("n", in: store) == now)
+    #expect(!AppFeature.isTaskSettled(task, state: store.state), "the task follows the running primary")
+    #expect(recorded.closed.value.isEmpty)
+    #expect(surfaces(of: task, in: store) == [primarySurface, secondSurface])
+  }
+
+  @Test(.dependencies) func resumingADormantTangentOverThePrimaryPromotesIt() async {
+    let recorded = Recorded()
+    // "b" is a member with no agent running: the second tab is a shell.
+    var initial = state()
+    initial.terminals.members[task] = [.session(key("a")), .session(key("b")), .session(key("c"))]
+    let store = store(withRows(initial), recorded: recorded)
+
+    await send("session_end", on: primarySurface, ref: "a", reason: "resume", to: store)
+    await send("session_start", on: primarySurface, ref: "c", to: store)
+
+    #expect(store.state.terminals.members[task] == [.session(key("c")), .session(key("a")), .session(key("b"))])
+    #expect(settledAt("a", in: store) == now)
+    #expect(!AppFeature.isTaskSettled(task, state: store.state))
+    #expect(recorded.closed.value.isEmpty)
+  }
+
   @Test(.dependencies) func replacingATangentTakesItsSlotAndLeavesThePrimary() async {
     let recorded = Recorded()
     let store = store(state(second: live("b", pid: 12)), recorded: recorded)

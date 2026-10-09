@@ -1038,6 +1038,28 @@ struct TerminalsFeatureTests {
     #expect(store.state.layouts[id: minted]?.layout.panes.isEmpty == true)
   }
 
+  @Test(.dependencies) func hydrationKeepsAReplacementMadeBeforeTheFileLoaded() async {
+    let minted = LayoutID(task: UUID())
+    let key = { SessionKey(harness: .pi, sessionID: $0) }
+    var record = Self.task(minted, on: "/tmp/repo")
+    record.sessions = [key("one"), key("two"), key("three")]
+    var initial = TerminalsFeature.State()
+    // Before the file loaded: `/new` on the primary, a stored tangent resumed
+    // over another, and an agent still waiting for its session.
+    let waiting = TaskMember.provisional(harness: .pi, surfaceID: UUID())
+    initial.members[minted] = [.session(key("new")), .session(key("one")), waiting, .session(key("three"))]
+    initial.replacedSessions[minted] = [key("new"): key("one"), key("three"): key("two")]
+    let store = TestStore(initialState: initial) { TerminalsFeature() }
+    store.exhaustivity = .off
+
+    await store.send(.layoutsHydrated(Self.file([record])))
+
+    // `three` replaced `two`, but the run never listed `two`: it stays put.
+    #expect(
+      store.state.members[minted]
+        == [.session(key("new")), .session(key("one")), .session(key("two")), .session(key("three")), waiting])
+  }
+
   @Test(.dependencies) func detachingATaskForgetsItsMembers() async {
     let minted = LayoutID(task: UUID())
     let kept = LayoutID(task: UUID())
@@ -1100,9 +1122,29 @@ struct TerminalsFeatureTests {
         == [.session(key("new")), .session(key("one")), .session(key("fork")), .session(key("two"))])
     #expect(reported.value == [minted, minted])
 
-    // Nothing to place: a session already listed keeps its slot, and an
-    // unlisted old session names no slot.
+    // A session already listed moves up into the slot of the one it
+    // replaced; everything else keeps its order.
     await store.send(.sessionReplaced(minted, old: key("new"), new: key("two")))
+    await store.finish()
+    #expect(
+      store.state.members[minted]
+        == [.session(key("two")), .session(key("new")), .session(key("one")), .session(key("fork"))])
+    #expect(store.state.replacedSessions[minted]?[key("two")] == key("new"))
+    #expect(reported.value == [minted, minted, minted])
+    // One already ahead of the session it replaced stays where it is: a
+    // primary resumed on a tangent's surface is still the primary.
+    await store.send(.sessionReplaced(minted, old: key("fork"), new: key("two")))
+    await store.finish()
+    #expect(store.state.members[minted]?.first == .session(key("two")))
+    #expect(store.state.replacedSessions[minted]?[key("two")] == key("new"))
+    await store.send(.sessionReplaced(minted, old: key("two"), new: key("fork")))
+    await store.finish()
+    #expect(
+      store.state.members[minted]
+        == [.session(key("fork")), .session(key("two")), .session(key("new")), .session(key("one"))])
+    reported.setValue([minted, minted])
+
+    // Nothing to place: an unlisted old session names no slot.
     await store.send(.sessionReplaced(minted, old: key("stranger"), new: key("other")))
     await store.send(.sessionReplaced(LayoutID(task: UUID()), old: key("one"), new: key("other")))
     await store.finish()

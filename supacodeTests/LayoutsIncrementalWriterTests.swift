@@ -572,22 +572,63 @@ struct LayoutsIncrementalWriterTests {
     #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [third, second, one, tail])
   }
 
-  @Test func aReplacementNeverMovesOrDropsAStoredSession() async {
+  @Test func aStoredSessionMovesOnlyForAReplacementTheCallerNames() async {
     let defaults = makeDefaults()
     let writer = makeWriter(defaults)
     let minted = LayoutID(task: UUID())
     let (one, two, new) = (sessionKey("one"), sessionKey("two"), sessionKey("new"))
     await writer.flush(records: [minted: change(layout("/w1"), sessions: [one, two])])
 
-    // A caller that lists a stored session ahead of the primary, and claims
-    // it replaced it, moves nothing: only an unlisted session is placed.
-    await writer.flush(records: [minted: change(sessions: [two, one], replaced: [two: one])])
+    // A different order alone is no reorder: the list may never have loaded.
+    await writer.flush(records: [minted: change(sessions: [two, one], replaced: [:])])
+    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [one, two])
+
+    // Nor is a replacement the caller's own order contradicts (a stale one).
+    await writer.flush(records: [minted: change(sessions: [one, two], replaced: [two: one])])
+    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [one, two])
+
+    // Nor one whose pair the caller does not list in full.
+    await writer.flush(records: [minted: change(sessions: [two], replaced: [two: one])])
     #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [one, two])
 
     // A newcomer whose replaced session is not stored goes after the rest,
     // and a partial list still drops nothing.
     await writer.flush(records: [minted: change(sessions: [new], replaced: [new: sessionKey("unknown")])])
     #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [one, two, new])
+  }
+
+  @Test func aStoredSessionResumedOverAnotherTakesItsSlot() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let minted = LayoutID(task: UUID())
+    let (one, two, new) = (sessionKey("one"), sessionKey("two"), sessionKey("new"))
+    await writer.flush(records: [minted: change(layout("/w1"), sessions: [one, two])])
+    // `/new` on the primary, then `/resume` of the previous primary there.
+    await writer.flush(records: [minted: change(sessions: [new, one, two], replaced: [new: one])])
+    await writer.flush(records: [minted: change(sessions: [one, new, two], replaced: [new: one, one: new])])
+    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [one, new, two])
+
+    // The first replacement is stale now and must not be replayed.
+    await writer.flush(records: [minted: change(sessions: [one, new, two], replaced: [new: one, one: new])])
+    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [one, new, two])
+
+    // An existing tangent resumed on the primary's surface leads; the rest keep their order.
+    await writer.flush(records: [
+      minted: change(sessions: [two, one, new], replaced: [new: one, one: new, two: one])
+    ])
+    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [two, one, new])
+  }
+
+  @Test func bothHalvesOfANewThenResumeWrittenAtOnceKeepTheResumedPrimary() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let minted = LayoutID(task: UUID())
+    let (one, two, new) = (sessionKey("one"), sessionKey("two"), sessionKey("new"))
+    await writer.flush(records: [minted: change(layout("/w1"), sessions: [one, two])])
+
+    await writer.flush(records: [minted: change(sessions: [one, new, two], replaced: [new: one, one: new])])
+
+    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [one, new, two])
   }
 
   @Test func taskWithSessionsKeepsItsRecordWhenItsLastTabCloses() async {

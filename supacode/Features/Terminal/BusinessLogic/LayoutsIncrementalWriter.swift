@@ -165,7 +165,7 @@ actor LayoutsIncrementalWriter {
         // The caller may not have loaded the stored sessions, so its list
         // only adds to them: stored order stands (the first is the primary)
         // and anything new goes after, except a session known to have
-        // replaced a stored one, which takes that one's slot.
+        // replaced a stored one, which takes (or moves up into) its slot.
         task.sessions = TaskMembership.storing(sessions, replaced: replaced, into: task.sessions)
         // Nothing open and nothing to resume: the task leaves no trace. One
         // with sessions stays, so its members are still there to resume.
