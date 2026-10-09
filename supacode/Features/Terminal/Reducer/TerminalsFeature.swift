@@ -50,6 +50,10 @@ struct TerminalsFeature {
     /// Each directory's most recently selected task. A directory with no
     /// entry resolves to the layout stored under its own key.
     var activeTasks: [Worktree.ID: LayoutID] = [:]
+    /// Directories selected since the layouts file last loaded. A selection
+    /// made before it loads outranks the stored entry even when it left no
+    /// `activeTasks` entry (the own-key layout); only hydration reads this.
+    var selectedDirectories: Set<Worktree.ID> = []
     /// True when the persisted file was written by a newer schema; its records
     /// are served but must never be written back.
     var layoutsAreReadOnly = false
@@ -209,18 +213,34 @@ struct TerminalsFeature {
           seenContentIDs.formUnion(contentIDs)
           seenTabIDs.formUnion(tabIDs)
         }
+        // Selected on its own key before this landed: the stored entry is
+        // older, and nothing has told the file so.
+        var staleDirectories: [Worktree.ID] = []
         for (directory, key) in file.activeTasks {
           let directoryID = Worktree.ID(directory)
           guard let id = file.tasks[key]?.id, state.directories[id]?.worktreeID == directoryID,
             state.activeTasks[directoryID] == nil
           else { continue }
+          guard !state.selectedDirectories.contains(directoryID) else {
+            staleDirectories.append(directoryID)
+            continue
+          }
           state.activeTasks[directoryID] = id
         }
         // Hydration can land after the first selection, which is more recent
         // than anything stored; re-diff so the restored hidden tabs arm and
         // the visible selection wakes.
         let activeTask = state.selectedLayoutID.map { recordActiveTask($0, in: &state) } ?? .none
-        return .merge(reconcileHibernation(&state), activeTask)
+        state.selectedDirectories = []
+        let clearStale: Effect<Action> =
+          staleDirectories.isEmpty
+          ? .none
+          : .run { [staleDirectories] _ in
+            for directoryID in staleDirectories {
+              await layoutChangeObserver.activeTaskChanged(directoryID, nil)
+            }
+          }
+        return .merge(reconcileHibernation(&state), clearStale, activeTask)
       }
     }
     .forEach(\.layouts, action: \.layouts) {
@@ -257,6 +277,7 @@ extension TerminalsFeature {
   /// so selecting it never writes.
   private func recordActiveTask(_ layoutID: LayoutID, in state: inout State) -> Effect<Action> {
     guard let directoryID = state.directories[layoutID]?.worktreeID else { return .none }
+    state.selectedDirectories.insert(directoryID)
     let active: LayoutID? = layoutID == State.ownKeyLayoutID(forDirectory: directoryID) ? nil : layoutID
     guard state.activeTasks[directoryID] != active else { return .none }
     state.activeTasks[directoryID] = active

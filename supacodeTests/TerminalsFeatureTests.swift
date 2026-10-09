@@ -878,6 +878,33 @@ struct TerminalsFeatureTests {
     #expect(reported.value.isEmpty)
   }
 
+  @Test(.dependencies) func anOwnKeySelectionBeforeHydrationOutranksTheStoredTask() async {
+    let ownKey = LayoutID(legacyWorktreeKey: "/tmp/a")
+    let minted = LayoutID(task: UUID())
+    let other = LayoutID(legacyWorktreeKey: "/tmp/b")
+    let (store, reported) = makeResolverStore()
+    await store.send(
+      .attachLayout(worktreeID: ownKey, directory: TaskRecord.Directory(worktreeID: "/tmp/a"), titlePrefix: "a"))
+    await store.send(
+      .attachLayout(worktreeID: other, directory: TaskRecord.Directory(worktreeID: "/tmp/b"), titlePrefix: "b"))
+    await store.send(.selectedLayoutChanged(ownKey))
+    await store.send(.selectedLayoutChanged(other))
+    await store.finish()
+    #expect(reported.value.isEmpty)
+
+    // The file still names the task that was active when the app last quit.
+    let file = Self.file(
+      [Self.task(ownKey, on: "/tmp/a"), Self.task(minted, on: "/tmp/a"), Self.task(other, on: "/tmp/b")],
+      activeTasks: ["/tmp/a": minted.persistenceKey])
+    await store.send(.layoutsHydrated(file))
+    await store.finish()
+    #expect(store.state.layoutID(forDirectory: "/tmp/a") == ownKey)
+    #expect(store.state.activeTasks.isEmpty)
+    // The stale entry is cleared from the file, or the next launch restores it.
+    #expect(reported.value == ["/tmp/a=nil"])
+    #expect(store.state.selectedDirectories.isEmpty)
+  }
+
   @Test(.dependencies) func aLayoutAttachedAfterItsSelectionBecomesItsDirectorysActiveTask() async {
     let minted = LayoutID(task: UUID())
     let directory = TaskRecord.Directory(worktreeID: "/tmp/repo")
