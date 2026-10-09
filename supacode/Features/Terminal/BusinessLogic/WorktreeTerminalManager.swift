@@ -1886,8 +1886,7 @@ final class WorktreeTerminalManager {
     return .record(
       layout: layout, directory: directory,
       sessions: (terminals?.members[layoutID] ?? []).compactMap(\.sessionKey),
-      replaced: terminals?.replacedSessions[layoutID] ?? [:],
-      sessionsLoaded: terminals?.storedSessionsLoaded ?? false,
+      storedSessions: terminals?.storedSessions ?? .pending,
       createdAt: Date())
   }
 

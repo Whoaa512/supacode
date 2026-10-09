@@ -343,8 +343,12 @@ extension AppFeature {
     // bare or remote end cannot be told from an agent that is still there.
     // Nor may they close while the record tracks another process: the ending
     // one leaves it, and any other may be an agent still running on this tab.
+    // Nor before the stored sessions load: until then the first to report
+    // leads the list, and it may be a tangent of a stored primary.
     let hasSiblingProcess = record.pids.contains { $0 != event.pid }
-    guard isQuit, event.pid != nil, !hasSiblingProcess else { return .send(.repositories(.settleSession(key))) }
+    guard isQuit, event.pid != nil, !hasSiblingProcess, state.terminals.storedSessions != .pending else {
+      return .send(.repositories(.settleSession(key)))
+    }
     // The session is over whatever the close confirmation says.
     return .merge(.send(.repositories(.settleSession(key))), settleTask(layoutID, state: state))
   }
@@ -878,10 +882,10 @@ extension AppFeature {
   static func membershipEffect(
     state: State, index: [UUID: SurfaceEntry], members: [LayoutID: [TaskMember]]? = nil
   ) -> Effect<Action>? {
-    let members = TaskMembership.reconciled(
-      members ?? state.terminals.members, agents: taskAgents(state: state, index: index))
+    let agents = taskAgents(state: state, index: index)
+    let members = TaskMembership.reconciled(members ?? state.terminals.members, agents: agents)
     guard members != state.terminals.members else { return nil }
-    return .send(.terminals(.membersChanged(members)))
+    return .send(.terminals(.membersChanged(members, agents: agents)))
   }
 
   /// Lists the session each launched task was minted for, ahead of whatever

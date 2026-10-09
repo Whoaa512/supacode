@@ -55,17 +55,13 @@ struct TerminalsFeature {
     /// Each task's agents, primary first. Stored sessions load at hydration;
     /// an agent that has not reported its session yet is held provisionally.
     var members: [LayoutID: [TaskMember]] = [:]
-    /// Per task, each session that took another's slot this run, keyed by the
-    /// newcomer. The writer needs it to place or move the newcomer in a
-    /// stored list: order alone cannot tell a replacement from a list it has
-    /// not loaded. Entries are never retired; the writer skips any the
-    /// current order contradicts.
-    var replacedSessions: [LayoutID: [SessionKey: SessionKey]] = [:]
-    /// Set once the stored sessions are merged into `members`. From then on
-    /// `members` lists every stored session in the order to keep, so the
-    /// writer stores that order as it is and `replacedSessions` only matters
-    /// for what happened before.
-    var storedSessionsLoaded = false
+    /// What is known of the sessions the store lists. Until they load,
+    /// `members` holds only what this run has seen and is not written.
+    var storedSessions = TaskMembership.StoredSessions.pending
+    /// Every change to `members` made while the stored sessions are pending,
+    /// in order. Hydration applies them again to each stored list, so the
+    /// result is the one the run would have reached had it loaded first.
+    var pendingMembership: [TaskMembership.Change] = []
     /// Tasks removed this run. The stored layouts are read once at launch and
     /// still list them, so anything that falls back to a stored record skips
     /// these or a removed task comes back as a dormant one.
@@ -110,7 +106,9 @@ struct TerminalsFeature {
     /// Drops a pruned worktree's layout and bookkeeping.
     case detachLayout(worktreeID: LayoutID)
     /// The agents presence reports changed which sessions belong to which task.
-    case membersChanged([LayoutID: [TaskMember]])
+    case membersChanged([LayoutID: [TaskMember]], agents: [TaskAgent] = [])
+    /// The stored layouts cannot be read this run, so no hydration follows.
+    case storedSessionsUnreadable
     /// The agent on one of the task's surfaces switched sessions (`/new`,
     /// `/fork`): `new` takes `old`'s slot and `old` stays a member after it.
     case sessionReplaced(LayoutID, old: SessionKey, new: SessionKey)
@@ -199,34 +197,39 @@ struct TerminalsFeature {
         state.removedLayoutIDs.insert(worktreeID)
         state.directories.removeValue(forKey: worktreeID)
         state.members.removeValue(forKey: worktreeID)
-        state.replacedSessions.removeValue(forKey: worktreeID)
+        state.pendingMembership = state.pendingMembership.compactMap { $0.dropping(worktreeID) }
         state.activeTasks = state.activeTasks.filter { $0.value != worktreeID }
         state.recentLayoutIDs.removeAll { $0 == worktreeID }
         state.selectionOrder.removeAll { $0 == worktreeID }
         return reconcileHibernation(&state)
 
-      case .membersChanged(let members):
+      case .membersChanged(let members, let agents):
         // Only a change in stored sessions is worth a write; a provisional
         // member coming or going is runtime only.
         let changed = Set(state.members.keys).union(members.keys).filter {
           state.members[$0]?.compactMap(\.sessionKey) ?? [] != members[$0]?.compactMap(\.sessionKey) ?? []
         }
         state.members = members
-        guard !changed.isEmpty else { return .none }
-        return .run { [changed] _ in
-          for layoutID in changed.sorted(by: { $0.persistenceKey < $1.persistenceKey }) {
-            await layoutChangeObserver.sessionsChanged(layoutID)
-          }
-        }
+        if state.storedSessions == .pending { state.pendingMembership.append(.agents(agents)) }
+        return sessionsChanged(Array(changed))
 
       case .sessionReplaced(let layoutID, let old, let new):
+        // Queued even when it moves nothing here: the replaced session may
+        // be one only the stored list names.
+        if state.storedSessions == .pending {
+          state.pendingMembership.append(.replaced(layoutID, old: old, new: new))
+        }
         guard
           let members = TaskMembership.replacing(old, with: new, in: state.members[layoutID] ?? [])
         else { return .none }
         state.members[layoutID] = members
-        state.replacedSessions[layoutID] = TaskMembership.recording(
-          old, replacedBy: new, in: state.replacedSessions[layoutID] ?? [:])
         return .run { _ in await layoutChangeObserver.sessionsChanged(layoutID) }
+
+      case .storedSessionsUnreadable:
+        guard state.storedSessions == .pending else { return .none }
+        state.storedSessions = .unreadable
+        state.pendingMembership = []
+        return sessionsChanged(Array(state.members.keys))
 
       case .selectedLayoutChanged(let layoutID):
         state.selectedLayoutID = layoutID
@@ -254,12 +257,14 @@ struct TerminalsFeature {
         // id from another worktree (possible in pre-creation-gate layouts).
         var seenContentIDs = Set(state.layouts.flatMap { $0.layout.allContentIDs })
         var seenTabIDs = Set(state.layouts.flatMap { $0.layout.panes.flatMap(\.tabs.ids) })
+        // Nothing was written from `members` while the stored sessions were
+        // pending, so every task that lists one is written now.
+        var unwritten = state.members.filter { file.tasks[$0.key.persistenceKey] == nil }.map(\.key)
         for (key, record) in file.tasks.sorted(by: { $0.key < $1.key }) {
           // Membership is the record's whether or not its layout is usable.
-          let members = TaskMembership.merged(
-            stored: record.sessions, runtime: state.members[record.id] ?? [],
-            replaced: state.replacedSessions[record.id] ?? [:], loaded: state.storedSessionsLoaded)
+          let members = state.hydratedMembers(of: record)
           if !members.isEmpty { state.members[record.id] = members }
+          if members.compactMap(\.sessionKey) != record.sessions { unwritten.append(record.id) }
           guard record.layout.isConsistent else {
             Self.logger.error("Dropping inconsistent persisted layout for \(key)")
             continue
@@ -276,7 +281,8 @@ struct TerminalsFeature {
           seenContentIDs.formUnion(contentIDs)
           seenTabIDs.formUnion(tabIDs)
         }
-        state.storedSessionsLoaded = true
+        state.storedSessions = .loaded
+        state.pendingMembership = []
         // A selection made this run is more recent than anything stored, and
         // hydration may be what first names its directory. Applied before the
         // stored entries so a directory gets one write, not a clear racing it.
@@ -309,12 +315,42 @@ struct TerminalsFeature {
               await layoutChangeObserver.activeTaskChanged(directoryID, nil)
             }
           }
-        return .merge(reconcileHibernation(&state), clearStale, activeTask)
+        return .merge(reconcileHibernation(&state), clearStale, activeTask, sessionsChanged(unwritten))
       }
     }
     .forEach(\.layouts, action: \.layouts) {
       LayoutFeature()
     }
+  }
+}
+
+// MARK: - Membership.
+
+extension TerminalsFeature {
+  /// Asks for a write of each task's sessions, in a fixed order.
+  fileprivate func sessionsChanged(_ layoutIDs: [LayoutID]) -> Effect<Action> {
+    guard !layoutIDs.isEmpty else { return .none }
+    return .run { _ in
+      for layoutID in layoutIDs.sorted(by: { $0.persistenceKey < $1.persistenceKey }) {
+        await layoutChangeObserver.sessionsChanged(layoutID)
+      }
+    }
+  }
+}
+
+extension TerminalsFeature.State {
+  /// A stored task's members once its record is read. The first read
+  /// applies everything queued since launch to the stored list, so the
+  /// primary is the one the stored order and those changes give, whichever
+  /// agent reported first. A task stored with no session has nothing the
+  /// run's list lacks, and a later read only adds what the run does not list.
+  fileprivate func hydratedMembers(of record: TaskRecord) -> [TaskMember] {
+    let runtime = members[record.id] ?? []
+    guard storedSessions == .pending, !record.sessions.isEmpty else {
+      return runtime + record.sessions.map(TaskMember.session).filter { !runtime.contains($0) }
+    }
+    let replayed = TaskMembership.replaying(pendingMembership, for: record.id, onto: record.sessions)
+    return replayed + runtime.filter { !replayed.contains($0) }
   }
 }
 

@@ -522,214 +522,11 @@ struct LayoutsIncrementalWriterTests {
   }
 
   private func change(
-    sessions: [SessionKey], replaced: [SessionKey: SessionKey]
+    sessions: [SessionKey], storedSessions: TaskMembership.StoredSessions
   ) -> LayoutsIncrementalWriter.RecordChange {
     .record(
       layout: layout("/w1"), directory: TaskRecord.Directory(worktreeID: "/w1"), sessions: sessions,
-      replaced: replaced, createdAt: Self.createdAt)
-  }
-
-  @Test func aSessionThatReplacedAStoredOneTakesItsSlot() async {
-    let defaults = makeDefaults()
-    let writer = makeWriter(defaults)
-    let minted = LayoutID(task: UUID())
-    let (one, two, new) = (sessionKey("one"), sessionKey("two"), sessionKey("new"))
-    await writer.flush(records: [minted: change(layout("/w1"), sessions: [one, two])])
-
-    // `/new` on the primary: the newcomer leads and the replaced one follows it.
-    await writer.flush(records: [minted: change(sessions: [new, one, two], replaced: [new: one])])
-    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [new, one, two])
-
-    // Sending it again moves nothing.
-    await writer.flush(records: [minted: change(sessions: [new, one, two], replaced: [new: one])])
-    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [new, one, two])
-  }
-
-  @Test func aTangentsReplacementTakesTheTangentsSlotAndThePrimaryStays() async {
-    let defaults = makeDefaults()
-    let writer = makeWriter(defaults)
-    let minted = LayoutID(task: UUID())
-    let (one, two, three, new) = (sessionKey("one"), sessionKey("two"), sessionKey("three"), sessionKey("new"))
-    await writer.flush(records: [minted: change(layout("/w1"), sessions: [one, two, three])])
-
-    await writer.flush(records: [minted: change(sessions: [one, new, two, three], replaced: [new: two])])
-
-    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [one, new, two, three])
-  }
-
-  @Test func aChainOfReplacementsWrittenAtOnceKeepsItsOrder() async {
-    let defaults = makeDefaults()
-    let writer = makeWriter(defaults)
-    let minted = LayoutID(task: UUID())
-    let (one, second, third, tail) = (sessionKey("one"), sessionKey("b"), sessionKey("c"), sessionKey("tail"))
-    await writer.flush(records: [minted: change(layout("/w1"), sessions: [one])])
-
-    // Two replacements and an unrelated newcomer before the debounce fired.
-    await writer.flush(records: [
-      minted: change(sessions: [third, second, one, tail], replaced: [second: one, third: second])
-    ])
-
-    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [third, second, one, tail])
-  }
-
-  @Test func aStoredSessionMovesOnlyForAReplacementTheCallerNames() async {
-    let defaults = makeDefaults()
-    let writer = makeWriter(defaults)
-    let minted = LayoutID(task: UUID())
-    let (one, two, new) = (sessionKey("one"), sessionKey("two"), sessionKey("new"))
-    await writer.flush(records: [minted: change(layout("/w1"), sessions: [one, two])])
-
-    // A different order alone is no reorder: the list may never have loaded.
-    await writer.flush(records: [minted: change(sessions: [two, one], replaced: [:])])
-    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [one, two])
-
-    // Nor is a replacement the caller's own order contradicts (a stale one).
-    await writer.flush(records: [minted: change(sessions: [one, two], replaced: [two: one])])
-    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [one, two])
-
-    // Nor one whose pair the caller does not list in full.
-    await writer.flush(records: [minted: change(sessions: [two], replaced: [two: one])])
-    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [one, two])
-
-    // A newcomer whose replaced session is not stored goes after the rest,
-    // and a partial list still drops nothing.
-    await writer.flush(records: [minted: change(sessions: [new], replaced: [new: sessionKey("unknown")])])
-    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [one, two, new])
-  }
-
-  @Test func aStoredSessionResumedOverAnotherTakesItsSlot() async {
-    let defaults = makeDefaults()
-    let writer = makeWriter(defaults)
-    let minted = LayoutID(task: UUID())
-    let (one, two, new) = (sessionKey("one"), sessionKey("two"), sessionKey("new"))
-    await writer.flush(records: [minted: change(layout("/w1"), sessions: [one, two])])
-    // `/new` on the primary, then `/resume` of the previous primary there.
-    await writer.flush(records: [minted: change(sessions: [new, one, two], replaced: [new: one])])
-    await writer.flush(records: [minted: change(sessions: [one, new, two], replaced: [new: one, one: new])])
-    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [one, new, two])
-
-    // The first replacement is stale now and must not be replayed.
-    await writer.flush(records: [minted: change(sessions: [one, new, two], replaced: [new: one, one: new])])
-    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [one, new, two])
-
-    // An existing tangent resumed on the primary's surface leads; the rest keep their order.
-    await writer.flush(records: [
-      minted: change(sessions: [two, one, new], replaced: [new: one, one: new, two: one])
-    ])
-    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [two, one, new])
-  }
-
-  @Test func bothHalvesOfANewThenResumeWrittenAtOnceKeepTheResumedPrimary() async {
-    let defaults = makeDefaults()
-    let writer = makeWriter(defaults)
-    let minted = LayoutID(task: UUID())
-    let (one, two, new) = (sessionKey("one"), sessionKey("two"), sessionKey("new"))
-    await writer.flush(records: [minted: change(layout("/w1"), sessions: [one, two])])
-
-    await writer.flush(records: [minted: change(sessions: [one, new, two], replaced: [new: one, one: new])])
-
-    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [one, new, two])
-  }
-
-  /// Two sessions that each replaced the same one (it was resumed on another
-  /// tab in between) keep the order the run has them in.
-  @Test(arguments: [false, true])
-  func twoReplacementsOfTheSameSessionKeepTheRunsOrder(writtenBetween: Bool) async {
-    let defaults = makeDefaults()
-    let writer = makeWriter(defaults)
-    let minted = LayoutID(task: UUID())
-    let (one, two, new) = (sessionKey("one"), sessionKey("two"), sessionKey("new"))
-    await writer.flush(records: [minted: change(layout("/w1"), sessions: [one, two])])
-
-    // The tangent resumed over the primary; then the old primary resumed on
-    // another tab and `/new` there.
-    if writtenBetween {
-      await writer.flush(records: [minted: change(sessions: [two, one], replaced: [two: one])])
-      #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [two, one])
-    }
-    let both = change(sessions: [two, new, one], replaced: [two: one, new: one])
-    await writer.flush(records: [minted: both])
-    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [two, new, one])
-
-    // Stable however often it is written.
-    await writer.flush(records: [minted: both])
-    await writer.flush(records: [minted: both])
-    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [two, new, one])
-  }
-
-  @Test func replacementsSharingASessionKeepTheRunsOrderAmongChainsAndBystanders() {
-    let key = { SessionKey(harness: .pi, sessionID: $0) }
-    let (one, two, three, four, tail) = (key("1"), key("2"), key("3"), key("4"), key("tail"))
-
-    // `two` replaced `one`, `three` replaced `two`, then `four` replaced `one`.
-    #expect(
-      TaskMembership.storing(
-        [three, two, four, one, tail], replaced: [two: one, three: two, four: one], into: [one, tail])
-        == [three, two, four, one, tail])
-    // A stored bystander ahead of the replaced session keeps its place, and
-    // a partial list still moves nothing it does not name in full.
-    #expect(
-      TaskMembership.storing([two, four, one], replaced: [two: one, four: one], into: [tail, one, two])
-        == [tail, two, four, one])
-    #expect(
-      TaskMembership.storing([two, four], replaced: [two: one, four: one], into: [tail, one, two])
-        == [tail, four, one, two])
-  }
-
-  /// `/new` twice on the primary, then `/resume` of the middle session.
-  /// Whichever of the steps reached the store (a failed write leaves it at
-  /// an earlier one), the stored primary of the first step stays last.
-  @Test(arguments: [[false, false], [true, false], [false, true], [true, true]])
-  func aSessionResumedOverItsOwnReplacementKeepsTheStoredAnchor(written: [Bool]) async {
-    let defaults = makeDefaults()
-    let writer = makeWriter(defaults)
-    let minted = LayoutID(task: UUID())
-    let (one, two, three) = (sessionKey("one"), sessionKey("two"), sessionKey("three"))
-    await writer.flush(records: [minted: change(layout("/w1"), sessions: [one])])
-
-    var replaced = TaskMembership.recording(one, replacedBy: two, in: [:])
-    if written[0] { await writer.flush(records: [minted: change(sessions: [two, one], replaced: replaced)]) }
-    replaced = TaskMembership.recording(two, replacedBy: three, in: replaced)
-    if written[1] { await writer.flush(records: [minted: change(sessions: [three, two, one], replaced: replaced)]) }
-    replaced = TaskMembership.recording(three, replacedBy: two, in: replaced)
-    let final = change(sessions: [two, three, one], replaced: replaced)
-    await writer.flush(records: [minted: final])
-    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [two, three, one])
-
-    await writer.flush(records: [minted: final])
-    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [two, three, one])
-  }
-
-  /// A caller that has loaded the stored sessions owns their order: every
-  /// run of up to four replacements over a two-session task, with any of
-  /// them written or not, ends stored in the run's order.
-  @Test func aLoadedCallersOrderIsStoredAsItIsWhateverTheReplacements() {
-    let keys = ["a", "b", "c", "d"].map(sessionKey)
-    let stored = Array(keys.prefix(2))
-    var failures: [String] = []
-    var runs = 0
-    func walk(_ members: [TaskMember], _ replaced: [SessionKey: SessionKey], _ file: [SessionKey], _ trail: String) {
-      let run = members.compactMap(\.sessionKey)
-      let written = TaskMembership.storing(run, replaced: replaced, into: file, loaded: true)
-      runs += 1
-      if written != run { failures.append(trail) }
-      if TaskMembership.merged(stored: file, runtime: members, replaced: replaced, loaded: true) != members {
-        failures.append("hydrate " + trail)
-      }
-      guard trail.split(separator: " ").count < 4 else { return }
-      for old in run {
-        for new in keys {
-          guard let next = TaskMembership.replacing(old, with: new, in: members) else { continue }
-          let map = TaskMembership.recording(old, replacedBy: new, in: replaced)
-          let step = "\(trail) \(old.rawValue)>\(new.rawValue)"
-          walk(next, map, file, step)
-          walk(next, map, written, step + "*")
-        }
-      }
-    }
-    walk(stored.map(TaskMember.session), [:], stored, "")
-    #expect(runs > 1_000)
-    #expect(failures.isEmpty, "\(failures.count) of \(runs) runs, first: \(failures.prefix(5))")
+      storedSessions: storedSessions, createdAt: Self.createdAt)
   }
 
   @Test func aLoadedCallersOrderIsWrittenAndNothingStoredIsDropped() async {
@@ -738,22 +535,151 @@ struct LayoutsIncrementalWriterTests {
     let minted = LayoutID(task: UUID())
     let (one, two, three) = (sessionKey("one"), sessionKey("two"), sessionKey("three"))
     await writer.flush(records: [minted: change(layout("/w1"), sessions: [one, two])])
-    let loaded = { (sessions: [SessionKey], replaced: [SessionKey: SessionKey]) in
-      LayoutsIncrementalWriter.RecordChange.record(
-        layout: self.layout("/w1"), directory: TaskRecord.Directory(worktreeID: "/w1"), sessions: sessions,
-        replaced: replaced, sessionsLoaded: true, createdAt: Self.createdAt)
-    }
 
-    // one>two, two>one, two>three, one>two: the replacement map alone puts
-    // `three` ahead of `one`.
-    let replaced = [three: one, two: one]
-    #expect(TaskMembership.storing([two, one, three], replaced: replaced, into: [one, two]) != [two, one, three])
-    await writer.flush(records: [minted: loaded([two, one, three], replaced)])
+    await writer.flush(records: [minted: change(sessions: [two, one, three], storedSessions: .loaded)])
     #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [two, one, three])
 
     // A stored session the list lacks still stays, after the listed ones.
-    await writer.flush(records: [minted: loaded([three, two], [:])])
+    await writer.flush(records: [minted: change(sessions: [three, two], storedSessions: .loaded)])
     #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [three, two, one])
+  }
+
+  /// Before the stored sessions load the run's list was built without them,
+  /// so no write may let it touch the stored list, in any order or number.
+  @Test func aCallerStillWaitingForTheStoredSessionsWritesNoneOfItsOwn() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let (stored, fresh) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    let (one, two, new) = (sessionKey("one"), sessionKey("two"), sessionKey("new"))
+    await writer.flush(records: [stored: change(layout("/w1"), sessions: [one, two])])
+
+    await writer.flush(records: [stored: change(sessions: [two], storedSessions: .pending)])
+    await writer.flush(records: [stored: change(sessions: [new, two, one], storedSessions: .pending)])
+    await writer.flush(records: [fresh: change(sessions: [new], storedSessions: .pending)])
+
+    #expect(readFile(defaults)?.tasks[stored.persistenceKey]?.sessions == [one, two])
+    // The task and its tabs are stored; its sessions follow the load.
+    #expect(readFile(defaults)?.tasks[fresh.persistenceKey]?.sessions == [])
+    #expect(readFile(defaults)?.tasks[fresh.persistenceKey]?.layout.panes.isEmpty == false)
+
+    await writer.flush(records: [fresh: change(sessions: [new], storedSessions: .loaded)])
+    #expect(readFile(defaults)?.tasks[fresh.persistenceKey]?.sessions == [new])
+  }
+
+  @Test func aCallerThatCannotReadTheStoredSessionsOnlyAddsToThem() {
+    let (one, two, new) = (sessionKey("one"), sessionKey("two"), sessionKey("new"))
+    #expect(TaskMembership.storing([new, two, one], into: [one, two], known: .unreadable) == [one, two, new])
+  }
+
+  /// The review's sequence: stored `[a, b]`, then a>b, b>a, b>c, c>b before
+  /// the load, with a write after every step.
+  @Test func replacementsBeforeTheLoadWithWritesBetweenKeepTheStoredPrimary() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let minted = LayoutID(task: UUID())
+    let (primary, tangent, third) = (sessionKey("a"), sessionKey("b"), sessionKey("c"))
+    await writer.flush(records: [minted: change(layout("/w1"), sessions: [primary, tangent])])
+    var run: [TaskMember] = [.session(primary), .session(tangent)]
+    var queued: [TaskMembership.Change] = []
+    for (old, new) in [(primary, tangent), (tangent, primary), (tangent, third), (third, tangent)] {
+      run = TaskMembership.replacing(old, with: new, in: run) ?? run
+      queued.append(.replaced(minted, old: old, new: new))
+      await writer.flush(records: [minted: change(sessions: run.compactMap(\.sessionKey), storedSessions: .pending)])
+    }
+    let stored = readFile(defaults)?.tasks[minted.persistenceKey]?.sessions ?? []
+    #expect(stored == [primary, tangent])
+
+    let loaded = TaskMembership.replaying(queued, for: minted, onto: stored).compactMap(\.sessionKey)
+    #expect(loaded == [primary, tangent, third])
+    await writer.flush(records: [minted: change(sessions: loaded, storedSessions: .loaded)])
+    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [primary, tangent, third])
+  }
+
+  /// Every run of up to four replacements over a stored two-session task,
+  /// with the load after any number of them and a write after any step: the
+  /// task ends, in the run and in the store, as if the stored sessions had
+  /// been there from the start. Before the load each agent has only
+  /// reported what it runs, in either order.
+  @Test func everyWalkOfReplacementsAroundTheLoadEndsAsIfLoadedFirst() {
+    let keys = ["a", "b", "c", "d"].map(sessionKey)
+    let stored = Array(keys.prefix(2))
+    let minted = LayoutID(task: UUID())
+    let surfaces = [UUID(), UUID()]
+    func ref(_ key: SessionKey) -> String { String(key.rawValue.dropFirst(3)) }
+    var failures: [String] = []
+    var runs = 0
+    struct Walk {
+      /// The task had the stored sessions loaded before anything happened.
+      var exact: [TaskMember]
+      /// The run's list: without the stored sessions until `loaded`.
+      var run: [TaskMember]
+      var queued: [TaskMembership.Change] = []
+      var loaded = false
+      var file: [SessionKey]
+      /// The session each surface runs.
+      var running: [SessionKey]
+    }
+    func agents(_ walk: Walk) -> [TaskAgent] {
+      zip(surfaces, walk.running).map {
+        TaskAgent(layoutID: minted, harness: .pi, surfaceID: $0, sessionRef: ref($1))
+      }
+    }
+    func apply(_ change: TaskMembership.Change, to walk: inout Walk) {
+      for path in [\Walk.exact, \Walk.run] {
+        switch change {
+        case .agents(let agents):
+          walk[keyPath: path] = TaskMembership.reconciled([minted: walk[keyPath: path]], agents: agents)[minted] ?? []
+        case .replaced(_, let old, let new):
+          walk[keyPath: path] = TaskMembership.replacing(old, with: new, in: walk[keyPath: path]) ?? walk[keyPath: path]
+        }
+      }
+      if !walk.loaded { walk.queued.append(change) }
+    }
+    func write(_ walk: inout Walk) {
+      walk.file = TaskMembership.storing(
+        walk.run.compactMap(\.sessionKey), into: walk.file, known: walk.loaded ? .loaded : .pending)
+    }
+    func load(_ walk: inout Walk) {
+      walk.run = TaskMembership.replaying(walk.queued, for: minted, onto: walk.file)
+      walk.queued = []
+      walk.loaded = true
+    }
+    func step(_ walk: Walk, _ trail: String, depth: Int) {
+      runs += 1
+      var end = walk
+      if !end.loaded { load(&end) }
+      write(&end)
+      if end.run != end.exact || end.file != end.exact.compactMap(\.sessionKey) { failures.append(trail) }
+      guard depth < 4 else { return }
+      for surface in surfaces.indices {
+        for new in keys where new != walk.running[surface] {
+          var next = walk
+          let old = next.running[surface]
+          next.running[surface] = new
+          apply(.replaced(minted, old: old, new: new), to: &next)
+          apply(.agents(agents(next)), to: &next)
+          let name = "\(trail) \(ref(old))>\(ref(new))"
+          step(next, name, depth: depth + 1)
+          var written = next
+          write(&written)
+          step(written, name + "*", depth: depth + 1)
+          guard !next.loaded else { continue }
+          var loaded = next
+          load(&loaded)
+          step(loaded, name + "!", depth: depth + 1)
+        }
+      }
+    }
+    for running in [[keys[0], keys[1]], [keys[1], keys[0]]] {
+      var start = Walk(exact: stored.map(TaskMember.session), run: [], file: stored, running: running)
+      // The second surface's agent reports first.
+      let second = TaskAgent(layoutID: minted, harness: .pi, surfaceID: surfaces[1], sessionRef: ref(running[1]))
+      apply(.agents([second]), to: &start)
+      apply(.agents(agents(start)), to: &start)
+      step(start, running.map(ref).joined(), depth: 0)
+    }
+    #expect(runs > 10_000)
+    #expect(failures.isEmpty, "\(failures.count) of \(runs) runs, first: \(failures.prefix(5))")
   }
 
   @Test func taskWithSessionsKeepsItsRecordWhenItsLastTabCloses() async {

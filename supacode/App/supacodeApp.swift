@@ -237,7 +237,7 @@ struct SupacodeApp: App {
     case .file(let file): store.send(.terminals(.layoutsHydrated(file)))
     // Nothing stored is loaded too: the run's order of a task's sessions is all there is.
     case .absent: store.send(.terminals(.layoutsHydrated(TaskLayoutsFile())))
-    case .unreadable: return
+    case .unreadable: store.send(.terminals(.storedSessionsUnreadable))
     }
   }
 

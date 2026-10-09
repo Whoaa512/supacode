@@ -727,7 +727,7 @@ struct TerminalsFeatureTests {
       ]))
     let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
     await store.send(.layoutsHydrated(file)) {
-      $0.storedSessionsLoaded = true
+      $0.storedSessions = .loaded
       $0.layouts = [LayoutFeature.State(id: LayoutID(legacyWorktreeKey: "/tmp/good"), layout: good)]
       $0.directories = [LayoutID(legacyWorktreeKey: "/tmp/good"): TaskRecord.Directory(worktreeID: "/tmp/good")]
     }
@@ -740,7 +740,7 @@ struct TerminalsFeatureTests {
     let task = TaskRecord(id: taskID, directory: directory, layout: layout, createdAt: Date(timeIntervalSince1970: 1))
     let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
     await store.send(.layoutsHydrated(TaskLayoutsFile(tasks: [taskID.persistenceKey: task]))) {
-      $0.storedSessionsLoaded = true
+      $0.storedSessions = .loaded
       $0.layouts = [LayoutFeature.State(id: taskID, layout: layout)]
       $0.directories = [taskID: directory]
     }
@@ -771,7 +771,7 @@ struct TerminalsFeatureTests {
       ]))
     let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
     await store.send(.layoutsHydrated(file)) {
-      $0.storedSessionsLoaded = true
+      $0.storedSessions = .loaded
       $0.layouts = [LayoutFeature.State(id: LayoutID(legacyWorktreeKey: "/tmp/a"), layout: first)]
       $0.directories = [LayoutID(legacyWorktreeKey: "/tmp/a"): TaskRecord.Directory(worktreeID: "/tmp/a")]
     }
@@ -790,7 +790,7 @@ struct TerminalsFeatureTests {
       .layoutsHydrated(
         TaskLayoutsFile(oneTaskPerDirectory: LayoutsFile(worktrees: ["/tmp/repo": LayoutRecord(layout: persisted)])))
     ) {
-      $0.storedSessionsLoaded = true
+      $0.storedSessions = .loaded
     }
   }
 
@@ -804,7 +804,7 @@ struct TerminalsFeatureTests {
     )
     let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
     await store.send(.layoutsHydrated(file)) {
-      $0.storedSessionsLoaded = true
+      $0.storedSessions = .loaded
       $0.layoutsAreReadOnly = true
       $0.layouts = [LayoutFeature.State(id: taskID, layout: good)]
       $0.directories = [taskID: directory]
@@ -1045,98 +1045,134 @@ struct TerminalsFeatureTests {
     #expect(store.state.layouts[id: minted]?.layout.panes.isEmpty == true)
   }
 
-  @Test(.dependencies) func hydrationKeepsAReplacementMadeBeforeTheFileLoaded() async {
+  /// The review's sequence, all before the file loaded: stored `[a, b]`,
+  /// then a>b, b>a, b>c, c>b. Whichever agent reported first, the task ends
+  /// as it would have had the stored sessions been there from the start.
+  @Test(.dependencies, arguments: [false, true])
+  func replacementsBeforeTheStoredSessionsLoadAreAppliedToTheStoredOrder(tangentReportsFirst: Bool) async {
     let minted = LayoutID(task: UUID())
     let key = { SessionKey(harness: .pi, sessionID: $0) }
+    let (primary, tangent, third) = (key("a"), key("b"), key("c"))
     var record = Self.task(minted, on: "/tmp/repo")
-    record.sessions = [key("one"), key("two"), key("three")]
-    var initial = TerminalsFeature.State()
-    // Before the file loaded: `/new` on the primary, a stored tangent resumed
-    // over another, and an agent still waiting for its session.
-    let waiting = TaskMember.provisional(harness: .pi, surfaceID: UUID())
-    initial.members[minted] = [.session(key("new")), .session(key("one")), waiting, .session(key("three"))]
-    initial.replacedSessions[minted] = [key("new"): key("one"), key("three"): key("two")]
-    let store = TestStore(initialState: initial) { TerminalsFeature() }
+    record.sessions = [primary, tangent]
+    let reported = LockIsolated<[LayoutID]>([])
+    let store = TestStore(initialState: TerminalsFeature.State()) {
+      TerminalsFeature()
+    } withDependencies: {
+      $0[LayoutChangeObserver.self].sessionsChanged = { id in reported.withValue { $0.append(id) } }
+    }
     store.exhaustivity = .off
+    let agent = { (surface: UUID, key: SessionKey) in
+      TaskAgent(layoutID: minted, harness: .pi, surfaceID: surface, sessionRef: String(key.rawValue.dropFirst(3)))
+    }
+    let (left, right) = (UUID(), UUID())
+
+    let first = tangentReportsFirst ? tangent : primary
+    let second = tangentReportsFirst ? primary : tangent
+    await store.send(.membersChanged([minted: [.session(first)]], agents: [agent(left, first)]))
+    await store.send(
+      .membersChanged(
+        [minted: [.session(first), .session(second)]], agents: [agent(left, first), agent(right, second)]))
+    #expect(store.state.members[minted]?.first == .session(first))
+    await store.send(.sessionReplaced(minted, old: primary, new: tangent))
+    await store.send(.sessionReplaced(minted, old: tangent, new: primary))
+    await store.send(.sessionReplaced(minted, old: tangent, new: third))
+    await store.send(.sessionReplaced(minted, old: third, new: tangent))
+    await store.finish()
+    reported.setValue([])
 
     await store.send(.layoutsHydrated(Self.file([record])))
+    await store.finish()
+    let members: [TaskMember] = [.session(primary), .session(tangent), .session(third)]
+    #expect(store.state.members[minted] == members, "the stored primary still leads")
+    #expect(store.state.pendingMembership.isEmpty)
+    // Nothing was written while the stored sessions were pending.
+    #expect(reported.value == [minted])
 
-    // `three` replaced `two`, but the run never listed `two`: it stays put.
-    #expect(
-      store.state.members[minted]
-        == [.session(key("new")), .session(key("one")), .session(key("two")), .session(key("three")), waiting])
+    await store.send(.layoutsHydrated(Self.file([record])))
+    #expect(store.state.members[minted] == members)
   }
 
-  @Test(.dependencies) func hydrationKeepsTheOrderOfTwoReplacementsOfTheSameSession() async {
+  /// A stored tangent that reports before the stored primary does not lead
+  /// once the file is read, and an agent still waiting keeps its place.
+  @Test(.dependencies) func aTangentReportingFirstDoesNotBecomeThePrimary() async {
     let minted = LayoutID(task: UUID())
     let key = { SessionKey(harness: .pi, sessionID: $0) }
     var record = Self.task(minted, on: "/tmp/repo")
     record.sessions = [key("one"), key("two")]
-    var initial = TerminalsFeature.State()
-    // Before the file loaded: the tangent resumed over the primary, then
-    // the old primary resumed on another tab and `/new` there.
-    let members: [TaskMember] = [.session(key("two")), .session(key("new")), .session(key("one"))]
-    initial.members[minted] = members
-    initial.replacedSessions[minted] = [key("two"): key("one"), key("new"): key("one")]
-    let store = TestStore(initialState: initial) { TerminalsFeature() }
+    let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
     store.exhaustivity = .off
+    let (left, right) = (UUID(), UUID())
+    let waiting = TaskMember.provisional(harness: .pi, surfaceID: right)
+    let agents = [
+      TaskAgent(layoutID: minted, harness: .pi, surfaceID: left, sessionRef: "two"),
+      TaskAgent(layoutID: minted, harness: .pi, surfaceID: right, sessionRef: nil),
+    ]
 
+    await store.send(.membersChanged([minted: [.session(key("two")), waiting]], agents: agents))
     await store.send(.layoutsHydrated(Self.file([record])))
-    #expect(store.state.members[minted] == members, "the primary the run chose survives the load")
 
+    #expect(store.state.members[minted] == [.session(key("one")), .session(key("two")), waiting])
+  }
+
+  /// A replacement of a session only the stored list names moves nothing
+  /// before the load and is still applied by it.
+  @Test(.dependencies) func aReplacementOfASessionOnlyTheStoreNamesIsAppliedAtTheLoad() async {
+    let minted = LayoutID(task: UUID())
+    let key = { SessionKey(harness: .pi, sessionID: $0) }
+    var record = Self.task(minted, on: "/tmp/repo")
+    record.sessions = [key("one"), key("two")]
+    let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
+    store.exhaustivity = .off
+    let agent = TaskAgent(layoutID: minted, harness: .pi, surfaceID: UUID(), sessionRef: "new")
+
+    await store.send(.sessionReplaced(minted, old: key("two"), new: key("new")))
+    #expect(store.state.members[minted] == nil)
+    await store.send(.membersChanged([minted: [.session(key("new"))]], agents: [agent]))
     await store.send(.layoutsHydrated(Self.file([record])))
+
+    #expect(store.state.members[minted] == [.session(key("one")), .session(key("new")), .session(key("two"))])
+  }
+
+  /// A task minted this run and written before the load is stored with no
+  /// session: the run's list, launch primary first, is all there is.
+  @Test(.dependencies) func aTaskStoredWithNoSessionKeepsTheRunsOrder() async {
+    let minted = LayoutID(task: UUID())
+    let key = { SessionKey(harness: .pi, sessionID: $0) }
+    let members: [TaskMember] = [.session(key("resumed")), .session(key("reported"))]
+    let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
+    store.exhaustivity = .off
+    let agent = TaskAgent(layoutID: minted, harness: .pi, surfaceID: UUID(), sessionRef: "reported")
+
+    await store.send(.membersChanged([minted: members], agents: [agent]))
+    await store.send(.layoutsHydrated(Self.file([Self.task(minted, on: "/tmp/repo")])))
+
     #expect(store.state.members[minted] == members)
   }
 
-  /// `/new` twice on the primary, then `/resume` of the middle session,
-  /// all before the file loaded: the stored primary must stay last.
-  @Test(.dependencies) func aSessionResumedOverItsOwnReplacementKeepsTheStoredAnchor() async {
+  @Test(.dependencies) func anUnreadableStoreEndsTheWaitAndWritesWhatTheRunLists() async {
     let minted = LayoutID(task: UUID())
-    let key = { SessionKey(harness: .pi, sessionID: $0) }
-    let (one, two, three) = (key("one"), key("two"), key("three"))
-    var record = Self.task(minted, on: "/tmp/repo")
-    record.sessions = [one]
-    var initial = TerminalsFeature.State()
-    initial.members[minted] = [.session(one)]
-    let store = TestStore(initialState: initial) { TerminalsFeature() }
+    let key = SessionKey(harness: .pi, sessionID: "one")
+    let reported = LockIsolated<[LayoutID]>([])
+    let store = TestStore(initialState: TerminalsFeature.State()) {
+      TerminalsFeature()
+    } withDependencies: {
+      $0[LayoutChangeObserver.self].sessionsChanged = { id in reported.withValue { $0.append(id) } }
+    }
     store.exhaustivity = .off
+    await store.send(.membersChanged([minted: [.session(key)]]))
+    await store.finish()
+    reported.setValue([])
 
-    await store.send(.sessionReplaced(minted, old: one, new: two))
-    await store.send(.sessionReplaced(minted, old: two, new: three))
-    await store.send(.sessionReplaced(minted, old: three, new: two))
-    let members: [TaskMember] = [.session(two), .session(three), .session(one)]
-    #expect(store.state.members[minted] == members)
-    let replaced = store.state.replacedSessions[minted] ?? [:]
-    #expect(TaskMembership.storing([two, three, one], replaced: replaced, into: [one]) == [two, three, one])
+    await store.send(.storedSessionsUnreadable)
+    await store.finish()
 
-    await store.send(.layoutsHydrated(Self.file([record])))
-    #expect(store.state.members[minted] == members, "the settled old primary must not lead again")
-    await store.send(.layoutsHydrated(Self.file([record])))
-    #expect(store.state.members[minted] == members)
-  }
-
-  /// A session that moves to another slot leaves the ones that replaced it
-  /// where they are: they keep the stored session they sit ahead of.
-  @Test(.dependencies) func aSessionMovedToAnotherSlotLeavesItsReplacementsAnchored() async {
-    let minted = LayoutID(task: UUID())
-    let key = { SessionKey(harness: .pi, sessionID: $0) }
-    let (one, tail, two, three) = (key("one"), key("tail"), key("two"), key("three"))
-    var record = Self.task(minted, on: "/tmp/repo")
-    record.sessions = [one, tail]
-    var initial = TerminalsFeature.State()
-    initial.members[minted] = [.session(one), .session(tail)]
-    let store = TestStore(initialState: initial) { TerminalsFeature() }
-    store.exhaustivity = .off
-
-    // Two replacements on the tangent's surface, then the middle one resumed over the primary.
-    await store.send(.sessionReplaced(minted, old: tail, new: two))
-    await store.send(.sessionReplaced(minted, old: two, new: three))
-    await store.send(.sessionReplaced(minted, old: one, new: two))
-    let members: [TaskMember] = [.session(two), .session(one), .session(three), .session(tail)]
-    #expect(store.state.members[minted] == members)
-
-    await store.send(.layoutsHydrated(Self.file([record])))
-    #expect(store.state.members[minted] == members)
+    #expect(store.state.storedSessions == .unreadable)
+    #expect(store.state.pendingMembership.isEmpty)
+    #expect(reported.value == [minted])
+    // Nothing is queued any more.
+    await store.send(.sessionReplaced(minted, old: key, new: SessionKey(harness: .pi, sessionID: "two")))
+    #expect(store.state.pendingMembership.isEmpty)
   }
 
   /// Once the stored sessions are loaded the run's order is the one to
@@ -1149,10 +1185,10 @@ struct TerminalsFeatureTests {
     record.sessions = [one, two]
     let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
     store.exhaustivity = .off
-    #expect(!store.state.storedSessionsLoaded)
+    #expect(store.state.storedSessions == .pending)
 
     await store.send(.layoutsHydrated(Self.file([record])))
-    #expect(store.state.storedSessionsLoaded)
+    #expect(store.state.storedSessions == .loaded)
     await store.send(.sessionReplaced(minted, old: one, new: two))
     await store.send(.sessionReplaced(minted, old: two, new: one))
     await store.send(.sessionReplaced(minted, old: two, new: three))
@@ -1216,7 +1252,6 @@ struct TerminalsFeatureTests {
     await store.send(.sessionReplaced(minted, old: key("one"), new: key("new")))
     await store.finish()
     #expect(store.state.members[minted] == [.session(key("new")), .session(key("one")), .session(key("two"))])
-    #expect(store.state.replacedSessions[minted] == [key("new"): key("one")])
 
     // A tangent's slot works the same way and the primary is untouched.
     await store.send(.sessionReplaced(minted, old: key("two"), new: key("fork")))
@@ -1233,14 +1268,12 @@ struct TerminalsFeatureTests {
     #expect(
       store.state.members[minted]
         == [.session(key("two")), .session(key("new")), .session(key("one")), .session(key("fork"))])
-    #expect(store.state.replacedSessions[minted]?[key("two")] == key("new"))
     #expect(reported.value == [minted, minted, minted])
     // One already ahead of the session it replaced stays where it is: a
     // primary resumed on a tangent's surface is still the primary.
     await store.send(.sessionReplaced(minted, old: key("fork"), new: key("two")))
     await store.finish()
     #expect(store.state.members[minted]?.first == .session(key("two")))
-    #expect(store.state.replacedSessions[minted]?[key("two")] == key("new"))
     await store.send(.sessionReplaced(minted, old: key("two"), new: key("fork")))
     await store.finish()
     #expect(
@@ -1256,8 +1289,9 @@ struct TerminalsFeatureTests {
     #expect(store.state.members[minted]?.count == 4)
     #expect(reported.value == [minted, minted])
 
-    // A removed task takes its slots with it.
+    // A removed task takes its queued changes with it.
+    #expect(store.state.pendingMembership.count == 7)
     await store.send(.detachLayout(worktreeID: minted))
-    #expect(store.state.replacedSessions[minted] == nil)
+    #expect(store.state.pendingMembership.count == 1)
   }
 }

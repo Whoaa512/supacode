@@ -1015,6 +1015,7 @@ struct WorktreeTerminalManagerAckTests {
     let surface = await openLayout(task, on: directory, in: harness, pump: pump)
     let key = SessionKey(harness: .pi, sessionID: "member")
 
+    await harness.store.send(.terminals(.layoutsHydrated(TaskLayoutsFile()))).finish()
     // Membership changes in the reducer; nothing here hands the writer a session.
     await harness.store.send(.terminals(.membersChanged([task: [.session(key)]]))).finish()
 
@@ -1040,6 +1041,7 @@ struct WorktreeTerminalManagerAckTests {
     _ = await openLayout(task, on: makeWorktree(id: "/tmp/repo/wt-replaced"), in: harness, pump: pump)
     let old = SessionKey(harness: .pi, sessionID: "old")
     let new = SessionKey(harness: .pi, sessionID: "new")
+    await harness.store.send(.terminals(.layoutsHydrated(TaskLayoutsFile()))).finish()
     await harness.store.send(.terminals(.membersChanged([task: [.session(old)]]))).finish()
     _ = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey]?.sessions == [old] }
 
@@ -1076,12 +1078,33 @@ struct WorktreeTerminalManagerAckTests {
     #expect(stored.tasks[task.persistenceKey]?.sessions == [two, one, three])
   }
 
+  /// Until the stored sessions load, a task is written without the run's
+  /// sessions; the load then writes them.
+  @Test(.dependencies) func aTasksSessionsAreWrittenOnlyOnceTheStoredOnesLoad() async {
+    let recorder = TeardownRecorder()
+    let clock = TestClock()
+    let harness = makeHarness(defaults: recorder.defaults, persistingOn: clock)
+    let pump = CreationEvents(harness.manager)
+    let task = LayoutID(task: UUID())
+    _ = await openLayout(task, on: makeWorktree(id: "/tmp/repo/wt-pending"), in: harness, pump: pump)
+    let key = SessionKey(harness: .pi, sessionID: "member")
+
+    await harness.store.send(.terminals(.membersChanged([task: [.session(key)]]))).finish()
+    let before = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey] != nil }
+    #expect(before.tasks[task.persistenceKey]?.sessions == [])
+
+    await harness.store.send(.terminals(.layoutsHydrated(before))).finish()
+    let after = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey]?.sessions.isEmpty == false }
+    #expect(after.tasks[task.persistenceKey]?.sessions == [key])
+  }
+
   @Test(.dependencies) func theQuitTimeSaveCarriesSessionsTheDebounceHasNotWrittenYet() async {
     let recorder = TeardownRecorder()
     let harness = makeHarness(defaults: recorder.defaults, persistingOn: TestClock())
     let pump = CreationEvents(harness.manager)
     let task = LayoutID(task: UUID())
     _ = await openLayout(task, on: makeWorktree(id: "/tmp/repo/wt-quit"), in: harness, pump: pump)
+    await harness.store.send(.terminals(.layoutsHydrated(TaskLayoutsFile()))).finish()
     let key = SessionKey(harness: .pi, sessionID: "member")
     await harness.store.send(.terminals(.membersChanged([task: [.session(key)]]))).finish()
 

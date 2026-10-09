@@ -209,76 +209,64 @@ nonisolated enum TaskMembership {
     return result
   }
 
-  /// `replaced` with `new` now recorded as sitting ahead of `old`. Whatever
-  /// was recorded ahead of `new` stays where it is, so it is handed the
-  /// session `new` was ahead of: the link to a stored session is passed on,
-  /// never overwritten, and the map cannot loop.
-  static func recording(
-    _ old: SessionKey, replacedBy new: SessionKey, in replaced: [SessionKey: SessionKey]
-  ) -> [SessionKey: SessionKey] {
-    var result = replaced
-    let former = replaced[new]
-    // With nothing to hand on, the entries stay: `storing` reads the pair
-    // as `new` having moved back ahead of them.
-    if let former {
-      for (session, anchor) in replaced where anchor == new { result[session] = session == former ? nil : former }
-    }
-    result[new] = old
-    return result
+  /// What the run knows of the sessions the store lists for its tasks.
+  enum StoredSessions: Equatable, Sendable {
+    /// Not read yet. The run's lists hold only what it has seen, so nothing
+    /// is written from them, and every change is queued for the load.
+    case pending
+    /// Merged into the run's lists, whose order is the one to keep.
+    case loaded
+    /// Could not be read and never will be this run. The run's lists may
+    /// lack stored sessions, so they only ever add to a stored list.
+    case unreadable
   }
 
-  /// The stored order with the caller's replacements and unlisted sessions
-  /// applied: a session that replaced a stored one goes into that one's slot,
-  /// any other unlisted session after the rest. Nothing stored is dropped,
-  /// and a stored session moves only up, only for a replacement the caller
-  /// names, and only when the caller's own order agrees. The map outlives
-  /// each replacement, so one the caller's order contradicts is stale.
-  ///
-  /// A caller that has loaded the stored list (`loaded`) lists everything in
-  /// it and has kept the order since, so its order is the answer as it is.
-  static func storing(
-    _ sessions: [SessionKey], replaced: [SessionKey: SessionKey], into stored: [SessionKey], loaded: Bool = false
-  ) -> [SessionKey] {
-    if loaded { return sessions + stored.filter { !sessions.contains($0) } }
-    var result = stored
-    var appended: [SessionKey] = []
-    var placed: Set<SessionKey> = []
-    // Everything placed so far follows `session` in the caller's list, so it
-    // goes ahead of whatever was already placed in front of its slot: two
-    // sessions that replaced the same one keep the caller's order.
-    func place(_ session: SessionKey, at slot: Int) {
-      var index = slot
-      while index > 0, placed.contains(result[index - 1]) { index -= 1 }
-      result.insert(session, at: index)
-      placed.insert(session)
+  /// A change to a task's members made before the stored sessions loaded,
+  /// kept so it can be applied again to the stored list once it is known.
+  enum Change: Equatable, Sendable {
+    case agents([TaskAgent])
+    case replaced(LayoutID, old: SessionKey, new: SessionKey)
+
+    /// The change without anything about `layoutID`, or `nil` when nothing is left.
+    func dropping(_ layoutID: LayoutID) -> Change? {
+      switch self {
+      case .agents(let agents):
+        // An empty report still clears agents that stopped waiting.
+        .agents(agents.filter { $0.layoutID != layoutID })
+      case .replaced(layoutID, _, _): nil
+      case .replaced: self
+      }
     }
-    // Newest replacement first in the caller's list, so walking it backwards
-    // places a chain (C replaced B replaced A) one link at a time.
-    for session in sessions.reversed() {
-      let slot = replaced[session].flatMap { result.firstIndex(of: $0) }
-      guard let current = result.firstIndex(of: session) else {
-        if let slot { place(session, at: slot) } else { appended.insert(session, at: 0) }
+  }
+
+  /// What to store for a task whose record lists `stored` and whose run
+  /// lists `sessions`. Nothing stored is ever dropped. A run that has loaded
+  /// the stored list owns the order; one that has not read it yet leaves it
+  /// alone, because its own order was built without it; one that never can
+  /// adds what is new after it.
+  static func storing(_ sessions: [SessionKey], into stored: [SessionKey], known: StoredSessions) -> [SessionKey] {
+    switch known {
+    case .pending: stored
+    case .loaded: sessions + stored.filter { !sessions.contains($0) }
+    case .unreadable: stored + sessions.filter { !stored.contains($0) }
+    }
+  }
+
+  /// A task's members had its stored sessions been there from the start:
+  /// the stored list with every change this run queued applied in order.
+  static func replaying(_ changes: [Change], for layoutID: LayoutID, onto stored: [SessionKey]) -> [TaskMember] {
+    var members = stored.map(TaskMember.session)
+    for change in changes {
+      switch change {
+      case .agents(let agents):
+        members = reconciled([layoutID: members], agents: agents.filter { $0.layoutID == layoutID })[layoutID] ?? []
+      case .replaced(layoutID, let old, let new):
+        members = replacing(old, with: new, in: members) ?? members
+      case .replaced:
         continue
       }
-      guard let slot, slot < current, let old = replaced[session],
-        let callerNew = sessions.firstIndex(of: session), let callerOld = sessions.firstIndex(of: old),
-        callerNew < callerOld
-      else { continue }
-      result.remove(at: current)
-      place(session, at: slot)
     }
-    return result + appended
-  }
-
-  /// Stored sessions first, then whatever this run added before they
-  /// loaded. A replacement made before the load is placed the way the writer
-  /// will store it, so the two orders agree.
-  static func merged(
-    stored: [SessionKey], runtime: [TaskMember], replaced: [SessionKey: SessionKey] = [:], loaded: Bool = false
-  ) -> [TaskMember] {
-    let known = storing(runtime.compactMap(\.sessionKey), replaced: replaced, into: stored, loaded: loaded)
-      .map(TaskMember.session)
-    return known + runtime.filter { !known.contains($0) }
+    return members
   }
 
   private struct Waiting: Hashable {

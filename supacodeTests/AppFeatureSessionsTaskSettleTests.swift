@@ -101,6 +101,7 @@ struct AppFeatureSessionsTaskSettleTests {
         second.sessionRef.map { .session(key($0)) } ?? .provisional(harness: .pi, surfaceID: secondSurface))
     }
     state.terminals.members = [task: members, otherTask: [.session(key("other"))]]
+    state.terminals.storedSessions = .loaded
     return withRows(state)
   }
 
@@ -193,7 +194,6 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(recorded.closed.value.isEmpty, "no surface closes")
     #expect(surfaces(of: task, in: store) == [primarySurface, secondSurface])
     #expect(recorded.written.value.contains(task), "the new order is stored")
-    #expect(store.state.terminals.replacedSessions[task] == [key("n"): key("a")])
     #expect(store.state.terminals.members[otherTask] == [.session(key("other"))], "no other task changes")
     #expect(store.state.terminals.layouts.count == 2, "and none is minted")
     #expect(store.state.repositories.sessionItems[id: .session(key("n"))]?.location?.layoutID == task)
@@ -311,6 +311,22 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(AppFeature.isTaskSettled(task, state: store.state))
     #expect(recorded.closed.value == [primarySurface, secondSurface], "every tab of the task, and no other")
     #expect(store.state.terminals.members[task] == [.session(key("a"))], "still there to reopen")
+  }
+
+  /// Until the stored sessions load, whichever agent reported first leads
+  /// the run's list, and it may be a tangent of a stored primary.
+  @Test(.dependencies) func aQuitBeforeTheStoredSessionsLoadClosesNothing() async {
+    confirmClose(.never)
+    let recorded = Recorded()
+    var initial = state()
+    initial.terminals.storedSessions = .pending
+    let store = store(initial, recorded: recorded)
+
+    await send("session_end", on: primarySurface, ref: "a", reason: "quit", to: store)
+
+    #expect(settledAt("a", in: store) == now, "the ended session is still marked")
+    #expect(recorded.closed.value.isEmpty)
+    #expect(surfaces(of: task, in: store) == [primarySurface, secondSurface])
   }
 
   @Test(.dependencies, arguments: [true, false])
