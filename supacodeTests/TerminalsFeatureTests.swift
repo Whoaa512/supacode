@@ -155,6 +155,7 @@ struct TerminalsFeatureTests {
     await harness.store.send(.selectedLayoutChanged(harness.worktreeID)) {
       $0.selectedLayoutID = harness.worktreeID
       $0.recentLayoutIDs = [harness.worktreeID]
+      $0.selectionOrder = [harness.worktreeID]
       $0.hibernationArmedTabs = [harness.hiddenTab]
     }
     await harness.clock.advance(by: TerminalsFeature.hibernationGraceWindow)
@@ -175,6 +176,7 @@ struct TerminalsFeatureTests {
     await harness.store.send(.selectedLayoutChanged(harness.worktreeID)) {
       $0.selectedLayoutID = harness.worktreeID
       $0.recentLayoutIDs = [harness.worktreeID]
+      $0.selectionOrder = [harness.worktreeID]
       $0.hibernationArmedTabs = [harness.hiddenTab]
     }
     // Selecting the hidden tab makes it visible and hides the other one.
@@ -203,6 +205,7 @@ struct TerminalsFeatureTests {
     await harness.store.send(.selectedLayoutChanged(harness.worktreeID)) {
       $0.selectedLayoutID = harness.worktreeID
       $0.recentLayoutIDs = [harness.worktreeID]
+      $0.selectionOrder = [harness.worktreeID]
       $0.hibernationArmedTabs = [harness.hiddenTab]
     }
     $settingsFile.withLock { $0.global.terminalHibernationEnabled = false }
@@ -221,6 +224,7 @@ struct TerminalsFeatureTests {
     await harness.store.send(.selectedLayoutChanged(harness.worktreeID)) {
       $0.selectedLayoutID = harness.worktreeID
       $0.recentLayoutIDs = [harness.worktreeID]
+      $0.selectionOrder = [harness.worktreeID]
       $0.hibernationArmedTabs = [harness.hiddenTab]
     }
     await harness.clock.advance(by: TerminalsFeature.hibernationGraceWindow)
@@ -249,6 +253,7 @@ struct TerminalsFeatureTests {
     await harness.store.send(.selectedLayoutChanged(harness.worktreeID)) {
       $0.selectedLayoutID = harness.worktreeID
       $0.recentLayoutIDs = [harness.worktreeID]
+      $0.selectionOrder = [harness.worktreeID]
       $0.hibernationArmedTabs = [harness.hiddenTab]
       $0.wakeRequestedTabs = [harness.selectedTab]
     }
@@ -281,6 +286,7 @@ struct TerminalsFeatureTests {
     await harness.store.send(.selectedLayoutChanged(LayoutID(legacyWorktreeKey: "/tmp/other"))) {
       $0.selectedLayoutID = LayoutID(legacyWorktreeKey: "/tmp/other")
       $0.recentLayoutIDs = [LayoutID(legacyWorktreeKey: "/tmp/other")]
+      $0.selectionOrder = [LayoutID(legacyWorktreeKey: "/tmp/other")]
     }
     await harness.clock.advance(by: TerminalsFeature.hibernationGraceWindow)
     await harness.store.receive(\.hibernationGraceElapsed) {
@@ -306,6 +312,7 @@ struct TerminalsFeatureTests {
     await harness.store.send(.selectedLayoutChanged(LayoutID(legacyWorktreeKey: "/tmp/other"))) {
       $0.selectedLayoutID = LayoutID(legacyWorktreeKey: "/tmp/other")
       $0.recentLayoutIDs = [LayoutID(legacyWorktreeKey: "/tmp/other")]
+      $0.selectionOrder = [LayoutID(legacyWorktreeKey: "/tmp/other")]
     }
     // Re-attaching withdraws the exemption: the selection is hidden again.
     await harness.store.send(
@@ -410,6 +417,7 @@ struct TerminalsFeatureTests {
     await store.send(.selectedLayoutChanged(worktreeID)) {
       $0.selectedLayoutID = worktreeID
       $0.recentLayoutIDs = [worktreeID]
+      $0.selectionOrder = [worktreeID]
       // Pane B sits behind the zoom, so its selection is hidden and arms.
       $0.hibernationArmedTabs = [tabB]
     }
@@ -427,6 +435,7 @@ struct TerminalsFeatureTests {
     await harness.store.send(.selectedLayoutChanged(LayoutID(legacyWorktreeKey: "/tmp/other"))) {
       $0.selectedLayoutID = LayoutID(legacyWorktreeKey: "/tmp/other")
       $0.recentLayoutIDs = [LayoutID(legacyWorktreeKey: "/tmp/other")]
+      $0.selectionOrder = [LayoutID(legacyWorktreeKey: "/tmp/other")]
       $0.hibernationArmedTabs = [harness.selectedTab, harness.hiddenTab]
     }
     await harness.store.send(.detachLayout(worktreeID: harness.worktreeID)) {
@@ -445,6 +454,7 @@ struct TerminalsFeatureTests {
     await harness.store.send(.selectedLayoutChanged(harness.worktreeID)) {
       $0.selectedLayoutID = harness.worktreeID
       $0.recentLayoutIDs = [harness.worktreeID]
+      $0.selectionOrder = [harness.worktreeID]
       $0.hibernationArmedTabs = [harness.hiddenTab]
     }
     // Deselecting keeps the worktree inside the recency window, so its visible
@@ -453,6 +463,7 @@ struct TerminalsFeatureTests {
     await harness.store.send(.selectedLayoutChanged(LayoutID(legacyWorktreeKey: "/tmp/other"))) {
       $0.selectedLayoutID = LayoutID(legacyWorktreeKey: "/tmp/other")
       $0.recentLayoutIDs = [LayoutID(legacyWorktreeKey: "/tmp/other"), harness.worktreeID]
+      $0.selectionOrder = [harness.worktreeID, LayoutID(legacyWorktreeKey: "/tmp/other")]
     }
     // Advance well past the grace window: a retained selection never arms, so no
     // amount of idle time hibernates it, while the stacked tab fires once.
@@ -476,6 +487,7 @@ struct TerminalsFeatureTests {
     await harness.store.send(.selectedLayoutChanged(harness.worktreeID)) {
       $0.selectedLayoutID = harness.worktreeID
       $0.recentLayoutIDs = [harness.worktreeID]
+      $0.selectionOrder = [harness.worktreeID]
       $0.hibernationArmedTabs = [harness.hiddenTab]
     }
     // Visit enough other worktrees to push this one past `liveWorktreeLimit`.
@@ -483,16 +495,19 @@ struct TerminalsFeatureTests {
     await harness.store.send(.selectedLayoutChanged(others[0])) {
       $0.selectedLayoutID = others[0]
       $0.recentLayoutIDs = [others[0], harness.worktreeID]
+      $0.selectionOrder = [harness.worktreeID, others[0]]
     }
     await harness.store.send(.selectedLayoutChanged(others[1])) {
       $0.selectedLayoutID = others[1]
       $0.recentLayoutIDs = [others[1], others[0], harness.worktreeID]
+      $0.selectionOrder = [harness.worktreeID, others[0], others[1]]
     }
     await harness.store.send(.selectedLayoutChanged(others[2])) {
       $0.selectedLayoutID = others[2]
       // The worktree drops out of the window, so its selection loses recency
       // cover and arms alongside the stacked tab.
       $0.recentLayoutIDs = [others[2], others[1], others[0]]
+      $0.selectionOrder = [harness.worktreeID, others[0], others[1], others[2]]
       $0.hibernationArmedTabs = [harness.hiddenTab, harness.selectedTab]
     }
     $settingsFile.withLock { $0.global.terminalHibernationEnabled = false }
@@ -586,10 +601,12 @@ struct TerminalsFeatureTests {
     await harness.store.send(.selectedLayoutChanged(harness.worktreeID)) {
       $0.selectedLayoutID = harness.worktreeID
       $0.recentLayoutIDs = [harness.worktreeID]
+      $0.selectionOrder = [harness.worktreeID]
     }
     await harness.store.send(.selectedLayoutChanged(LayoutID(legacyWorktreeKey: "/tmp/other"))) {
       $0.selectedLayoutID = LayoutID(legacyWorktreeKey: "/tmp/other")
       $0.recentLayoutIDs = [LayoutID(legacyWorktreeKey: "/tmp/other"), harness.worktreeID]
+      $0.selectionOrder = [harness.worktreeID, LayoutID(legacyWorktreeKey: "/tmp/other")]
     }
 
     harness.pressure.yield()
@@ -611,12 +628,14 @@ struct TerminalsFeatureTests {
     await harness.store.send(.selectedLayoutChanged(harness.worktreeID)) {
       $0.selectedLayoutID = harness.worktreeID
       $0.recentLayoutIDs = [harness.worktreeID]
+      $0.selectionOrder = [harness.worktreeID]
       $0.hibernationArmedTabs = [harness.hiddenTab]
     }
     // Deselect but stay recent: the selection is retained, never armed.
     await harness.store.send(.selectedLayoutChanged(LayoutID(legacyWorktreeKey: "/tmp/other"))) {
       $0.selectedLayoutID = LayoutID(legacyWorktreeKey: "/tmp/other")
       $0.recentLayoutIDs = [LayoutID(legacyWorktreeKey: "/tmp/other"), harness.worktreeID]
+      $0.selectionOrder = [harness.worktreeID, LayoutID(legacyWorktreeKey: "/tmp/other")]
     }
     // A grace timer that fired for the now-retained selection (a race the
     // arm-time cancel could miss) must not hibernate it: the fire-time gate wins.
@@ -639,6 +658,7 @@ struct TerminalsFeatureTests {
     await harness.store.send(.selectedLayoutChanged(harness.worktreeID)) {
       $0.selectedLayoutID = harness.worktreeID
       $0.recentLayoutIDs = [harness.worktreeID]
+      $0.selectionOrder = [harness.worktreeID]
       $0.hibernationArmedTabs = [harness.hiddenTab]
     }
     // The armed tab hibernates out of band (as a concurrent pressure sweep
@@ -662,15 +682,18 @@ struct TerminalsFeatureTests {
     await harness.store.send(.selectedLayoutChanged(worktreeA)) {
       $0.selectedLayoutID = worktreeA
       $0.recentLayoutIDs = [worktreeA]
+      $0.selectionOrder = [worktreeA]
     }
     await harness.store.send(.selectedLayoutChanged(worktreeB)) {
       $0.selectedLayoutID = worktreeB
       $0.recentLayoutIDs = [worktreeB, worktreeA]
+      $0.selectionOrder = [worktreeA, worktreeB]
     }
     // Re-selecting the first worktree moves it to front without duplicating or growing the list.
     await harness.store.send(.selectedLayoutChanged(worktreeA)) {
       $0.selectedLayoutID = worktreeA
       $0.recentLayoutIDs = [worktreeA, worktreeB]
+      $0.selectionOrder = [worktreeB, worktreeA]
     }
   }
 
@@ -681,10 +704,12 @@ struct TerminalsFeatureTests {
     await harness.store.send(.selectedLayoutChanged(harness.worktreeID)) {
       $0.selectedLayoutID = harness.worktreeID
       $0.recentLayoutIDs = [harness.worktreeID]
+      $0.selectionOrder = [harness.worktreeID]
     }
     await harness.store.send(.detachLayout(worktreeID: harness.worktreeID)) {
       $0.layouts = []
       $0.recentLayoutIDs = []
+      $0.selectionOrder = []
     }
   }
 
@@ -902,7 +927,60 @@ struct TerminalsFeatureTests {
     #expect(store.state.activeTasks.isEmpty)
     // The stale entry is cleared from the file, or the next launch restores it.
     #expect(reported.value == ["/tmp/a=nil"])
-    #expect(store.state.selectedDirectories.isEmpty)
+  }
+
+  @Test(.dependencies) func aSelectionAttachedAfterHydrationOutranksTheStoredTaskOnceTheUserMovedOn() async {
+    let selected = LayoutID(task: UUID())
+    let stored = LayoutID(task: UUID())
+    let other = LayoutID(legacyWorktreeKey: "/tmp/b")
+    let (store, reported) = makeResolverStore()
+    // Selected before anything names its directory, then the user moves on.
+    await store.send(.selectedLayoutChanged(selected))
+    await store.send(.selectedLayoutChanged(other))
+    await store.send(
+      .layoutsHydrated(
+        Self.file([Self.task(stored, on: "/tmp/a")], activeTasks: ["/tmp/a": stored.persistenceKey])))
+    await store.finish()
+    #expect(store.state.layoutID(forDirectory: "/tmp/a") == stored)
+
+    await store.send(
+      .attachLayout(worktreeID: selected, directory: TaskRecord.Directory(worktreeID: "/tmp/a"), titlePrefix: "a"))
+    await store.finish()
+    #expect(store.state.layoutID(forDirectory: "/tmp/a") == selected)
+    #expect(store.state.selectedLayoutID == other)
+    #expect(reported.value == ["/tmp/a=\(selected)"])
+  }
+
+  @Test(.dependencies) func aSelectionWhoseDirectoryHydrationNamesOutranksTheStoredTask() async {
+    let selected = LayoutID(task: UUID())
+    let stored = LayoutID(task: UUID())
+    let (store, reported) = makeResolverStore()
+    await store.send(.selectedLayoutChanged(selected))
+    await store.send(.selectedLayoutChanged(LayoutID(legacyWorktreeKey: "/tmp/b")))
+    await store.send(
+      .layoutsHydrated(
+        Self.file(
+          [Self.task(selected, on: "/tmp/a"), Self.task(stored, on: "/tmp/a")],
+          activeTasks: ["/tmp/a": stored.persistenceKey])))
+    await store.finish()
+    #expect(store.state.layoutID(forDirectory: "/tmp/a") == selected)
+    // One write for the directory, not a clear racing it.
+    #expect(reported.value == ["/tmp/a=\(selected)"])
+  }
+
+  @Test(.dependencies) func aLateAttachNeverOverridesALaterSelectionOnTheSameDirectory() async {
+    let early = LayoutID(task: UUID())
+    let later = LayoutID(task: UUID())
+    let directory = TaskRecord.Directory(worktreeID: "/tmp/a")
+    let (store, reported) = makeResolverStore()
+    await store.send(.selectedLayoutChanged(early))
+    await store.send(.attachLayout(worktreeID: later, directory: directory, titlePrefix: "a"))
+    await store.send(.selectedLayoutChanged(later))
+    await store.send(.selectedLayoutChanged(LayoutID(legacyWorktreeKey: "/tmp/b")))
+    await store.send(.attachLayout(worktreeID: early, directory: directory, titlePrefix: "a"))
+    await store.finish()
+    #expect(store.state.layoutID(forDirectory: "/tmp/a") == later)
+    #expect(reported.value == ["/tmp/a=\(later)"])
   }
 
   @Test(.dependencies) func aLayoutAttachedAfterItsSelectionBecomesItsDirectorysActiveTask() async {

@@ -50,10 +50,10 @@ struct TerminalsFeature {
     /// Each directory's most recently selected task. A directory with no
     /// entry resolves to the layout stored under its own key.
     var activeTasks: [Worktree.ID: LayoutID] = [:]
-    /// Directories selected since the layouts file last loaded. A selection
-    /// made before it loads outranks the stored entry even when it left no
-    /// `activeTasks` entry (the own-key layout); only hydration reads this.
-    var selectedDirectories: Set<Worktree.ID> = []
+    /// Every layout selected this run, oldest first. A selection can precede
+    /// both its directory (the host attaches later) and the stored entries
+    /// (the file loads later), and still has to outrank them once known.
+    var selectionOrder: [LayoutID] = []
     /// True when the persisted file was written by a newer schema; its records
     /// are served but must never be written back.
     var layoutsAreReadOnly = false
@@ -156,8 +156,9 @@ struct TerminalsFeature {
         state.layouts[id: worktreeID]?.titlePrefix = titlePrefix
         guard state.directories[worktreeID] == nil else { return .none }
         state.directories[worktreeID] = directory
-        // The selection can land before the host that names the directory.
-        guard state.selectedLayoutID == worktreeID else { return .none }
+        // The selection can land before the host that names the directory,
+        // and the user may have moved on to another directory since.
+        guard state.latestSelection(onDirectory: directory.worktreeID) == worktreeID else { return .none }
         return recordActiveTask(worktreeID, in: &state)
 
       case .replaceRestoredLayout(let worktreeID, let layout):
@@ -172,11 +173,16 @@ struct TerminalsFeature {
         state.directories.removeValue(forKey: worktreeID)
         state.activeTasks = state.activeTasks.filter { $0.value != worktreeID }
         state.recentLayoutIDs.removeAll { $0 == worktreeID }
+        state.selectionOrder.removeAll { $0 == worktreeID }
         return reconcileHibernation(&state)
 
       case .selectedLayoutChanged(let layoutID):
         state.selectedLayoutID = layoutID
         Self.recordSelection(layoutID, in: &state.recentLayoutIDs)
+        if let layoutID {
+          state.selectionOrder.removeAll { $0 == layoutID }
+          state.selectionOrder.append(layoutID)
+        }
         let activeTask = layoutID.map { recordActiveTask($0, in: &state) } ?? .none
         return .merge(reconcileHibernation(&state), activeTask)
 
@@ -213,25 +219,30 @@ struct TerminalsFeature {
           seenContentIDs.formUnion(contentIDs)
           seenTabIDs.formUnion(tabIDs)
         }
-        // Selected on its own key before this landed: the stored entry is
-        // older, and nothing has told the file so.
+        // A selection made this run is more recent than anything stored, and
+        // hydration may be what first names its directory. Applied before the
+        // stored entries so a directory gets one write, not a clear racing it.
+        let selectedDirectories = Set(state.selectionOrder.compactMap { state.directories[$0]?.worktreeID })
+        let activeTask = Effect<Action>.merge(
+          selectedDirectories.compactMap { state.latestSelection(onDirectory: $0) }
+            .map { recordActiveTask($0, in: &state) }
+        )
+        // Selected on its own key this run: the stored entry is older, and
+        // nothing has told the file so.
         var staleDirectories: [Worktree.ID] = []
         for (directory, key) in file.activeTasks {
           let directoryID = Worktree.ID(directory)
           guard let id = file.tasks[key]?.id, state.directories[id]?.worktreeID == directoryID,
             state.activeTasks[directoryID] == nil
           else { continue }
-          guard !state.selectedDirectories.contains(directoryID) else {
+          guard !selectedDirectories.contains(directoryID) else {
             staleDirectories.append(directoryID)
             continue
           }
           state.activeTasks[directoryID] = id
         }
-        // Hydration can land after the first selection, which is more recent
-        // than anything stored; re-diff so the restored hidden tabs arm and
-        // the visible selection wakes.
-        let activeTask = state.selectedLayoutID.map { recordActiveTask($0, in: &state) } ?? .none
-        state.selectedDirectories = []
+        // Hydration can land after the first selection; re-diff so the
+        // restored hidden tabs arm and the visible selection wakes.
         let clearStale: Effect<Action> =
           staleDirectories.isEmpty
           ? .none
@@ -264,6 +275,11 @@ extension TerminalsFeature.State {
     LayoutID(legacyWorktreeKey: directoryID.rawValue)
   }
 
+  /// The layout on a directory selected most recently this run, if any.
+  func latestSelection(onDirectory directoryID: Worktree.ID) -> LayoutID? {
+    selectionOrder.last { directories[$0]?.worktreeID == directoryID }
+  }
+
   /// Every layout on a directory, in key order.
   func layoutIDs(onDirectory directoryID: Worktree.ID) -> [LayoutID] {
     directories.filter { $0.value.worktreeID == directoryID }.map(\.key)
@@ -277,7 +293,6 @@ extension TerminalsFeature {
   /// so selecting it never writes.
   private func recordActiveTask(_ layoutID: LayoutID, in state: inout State) -> Effect<Action> {
     guard let directoryID = state.directories[layoutID]?.worktreeID else { return .none }
-    state.selectedDirectories.insert(directoryID)
     let active: LayoutID? = layoutID == State.ownKeyLayoutID(forDirectory: directoryID) ? nil : layoutID
     guard state.activeTasks[directoryID] != active else { return .none }
     state.activeTasks[directoryID] = active
