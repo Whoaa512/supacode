@@ -1164,3 +1164,28 @@ deviation.
   display name; `ContentRequest.worktreeID` and manager `worktreeID:` labels
   that carry a layout id (names only). Gate: check 0, build-app 0, full
   `make test` 3988 with only the 5 baseline failures.
+- T1, 2026-10-08: `TaskRecord` (+ `Directory { worktreeID, host }`),
+  the v3 DTO `TaskLayoutsFile` (schema 3, `tasks`, top-level `origins`,
+  `allKnownSurfaceIDs`) and the pure `LayoutsTaskSplitter.split(_:now:makeUUID:)`
+  added. Nothing wired; `LayoutsFile` and its consumers untouched. Decisions:
+  - `LayoutID.init(task: UUID)` is the one new constructor (a minted task id;
+    not a worktree conversion, so A32 still holds).
+  - Clock and ids are injected (`now`, `makeUUID`); directories are walked in
+    key order so a run is reproducible. All tasks of one migration share
+    `createdAt = now`.
+  - An agent task's pane gets a fresh pane id (two agent tabs from one v2
+    pane would otherwise share one); tab and content ids never change. The
+    shell task keeps its v2 pane ids and tree.
+  - The directory's host is parsed from the v2 key
+    (`RepositoryLocation.parse(persistedID:)`), the same form worktree ids
+    use; no roster lookup, so the split stays pure.
+  - `sessions` holds only keys that pass `SessionKey.isValid` (unknown
+    harness or unusable ref → the tab is still an agent task, with no
+    session), de-duplicated in record order.
+  - An empty v2 layout yields no task; its origin still moves to `origins`.
+  - The DTO decodes tolerantly like `LayoutsFile` and counts a dropped task,
+    a dropped origin or dropped tab content in `undecodedEntryCount`; the
+    splitter carries the input's count over. Stricter than v2 on origins
+    (v2 drops a rotten origin silently) because the origin still owns
+    surface ids. T2 owns refusing a lossy value (A9).
+  Gate: check 0, `LayoutsTaskSplitterTests` 17 pass, build-app 0.
