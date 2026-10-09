@@ -3309,3 +3309,31 @@ deviation.
   Gate (final tree): check 0; narrow suites exit 0 (400 tests, 0 failed);
   build-app 0; full `make test` exit 2 with 4518 tests and only the 5 known
   failures.
+- M2 r1, 2026-10-09: review fix (P0, held).
+  - A quit right after a detach lost the transfer's source update: the
+    quit-time save carried only removed sources and hosted tasks. A
+    never-opened source stayed stored with the moved tab (two stored tasks
+    holding one tab, so hydration drops a whole task), and a hosted source
+    was written without `releasing`, so the detached session stayed in its
+    stored list. Fix: the manager keeps `unwrittenTransfers` (flush
+    generation -> the two tasks and the sessions moved out), cleared when
+    that transfer's flush lands; `saveAllLayoutSnapshots` writes every such
+    task from the store as it is now, hosted or not, with the pending
+    releases. Removed sources stay on `removedByTransfer`.
+  - Sibling: a session moved out and back before either write landed (detach
+    then merge back) would be released from the task it returned to.
+    `recordChange` never releases a session the task lists now.
+  - Revised (brief §3 "quit right after"): the quit save is no longer
+    "removals + hosted layouts only".
+  Tests (`WorktreeTerminalManagerTransferTests`, +3, no suspension between
+  transfer and quit save, each re-hydrated into a fresh state):
+  `quitRightAfterDetachReleasesTheSessionFromTheStoredSource` and
+  `quitRightAfterDetachFromATaskNeverOpenedStoresEachTabOnce` failed before
+  the fix; `aSessionThatCameBackIsNotReleasedAtQuit` guards the sibling
+  (green before: it only fails with the fix minus the filter, not run).
+  Still open (already under "Found, not fixed"): a transfer flush queued
+  before `saveAllLayoutSnapshots` still lands after it with the records as
+  they were at the transfer. Harmless at quit (nothing changes in between).
+  Gate (final tree): check 0; `WorktreeTerminalManagerTransferTests` +
+  `WorktreeTerminalManagerAckTests` exit 0 (62 tests); build-app 0; full
+  `make test` exit 2 with 4521 tests and only the 5 known failures.

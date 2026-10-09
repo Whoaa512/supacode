@@ -363,6 +363,115 @@ struct WorktreeTerminalManagerTransferTests {
     #expect(file.mergedTasks == [source.persistenceKey: destination.persistenceKey])
   }
 
+  @Test(.dependencies) func quitRightAfterDetachReleasesTheSessionFromTheStoredSource() async throws {
+    let harness = await makeHarness()
+    let (source, minted) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    let staying = await open(source, in: harness)
+    let leaving = await open(source, in: harness)
+    let (primary, tangent) = (Self.session("PA"), Self.session("TA"))
+    await harness.store.send(.terminals(.membersChanged([source: [.session(primary), .session(tangent)]]))).finish()
+    _ = await stored(harness) { $0.tasks[source.persistenceKey]?.sessions == [primary, tangent] }
+
+    // No suspension between the two: the transfer's own write has not run.
+    harness.manager.handleCommand(
+      .transferTabs(
+        from: source, into: minted, DirectoryContext(worktree: Self.directory),
+        scope: .tab(TabID(rawValue: leaving), members: [.session(tangent)])))
+    harness.manager.saveAllLayoutSnapshots()
+
+    let file = try #require(harness.recorder.current())
+    #expect(file.tasks[source.persistenceKey]?.sessions == [primary])
+    #expect(file.tasks[minted.persistenceKey]?.sessions == [tangent])
+    let relaunched = await Self.relaunched(from: file)
+    #expect(Set(relaunched.layouts.ids) == [source, minted])
+    #expect(relaunched.layouts[id: source]?.layout.allContentIDs == [ContentID(rawValue: staying)])
+    #expect(relaunched.layouts[id: minted]?.layout.allContentIDs == [ContentID(rawValue: leaving)])
+    #expect(relaunched.members == [source: [.session(primary)], minted: [.session(tangent)]])
+  }
+
+  @Test(.dependencies) func quitRightAfterDetachFromATaskNeverOpenedStoresEachTabOnce() async throws {
+    let harness = await makeHarness()
+    let (source, minted) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    // Hydrated, never opened: a layout and a record, no host.
+    let (paneID, staying, leaving) = (PaneID(), UUID(), UUID())
+    let tabs = [staying, leaving].map {
+      TabItem(
+        id: TabID(rawValue: $0), title: "Tab",
+        content: ContentSnapshot(
+          id: ContentID(rawValue: $0), state: .terminal(TerminalContentState(workingDirectory: nil))))
+    }
+    let (primary, tangent) = (Self.session("PA"), Self.session("TA"))
+    let record = TaskRecord(
+      id: source, directory: TaskRecord.Directory(worktreeID: Self.directory.id),
+      layout: PaneLayout(
+        tree: SplitTree(view: paneID),
+        panes: [Pane(id: paneID, tabs: IdentifiedArray(uniqueElements: tabs), selectedTabID: TabID(rawValue: staying))],
+        focusedPaneID: paneID),
+      sessions: [primary, tangent], createdAt: Date(timeIntervalSince1970: 1))
+    harness.recorder.seed([record])
+    let seeded = TaskLayoutsFile(tasks: [source.persistenceKey: record])
+    await harness.store.send(.terminals(.storedSessions(.file(seeded)))).finish()
+    await harness.store.send(.terminals(.layoutsHydrated(seeded))).finish()
+
+    // No suspension between the two: the transfer's own write has not run.
+    harness.manager.handleCommand(
+      .transferTabs(
+        from: source, into: minted, DirectoryContext(worktree: Self.directory),
+        scope: .tab(TabID(rawValue: leaving), members: [.session(tangent)])))
+    harness.manager.saveAllLayoutSnapshots()
+
+    #expect(harness.manager.hostIfExists(for: source) == nil)
+    let file = try #require(harness.recorder.current())
+    for surfaceID in [staying, leaving] {
+      let holders = file.tasks.values.filter { $0.layout.allContentIDs.contains(ContentID(rawValue: surfaceID)) }
+      #expect(holders.count == 1, "\(surfaceID) is in \(holders.count) stored tasks")
+    }
+    #expect(file.tasks[source.persistenceKey]?.sessions == [primary])
+    #expect(file.tasks[minted.persistenceKey]?.sessions == [tangent])
+    let relaunched = await Self.relaunched(from: file)
+    #expect(Set(relaunched.layouts.ids) == [source, minted], "a colliding tab drops a whole task at hydration")
+    #expect(relaunched.layouts[id: source]?.layout.allContentIDs == [ContentID(rawValue: staying)])
+    #expect(relaunched.layouts[id: minted]?.layout.allContentIDs == [ContentID(rawValue: leaving)])
+    #expect(relaunched.members == [source: [.session(primary)], minted: [.session(tangent)]])
+  }
+
+  @Test(.dependencies) func aSessionThatCameBackIsNotReleasedAtQuit() async throws {
+    let harness = await makeHarness()
+    let (source, minted) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    _ = await open(source, in: harness)
+    let leaving = await open(source, in: harness)
+    let (primary, tangent) = (Self.session("PA"), Self.session("TA"))
+    await harness.store.send(.terminals(.membersChanged([source: [.session(primary), .session(tangent)]]))).finish()
+    _ = await stored(harness) { $0.tasks[source.persistenceKey]?.sessions == [primary, tangent] }
+
+    // Out and straight back, then quit: neither transfer's write has run.
+    harness.manager.handleCommand(
+      .transferTabs(
+        from: source, into: minted, DirectoryContext(worktree: Self.directory),
+        scope: .tab(TabID(rawValue: leaving), members: [.session(tangent)])))
+    merge(minted, into: source, in: harness)
+    harness.manager.saveAllLayoutSnapshots()
+
+    let file = try #require(harness.recorder.current())
+    #expect(file.tasks.keys.map { $0 } == [source.persistenceKey])
+    #expect(file.tasks[source.persistenceKey]?.sessions == [primary, tangent])
+  }
+
+  /// A fresh state hydrated from `file`, as a relaunch reads it.
+  private static func relaunched(from file: TaskLayoutsFile) async -> TerminalsFeature.State {
+    let store = Store(initialState: TerminalsFeature.State()) {
+      TerminalsFeature()
+    } withDependencies: {
+      $0.uuid = .incrementing
+      $0.continuousClock = TestClock()
+      $0.contentRuntime = ContentRuntime()
+      $0[ContentSessionKiller.self] = ContentSessionKiller(kill: { _, _ in })
+    }
+    await store.send(.storedSessions(.file(file))).finish()
+    await store.send(.layoutsHydrated(file)).finish()
+    return store.withState { $0 }
+  }
+
   @Test(.dependencies) func aPendingSaveOfTheSourceCannotResurrectIt() async throws {
     let harness = await makeHarness()
     let (source, destination) = (LayoutID(task: UUID()), LayoutID(task: UUID()))

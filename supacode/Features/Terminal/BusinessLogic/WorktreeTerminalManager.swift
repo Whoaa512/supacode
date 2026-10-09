@@ -107,6 +107,11 @@ final class WorktreeTerminalManager {
   /// quit before the transfer's own write lands would leave the stored
   /// source holding the same tabs as the destination.
   @ObservationIgnored private var removedByTransfer: [LayoutID: LayoutsIncrementalWriter.RecordChange] = [:]
+  /// Transfers whose own write has not landed, by flush generation: the
+  /// tasks each touched and the sessions it moved out of them. A quit in that
+  /// gap writes those tasks too, hosted or not, and releases those sessions,
+  /// or the stored source would keep the moved tab and its session.
+  @ObservationIgnored private var unwrittenTransfers: [UInt64: [LayoutID: [SessionKey]]] = [:]
   /// Reads the freshest `agentsBySurface` at flush time so incremental captures
   /// embed live badge records instead of the empty default.
   var currentAgentsBySurface: (() -> [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]])?
@@ -1057,10 +1062,12 @@ final class WorktreeTerminalManager {
     let writer = layoutsWriter
     layoutFlushGeneration += 1
     let generation = layoutFlushGeneration
+    unwrittenTransfers[generation] = [from: released, target: []]
     let task = Task { [weak self, changes, inflight] in
       for earlier in inflight { await earlier.value }
       await writer.flush(records: changes)
       guard let self else { return }
+      self.unwrittenTransfers[generation] = nil
       for layoutID in [from, target] where self.layoutFlushTasks[layoutID]?.generation == generation {
         self.layoutFlushTasks[layoutID] = nil
       }
@@ -2049,11 +2056,13 @@ final class WorktreeTerminalManager {
       hosts[layoutID].map { TaskRecord.Directory(worktreeID: $0.worktreeID, host: $0.context.host) }
       ?? LayoutsTaskSplitter.directory(forLegacyKey: layoutID.persistenceKey)
     let terminals = appStore?.withState(\.terminals)
+    let sessions = (terminals?.members[layoutID] ?? []).compactMap(\.sessionKey)
     return .record(
       layout: layout, directory: directory,
-      sessions: (terminals?.members[layoutID] ?? []).compactMap(\.sessionKey),
+      sessions: sessions,
       storedSessions: terminals?.storedSessions ?? .pending,
-      createdAt: Date(), releasing: releasing)
+      // A session that came back since is a member again: never released.
+      createdAt: Date(), releasing: releasing.filter { !sessions.contains($0) })
   }
 
   /// Removes `worktreeID` from disk immediately, bypassing the debounce and
@@ -2664,14 +2673,19 @@ final class WorktreeTerminalManager {
     guard appStore?.withState({ $0.terminals.layoutsAreReadOnly }) != true else { return }
     // The removals first: a task hosted again is written over its own.
     var changes = removedByTransfer
-    for (id, _) in hosts {
+    // A transfer's write may not have landed: this one stands in for it.
+    var released: [LayoutID: [SessionKey]] = [:]
+    for touched in unwrittenTransfers.values {
+      for (id, sessions) in touched { released[id, default: []] += sessions }
+    }
+    for id in Set(hosts.keys).union(released.keys) {
       guard let layoutState = layoutState(for: id) else { continue }
       let record = LayoutPersistence.record(
         for: layoutState.layout,
         runtime: ContentRuntime.liveValue,
         agentsBySurface: agentsBySurface ?? [:]
       )
-      changes[id] = recordChange(for: id, layout: record.layout)
+      changes[id] = recordChange(for: id, layout: record.layout, releasing: released[id] ?? [])
     }
     layoutsWriter.flushSync(records: changes)
   }
