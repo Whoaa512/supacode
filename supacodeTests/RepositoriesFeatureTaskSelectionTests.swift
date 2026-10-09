@@ -250,6 +250,32 @@ struct RepositoriesFeatureTaskSelectionTests {
     await store.finish()
   }
 
+  /// The liveness the task chord walks: a task is live through a tab or an
+  /// agent, whatever its sessions are marked; one with neither is never live.
+  @Test(.dependencies) func aLiveTaskRowIsNeverInSettledAndADormantOneIsNeverLive() {
+    let main = worktree("main")
+    let taskC = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A3")!)
+    func key(_ id: String) -> SessionKey { SessionKey(harness: .pi, sessionID: id) }
+    let settled = SessionSidecarEntry(settledAt: Date(timeIntervalSince1970: 60))
+    var state = state(worktrees: [main])
+    state.$sessions = Shared(value: [key("open"): settled, key("closed"): settled])
+    state.sessionSummaries = [
+      summary("open", created: 30), summary("closed", created: 20), summary("idle", created: 10),
+    ]
+    state.taskSessions = [taskA: [key("open")], taskB: [key("closed")], taskC: [key("idle")]]
+    state.taskSnapshots = [taskSnapshot(taskA, directory: main.id, created: 5)]
+    state.reconcileSessionItems(now: .distantPast)
+    state.applyCacheRecomputes(.sessionsStructure)
+
+    let sections = state.sessionsSidebarStructure.sections
+    #expect(state.sessionsSidebarStructure.liveIDs == [.task(taskA)])
+    #expect(sections.first { $0.id == .active }?.rowIDs.contains(.task(taskA)) == true)
+    #expect(sections.first { $0.id == .settled }?.rowIDs == [.task(taskB)])
+    #expect(state.sessionItems[id: .task(taskB)]?.location == nil)
+    #expect(state.sessionItems[id: .task(taskC)]?.location == nil)
+    #expect(state.sessionItems[id: .task(taskC)] != nil, "a dormant task keeps its row; the chord just skips it")
+  }
+
   @Test(.dependencies) func activatingATaskRowAsksForTheTask() async {
     let main = worktree("main")
     var initial = state(worktrees: [main])
