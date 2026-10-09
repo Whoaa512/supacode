@@ -2555,3 +2555,80 @@ deviation.
   Gate: check 0, focused (`supacodeFeatureTests` + `supacodeTerminalTests` +
   `supacodeTests/TerminalsFeatureTests`) exit 2 with 1634 tests and only 4
   known failures (ack flake, settings-changed, 2 Ghostty), build-app 0.
+- T11, 2026-10-09, `21470977` + `374b6b70` + `8d99410e`.
+  - Env: `SUPACODE_TASK_ID` is the task's layout id, percent-encoded the same
+    way as the worktree id (the own-key task's id is a path).
+    `SUPACODE_WORKTREE_ID` is unchanged. The agent hook guard is unchanged, so
+    a shell with no task variable still fires its hooks.
+  - One resolver, `TerminalsFeature.State.commandLayoutID(forDirectory:task:holding:)`:
+    a pane, tab or surface id the command carries finds the task on that
+    directory that holds it; else the task the command names, which must sit
+    on that directory; else `layoutID(forDirectory:)`. Used by worktree
+    deeplinks, the confirm re-dispatch (resolved again there, the task rides
+    on the dialog state), the tab/pane/surface list queries, the agent
+    prompt/send-keys/resume/read paths (they find a surface across the
+    directory's tasks), grid/settings focus and close, and the notification
+    deeplink URL.
+  - Decisions the plan did not make:
+    - An id wins over a named task when both are given (a tab lives in one
+      task; this also keeps an id-carrying command working from a shell whose
+      task variable has gone stale).
+    - An id is looked up only among the tasks of the addressed directory. An
+      id that lives on another directory is not adopted: the command fails
+      its existing "not found" validation. Chosen as the non-destructive
+      side for close commands.
+    - A named task that is unknown or on another directory fails the command
+      ("Task not found", `ok: false`), it does not fall back to the shown task.
+    - The task segment is a path pair behind the worktree id:
+      `worktree/<id>/task/<task-id>/<action…>`. Only worktree deeplinks take
+      it. Query params carry `taskID`.
+    - A command addressed to a task other than the one the directory shows
+      selects that task (`selectTask`) instead of the directory; `background`
+      still selects nothing. `AppFeature.State.shownTask(forDirectory:)` is the
+      one statement of what a directory selection shows.
+    - CLI `--task` is on the `tab` and `pane` commands. Its env default
+      applies only when the command's worktree is the environment's own
+      worktree: the env task belongs to that directory, and the go-forward
+      commands default to the focused worktree, which may be another one.
+      The deprecated `surface` commands take no `--task`; they always carry
+      ids.
+    - Tab and surface acks (`tabInWorktree`, `surfaceSplit`, `tabRemoved`,
+      `tabRenamed`, `surfaceClosed`) now hold the `LayoutID` fixed at
+      dispatch instead of a directory re-resolved at completion. Closes the
+      T3 note on ack matchers.
+    - The manager's `listTabs`/`listPanes`/`listSurfaces` take a `LayoutID`;
+      the app layer resolves. Closes the T3 note on CLI list queries.
+    - Shared parser: `WorktreeID(external:)` (percent-decode, non-empty, one
+      trailing slash dropped) and `LayoutID(external:)` (as written) over
+      `ExternalID`. Roster matching of the slash-keeping spelling stays in
+      `AppFeature.State.resolveWorktreeID`.
+  - Not done, left for later:
+    - Z1: app-menu terminal commands (new tab, close, split, search, rename)
+      still resolve through `selectedWorktreeID` and stay disabled while an
+      orphan task is shown. T5 r1 and T10 named T11 for this; it is menu
+      enablement plus ~35 reducer sites and no CLI/env/deeplink contract, so
+      it was not folded into this slice. Nothing regresses: same as before.
+    - M2: a merge moves a shell into another task and leaves its
+      `SUPACODE_TASK_ID` naming the removed one. Id-carrying commands still
+      work (the id wins); `tab new`/`tab list`/`pane equalize` from that
+      shell in its own worktree would get "Task not found". M2 has to decide
+      (keep the merged id resolvable, or fall back).
+    - Unowned: `agent/<worktree>/<kind>/…` still picks one agent of a kind
+      across the whole directory, so two tasks each running the same harness
+      on one directory are not told apart (see followups).
+    - The Grok hook env passthrough does not forward `SUPACODE_TASK_ID`.
+  - Tests: `AppFeatureDeeplinkTaskTests` (new: resolution table, two tasks on
+    one directory for bare/tab/surface/task-segment/background/refused/close/
+    confirm/ack), `DeeplinkClientTests` (task segment, shared parser),
+    `TerminalSurfaceRecipeTests` (env for two tasks on one directory),
+    `TaskTargetCLITests` (new: the built CLI against a fixture socket),
+    `AgentHookCommandTests` (guard unchanged). `AppFeatureCommandAckTests`
+    updated for the ack payload.
+  Only the live UI can confirm: an already-running shell (no
+  `SUPACODE_TASK_ID`) still drives the CLI and hooks; a notification tap or
+  `supacode tab focus` on a tab of a task that is not shown brings that task
+  up and focuses it; the two reference-sheet rows read right.
+  Gate: check 0, focused (`supacodeFeatureTests` + `supacodeTerminalTests` +
+  the five touched `supacodeTests` suites) exit 2 with 1759 tests and only 4
+  known failures (ack flake, settings-changed, 2 Ghostty), build-app 0, full
+  `make test` exit 2 with 4300 tests and only the 5 known failures.

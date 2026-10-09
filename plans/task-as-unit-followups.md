@@ -42,3 +42,15 @@ manual settle clears it.
 would have to report "read failed" apart from "no such file" (and a harness
 with no source as positively unreadable), so absence can release the hold.
 
+
+## Agent commands cannot tell two same-harness agents on one directory apart (T11, 2026-10-09)
+
+`supacode agent prompt|send-keys|resume|read` address `(worktree, agent
+kind)` and take the first live record of that kind across every task on the
+directory. T11 made them reach that surface through the task that holds it,
+but with two tasks each running the same harness on one directory the pick is
+still arbitrary.
+
+**Fix with**: whichever slice next touches the agent CLI. Likely shape: the
+task segment / `--task` on agent routes, narrowing the surface set to that
+task's before the kind lookup.
