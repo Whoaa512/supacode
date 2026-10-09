@@ -2154,3 +2154,43 @@ deviation.
   only ever raised an alert.
   Gate: check 0, full `make test` exit 2 with 4226 tests and only the 5
   baseline failures, build-app 0.
+- T9 r2 (review fixes), 2026-10-09, `5842507d` + `55533f2f` + `c8c73da7`.
+  **Revised**: this overrides the T9 and T9 r1 entries where they differ.
+  - Close-all confirmation on a changed tab set (P1, A19). The answer
+    covers only the tabs the confirmation named. `.confirmCloseAll` now
+    compares them with the layout's tabs: if a tab is open that was not
+    named, nothing closes and the confirmation is shown again for the tabs
+    there are now; if tabs only went away, the rest close. The task's
+    primary is marked only when, after the layout reducer ran, the task has
+    no tab and no alert left (same test for the unconfirmed close-all). The
+    user-close intent is marked on the confirmation as well as the request,
+    so a late tab closes as a user close.
+    Decision: the re-ask always asks, even under the busy-only mode with
+    nothing busy; the user was already asked once and the set changed
+    under them. Looked at the sibling, a pane's `.confirmClose`: it closes
+    only the tabs it named and marks no task, so a tab added meanwhile
+    simply stays; left as it was.
+  - Replacement first seen on another event (P1, A37). Replacement is now
+    detected on every event that puts its ref on the presence record
+    (`AgentPresenceFeature.recordsSessionRef`: any event but an end when a
+    record exists; a start, or a pid-less busy/awaiting-input/error/
+    compacting, when none does), not only on a start or a busy. A remote
+    (pid-less) sub-agent's notification carrying its own ref therefore
+    replaces the parent's session on that event, as its busy already did;
+    still nothing closes.
+  - Nested agent of another harness (P2). `isFromNestedAgent` checks the
+    event's pid against every record on the surface, so Claude or Codex
+    started by the surface's Pi is ignored like a Pi child. A pid already
+    tracked by its own harness's record is never treated as nested.
+  Only the live UI can confirm (cj), unchanged from r1 plus: opening a tab
+  in a task while its "Close N Tabs?" alert waits, then confirming, shows
+  the alert again with the new count and leaves the row Active.
+  Tests: `AppFeatureSessionsTaskSettleTests` (tab added between request and
+  confirmation; idle/awaiting_input/error/notification(B) then busy(B);
+  remote activity-seeded replacement; cross-harness child and sibling),
+  `LayoutFeatureTests` (re-ask on an added tab, close the rest on a closed
+  one). The confirmation and replacement tests and the cross-harness child
+  test were seen failing before their fixes.
+  Gate: check 0; `supacodeFeatureTests` + `supacodeTests` +
+  `supacodeTerminalTests/LayoutFeatureTests` exit 2 with 3406 tests and
+  only three of the five baseline failures; build-app 0. No full run.
