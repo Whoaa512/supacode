@@ -1865,3 +1865,21 @@ deviation.
   `AppFeatureSessionsTests` 119 tests 0 failures on the final tree (a
   test-only lint fix came after the wide run), build-app 0. No full
   `make test` (T7 is not a full-run slice).
+- T7 r3 (review fix), 2026-10-09, `dbc47cfd`. One finding, held: the
+  remote-host fallback that lets a close's delayed kill reach the host after
+  `removeTaskIfEmptied` dropped it (r1) had no test; the sessionless-task
+  test was local with a stubbed killer. `WorktreeTerminalManagerAckTests`
+  now runs the app's real `ContentSessionKiller` wiring on a remote
+  sessionless task with a surviving sibling, in a roster-less store so only
+  the fallback can supply the host: explicit close kills that tab's session
+  on the host and locally, a self-ended (local-only) close spares the host
+  session, a spared close kills nothing, the sibling is never touched.
+  Mutation-checked: dropping the fallback fails the first test.
+  Production change is a seam only: the three spare/local-only marks in
+  `handleUnexpectedZmxClose` go through `limitSessionKill(of:to:)`, because
+  the harness has no live Ghostty surface to drive that probe with.
+  Same class, checked and left: `remoteHostsOfEmptiedTasks` is never pruned
+  (one host per removed task for the run; a live host and the map agree on
+  the same key, so a stale entry cannot redirect a kill).
+  Gate: check 0, `AppFeatureSessionsTests` + `supacodeTerminalTests` 551
+  tests with only the 2 Ghostty baseline failures, build-app 0.
