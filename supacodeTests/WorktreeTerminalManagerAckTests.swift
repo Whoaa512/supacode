@@ -1114,6 +1114,81 @@ struct WorktreeTerminalManagerAckTests {
     #expect(stored.tasks[task.persistenceKey]?.sessions == [key])
   }
 
+  /// The app loads the stored sessions at launch, before the layouts (which
+  /// wait for the live zmx sessions). A quit in between must store what the
+  /// run learned, in the stored order, and the next launch must read it back.
+  @Test(.dependencies) func aQuitBeforeTheLayoutsLoadStoresTheRunsSessions() async {
+    let recorder = TeardownRecorder()
+    let harness = makeHarness(defaults: recorder.defaults, persistingOn: TestClock())
+    let pump = CreationEvents(harness.manager)
+    let directory = makeWorktree(id: "/tmp/repo/wt-early-quit")
+    let (resumed, minted) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    let key = { SessionKey(harness: .pi, sessionID: $0) }
+    let (primary, tangent, replacement, first) = (key("a"), key("b"), key("c"), key("first"))
+    let record = TaskRecord(
+      id: resumed, directory: .init(worktreeID: directory.id), layout: PaneLayout(),
+      sessions: [primary, tangent], createdAt: Date(timeIntervalSince1970: 1))
+    recorder.seed([record])
+    let launchFile = TaskLayoutsFile(tasks: [resumed.persistenceKey: record])
+    await harness.store.send(.terminals(.storedSessions(.file(launchFile)))).finish()
+
+    _ = await openLayout(resumed, on: directory, in: harness, pump: pump)
+    _ = await openLayout(minted, on: directory, in: harness, pump: pump)
+    // The agents report, and the stored primary is replaced.
+    await harness.store.send(
+      .terminals(
+        .membersChanged([
+          resumed: [.session(primary), .session(tangent)], minted: [.session(first)],
+        ]))
+    ).finish()
+    await harness.store.send(.terminals(.sessionReplaced(resumed, old: primary, new: replacement))).finish()
+
+    harness.manager.saveAllLayoutSnapshots()
+
+    let stored = await recorder.nextWrite { $0.tasks[minted.persistenceKey]?.sessions.isEmpty == false }
+    #expect(stored.tasks[resumed.persistenceKey]?.sessions == [replacement, primary, tangent])
+    #expect(stored.tasks[minted.persistenceKey]?.sessions == [first])
+
+    // Next launch, no agent alive to report anything again.
+    let relaunched = makeHarness(defaults: recorder.defaults)
+    await relaunched.store.send(.terminals(.storedSessions(.file(stored)))).finish()
+    relaunched.store.withState { state in
+      #expect(state.terminals.members[resumed] == [.session(replacement), .session(primary), .session(tangent)])
+      #expect(state.terminals.members[minted] == [.session(first)])
+    }
+  }
+
+  /// Same window: a task minted in it whose last tab closes keeps its record,
+  /// empty, because the session it reported is stored with it.
+  @Test(.dependencies) func aTaskEmptiedBeforeTheLayoutsLoadKeepsItsSessions() async {
+    let recorder = TeardownRecorder()
+    let clock = TestClock()
+    let harness = makeHarness(defaults: recorder.defaults, persistingOn: clock)
+    let pump = CreationEvents(harness.manager)
+    let task = LayoutID(task: UUID())
+    let key = SessionKey(harness: .pi, sessionID: "member")
+    await harness.store.send(.terminals(.storedSessions(.absent))).finish()
+    let surface = await openLayout(task, on: makeWorktree(id: "/tmp/repo/wt-early-close"), in: harness, pump: pump)
+    await harness.store.send(.terminals(.membersChanged([task: [.session(key)]]))).finish()
+
+    await closeTab(surface, of: task, in: harness)
+    harness.manager.saveAllLayoutSnapshots()
+
+    let stored = await recorder.nextWrite {
+      $0.tasks[task.persistenceKey]?.layout.panes.isEmpty == true
+    }
+    #expect(stored.tasks[task.persistenceKey]?.sessions == [key])
+    #expect(harness.manager.hostIfExists(for: task) != nil)
+
+    let relaunched = makeHarness(defaults: recorder.defaults)
+    await relaunched.store.send(.terminals(.storedSessions(.file(stored)))).finish()
+    await relaunched.store.send(.terminals(.layoutsHydrated(stored))).finish()
+    relaunched.store.withState { state in
+      #expect(state.terminals.members[task] == [.session(key)])
+      #expect(state.terminals.layouts[id: task]?.layout.panes.isEmpty == true)
+    }
+  }
+
   @Test(.dependencies) func aTaskWithNoSessionIsRemovedWhenItsLastTabCloses() async {
     let recorder = TeardownRecorder()
     let clock = TestClock()

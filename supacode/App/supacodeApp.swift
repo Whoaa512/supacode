@@ -198,6 +198,10 @@ struct SupacodeApp: App {
     appDelegate.terminalManager = terminalManager
     appDelegate.globalHotkeyMonitor = hotkeyMonitor
     terminalManager.appStore = appStore
+    // Before anything can report an agent: a task's stored sessions are the
+    // baseline its members build on, and the layouts only load after the
+    // live zmx sessions resolve, a window a quit can land in.
+    Self.loadStoredSessions(into: appStore)
     // Surface a partial-relocation failure once the store exists so the alert
     // presents on first window. The data is preserved regardless.
     if case .pending(let problems) = relocationOutcome {
@@ -239,6 +243,12 @@ struct SupacodeApp: App {
     case .absent: store.send(.terminals(.layoutsHydrated(TaskLayoutsFile())))
     case .unreadable: store.send(.terminals(.storedSessionsUnreadable))
     }
+  }
+
+  @MainActor
+  private static func loadStoredSessions(into store: StoreOf<AppFeature>) {
+    @Dependency(\.defaultAppStorage) var defaults
+    store.send(.terminals(TerminalsFeature.Action.storedSessions(TaskLayoutsFile.readPersisted(from: defaults))))
   }
 
   @MainActor

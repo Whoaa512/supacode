@@ -109,6 +109,10 @@ struct TerminalsFeature {
     case membersChanged([LayoutID: [TaskMember]], agents: [TaskAgent] = [])
     /// The stored layouts cannot be read this run, so no hydration follows.
     case storedSessionsUnreadable
+    /// The sessions the store lists for its tasks, read at launch ahead of
+    /// the layouts (which wait for the live zmx sessions), so every write
+    /// from then on, a quit's included, carries the run's members.
+    case storedSessionsLoaded(TaskLayoutsFile)
     /// The agent on one of the task's surfaces switched sessions (`/new`,
     /// `/fork`): `new` takes `old`'s slot and `old` stays a member after it.
     case sessionReplaced(LayoutID, old: SessionKey, new: SessionKey)
@@ -231,6 +235,9 @@ struct TerminalsFeature {
         state.pendingMembership = []
         return sessionsChanged(Array(state.members.keys))
 
+      case .storedSessionsLoaded(let file):
+        return sessionsChanged(state.loadStoredSessions(from: file))
+
       case .selectedLayoutChanged(let layoutID):
         state.selectedLayoutID = layoutID
         Self.recordSelection(layoutID, in: &state.recentLayoutIDs)
@@ -257,14 +264,9 @@ struct TerminalsFeature {
         // id from another worktree (possible in pre-creation-gate layouts).
         var seenContentIDs = Set(state.layouts.flatMap { $0.layout.allContentIDs })
         var seenTabIDs = Set(state.layouts.flatMap { $0.layout.panes.flatMap(\.tabs.ids) })
-        // Nothing was written from `members` while the stored sessions were
-        // pending, so every task that lists one is written now.
-        var unwritten = state.members.filter { file.tasks[$0.key.persistenceKey] == nil }.map(\.key)
+        // Membership is the record's whether or not its layout is usable.
+        let unwritten = state.loadStoredSessions(from: file)
         for (key, record) in file.tasks.sorted(by: { $0.key < $1.key }) {
-          // Membership is the record's whether or not its layout is usable.
-          let members = state.hydratedMembers(of: record)
-          if !members.isEmpty { state.members[record.id] = members }
-          if members.compactMap(\.sessionKey) != record.sessions { unwritten.append(record.id) }
           guard record.layout.isConsistent else {
             Self.logger.error("Dropping inconsistent persisted layout for \(key)")
             continue
@@ -281,8 +283,6 @@ struct TerminalsFeature {
           seenContentIDs.formUnion(contentIDs)
           seenTabIDs.formUnion(tabIDs)
         }
-        state.storedSessions = .loaded
-        state.pendingMembership = []
         // A selection made this run is more recent than anything stored, and
         // hydration may be what first names its directory. Applied before the
         // stored entries so a directory gets one write, not a clear racing it.
@@ -338,7 +338,37 @@ extension TerminalsFeature {
   }
 }
 
+extension TerminalsFeature.Action {
+  /// What the launch-time read of the store says about its sessions. Nothing
+  /// stored is loaded too: the run's order of a task's sessions is all there is.
+  static func storedSessions(_ disk: TaskLayoutsFile.DiskState) -> Self {
+    switch disk {
+    case .file(let file): .storedSessionsLoaded(file)
+    case .absent: .storedSessionsLoaded(TaskLayoutsFile())
+    case .unreadable: .storedSessionsUnreadable
+    }
+  }
+}
+
 extension TerminalsFeature.State {
+  /// Merges the sessions `file` lists into `members` and returns the tasks
+  /// whose stored sessions now differ from the run's. Nothing was written
+  /// from `members` while the stored sessions were pending, so the first
+  /// read also returns every task the file does not hold yet.
+  fileprivate mutating func loadStoredSessions(from file: TaskLayoutsFile) -> [LayoutID] {
+    var unwritten =
+      storedSessions == .pending
+      ? members.filter { file.tasks[$0.key.persistenceKey] == nil }.map(\.key) : []
+    for (_, record) in file.tasks.sorted(by: { $0.key < $1.key }) {
+      let merged = hydratedMembers(of: record)
+      if !merged.isEmpty { members[record.id] = merged }
+      if merged.compactMap(\.sessionKey) != record.sessions { unwritten.append(record.id) }
+    }
+    storedSessions = .loaded
+    pendingMembership = []
+    return unwritten
+  }
+
   /// A stored task's members once its record is read. The first read
   /// applies everything queued since launch to the stored list, so the
   /// primary is the one the stored order and those changes give, whichever

@@ -1045,6 +1045,66 @@ struct TerminalsFeatureTests {
     #expect(store.state.layouts[id: minted]?.layout.panes.isEmpty == true)
   }
 
+  /// The launch-time read: sessions only, ahead of the layouts. What was
+  /// queued before it is applied to the stored order, and from then on the
+  /// run's list is the one written.
+  @Test(.dependencies) func theStoredSessionsLoadAheadOfTheLayouts() async {
+    let minted = LayoutID(task: UUID())
+    let key = { SessionKey(harness: .pi, sessionID: $0) }
+    let (primary, tangent, third) = (key("a"), key("b"), key("c"))
+    var record = Self.task(minted, on: "/tmp/repo")
+    record.sessions = [primary, tangent]
+    let reported = LockIsolated<[LayoutID]>([])
+    let store = TestStore(initialState: TerminalsFeature.State()) {
+      TerminalsFeature()
+    } withDependencies: {
+      $0[LayoutChangeObserver.self].sessionsChanged = { id in reported.withValue { $0.append(id) } }
+    }
+    store.exhaustivity = .off
+    await store.send(.membersChanged([minted: [.session(tangent)]]))
+    await store.send(.sessionReplaced(minted, old: primary, new: third))
+    await store.finish()
+    reported.setValue([])
+
+    await store.send(.storedSessionsLoaded(Self.file([record])))
+    await store.finish()
+
+    let members: [TaskMember] = [.session(third), .session(primary), .session(tangent)]
+    #expect(store.state.members[minted] == members)
+    #expect(store.state.storedSessions == .loaded)
+    #expect(store.state.pendingMembership.isEmpty)
+    #expect(store.state.layouts.isEmpty, "the layouts wait for their own load")
+    #expect(reported.value == [minted])
+
+    // Nothing is queued any more, and the layouts' load changes no member.
+    await store.send(.sessionReplaced(minted, old: third, new: tangent))
+    await store.finish()
+    #expect(store.state.pendingMembership.isEmpty)
+    reported.setValue([])
+    await store.send(.layoutsHydrated(Self.file([record])))
+    await store.finish()
+    #expect(store.state.members[minted] == [.session(tangent), .session(third), .session(primary)])
+    #expect(store.state.layouts[id: minted] != nil)
+    #expect(reported.value == [minted], "the run's order is still to be written")
+  }
+
+  @Test func theLaunchReadOfTheStoreSaysWhatIsKnownOfItsSessions() {
+    let minted = LayoutID(task: UUID())
+    let file = Self.file([Self.task(minted, on: "/tmp/repo")])
+    guard case .storedSessionsLoaded(file) = TerminalsFeature.Action.storedSessions(.file(file)) else {
+      Issue.record("a readable store loads its sessions")
+      return
+    }
+    guard case .storedSessionsLoaded(TaskLayoutsFile()) = TerminalsFeature.Action.storedSessions(.absent) else {
+      Issue.record("no store is a loaded, empty one")
+      return
+    }
+    guard case .storedSessionsUnreadable = TerminalsFeature.Action.storedSessions(.unreadable) else {
+      Issue.record("an unreadable store is never loaded")
+      return
+    }
+  }
+
   /// The review's sequence, all before the file loaded: stored `[a, b]`,
   /// then a>b, b>a, b>c, c>b. Whichever agent reported first, the task ends
   /// as it would have had the stored sessions been there from the start.
