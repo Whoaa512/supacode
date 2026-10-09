@@ -134,4 +134,84 @@ struct RepositoriesFeatureSessionsScaleTests {
     #expect(flip < 60, "status flip took \(flip)ms, recompute \(recompute / 10)ms")
     #expect(settle < 60, "auto-settle pass took \(settle)ms")
   }
+
+  // MARK: - With tasks
+
+  private let bigTask = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-00000000B160")!)
+
+  /// The index grouped into tasks of five, plus one selected task that lists
+  /// half of it and runs an agent for every other member: the sub-rows and
+  /// the member list are built for it on every pass.
+  private func taskFixture(rows: Int) -> RepositoriesFeature.State {
+    var state = fixture(rows: rows)
+    let keys = state.sessionSummaries.map(\.id)
+    var taskSessions: [LayoutID: [SessionKey]] = [:]
+    for start in stride(from: 0, to: rows, by: 5) {
+      taskSessions[LayoutID(task: UUID())] = Array(keys[start..<min(start + 5, rows)])
+    }
+    taskSessions[bigTask] = Array(keys[..<(rows / 2)])
+    state.taskSessions = taskSessions
+    func location() -> SessionLocation {
+      SessionLocation(layoutID: bigTask, directoryID: "/fixture", tabID: TabID(), surfaceID: UUID())
+    }
+    state.taskSnapshots = [TaskLiveSnapshot(title: "fixture", cwd: "/fixture", createdAt: now, location: location())]
+    state.sessionSnapshots = stride(from: 0, to: rows / 2, by: 2).map { index in
+      SessionLiveSnapshot(harness: .pi, sessionRef: "s\(index)", cwd: "/fixture/dir\(index % 6)", location: location())
+    }
+    state.sessionSelection = .task(bigTask)
+    state.reconcileSessionItems(now: now)
+    state.recomputeSessionsSidebarStructureIfChanged()
+    return state
+  }
+
+  private func statusFlipMedian(rows: Int) -> Double {
+    var state = taskFixture(rows: rows)
+    return median(
+      (0..<5).map { round in
+        milliseconds {
+          state.sessionSnapshots[0].status = round.isMultiple(of: 2) ? .working : .idle
+          state.reconcileSessionItems(now: now)
+          state.recomputeSessionsSidebarStructureIfChanged()
+        }
+      })
+  }
+
+  @Test(.dependencies) func groupedIndexListsEveryMemberOfTheSelectedTask() {
+    let state = taskFixture(rows: 3_000)
+    #expect(state.sessionItems.count == 601, "600 tasks of five and the selected one")
+    #expect(state.sessionsSidebarStructure.subRowsTaskID == bigTask)
+    #expect(state.sessionsSidebarStructure.subRows.count == 1_500)
+    #expect(state.sessionsSidebarStructure.subRows.filter { !$0.isDormant }.count == 750)
+  }
+
+  /// A26 with tasks: an unchanged pass touches no row and not the structure.
+  @Test(.dependencies) func unchangedReconcileWithTasksWritesNothing() {
+    var state = taskFixture(rows: 3_000)
+    let before = state
+    let wrote = LockIsolated(false)
+    observeRows(of: state) { wrote.setValue(true) }
+    withObservationTracking {
+      _ = state.sessionsSidebarStructure
+    } onChange: {
+      wrote.setValue(true)
+    }
+
+    state.reconcileSessionItems(now: now)
+    state.recomputeSessionsSidebarStructureIfChanged()
+
+    #expect(!wrote.value)
+    #expect(state == before)
+
+    state.sessionSnapshots[0].status = .working
+    state.reconcileSessionItems(now: now)
+    #expect(wrote.value)
+  }
+
+  /// A26 with tasks: a status flip stays linear in the index and in the
+  /// selected task's members.
+  @Test(.dependencies) func statusFlipWithTasksScalesLinearly() {
+    let small = statusFlipMedian(rows: 3_000)
+    let large = statusFlipMedian(rows: 6_000)
+    #expect(large <= small * 3, "3,000 sessions: \(small)ms, 6,000 sessions: \(large)ms")
+  }
 }

@@ -119,7 +119,9 @@ extension RepositoriesFeature.State {
   /// on one of its surfaces the list has not caught up with.
   private func members(of layoutID: LayoutID, agents: [SessionLiveSnapshot]) -> [TaskMember] {
     var members = (taskSessions[layoutID] ?? []).map(TaskMember.session)
-    for agent in agents where !members.contains(agent.member) { members.append(agent.member) }
+    // A set beside the list: a scan per agent is quadratic in a large task.
+    var listed = Set(members)
+    for agent in agents where listed.insert(agent.member).inserted { members.append(agent.member) }
     return members
   }
 
@@ -128,13 +130,16 @@ extension RepositoriesFeature.State {
     let agents = sessionSnapshots.filter { $0.location.layoutID == layoutID }
     let members = members(of: layoutID, agents: agents)
     guard members.count > 1 else { return (nil, []) }
-    let keys = members.compactMap(\.sessionKey)
+    // Lookups built once: this runs over the whole index on every status flip.
+    let keys = Set(members.compactMap(\.sessionKey))
     var titles: [SessionKey: String] = [:]
-    for summary in sessionSummaries where titles[summary.id] == nil && keys.contains(summary.id) {
+    for summary in sessionSummaries where keys.contains(summary.id) && titles[summary.id] == nil {
       titles[summary.id] = summary.title
     }
+    var agentByMember: [TaskMember: SessionLiveSnapshot] = [:]
+    for agent in agents where agentByMember[agent.member] == nil { agentByMember[agent.member] = agent }
     let rows = members.compactMap { member -> SessionsSidebarStructure.SubRow? in
-      let agent = agents.first { $0.member == member }
+      let agent = agentByMember[member]
       let title = member.sessionKey.flatMap { titles[$0] }
       // One that is neither running nor on disk cannot be shown or resumed.
       guard agent != nil || title != nil else { return nil }
