@@ -3337,3 +3337,41 @@ deviation.
   Gate (final tree): check 0; `WorktreeTerminalManagerTransferTests` +
   `WorktreeTerminalManagerAckTests` exit 0 (62 tests); build-app 0; full
   `make test` exit 2 with 4521 tests and only the 5 known failures.
+- M2 r2, 2026-10-09: review fix (P0, held).
+  - Revised: r1's "Still open ... Harmless at quit (nothing changes in
+    between)" was wrong, and the M2 "Found, not fixed" note on
+    `cancelPendingLayoutSaves` is now fixed. A transfer's write waiting on an
+    earlier flush was cancelled by quit but wrote anyway, after the quit
+    save, with the records built at the transfer: a tab opened since was
+    dropped from the destination and a source created again was deleted,
+    leaving their live sessions to the orphan reaper.
+  - Fix: every queued write task (`persistTransfer`, `flushLayoutSnapshot`,
+    `deleteLayoutSnapshot`) checks cancellation on the main actor right
+    before it enqueues on the writer, so a cancelled one never writes and
+    one already enqueued is ordered before the quit save's `flushSync`.
+    `persistAndTerminateAllSessions` now cancels before it saves, as
+    `applicationWillTerminate` did.
+  - Siblings, so that a cancelled write is never a lost one: the quit save
+    stands in for all of them. `unwrittenRemovals` (flush generation -> the
+    delete, or the last write of an emptied task) is carried by the save
+    until that write lands; `cancelledSaves` (tasks whose queued save quit
+    cancelled) are written from the store as they are now, hosted or not.
+    A task hosted again is written over its pending removal.
+  - Assumption taken: a hostless task that still has a removal pending is
+    not re-written from the store at quit (the removal stands); the
+    alternative risks resurrecting a removed task.
+  - Not changed: `handleActiveTaskChanged`'s write is still unguarded (it
+    touches only `activeTasks`, and a stale entry falls back to the
+    directory's own task).
+  - `layoutsWriter` is no longer private, so tests can drain the writer.
+  Tests (`WorktreeTerminalManagerTransferTests`, +2):
+  `aTransferWaitingOnAnEarlierWriteCannotUndoTheQuitSave` holds an earlier
+  save inside the store, merges, opens a tab in the destination and in the
+  source created again, quits, drains every task and the writer, then
+  hydrates the final blob: every tab is stored exactly once. Run without
+  the `persistTransfer` guard it fails.
+  `aRemovalCancelledByQuitIsCarriedByTheQuitSave` guards the delete stand-in
+  (it only fails with the guard minus `unwrittenRemovals`, not run).
+  Gate (final tree): check 0; `WorktreeTerminalManagerTransferTests` exit 0
+  (22 tests); build-app 0; full `make test` exit 2 with 4523 tests and only
+  the 5 known failures.

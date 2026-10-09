@@ -80,7 +80,7 @@ final class WorktreeTerminalManager {
   /// `layouts.json` without clobbering keys it isn't carrying. Built from the
   /// dependency context at init so async flushes use the same storage the test
   /// or app configured, not whatever context happens to be current at flush.
-  @ObservationIgnored private let layoutsWriter: LayoutsIncrementalWriter
+  @ObservationIgnored let layoutsWriter: LayoutsIncrementalWriter
   /// Per-worktree debounce timers for incremental layout saves.
   @ObservationIgnored private var layoutDirtyTasks: [LayoutID: Task<Void, Never>] = [:]
   /// Per-worktree in-flight positive flush Tasks. A delete awaits the live one
@@ -112,6 +112,13 @@ final class WorktreeTerminalManager {
   /// gap writes those tasks too, hosted or not, and releases those sessions,
   /// or the stored source would keep the moved tab and its session.
   @ObservationIgnored private var unwrittenTransfers: [UInt64: [LayoutID: [SessionKey]]] = [:]
+  /// Writes that remove a task or store it emptied and have not landed, by
+  /// flush generation. The task is gone from the app by then, so when a quit
+  /// cancels that write its save carries the same change instead.
+  @ObservationIgnored private var unwrittenRemovals: [UInt64: [LayoutID: LayoutsIncrementalWriter.RecordChange]] = [:]
+  /// Tasks whose queued save a quit cancelled. The quit-time save writes
+  /// them as they are now, hosted or not.
+  @ObservationIgnored private var cancelledSaves: Set<LayoutID> = []
   /// Reads the freshest `agentsBySurface` at flush time so incremental captures
   /// embed live badge records instead of the empty default.
   var currentAgentsBySurface: (() -> [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]])?
@@ -1065,6 +1072,10 @@ final class WorktreeTerminalManager {
     unwrittenTransfers[generation] = [from: released, target: []]
     let task = Task { [weak self, changes, inflight] in
       for earlier in inflight { await earlier.value }
+      // These records are as old as the transfer. Once a quit has cancelled
+      // this, its save has written both tasks as they are now, and a write
+      // enqueued after it would put the old ones back.
+      guard !Task.isCancelled else { return }
       await writer.flush(records: changes)
       guard let self else { return }
       self.unwrittenTransfers[generation] = nil
@@ -2026,8 +2037,13 @@ final class WorktreeTerminalManager {
     let writer = layoutsWriter
     layoutFlushGeneration += 1
     let generation = layoutFlushGeneration
+    // The last write of a task about to be detached: see `removeTaskIfEmptied`.
+    if record.layout.panes.isEmpty { unwrittenRemovals[generation] = [worktreeID: change] }
     let task = Task { [weak self] in
+      // Not on the writer's queue yet: the quit save that cancelled this is.
+      guard !Task.isCancelled else { return }
       await writer.flush(records: [worktreeID: change])
+      self?.unwrittenRemovals[generation] = nil
       // Generation-gated: an older task's completion must not erase a newer
       // registration, or a delete could stop awaiting the in-flight record.
       guard let self, self.layoutFlushTasks[worktreeID]?.generation == generation else { return }
@@ -2076,9 +2092,15 @@ final class WorktreeTerminalManager {
     let writer = layoutsWriter
     layoutFlushGeneration += 1
     let generation = layoutFlushGeneration
+    let change: LayoutsIncrementalWriter.RecordChange = directoryID.map { .deleteIfOn($0) } ?? .delete
+    unwrittenRemovals[generation] = [worktreeID: change]
     let task = Task { [weak self] in
       await inflightFlush?.value
-      await writer.flush(records: [worktreeID: directoryID.map { .deleteIfOn($0) } ?? .delete])
+      // A quit save carried this removal, and wrote the task over it if it
+      // was created again since: a delete enqueued after it would undo that.
+      guard !Task.isCancelled else { return }
+      await writer.flush(records: [worktreeID: change])
+      self?.unwrittenRemovals[generation] = nil
       guard let self, self.layoutFlushTasks[worktreeID]?.generation == generation else { return }
       self.layoutFlushTasks[worktreeID] = nil
     }
@@ -2086,14 +2108,17 @@ final class WorktreeTerminalManager {
   }
 
   /// Cancels every queued incremental save. Called before the on-quit
-  /// synchronous flush becomes the terminal write.
+  /// synchronous flush, with no suspension in between, so that flush is the
+  /// terminal write and stands in for everything cancelled here.
   func cancelPendingLayoutSaves() {
+    cancelledSaves.formUnion(layoutDirtyTasks.keys)
+    cancelledSaves.formUnion(layoutFlushTasks.keys)
     for task in layoutDirtyTasks.values { task.cancel() }
     layoutDirtyTasks.removeAll()
-    // Cancels debounced saves that have not enqueued yet; a flush already on the
-    // writer's queue runs to completion. That is safe now: the on-quit terminal
-    // write runs on the same serial queue, so it is ordered strictly after those
-    // and can never be overtaken and regressed by a late flush.
+    // A write task checks for cancellation on the main actor right before it
+    // enqueues on the writer, so one cancelled here never writes. A flush
+    // already on the writer's queue runs to completion, and the on-quit write
+    // runs on the same serial queue, so it is ordered strictly after those.
     for entry in layoutFlushTasks.values { entry.task.cancel() }
     layoutFlushTasks.removeAll()
   }
@@ -2672,13 +2697,19 @@ final class WorktreeTerminalManager {
   ) {
     guard appStore?.withState({ $0.terminals.layoutsAreReadOnly }) != true else { return }
     // The removals first: a task hosted again is written over its own.
-    var changes = removedByTransfer
+    var changes: [LayoutID: LayoutsIncrementalWriter.RecordChange] = [:]
+    for generation in unwrittenRemovals.keys.sorted() {
+      changes.merge(unwrittenRemovals[generation] ?? [:]) { _, later in later }
+    }
+    changes.merge(removedByTransfer) { _, transfer in transfer }
     // A transfer's write may not have landed: this one stands in for it.
     var released: [LayoutID: [SessionKey]] = [:]
     for touched in unwrittenTransfers.values {
       for (id, sessions) in touched { released[id, default: []] += sessions }
     }
-    for id in Set(hosts.keys).union(released.keys) {
+    // A task still waiting on its removal is not written from the store.
+    let cancelled = cancelledSaves.subtracting(changes.keys)
+    for id in Set(hosts.keys).union(released.keys).union(cancelled) {
       guard let layoutState = layoutState(for: id) else { continue }
       let record = LayoutPersistence.record(
         for: layoutState.layout,
@@ -2700,9 +2731,10 @@ final class WorktreeTerminalManager {
   func persistAndTerminateAllSessions(
     agentsBySurface: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]]
   ) async {
+    // Cancelled first, so no queued write can land after the save below.
+    cancelPendingLayoutSaves()
     saveLayoutsAndScrollback(agentsBySurface: agentsBySurface)
     rememberSelectedWorktreeZoomOnQuit()
-    cancelPendingLayoutSaves()
     await terminateAllSessions()
   }
 

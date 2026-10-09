@@ -457,6 +457,89 @@ struct WorktreeTerminalManagerTransferTests {
     #expect(file.tasks[source.persistenceKey]?.sessions == [primary, tangent])
   }
 
+  @Test(.dependencies) func aTransferWaitingOnAnEarlierWriteCannotUndoTheQuitSave() async throws {
+    let harness = await makeHarness()
+    let (source, destination) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    let moved = await open(source, in: harness)
+    let own = await open(destination, in: harness)
+    _ = await stored(harness) {
+      $0.tasks[source.persistenceKey] != nil && $0.tasks[destination.persistenceKey] != nil
+    }
+    await harness.clock.advance(by: .seconds(5))
+    await drainWrites(harness)
+
+    // An ordinary save of the source, stuck in the store.
+    let release = harness.recorder.holdNextWrite()
+    let extra = await open(source, in: harness)
+    await harness.clock.advance(by: .seconds(1))
+    for _ in 0..<10_000 where !harness.recorder.isHolding.value { await Task.yield() }
+    guard harness.recorder.isHolding.value else {
+      release()
+      Issue.record("the earlier save never reached the store")
+      return
+    }
+
+    // The transfer's write waits behind it, its records already built.
+    merge(source, into: destination, in: harness)
+    let outcome = await harness.events.collect(until: Self.isTransferOutcome)
+    #expect(outcome.contains { if case .tabsTransferred = $0 { true } else { false } })
+    // Both tasks change after that: the merged source is created again.
+    let again = await open(source, in: harness)
+    let later = await open(destination, in: harness)
+
+    // Quit. No suspension: the transfer is still waiting when the save runs.
+    release()
+    harness.manager.cancelPendingLayoutSaves()
+    harness.manager.saveAllLayoutSnapshots()
+    await drainWrites(harness)
+
+    let file = try #require(harness.recorder.current())
+    #expect(file.tasks[source.persistenceKey]?.layout.allContentIDs == [ContentID(rawValue: again)])
+    #expect(
+      file.tasks[destination.persistenceKey]?.layout.allContentIDs
+        == [own, moved, extra, later].map(ContentID.init(rawValue:)))
+    for surfaceID in [moved, extra, own, again, later] {
+      let holders = file.tasks.values.filter { $0.layout.allContentIDs.contains(ContentID(rawValue: surfaceID)) }
+      #expect(holders.count == 1, "\(surfaceID) is in \(holders.count) stored tasks")
+    }
+    let relaunched = await Self.relaunched(from: file)
+    #expect(Set(relaunched.layouts.ids) == [source, destination])
+    #expect(relaunched.layouts[id: source]?.layout.allContentIDs == [ContentID(rawValue: again)])
+    #expect(
+      relaunched.layouts[id: destination]?.layout.allContentIDs
+        == [own, moved, extra, later].map(ContentID.init(rawValue:)))
+  }
+
+  @Test(.dependencies) func aRemovalCancelledByQuitIsCarriedByTheQuitSave() async throws {
+    let harness = await makeHarness()
+    let (gone, kept) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    let elsewhere = Self.worktree("/tmp/repo/wt-transfer-kept")
+    _ = await open(gone, in: harness)
+    let staying = await open(kept, on: elsewhere, in: harness)
+    _ = await stored(harness) { $0.tasks[gone.persistenceKey] != nil && $0.tasks[kept.persistenceKey] != nil }
+    await harness.clock.advance(by: .seconds(5))
+    await drainWrites(harness)
+
+    // No suspension between the three: the removal's own write has not run.
+    harness.manager.prune(keepingDirectories: [elsewhere.id], archivedDirectories: [Self.directory.id])
+    harness.manager.cancelPendingLayoutSaves()
+    harness.manager.saveAllLayoutSnapshots()
+    await drainWrites(harness)
+
+    let file = try #require(harness.recorder.current())
+    #expect(file.tasks.keys.map { $0 } == [kept.persistenceKey])
+    #expect(file.tasks[kept.persistenceKey]?.layout.allContentIDs == [ContentID(rawValue: staying)])
+  }
+
+  /// Lets every queued write task reach the writer and the writer finish it.
+  private func drainWrites(_ harness: Harness) async {
+    for _ in 0..<5 {
+      await Task.megaYield()
+      await harness.manager.layoutsWriter.flush(records: [:])
+    }
+    await Task.megaYield()
+  }
+
   /// A fresh state hydrated from `file`, as a relaunch reads it.
   private static func relaunched(from file: TaskLayoutsFile) async -> TerminalsFeature.State {
     let store = Store(initialState: TerminalsFeature.State()) {
@@ -709,18 +792,39 @@ private final class Recorder {
   let localKills = LockIsolated<[String]>([])
   let remoteKills = LockIsolated<[String]>([])
   let everyWrite = LockIsolated<[TaskLayoutsFile]>([])
+  /// True while a write is stuck in the store, the writer's queue with it.
+  let isHolding = LockIsolated(false)
+  private let hold = LockIsolated<DispatchSemaphore?>(nil)
   // Pulled sequentially on the test's one task.
   nonisolated(unsafe) private var writes: AsyncStream<TaskLayoutsFile>.AsyncIterator
 
   init() {
     let (writes, signal) = AsyncStream<TaskLayoutsFile>.makeStream()
-    let everyWrite = everyWrite
+    let (everyWrite, isHolding, hold) = (everyWrite, isHolding, hold)
     defaults = RecordingDefaults { data in
+      defer {
+        let gate = hold.withValue { gate in
+          defer { gate = nil }
+          return gate
+        }
+        if let gate {
+          isHolding.setValue(true)
+          gate.wait()
+          isHolding.setValue(false)
+        }
+      }
       guard let file = try? JSONDecoder().decode(TaskLayoutsFile.self, from: data) else { return }
       everyWrite.withValue { $0.append(file) }
       signal.yield(file)
     }
     self.writes = writes.makeAsyncIterator()
+  }
+
+  /// Blocks the next write inside the store until the returned closure runs.
+  func holdNextWrite() -> @Sendable () -> Void {
+    let gate = DispatchSemaphore(value: 0)
+    hold.setValue(gate)
+    return { gate.signal() }
   }
 
   func seed(_ tasks: [TaskRecord]) {
