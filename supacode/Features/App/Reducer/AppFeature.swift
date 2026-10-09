@@ -619,14 +619,18 @@ struct AppFeature {
           // Selecting the archived list must NOT overwrite the last
           // focused live worktree — preserve `focusedWorktreeID` so
           // returning from archives restores the prior row.
-          if !state.repositories.isShowingArchivedWorktrees {
+          // A task on a directory the roster does not list is shown with no
+          // directory beside it, and the last focused worktree is kept for
+          // the next launch; any other plain deselect drops the task too.
+          if !state.repositories.isShowingArchivedWorktrees, taskID == nil {
             state.repositories.$sidebar.withLock { sidebar in
               sidebar.focusedWorktreeID = lastFocusedWorktreeID
             }
           }
+          if taskID == nil, state.repositories.selection == nil { state.repositories.selectedTask = nil }
           return .merge(
             .run { _ in
-              await terminalClient.send(.setSelectedLayoutID(nil))
+              await terminalClient.send(.setSelectedLayoutID(taskID))
             },
             .run { _ in
               await worktreeInfoWatcher.send(.setSelectedWorktreeID(nil))

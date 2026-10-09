@@ -86,7 +86,7 @@ struct RepositoriesFeatureTaskSelectionTests {
     #expect(store.state.selectedWorktreeID == main.id, "same directory: the selected worktree does not move")
   }
 
-  @Test(.dependencies) func selectTaskOnAnUnknownDirectoryChangesNothing() async {
+  @Test(.dependencies) func selectTaskOnAnUnknownDirectorySelectsTheTaskAlone() async {
     let main = worktree("main")
     var initial = state(worktrees: [main])
     initial.selection = .worktree(main.id)
@@ -94,9 +94,17 @@ struct RepositoriesFeatureTaskSelectionTests {
     store.exhaustivity = .off
 
     await store.send(.selectTask(taskA, directory: "/gone/checkout"))
+    await store.receive(\.delegate, .selectedWorktreeChanged(nil, layoutID: taskA))
     await store.finish()
 
-    #expect(store.state.selectedTaskID == nil)
+    #expect(store.state.selectedTaskID == taskA)
+    #expect(store.state.orphanTaskID == taskA)
+    #expect(store.state.selectedWorktreeID == nil)
+
+    await store.send(.selectTask(taskB, directory: main.id))
+    await store.finish()
+    #expect(store.state.orphanTaskID == nil)
+    #expect(store.state.selectedTaskID == taskB)
     #expect(store.state.selectedWorktreeID == main.id)
   }
 

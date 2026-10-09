@@ -324,6 +324,18 @@ struct WorktreeDetailView: View {
           guard let target else { return }
           store.send(.repositories(.consumeTerminalFocus(target)))
         }
+      } else if let orphanTaskID = repositories.orphanTaskID {
+        // A task whose directory the roster no longer lists: its tabs are
+        // shown, with none of the directory's chrome.
+        WorktreeLayoutView(
+          layoutID: orphanTaskID,
+          manager: terminalManager,
+          terminalsStore: store.scope(state: \.terminals, action: \.terminals),
+          runtime: ContentRuntime.liveValue,
+          forceAutoFocus: false
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea(.container, edges: .bottom)
       } else if !repositories.isInitialLoadComplete {
         DetailPlaceholderView()
       } else {

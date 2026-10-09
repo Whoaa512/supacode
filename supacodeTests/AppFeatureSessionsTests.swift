@@ -2839,23 +2839,128 @@ struct AppFeatureSessionsTests {
     #expect(!recorded.mintedOrResumed)
   }
 
-  @Test(.dependencies) func activatingAnOrphanTaskRowTouchesNothing() async {
-    let orphan = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A3")!)
-    var state = state()
-    state.terminals.layouts.append(
-      agentTask(orphan, surface: UUID(uuidString: "00000000-0000-0000-0000-0000000000B3")!))
-    state.terminals.directories[orphan] = TaskRecord.Directory(worktreeID: "/gone/checkout")
-    let recorded = Recorded()
-    let store = taskStore(withRows(state), recorded: recorded)
+  private let orphanShell = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A3")!)
+  private let orphanAgent = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A4")!)
+  private let orphanShellSurface = UUID(uuidString: "00000000-0000-0000-0000-0000000000B3")!
+  private let orphanAgentSurface = UUID(uuidString: "00000000-0000-0000-0000-0000000000B4")!
+  private let goneDirectory = TaskRecord.Directory(worktreeID: "/gone/checkout")
 
-    await store.send(.repositories(.activateSession(.task(orphan))))
+  /// A live shell-only task and a never-opened agent task (record only), both
+  /// on a directory the roster does not list.
+  private func withOrphans(_ initial: AppFeature.State) -> AppFeature.State {
+    var state = initial
+    state.terminals.layouts.append(agentTask(orphanShell, surface: orphanShellSurface))
+    state.terminals.directories[orphanShell] = goneDirectory
+    var tasks = state.repositories.persistedLayouts.tasks
+    tasks[orphanAgent.persistenceKey] = TaskRecord(
+      id: orphanAgent, directory: goneDirectory,
+      layout: agentTask(orphanAgent, surface: orphanAgentSurface).layout, createdAt: Date(timeIntervalSince1970: 9))
+    state.repositories.$persistedLayouts = SharedReader(value: TaskLayoutsFile(tasks: tasks))
+    state.agentPresence.records[.init(agent: .pi, surfaceID: orphanAgentSurface)] = record(ref: "orphan")
+    return state
+  }
+
+  @Test(.dependencies) func activatingAnOrphanTaskRowShowsAndFocusesIt() async {
+    let recorded = Recorded()
+    let store = taskStore(withRows(withOrphans(state())), recorded: recorded)
+
+    await store.send(.repositories(.activateSession(.task(orphanShell))))
     await store.finish()
     await store.skipReceivedActions(strict: false)
 
-    #expect(recorded.commands.value.isEmpty)
-    #expect(recorded.focused.value.isEmpty)
-    #expect(store.state.repositories.selectedWorktreeID == worktree.id)
-    #expect(store.state.repositories.selectedTaskID == nil)
+    #expect(store.state.repositories.selectedTaskID == orphanShell)
+    #expect(store.state.repositories.orphanTaskID == orphanShell)
+    #expect(store.state.repositories.selectedWorktreeID == nil, "no roster directory stands in for it")
+    #expect(recorded.selectedLayouts == [orphanShell])
+    #expect(
+      recorded.commands.value.contains(
+        .ensureInitialTab(
+          orphanShell, DirectoryContext(orphan: goneDirectory), runSetupScriptIfNew: false, focusing: true)))
+    #expect(recorded.watcher.value == [.setSelectedWorktreeID(nil)])
+    #expect(!recorded.mintedOrResumed)
+  }
+
+  @Test(.dependencies) func activatingAnOrphanSessionRowFocusesItsSurface() async {
+    let recorded = Recorded()
+    let store = taskStore(withRows(withOrphans(state())), recorded: recorded)
+
+    await store.send(.repositories(.activateSession(.session(SessionKey(harness: .pi, sessionID: "orphan")))))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(store.state.repositories.selectedTaskID == orphanAgent)
+    #expect(recorded.selectedLayouts == [orphanAgent])
+    #expect(
+      recorded.focused.value == [
+        SessionLocation(
+          layoutID: orphanAgent, directoryID: goneDirectory.worktreeID,
+          tabID: TabID(rawValue: orphanAgentSurface), surfaceID: orphanAgentSurface)
+      ])
+    #expect(!recorded.mintedOrResumed)
+  }
+
+  @Test func orphanContextComesFromTheRecordedDirectory() {
+    let local = DirectoryContext(orphan: goneDirectory)
+    #expect(local.worktreeID == "/gone/checkout")
+    #expect(local.name == "checkout")
+    #expect(local.workingDirectory.path(percentEncoded: false) == "/gone/checkout")
+    #expect(local.repositoryRootURL == local.workingDirectory)
+    #expect(local.host == nil)
+
+    let host = RemoteHost(authority: "me@box")!
+    let remote = DirectoryContext(orphan: TaskRecord.Directory(worktreeID: "me@box/srv/app", host: host))
+    #expect(remote.host == host)
+    #expect(remote.workingDirectory.path(percentEncoded: false) == "/srv/app")
+    #expect(remote.name == "app")
+  }
+
+  @Test(.dependencies, arguments: [1, -1])
+  func cyclingVisitsOrphanTasksToo(offset: Int) async {
+    let initial = withRows(withOrphans(sixTasksOnTwoDirectories()))
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.sessions.rawValue }
+    let rowIDs = initial.repositories.sessionsSidebarStructure.liveIDs
+    let everyLayout = allSixLayouts.union([orphanShell, orphanAgent])
+    #expect(Set(rowIDs.compactMap { initial.repositories.sessionItems[id: $0]?.location?.layoutID }) == everyLayout)
+
+    for start in rowIDs {
+      var from = initial
+      from.repositories.sessionSelection = start
+      let recorded = Recorded()
+      let store = taskStore(from, recorded: recorded)
+      for _ in 1..<rowIDs.count {
+        await store.send(.repositories(offset > 0 ? .selectNextWorktree : .selectPreviousWorktree))
+        await store.finish()
+        await store.skipReceivedActions(strict: false)
+        await store.skipReceivedActions(strict: false)
+      }
+      let startLayout = initial.repositories.sessionItems[id: start]?.location?.layoutID
+      #expect(Set(recorded.selectedLayouts).union([startLayout].compactMap { $0 }) == everyLayout)
+      #expect(Set(recorded.selectedLayouts).count == rowIDs.count - 1, "no task is shown twice in one lap")
+      #expect(!recorded.mintedOrResumed)
+      #expect(store.state.pendingSessionLaunch == nil)
+    }
+  }
+
+  @Test(.dependencies) func leavingAnOrphanTaskDropsIt() async {
+    var initial = withRows(withOrphans(sixTasksOnTwoDirectories()))
+    initial.repositories.selection = nil
+    initial.repositories.selectedTask = SelectedTask(id: orphanShell, directoryID: goneDirectory.worktreeID)
+    #expect(initial.repositories.orphanTaskID == orphanShell)
+
+    let deselected = taskStore(initial, recorded: Recorded())
+    await deselected.send(.repositories(.delegate(.selectedWorktreeChanged(nil))))
+    await deselected.finish()
+    #expect(deselected.state.repositories.selectedTask == nil)
+
+    let recorded = Recorded()
+    let moved = taskStore(initial, recorded: recorded)
+    await moved.send(.repositories(.activateSession(.task(fourth))))
+    await moved.finish()
+    await moved.skipReceivedActions(strict: false)
+    #expect(moved.state.repositories.orphanTaskID == nil)
+    #expect(moved.state.repositories.selectedTaskID == fourth)
+    #expect(moved.state.repositories.selectedWorktreeID == otherWorktree.id)
   }
 
   @Test(.dependencies) func focusedShellOnlyTaskResolvesToItsTaskRow() {

@@ -53,14 +53,24 @@ extension AppFeature {
     return .task(layoutID)
   }
 
+  /// The directory facts for a task: the roster worktree's, else what the task
+  /// itself recorded, so a task on a directory the roster no longer lists is
+  /// still shown.
+  static func directoryContext(forTask layoutID: LayoutID, directoryID: Worktree.ID, state: State) -> DirectoryContext {
+    if let worktree = state.repositories.worktree(for: directoryID) { return DirectoryContext(worktree: worktree) }
+    let recorded =
+      state.terminals.directories[layoutID]
+      ?? state.repositories.persistedLayouts.tasks[layoutID.persistenceKey]?.directory
+    return DirectoryContext(orphan: recorded ?? TaskRecord.Directory(worktreeID: directoryID))
+  }
+
   /// Shows the task that owns the session and focuses its surface. The layout
   /// is the location's own, never the directory's active task.
   static func focusSession(_ location: SessionLocation, state: State) -> Effect<Action> {
     @Dependency(TerminalClient.self) var terminalClient
-    guard let worktree = state.repositories.worktree(for: location.directoryID) else { return .none }
-    let context = DirectoryContext(worktree: worktree)
+    let context = directoryContext(forTask: location.layoutID, directoryID: location.directoryID, state: state)
     return .merge(
-      .send(.repositories(.selectTask(location.layoutID, directory: worktree.id))),
+      .send(.repositories(.selectTask(location.layoutID, directory: location.directoryID))),
       .run { @MainActor _ in
         terminalClient.focusSurface(location.layoutID, context, location.tabID, location.surfaceID)
       }
@@ -71,10 +81,9 @@ extension AppFeature {
   /// already holds tabs, so the bootstrap half of the command never fires.
   static func focusTask(_ layoutID: LayoutID, directoryID: Worktree.ID, state: State) -> Effect<Action> {
     @Dependency(TerminalClient.self) var terminalClient
-    guard let worktree = state.repositories.worktree(for: directoryID) else { return .none }
-    let context = DirectoryContext(worktree: worktree)
+    let context = directoryContext(forTask: layoutID, directoryID: directoryID, state: state)
     return .concatenate(
-      .send(.repositories(.selectTask(layoutID, directory: worktree.id))),
+      .send(.repositories(.selectTask(layoutID, directory: directoryID))),
       .run { _ in
         await terminalClient.send(
           .ensureInitialTab(layoutID, context, runSetupScriptIfNew: false, focusing: true))

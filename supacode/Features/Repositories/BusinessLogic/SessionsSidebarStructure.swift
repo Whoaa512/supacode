@@ -44,7 +44,15 @@ extension RepositoriesFeature.State {
   /// The selected task, while the selection still sits on its directory: a
   /// directory that was removed or deselected takes its task with it.
   var selectedTaskID: LayoutID? {
-    guard let selectedTask, selectedTask.directoryID == selection?.worktreeID else { return nil }
+    guard let selectedTask else { return nil }
+    if selectedTask.directoryID == selection?.worktreeID { return selectedTask.id }
+    return orphanTaskID
+  }
+
+  /// The selected task when its directory is no roster worktree, so nothing
+  /// is selected beside it. Any other selection, or a plain deselect, ends it.
+  var orphanTaskID: LayoutID? {
+    guard let selectedTask, selection == nil, worktree(for: selectedTask.directoryID) == nil else { return nil }
     return selectedTask.id
   }
 

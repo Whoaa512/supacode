@@ -123,7 +123,13 @@ extension RepositoriesFeature {
         return .none
 
       case .selectTask(let layoutID, let directoryID):
-        guard let worktree = state.worktree(for: directoryID) else { return .none }
+        guard let worktree = state.worktree(for: directoryID) else {
+          // No roster directory to select: the task is shown on its own and
+          // the directory features go quiet.
+          state.setSingleWorktreeSelection(nil)
+          state.selectedTask = SelectedTask(id: layoutID, directoryID: directoryID)
+          return .send(.delegate(.selectedWorktreeChanged(nil, layoutID: layoutID)))
+        }
         state.setSingleWorktreeSelection(directoryID)
         state.selectedTask = SelectedTask(id: layoutID, directoryID: directoryID)
         var effects: [Effect<Action>] = [
