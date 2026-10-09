@@ -1568,3 +1568,21 @@ deviation.
     `supacodeTerminalTests`. Their harnesses now inject a date.
   Gate: check 0, `supacodeFeatureTests` + `supacodeTerminalTests` +
   `supacodeTests` 3624 tests with only the 5 baseline failures, build-app 0.
+- T5 review round 3, 2026-10-08:
+  - Shared session identity (fixed, `74705ba1`): two tasks reporting one
+    session share one session row, which leads to one of them; the other
+    had no row and cycling skipped it. `AppFeature.taskSnapshots` now lists
+    every task that holds tabs (candidates, no agent filter) and
+    `reconcileSessionItems` keeps a task row unless a session row's
+    `location` actually leads to that layout. `focusedSessionRowID` follows
+    the same rule, so focus in the task the shared row does not lead to
+    highlights its task row. `RepositoriesFeature.State.taskSnapshots` is
+    therefore "candidates", not "rows": read `sessionItems` for rows.
+  - Focus of an unmounted agent surface (fixed, `25de6c99`): the
+    `.focusSurface` command only asked the live renderer; it now also calls
+    `host.focusSelectedTab()` after waking and selecting the tab, so the
+    request is latched when the surface is hibernated or not mounted. This
+    is the one command path for every agent row, roster or orphan. The
+    first-responder handoff itself is still not verified in the live UI.
+  Gate: check 0, `supacodeFeatureTests` + `supacodeTerminalTests` +
+  `supacodeTests` with only baseline failures, build-app 0.
