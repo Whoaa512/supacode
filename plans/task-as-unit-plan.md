@@ -1379,3 +1379,43 @@ deviation.
   use `task:` keys); T5/T6 must make the resolver skip an own-key layout
   recorded elsewhere before anything can store one. Gate: check 0,
   build-app 0, full `make test` 4064 with only the 5 baseline failures.
+- T4, 2026-10-08, `4621e97e` (A26 baseline tests) + `ff48fc21`: surface
+  discovery walks tasks. `AppFeature.surfaceIndex(state:)` returns
+  `surface → SurfaceEntry { layoutID, tabID, directoryID, directoryPath,
+  cwd }` over every live layout, then every persisted record with no live
+  layout (key order; the first owner of a surface id wins). It feeds
+  `sessionSnapshots`, `hasUnresolvedLivePresence` and `worktreeIDForSurface`,
+  built once per reducer pass. Decisions:
+  - A26 baseline, debug build, pre-task code, two runs: unchanged reconcile
+    median ≈ 12 ms at 3,000 rows and ≈ 22 ms at 6,000 (ratio ≈ 1.9, gate
+    3×). Informational. Tests live in
+    `RepositoriesFeatureSessionsScaleTests`: `unchangedReconcileWritesNothing`
+    (observation tracking over the row collection, the selection and every
+    row field, plus state equality) and `unchangedReconcileScalesLinearly`.
+  - `focusedSurfaceID` is unchanged: since R7 it reads the selected layout
+    directly and never went through the roster, so it has nothing to take
+    from the index.
+  - `SessionLiveSnapshot.cwd` stays the task directory's path, as today; the
+    tab's own cwd is only exposed as `SurfaceEntry.cwd`, for T8. Reason:
+    reconcile's branch annotation matches the row cwd exactly against a
+    worktree's working directory, so a tab sitting in a subdirectory would
+    show a false branch mismatch. T8 owns the cwd-aware branch logic.
+  - `SurfaceEntry.cwd` is the tab state's `workingDirectory` in the layout
+    walked. A live tab's state holds its launch or restored value (the
+    current pwd is only read at snapshot time), so a tab opened this run
+    falls back to the task directory. T8 must not assume it is the live pwd.
+  - A task's directory comes from `terminals.directories` (live) or its
+    record (persisted). A live layout nothing has named a directory for
+    falls back to `worktree(forLayout:)`; with no match it is skipped, as
+    before. An orphan's path is parsed from its directory id.
+  - Persisted tasks are now found before the roster loads and for
+    directories outside it (before: only through a roster worktree).
+  Left for T5: a row for an orphan or a second task appears as soon as an
+  agent reports on it, but activating it still focuses by
+  `location.directoryID` (`focusSession` → `focusTerminalSurface`), so an
+  orphan row cannot be focused and a second task's row goes through the
+  seam; T5 routes by `location.layoutID`. `SessionSidebarItemFeature` and
+  `SessionsSidebarStructure` needed no change (`SessionLocation.layoutID`
+  exists since R6). Gate: check 0, `supacodeFeatureTests` + `supacodeTests`
+  3189 tests with only 3 baseline failures (ack flake, settings-changed,
+  bracket chords), build-app 0.
