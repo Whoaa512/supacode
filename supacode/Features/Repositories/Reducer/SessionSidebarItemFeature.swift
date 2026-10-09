@@ -5,11 +5,14 @@ import SupacodeSettingsShared
 nonisolated enum SessionRowID: Hashable, Sendable {
   case session(SessionKey)
   case provisional(SkillAgent, UUID)
+  /// A task no live agent sits in: it has no session to be listed by.
+  case task(LayoutID)
 
   var sortKey: String {
     switch self {
     case .session(let key): key.rawValue
     case .provisional(let agent, let surface): "provisional:\(agent.rawValue):\(surface)"
+    case .task(let layoutID): "task:\(layoutID.persistenceKey)"
     }
   }
 }
@@ -19,6 +22,11 @@ nonisolated struct SessionLocation: Equatable, Sendable {
   var directoryID: Worktree.ID
   var tabID: TabID
   var surfaceID: UUID
+}
+
+nonisolated struct SelectedTask: Equatable, Sendable {
+  var id: LayoutID
+  var directoryID: Worktree.ID
 }
 
 nonisolated struct SessionLiveSnapshot: Equatable, Sendable {
@@ -44,6 +52,19 @@ nonisolated struct SessionLiveSnapshot: Equatable, Sendable {
     copy.allowsAttentionNavigation = true
     return copy
   }
+}
+
+/// A task that holds tabs but no live agent, so no session row leads to it.
+nonisolated struct TaskLiveSnapshot: Equatable, Sendable {
+  var title: String
+  var cwd: String
+  /// The record's creation date; nil for a task not stored yet.
+  var createdAt: Date?
+  /// The task and one of its tabs. The tab only anchors the row: activating
+  /// it shows the task with whatever it had focused.
+  var location: SessionLocation
+
+  var id: SessionRowID { .task(location.layoutID) }
 }
 
 /// The row a reconcile pass wants, as a plain value: building observable row

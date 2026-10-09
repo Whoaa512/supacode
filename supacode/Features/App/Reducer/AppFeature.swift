@@ -599,10 +599,10 @@ struct AppFeature {
         return .send(.newSessionDirectorySelected(url))
 
       case .repositories(.delegate(.focusSession(let location))):
-        return .send(
-          .focusTerminalSurface(
-            worktreeID: location.directoryID, tabID: location.tabID, surfaceID: location.surfaceID
-          ))
+        return Self.focusSession(location, state: state)
+
+      case .repositories(.delegate(.focusTask(let layoutID, let directoryID))):
+        return Self.focusTask(layoutID, directoryID: directoryID, state: state)
 
       case .repositories(.selectNextWorktree), .repositories(.selectPreviousWorktree):
         if state.repositories.isSessionsSidebarTabActive,
@@ -612,7 +612,7 @@ struct AppFeature {
         }
         return .none
 
-      case .repositories(.delegate(.selectedWorktreeChanged(let worktree))):
+      case .repositories(.delegate(.selectedWorktreeChanged(let worktree, let taskID))):
         let lastFocusedWorktreeID = worktree?.id
         guard let worktree else {
           state.loadedRepoScripts = nil
@@ -659,7 +659,8 @@ struct AppFeature {
         // auto-focus races host creation and loses. The flag itself is consumed
         // by the detail view on appear.
         let wantsFocus = state.repositories.sidebarItems[id: worktree.id]?.shouldFocusTerminal == true
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        // A named task is shown as is; otherwise the directory's active one.
+        let layoutID = taskID ?? state.layoutID(forDirectory: worktree.id)
         return .merge(
           .run { _ in
             await terminalClient.send(.setSelectedLayoutID(layoutID))

@@ -101,7 +101,7 @@ struct AppFeatureSessionsTests {
     store.exhaustivity = .off
     await store.send(.repositories(.sessionItems(.element(id: key, action: .activate))))
     await store.receive(\.repositories.delegate.focusSession)
-    await store.receive(\.focusTerminalSurface)
+    await store.receive(\.repositories.selectTask)
     await store.finish()
     #expect(focused.value.count == 1)
     #expect(focused.value[0] == location)
@@ -138,7 +138,7 @@ struct AppFeatureSessionsTests {
     #expect(store.state.repositories.sessionItems[id: key]?.location == location)
     await store.send(.repositories(.activateSession(key)))
     await store.receive(\.repositories.delegate.focusSession)
-    await store.receive(\.focusTerminalSurface)
+    await store.receive(\.repositories.selectTask)
     await store.finish()
     #expect(focused.value.count == 1)
     #expect(focused.value[0] == location)
@@ -460,6 +460,12 @@ struct AppFeatureSessionsTests {
       SessionSidebarItemFeature.State(
         id: .session(key), title: "Controlled", cwd: directory.path, createdAt: .distantPast)
     ]
+    // Index-backed, so the row survives the reconcile a roster change now runs for task rows.
+    initial.repositories.sessionSummaries = [
+      SessionSummary(
+        harness: .pi, sessionID: "controlled", createdAt: .distantPast, cwd: directory.path,
+        title: "Controlled", messageCount: 0, lastActivity: .distantPast)
+    ]
     initial.repositories.$sessions.withLock { $0[key] = SessionSidecarEntry(branches: ["old"]) }
     let branches = AsyncStream<String>.makeStream()
     let probes = LockIsolated(0)
@@ -468,6 +474,7 @@ struct AppFeatureSessionsTests {
       AppFeature()
     } withDependencies: {
       $0.uuid = .incrementing
+      $0.date.now = .distantPast
       $0[GitClientDependency.self].branchName = { _ in
         probes.withValue { $0 += 1 }
         for await branch in branches.stream { return branch }
@@ -1309,7 +1316,8 @@ struct AppFeatureSessionsTests {
     await store.send(.settleSessionAndAdvance) { appState in
       #expect(appState.repositories.sessions[key]?.settledAt != nil)
     }
-    await store.receive(\.focusTerminalSurface)
+    await store.receive(\.repositories.delegate.focusSession)
+    await store.receive(\.repositories.selectTask)
   }
 
   @Test(.dependencies) func manualSettleAlsoRequestsClosingTheSessionsTab() async {
@@ -1521,6 +1529,7 @@ struct AppFeatureSessionsTests {
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
+      $0.date.now = .distantPast
       $0.terminalClient.markUserCloseIntent = { _, ids in marked.withValue { $0.append(ids) } }
     }
     store.exhaustivity = .off
@@ -2562,6 +2571,344 @@ struct AppFeatureSessionsTests {
     #expect(index[orphanSurface]?.directoryID == gone)
     #expect(!AppFeature.hasUnresolvedLivePresence(state: state, index: index))
     #expect(AppFeature.sessionSnapshots(state: state, index: index).map(\.location.layoutID) == [orphan])
+  }
+
+  // MARK: - Task rows, selection and cycling
+
+  private let third = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A5")!)
+  private let fourth = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A6")!)
+  private let fifth = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A7")!)
+  private let thirdSurface = UUID(uuidString: "00000000-0000-0000-0000-0000000000B5")!
+  private let fourthSurface = UUID(uuidString: "00000000-0000-0000-0000-0000000000B6")!
+  private let fifthSurface = UUID(uuidString: "00000000-0000-0000-0000-0000000000B7")!
+
+  private var otherWorktree: Worktree {
+    Worktree(
+      id: "/other", name: "other", detail: "",
+      workingDirectory: URL(fileURLWithPath: "/other"),
+      repositoryRootURL: URL(fileURLWithPath: "/other"))
+  }
+
+  /// Six tasks on two directories. `/workspace`: the own-key task (two shell
+  /// tabs), two agent tasks and a shell-only one. `/other`: a shell-only task
+  /// that was never opened this run (record only) and an agent task.
+  private func sixTasksOnTwoDirectories() -> AppFeature.State {
+    var state = twoTasksOnOneDirectory()
+    state.repositories.repositories.append(
+      Repository(id: "/other", rootURL: otherWorktree.workingDirectory, name: "other", worktrees: [otherWorktree]))
+    state.terminals.layouts.append(agentTask(third, surface: thirdSurface))
+    state.terminals.layouts.append(agentTask(fifth, surface: fifthSurface))
+    state.terminals.directories[third] = TaskRecord.Directory(worktreeID: worktree.id)
+    state.terminals.directories[fifth] = TaskRecord.Directory(worktreeID: otherWorktree.id)
+    state.repositories.$persistedLayouts = SharedReader(
+      value: TaskLayoutsFile(tasks: [
+        fourth.persistenceKey: TaskRecord(
+          id: fourth, directory: TaskRecord.Directory(worktreeID: otherWorktree.id),
+          layout: agentTask(fourth, surface: fourthSurface).layout, createdAt: Date(timeIntervalSince1970: 7))
+      ]))
+    state.agentPresence.records[.init(agent: .pi, surfaceID: fifthSurface)] = record(ref: "five")
+    // No focused surface: cycling then walks from the stored row selection.
+    state.terminals.selectedLayoutID = nil
+    return state
+  }
+
+  private var allSixLayouts: Set<LayoutID> { [worktree.id.layoutID, first, second, third, fourth, fifth] }
+
+  private func withRows(_ state: AppFeature.State) -> AppFeature.State {
+    var state = state
+    let snapshots = AppFeature.sessionSnapshots(state: state)
+    state.repositories.sessionSnapshots = snapshots
+    state.repositories.taskSnapshots = AppFeature.taskSnapshots(
+      tasks: AppFeature.taskEntries(state: state), sessionSnapshots: snapshots)
+    state.repositories.reconcileSessionItems(now: .distantPast)
+    state.repositories.recomputeSessionsSidebarStructureIfChanged()
+    return state
+  }
+
+  private struct Recorded {
+    let commands = LockIsolated<[TerminalClient.Command]>([])
+    let focused = LockIsolated<[SessionLocation]>([])
+    let watcher = LockIsolated<[WorktreeInfoWatcherClient.Command]>([])
+
+    var selectedLayouts: [LayoutID] {
+      commands.value.compactMap {
+        if case .setSelectedLayoutID(let id?) = $0 { return id }
+        return nil
+      }
+    }
+
+    var mintedOrResumed: Bool {
+      commands.value.contains {
+        switch $0 {
+        case .createTab, .createTabWithInput: true
+        default: false
+        }
+      }
+    }
+  }
+
+  private func taskStore(_ initial: AppFeature.State, recorded: Recorded) -> TestStoreOf<AppFeature> {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.terminalClient.send = { command in recorded.commands.withValue { $0.append(command) } }
+      $0.terminalClient.focusSurface = { layoutID, context, tab, surface in
+        recorded.focused.withValue {
+          $0.append(
+            SessionLocation(layoutID: layoutID, directoryID: context.worktreeID, tabID: tab, surfaceID: surface))
+        }
+      }
+      $0.worktreeInfoWatcher.send = { command in recorded.watcher.withValue { $0.append(command) } }
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+    }
+    store.exhaustivity = .off
+    return store
+  }
+
+  @Test func taskWithoutALiveAgentGetsATaskRowTitledByItsDirectory() {
+    let state = sixTasksOnTwoDirectories()
+    let snapshots = AppFeature.sessionSnapshots(state: state)
+
+    let tasks = AppFeature.taskSnapshots(tasks: AppFeature.taskEntries(state: state), sessionSnapshots: snapshots)
+
+    #expect(tasks.map(\.id) == [.task(worktree.id.layoutID), .task(third), .task(fourth)])
+    #expect(tasks.map(\.title) == ["workspace", "workspace", "other"])
+    #expect(tasks.map(\.cwd) == ["/workspace", "/workspace", "/other"])
+    #expect(tasks.map(\.location.directoryID) == [worktree.id, worktree.id, otherWorktree.id])
+    #expect(tasks.map(\.createdAt) == [nil, nil, Date(timeIntervalSince1970: 7)])
+    #expect(tasks[0].location.surfaceID == surface, "anchored on the task's first tab, whatever is focused")
+    #expect(tasks[2].location.surfaceID == fourthSurface)
+  }
+
+  @Test func emptyTaskGetsNoRow() {
+    var state = state()
+    state.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].tabs = []
+
+    #expect(AppFeature.taskSnapshots(tasks: AppFeature.taskEntries(state: state), sessionSnapshots: []).isEmpty)
+  }
+
+  @Test func orphanTaskIsListedAsATaskRow() {
+    let orphan = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A3")!)
+    let orphanSurface = UUID(uuidString: "00000000-0000-0000-0000-0000000000B3")!
+    var state = state()
+    state.terminals.layouts.append(agentTask(orphan, surface: orphanSurface))
+    state.terminals.directories[orphan] = TaskRecord.Directory(worktreeID: "/gone/checkout")
+
+    let row = withRows(state).repositories.sessionItems[id: .task(orphan)]
+
+    #expect(row?.title == "checkout")
+    #expect(row?.cwd == "/gone/checkout")
+    #expect(row?.location?.layoutID == orphan)
+  }
+
+  @Test(.dependencies) func everyTaskIsTheTargetOfARow() {
+    let state = withRows(sixTasksOnTwoDirectories())
+    let rows = state.repositories.sessionItems
+
+    #expect(Set(rows.compactMap(\.location?.layoutID)) == allSixLayouts)
+    #expect(rows.count == 6, "one row per task: no task is listed twice")
+    #expect(rows[id: .session(SessionKey(harness: .pi, sessionID: "one"))]?.location?.layoutID == first)
+    #expect(rows[id: .session(SessionKey(harness: .pi, sessionID: "two"))]?.location?.layoutID == second)
+    #expect(rows[id: .session(SessionKey(harness: .pi, sessionID: "five"))]?.location?.layoutID == fifth)
+    #expect(Set(state.repositories.sessionsSidebarStructure.liveIDs) == Set(rows.ids))
+  }
+
+  @Test(.dependencies, arguments: [1, -1])
+  func cyclingFromAnyRowVisitsEveryTaskWithoutMintingOrResuming(offset: Int) async {
+    let initial = withRows(sixTasksOnTwoDirectories())
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.sessions.rawValue }
+    let rowIDs = initial.repositories.sessionsSidebarStructure.liveIDs
+    #expect(rowIDs.count == 6)
+
+    for start in rowIDs {
+      var from = initial
+      from.repositories.sessionSelection = start
+      let recorded = Recorded()
+      let store = taskStore(from, recorded: recorded)
+      for _ in 1..<rowIDs.count {
+        await store.send(.repositories(offset > 0 ? .selectNextWorktree : .selectPreviousWorktree))
+        await store.finish()
+        await store.skipReceivedActions(strict: false)
+        await store.skipReceivedActions(strict: false)
+      }
+      let startLayout = initial.repositories.sessionItems[id: start]?.location?.layoutID
+      #expect(Set(recorded.selectedLayouts).union([startLayout].compactMap { $0 }) == allSixLayouts)
+      #expect(Set(recorded.selectedLayouts).count == 5, "no task is shown twice in one lap")
+      #expect(!recorded.mintedOrResumed)
+      #expect(store.state.pendingSessionLaunch == nil)
+    }
+  }
+
+  @Test(.dependencies) func hotkeySlotsReachEveryTask() async {
+    let initial = withRows(sixTasksOnTwoDirectories())
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.sessions.rawValue }
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    for slot in 0..<6 {
+      await store.send(.repositories(.selectWorktreeAtHotkeySlot(slot)))
+      await store.finish()
+      await store.skipReceivedActions(strict: false)
+    }
+
+    #expect(Set(recorded.selectedLayouts) == allSixLayouts)
+    #expect(!recorded.mintedOrResumed)
+  }
+
+  @Test(.dependencies) func activatingASessionRowShowsItsOwnTaskNotTheDirectorysActiveOne() async {
+    var initial = withRows(twoTasksOnOneDirectory())
+    let key = RepositorySettingsKey(rootURL: worktree.repositoryRootURL, host: worktree.host)
+    let scripts = LoadedRepositoryScripts(source: key.id, scripts: [])
+    initial.loadedRepoScripts = scripts
+    #expect(initial.layoutID(forDirectory: worktree.id) == first)
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+    let row = SessionRowID.session(SessionKey(harness: .pi, sessionID: "two"))
+
+    await store.send(.repositories(.activateSession(row)))
+    await store.receive(\.repositories.selectTask) {
+      #expect($0.repositories.selectedTaskID == self.second)
+      #expect($0.repositories.selectedWorktreeID == self.worktree.id)
+    }
+    await store.receive(\.repositories.delegate, .selectedWorktreeChanged(worktree, layoutID: second)) {
+      #expect($0.loadedRepoScripts == scripts, "same directory: its scripts are not dropped")
+    }
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(recorded.selectedLayouts == [second])
+    #expect(
+      recorded.focused.value == [
+        SessionLocation(
+          layoutID: second, directoryID: worktree.id, tabID: TabID(rawValue: secondSurface),
+          surfaceID: secondSurface)
+      ])
+    // The directory half reruns with the directory it already had, which the
+    // watcher ignores; it is never pointed at another one.
+    #expect(recorded.watcher.value.allSatisfy { $0 == .setSelectedWorktreeID(self.worktree.id) })
+    #expect(store.state.loadedRepoScripts?.source == key.id)
+    #expect(!recorded.mintedOrResumed)
+  }
+
+  @Test(.dependencies) func selectedWorktreeFollowsTheSelectedTasksDirectory() async {
+    let initial = withRows(sixTasksOnTwoDirectories())
+    #expect(initial.repositories.selectedWorktreeID == worktree.id)
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    await store.send(.repositories(.activateSession(.session(SessionKey(harness: .pi, sessionID: "five")))))
+    await store.receive(\.repositories.selectTask) {
+      #expect($0.repositories.selectedTaskID == self.fifth)
+    }
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(store.state.repositories.selectedTaskID == fifth)
+    #expect(store.state.repositories.selectedWorktreeID == otherWorktree.id)
+    #expect(recorded.selectedLayouts == [fifth])
+    #expect(recorded.watcher.value.contains(.setSelectedWorktreeID(otherWorktree.id)))
+  }
+
+  @Test(.dependencies) func activatingATaskRowShowsTheTaskWithItsOwnFocus() async {
+    let initial = withRows(sixTasksOnTwoDirectories())
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    await store.send(.repositories(.activateSession(.task(fourth)))) {
+      $0.repositories.sessionSelection = .task(self.fourth)
+    }
+    await store.receive(\.repositories.delegate.focusTask)
+    await store.receive(\.repositories.selectTask) {
+      #expect($0.repositories.selectedTaskID == self.fourth)
+    }
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(store.state.repositories.selectedTaskID == fourth)
+    #expect(store.state.repositories.selectedWorktreeID == otherWorktree.id)
+    #expect(recorded.selectedLayouts == [fourth])
+    #expect(recorded.focused.value.isEmpty, "the anchor tab is not forced into focus")
+    #expect(
+      recorded.commands.value.contains(
+        .ensureInitialTab(
+          fourth, DirectoryContext(worktree: otherWorktree), runSetupScriptIfNew: false, focusing: true)))
+    #expect(!recorded.mintedOrResumed)
+  }
+
+  @Test(.dependencies) func activatingAnOrphanTaskRowTouchesNothing() async {
+    let orphan = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A3")!)
+    var state = state()
+    state.terminals.layouts.append(
+      agentTask(orphan, surface: UUID(uuidString: "00000000-0000-0000-0000-0000000000B3")!))
+    state.terminals.directories[orphan] = TaskRecord.Directory(worktreeID: "/gone/checkout")
+    let recorded = Recorded()
+    let store = taskStore(withRows(state), recorded: recorded)
+
+    await store.send(.repositories(.activateSession(.task(orphan))))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(recorded.commands.value.isEmpty)
+    #expect(recorded.focused.value.isEmpty)
+    #expect(store.state.repositories.selectedWorktreeID == worktree.id)
+    #expect(store.state.repositories.selectedTaskID == nil)
+  }
+
+  @Test(.dependencies) func focusedShellOnlyTaskResolvesToItsTaskRow() {
+    var state = withRows(sixTasksOnTwoDirectories())
+    state.terminals.selectedLayoutID = third
+
+    #expect(AppFeature.focusedSessionRowID(state: state) == .task(third))
+
+    state.terminals.selectedLayoutID = first
+    #expect(AppFeature.focusedSessionRowID(state: state) == .session(SessionKey(harness: .pi, sessionID: "one")))
+  }
+
+  @Test(.dependencies) func taskRowsFollowTerminalChanges() async {
+    var initial = sixTasksOnTwoDirectories()
+    initial.repositories.sessionSnapshots = AppFeature.sessionSnapshots(state: initial)
+    let store = taskStore(initial, recorded: Recorded())
+
+    await store.send(.agentPresence(.delegate(.surfacesChanged([]))))
+    await store.receive(\.repositories.taskSnapshotsChanged)
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(
+      Set(store.state.repositories.sessionItems.ids)
+        .isSuperset(of: [.task(worktree.id.layoutID), .task(third), .task(fourth)]))
+  }
+
+  @Test(.dependencies) func selectedTaskIsForgottenOnceTheTaskIsGone() async {
+    var initial = state()
+    let gone = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A8")!)
+    initial.repositories.selectedTask = SelectedTask(id: gone, directoryID: worktree.id)
+    #expect(initial.repositories.selectedTaskID == gone)
+    let store = taskStore(initial, recorded: Recorded())
+
+    await store.send(.agentPresence(.delegate(.surfacesChanged([]))))
+    await store.receive(\.repositories.selectedTaskRemoved)
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(store.state.repositories.selectedTaskID == nil)
+    #expect(store.state.repositories.selectedWorktreeID == worktree.id)
+  }
+
+  @Test(.dependencies) func selectedTaskSurvivesWhileItsTaskExists() async {
+    var initial = twoTasksOnOneDirectory()
+    initial.repositories.selectedTask = SelectedTask(id: second, directoryID: worktree.id)
+    let store = taskStore(initial, recorded: Recorded())
+
+    await store.send(.agentPresence(.delegate(.surfacesChanged([]))))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(store.state.repositories.selectedTaskID == second)
   }
 
   // MARK: - A provisional agent protects the directory its tab runs in

@@ -333,6 +333,9 @@ struct RepositoriesFeature {
     var sessionSelection: SessionRowID?
     var sessionSummaries: [SessionSummary] = []
     var sessionSnapshots: [SessionLiveSnapshot] = []
+    var taskSnapshots: [TaskLiveSnapshot] = []
+    /// Read through `selectedTaskID`, which drops it once the selection leaves the directory.
+    var selectedTask: SelectedTask?
     @Shared(.sessions) var sessions: SessionSidecar
     @Shared(.sessionFolderRoots) var sessionFolderRoots: [String]
     var sessionsRestorationFinished = false
@@ -418,6 +421,10 @@ struct RepositoriesFeature {
     case sessionsRefreshCompleted([SessionSummary])
     case sessionsRefreshFailed
     case sessionSnapshotsChanged([SessionLiveSnapshot])
+    case taskSnapshotsChanged([TaskLiveSnapshot])
+    /// Shows one task of a directory; the directory becomes the selected worktree.
+    case selectTask(LayoutID, directory: Worktree.ID)
+    case selectedTaskRemoved
     case sessionSelectionChanged(SessionRowID?)
     case activateSession(SessionRowID)
     case settleSession(SessionKey)
@@ -759,10 +766,12 @@ struct RepositoriesFeature {
   @CasePathable
   enum Delegate: Equatable {
     case focusSession(SessionLocation)
+    case focusTask(LayoutID, directory: Worktree.ID)
     case resumeSession(SessionKey)
     case settleAndCloseSession(SessionKey)
     case newSessionDirectorySelected(URL)
-    case selectedWorktreeChanged(Worktree?)
+    /// `layoutID` names the task to show; nil means the directory's active one.
+    case selectedWorktreeChanged(Worktree?, layoutID: LayoutID? = nil)
     case repositoriesChanged(IdentifiedArrayOf<Repository>)
     case openRepositorySettings(Repository.ID)
     case openWorktreeInApp(Worktree.ID, OpenWorktreeAction)
@@ -5005,6 +5014,7 @@ struct RepositoriesFeature {
         .sessionItems, .sessionsStarted, .sessionsCacheLoaded, .sessionsSidebarShown,
         .sessionsRefreshRequested, .sessionsRefreshDebounced, .sessionsRefreshCompleted,
         .sessionsRefreshFailed, .sessionSnapshotsChanged, .sessionSelectionChanged, .activateSession,
+        .taskSnapshotsChanged, .selectTask, .selectedTaskRemoved,
         .settleSession, .settleSessionRequested, .unsettleSession, .sessionBranchCaptured:
         return .none
 

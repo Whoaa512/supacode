@@ -43,7 +43,49 @@ extension AppFeature {
 
   static func focusedSessionRowID(state: State) -> SessionRowID? {
     guard let surfaceID = focusedSurfaceID(state: state) else { return nil }
-    return state.repositories.sessionSnapshots.first { $0.location.surfaceID == surfaceID }?.id
+    if let id = state.repositories.sessionSnapshots.first(where: { $0.location.surfaceID == surfaceID })?.id {
+      return id
+    }
+    // No agent on the focused surface: the row is the task's own, when it has one.
+    guard let layoutID = state.terminals.selectedLayoutID,
+      state.repositories.sessionItems[id: .task(layoutID)] != nil
+    else { return nil }
+    return .task(layoutID)
+  }
+
+  /// Shows the task that owns the session and focuses its surface. The layout
+  /// is the location's own, never the directory's active task.
+  static func focusSession(_ location: SessionLocation, state: State) -> Effect<Action> {
+    @Dependency(TerminalClient.self) var terminalClient
+    guard let worktree = state.repositories.worktree(for: location.directoryID) else { return .none }
+    let context = DirectoryContext(worktree: worktree)
+    return .merge(
+      .send(.repositories(.selectTask(location.layoutID, directory: worktree.id))),
+      .run { @MainActor _ in
+        terminalClient.focusSurface(location.layoutID, context, location.tabID, location.surfaceID)
+      }
+    )
+  }
+
+  /// Shows a task with whatever it had focused. Only reached for a task that
+  /// already holds tabs, so the bootstrap half of the command never fires.
+  static func focusTask(_ layoutID: LayoutID, directoryID: Worktree.ID, state: State) -> Effect<Action> {
+    @Dependency(TerminalClient.self) var terminalClient
+    guard let worktree = state.repositories.worktree(for: directoryID) else { return .none }
+    let context = DirectoryContext(worktree: worktree)
+    return .concatenate(
+      .send(.repositories(.selectTask(layoutID, directory: worktree.id))),
+      .run { _ in
+        await terminalClient.send(
+          .ensureInitialTab(layoutID, context, runSetupScriptIfNew: false, focusing: true))
+      }
+    )
+  }
+
+  /// Rows are rebuilt from tasks, so a selected task that no longer exists is dropped here.
+  static func hasTask(_ layoutID: LayoutID, state: State) -> Bool {
+    state.terminals.layouts[id: layoutID] != nil
+      || state.repositories.persistedLayouts.tasks[layoutID.persistenceKey] != nil
   }
 
   /// The sidebar highlight follows the focused tab. It only moves when the
@@ -62,9 +104,12 @@ extension AppFeature {
     return Reduce { state, action in
       switch action {
       case .agentPresence(.restoreFromSnapshotChecked):
-        let index = Self.surfaceIndex(state: state)
+        let tasks = Self.taskEntries(state: state)
+        let index = Self.surfaceIndex(tasks: tasks)
+        let snapshots = Self.sessionSnapshots(state: state, index: index)
         return .concatenate(
-          .send(.repositories(.sessionSnapshotsChanged(Self.sessionSnapshots(state: state, index: index)))),
+          .send(.repositories(.sessionSnapshotsChanged(snapshots))),
+          .send(.repositories(.taskSnapshotsChanged(Self.taskSnapshots(tasks: tasks, sessionSnapshots: snapshots)))),
           .send(
             .repositories(
               .sessionsRestorationCompleted(
@@ -80,7 +125,8 @@ extension AppFeature {
         Self.syncSessionSelectionToFocus(state: &state)
         var effects: [Effect<Action>] = []
         let keys = Self.liveSessionKeys(state: state)
-        let index = Self.surfaceIndex(state: state)
+        let tasks = Self.taskEntries(state: state)
+        let index = Self.surfaceIndex(tasks: tasks)
         let unresolved = Self.hasUnresolvedLivePresence(state: state, index: index)
         if keys != state.repositories.sessionsLiveKeys
           || unresolved != state.repositories.sessionsHasUnresolvedLivePresence
@@ -90,6 +136,13 @@ extension AppFeature {
         let snapshots = Self.sessionSnapshots(state: state, index: index)
         if snapshots != state.repositories.sessionSnapshots {
           effects.append(.send(.repositories(.sessionSnapshotsChanged(snapshots))))
+        }
+        let taskRows = Self.taskSnapshots(tasks: tasks, sessionSnapshots: snapshots)
+        if taskRows != state.repositories.taskSnapshots {
+          effects.append(.send(.repositories(.taskSnapshotsChanged(taskRows))))
+        }
+        if let selected = state.repositories.selectedTask, !Self.hasTask(selected.id, state: state) {
+          effects.append(.send(.repositories(.selectedTaskRemoved)))
         }
         if let pending = state.pendingSessionLaunch,
           !pending.launched, !pending.probing, state.pendingBranchMismatchResume == nil,
@@ -235,9 +288,7 @@ extension AppFeature {
     else { return settleEffect }
     var effects: [Effect<Action>] = [
       settleEffect,
-      .send(
-        .focusTerminalSurface(
-          worktreeID: location.directoryID, tabID: location.tabID, surfaceID: location.surfaceID)),
+      RepositoriesFeature.focusEffect(id: target, location: location).map(Action.repositories),
     ]
     if case .session(let targetKey) = target, targetItem.lifecycle == .settled {
       effects.append(.send(.repositories(.unsettleSession(targetKey))))
@@ -393,9 +444,7 @@ extension AppFeature {
       state.pendingSessionLaunch = nil
       state.pendingBranchMismatchResume = nil
       state.alert = nil
-      return .send(
-        .focusTerminalSurface(
-          worktreeID: location.directoryID, tabID: location.tabID, surfaceID: location.surfaceID))
+      return focusSession(location, state: state)
     }
     let branches = state.repositories.sessions[key]?.branches ?? []
     let hasBranchHistory = !branches.isEmpty
@@ -480,9 +529,7 @@ extension AppFeature {
       state.pendingSessionLaunch = nil
       state.pendingBranchMismatchResume = nil
       state.alert = nil
-      return .send(
-        .focusTerminalSurface(
-          worktreeID: location.directoryID, tabID: location.tabID, surfaceID: location.surfaceID))
+      return focusSession(location, state: state)
     }
     @Dependency(\.uuid) var uuid
     let requestID = reservedID ?? uuid()
@@ -591,42 +638,87 @@ extension AppFeature {
   /// Walks tasks, not the roster, so several tasks on one directory and tasks
   /// whose directory is no known worktree are all found.
   static func surfaceIndex(state: State) -> [UUID: SurfaceEntry] {
+    surfaceIndex(tasks: taskEntries(state: state))
+  }
+
+  static func surfaceIndex(tasks: [TaskEntry]) -> [UUID: SurfaceEntry] {
     var index: [UUID: SurfaceEntry] = [:]
-    func add(_ layout: PaneLayout, layoutID: LayoutID, directoryID: Worktree.ID) {
-      let directoryPath =
-        state.repositories.worktree(for: directoryID)?.workingDirectory.path(percentEncoded: false)
-        ?? RepositoryLocation.parse(persistedID: directoryID.rawValue)?.path
-        ?? directoryID.rawValue
-      for pane in layout.panes {
+    for task in tasks {
+      for pane in task.layout.panes {
         for tab in pane.tabs {
           let surfaceID = tab.content.id.rawValue
           guard index[surfaceID] == nil else { continue }
-          var cwd = directoryPath
+          var cwd = task.directoryPath
           if case .terminal(let terminal) = tab.content.state,
             let recorded = terminal.workingDirectory, !recorded.isEmpty
           {
             cwd = recorded
           }
           index[surfaceID] = SurfaceEntry(
-            layoutID: layoutID, tabID: tab.id, directoryID: directoryID, directoryPath: directoryPath, cwd: cwd)
+            layoutID: task.layoutID, tabID: tab.id, directoryID: task.directoryID,
+            directoryPath: task.directoryPath, cwd: cwd)
         }
       }
     }
+    return index
+  }
+
+  struct TaskEntry {
+    var layoutID: LayoutID
+    var layout: PaneLayout
+    var directoryID: Worktree.ID
+    var directoryPath: String
+    var createdAt: Date?
+  }
+
+  /// Every task: live layouts first, then persisted records with no live layout, in key order.
+  static func taskEntries(state: State) -> [TaskEntry] {
+    func path(_ directoryID: Worktree.ID) -> String {
+      state.repositories.worktree(for: directoryID)?.workingDirectory.path(percentEncoded: false)
+        ?? RepositoryLocation.parse(persistedID: directoryID.rawValue)?.path
+        ?? directoryID.rawValue
+    }
+    let persisted = state.repositories.persistedLayouts.tasks
+    var entries: [TaskEntry] = []
     for live in state.terminals.layouts {
       // A layout attached without a directory (none yet names one) is found through the seam.
       guard
         let directoryID = state.terminals.directories[live.id]?.worktreeID
           ?? state.worktree(forLayout: live.id)?.id
       else { continue }
-      add(live.layout, layoutID: live.id, directoryID: directoryID)
+      entries.append(
+        TaskEntry(
+          layoutID: live.id, layout: live.layout, directoryID: directoryID, directoryPath: path(directoryID),
+          createdAt: persisted[live.id.persistenceKey]?.createdAt))
     }
-    let dormant = state.repositories.persistedLayouts.tasks.values
+    let dormant = persisted.values
       .filter { state.terminals.layouts[id: $0.id] == nil }
       .sorted { $0.id.persistenceKey < $1.id.persistenceKey }
     for record in dormant {
-      add(record.layout, layoutID: record.id, directoryID: record.directory.worktreeID)
+      let directoryID = record.directory.worktreeID
+      entries.append(
+        TaskEntry(
+          layoutID: record.id, layout: record.layout, directoryID: directoryID, directoryPath: path(directoryID),
+          createdAt: record.createdAt))
     }
-    return index
+    return entries
+  }
+
+  /// A row for every task that holds tabs and has no live agent: nothing else
+  /// in the sidebar would lead to it. Decided by the agents present, not by the
+  /// record's `sessions`, so a task whose agents have all quit stays reachable.
+  static func taskSnapshots(tasks: [TaskEntry], sessionSnapshots: [SessionLiveSnapshot]) -> [TaskLiveSnapshot] {
+    let occupied = Set(sessionSnapshots.map(\.location.layoutID))
+    return tasks.compactMap { task in
+      guard !occupied.contains(task.layoutID), let tab = task.layout.panes.lazy.compactMap(\.tabs.first).first
+      else { return nil }
+      let name = URL(fileURLWithPath: task.directoryPath).lastPathComponent
+      return TaskLiveSnapshot(
+        title: name.isEmpty ? task.directoryPath : name, cwd: task.directoryPath, createdAt: task.createdAt,
+        location: SessionLocation(
+          layoutID: task.layoutID, directoryID: task.directoryID, tabID: tab.id,
+          surfaceID: tab.content.id.rawValue))
+    }
   }
 
   // MARK: - Snapshot helper

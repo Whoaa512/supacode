@@ -6,6 +6,14 @@ extension RepositoriesFeature {
   static func focusSessionNavigation(state: inout State, id: SessionRowID?) -> Effect<Action> {
     guard let id, let location = state.sessionItems[id: id]?.location else { return .none }
     state.sessionSelection = id
+    return focusEffect(id: id, location: location)
+  }
+
+  /// A task row shows its task; a session row also focuses the session's surface.
+  static func focusEffect(id: SessionRowID, location: SessionLocation) -> Effect<Action> {
+    if case .task(let layoutID) = id {
+      return .send(.delegate(.focusTask(layoutID, directory: location.directoryID)))
+    }
     return .send(.delegate(.focusSession(location)))
   }
 
@@ -108,6 +116,28 @@ extension RepositoriesFeature {
         state.reconcileSessionItems(now: date.now)
         return needsRefresh ? .send(.sessionsRefreshRequested) : .none
 
+      case .taskSnapshotsChanged(let snapshots):
+        guard state.taskSnapshots != snapshots else { return .none }
+        state.taskSnapshots = snapshots
+        state.reconcileSessionItems(now: date.now)
+        return .none
+
+      case .selectTask(let layoutID, let directoryID):
+        guard let worktree = state.worktree(for: directoryID) else { return .none }
+        state.setSingleWorktreeSelection(directoryID)
+        state.selectedTask = SelectedTask(id: layoutID, directoryID: directoryID)
+        var effects: [Effect<Action>] = [
+          .send(.delegate(.selectedWorktreeChanged(worktree, layoutID: layoutID)))
+        ]
+        if state.sidebarItems[id: directoryID] != nil {
+          effects.append(.send(.sidebarItems(.element(id: directoryID, action: .focusTerminalRequested))))
+        }
+        return .merge(effects)
+
+      case .selectedTaskRemoved:
+        state.selectedTask = nil
+        return .none
+
       case .sessionSelectionChanged(let id):
         state.sessionSelection = id.flatMap { state.sessionItems[id: $0] == nil ? nil : $0 }
         return .none
@@ -119,7 +149,7 @@ extension RepositoriesFeature {
           if case .session(let key) = id, row.lifecycle == .settled {
             state.applyUnsettle(key: key, summaries: state.sessionSummaries, now: date.now)
           }
-          return .send(.delegate(.focusSession(location)))
+          return Self.focusEffect(id: id, location: location)
         }
         if case .session(let key) = id {
           return .send(.delegate(.resumeSession(key)))

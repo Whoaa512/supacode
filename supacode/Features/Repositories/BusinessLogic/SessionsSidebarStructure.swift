@@ -41,6 +41,13 @@ struct SessionsSidebarStructure: Equatable, Sendable {
 }
 
 extension RepositoriesFeature.State {
+  /// The selected task, while the selection still sits on its directory: a
+  /// directory that was removed or deselected takes its task with it.
+  var selectedTaskID: LayoutID? {
+    guard let selectedTask, selectedTask.directoryID == selection?.worktreeID else { return nil }
+    return selectedTask.id
+  }
+
   var isSessionsSidebarTabActive: Bool {
     let sidebarTabRawValue = SharedReader(.sidebarTab).wrappedValue
     return SidebarTab(rawValue: sidebarTabRawValue) == .sessions
@@ -107,7 +114,7 @@ extension RepositoriesFeature.State {
 
     var drafts: [SessionRowDraft] = []
     var indexByID: [SessionRowID: Int] = [:]
-    drafts.reserveCapacity(sessionSummaries.count + sessionSnapshots.count)
+    drafts.reserveCapacity(sessionSummaries.count + sessionSnapshots.count + taskSnapshots.count)
     func append(_ draft: SessionRowDraft) {
       indexByID[draft.id] = drafts.count
       drafts.append(draft)
@@ -150,6 +157,12 @@ extension RepositoriesFeature.State {
         drafts[index].location = snapshot.location
       }
       if sessionSelection == provisionalID, id != provisionalID { sessionSelection = id }
+    }
+    for task in taskSnapshots where indexByID[task.id] == nil {
+      append(
+        SessionRowDraft(
+          id: task.id, title: task.title, cwd: task.cwd,
+          createdAt: task.createdAt ?? sessionItems[id: task.id]?.createdAt ?? now, location: task.location))
     }
 
     if sessionItems.count != drafts.count || sessionItems.contains(where: { indexByID[$0.id] == nil }) {
@@ -207,6 +220,7 @@ extension RepositoriesFeature.State {
     for snapshot in sessionSnapshots {
       switch snapshot.id {
       case .session(let key): liveKeys.insert(key)
+      case .task: break
       case .provisional:
         provisionalCwds.insert(standardized(snapshot.cwd))
         if let surfaceCwd = snapshot.surfaceCwd { provisionalCwds.insert(standardized(surfaceCwd)) }

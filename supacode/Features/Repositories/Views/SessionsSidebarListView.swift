@@ -149,8 +149,14 @@ private struct SessionSidebarRowView: View {
       .contentShape(.rect)
     }
     .buttonStyle(.plain)
-    .help(
-      store.isLive ? "Focus this session (Return when selected)" : "Dormant session — \(store.cwd)")
+    .help(helpText)
+  }
+}
+
+extension SessionSidebarRowView {
+  private var helpText: String {
+    if case .task = store.id { return "Show this task (Return when selected)" }
+    return store.isLive ? "Focus this session (Return when selected)" : "Dormant session — \(store.cwd)"
   }
 }
 

@@ -442,7 +442,7 @@ extension RepositoriesFeature.Action {
   /// "post-reduce skips the recompute" path.
   var cacheInvalidations: CacheInvalidations {
     switch self {
-    case .sessionsCacheLoaded, .sessionsRefreshCompleted, .sessionSnapshotsChanged:
+    case .sessionsCacheLoaded, .sessionsRefreshCompleted, .sessionSnapshotsChanged, .taskSnapshotsChanged:
       return .sessionsStructure
     case .settleSession, .unsettleSession:
       return .sessionsStructure
@@ -450,7 +450,7 @@ extension RepositoriesFeature.Action {
       .sessionsCoarseClockFired, .sessionsStopped,
       .sessionItems, .sessionsStarted, .sessionsSidebarShown, .sessionsRefreshRequested,
       .sessionsRefreshDebounced, .sessionsRefreshFailed, .sessionSelectionChanged, .activateSession,
-      .registerSessionFolder, .sessionBranchCaptured, .settleSessionRequested:
+      .registerSessionFolder, .sessionBranchCaptured, .settleSessionRequested, .selectedTaskRemoved:
       return []
     case .sidebarItems(.element(id: _, action: let inner)):
       return inner.cacheInvalidations
@@ -558,7 +558,7 @@ extension RepositoriesFeature.Action {
       return []
 
     // Selection changes refresh both selection-derived caches.
-    case .selectionChanged, .selectWorktree, .selectArchivedWorktrees,
+    case .selectionChanged, .selectWorktree, .selectTask, .selectArchivedWorktrees,
       .selectNextWorktree, .selectPreviousWorktree, .selectWorktreeAtHotkeySlot,
       .worktreeHistoryBack, .worktreeHistoryForward,
       .setSidebarSelectedWorktreeIDs:
