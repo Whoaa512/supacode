@@ -612,17 +612,18 @@ extension AppFeature {
   }
 
   static func handleNextSessionNeedsMe(state: inout State) -> Effect<Action> {
-    let currentID = focusedSessionRowID(state: state) ?? state.repositories.sessionSelection
-    guard
-      let id = state.repositories.sessionsSidebarStructure.nextNeedingAttention(
-        from: currentID, items: state.repositories.sessionItems
-      )
-    else { return .none }
-    // The row leads to its most urgent agent: that surface, not whatever
-    // the task had focused.
-    guard let location = state.repositories.sessionItems[id: id]?.location else { return .none }
-    state.repositories.selectSessionRow(id)
-    return .send(.repositories(.delegate(.focusSession(location))))
+    let focusedRow = focusedSessionRowID(state: state)
+    // The task last asked for, as the task chord: the terminal echoes a
+    // jump after the press that made it.
+    let origin = sessionCycleOrigin(state: state)
+    let target = state.repositories.nextAttentionTarget(
+      after: origin ?? state.repositories.sessionSelection,
+      // A surface only means something against the row it was read with.
+      focusedSurfaceID: origin == focusedRow ? focusedSurfaceID(state: state) : nil)
+    // A task removed since the last snapshot: focusing it would host it again.
+    guard let target, hasTask(target.location.layoutID, state: state) else { return .none }
+    state.repositories.selectSessionRow(target.rowID)
+    return .send(.repositories(.delegate(.focusSession(target.location))))
   }
 
   static func handleNewSession(directory: URL?, state: inout State) -> Effect<Action> {

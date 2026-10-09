@@ -608,6 +608,175 @@ struct SessionsSidebarTaskRowsTests {
     #expect(rebuilt(forward).sessionsSidebarStructure == rebuilt(backward).sessionsSidebarStructure)
   }
 
+  // MARK: - Attention target (A25)
+
+  private func stop(_ task: LayoutID, _ number: Int) -> SessionsSidebarStructure.AttentionTarget {
+    .init(rowID: .task(task), location: location(task, number))
+  }
+
+  private func target(
+    _ state: RepositoriesFeature.State, after row: SessionRowID?, on number: Int? = nil
+  ) -> SessionsSidebarStructure.AttentionTarget? {
+    state.nextAttentionTarget(after: row, focusedSurfaceID: number.map(surface))
+  }
+
+  /// A: `a` idle on 1, `b` needs you on 2. B: `c` working on 3, `d` done unseen on 4.
+  private func twoTasksEachWithAMaskedTangent() -> RepositoriesFeature.State {
+    var state = state()
+    state.taskSnapshots = [tabs(taskA, on: 1, created: 20), tabs(taskB, on: 3, created: 10)]
+    state.taskSessions = [taskA: [key("a"), key("b")], taskB: [key("c"), key("d")]]
+    state.sessionSnapshots = [
+      agent("a", in: taskA, on: 1), agent("b", in: taskA, on: 2, status: .needsYou),
+      agent("c", in: taskB, on: 3, status: .working), agent("d", in: taskB, on: 4, status: .doneUnseen),
+    ]
+    return rebuilt(state)
+  }
+
+  @Test(.dependencies) func aTangentMaskedByAWorkingPrimaryIsTheTarget() {
+    var state = state()
+    state.taskSnapshots = [tabs(taskA, on: 1)]
+    state.taskSessions = [taskA: [key("a"), key("b")]]
+    state.sessionSnapshots = [
+      agent("a", in: taskA, on: 1, status: .working), agent("b", in: taskA, on: 2, status: .doneUnseen),
+    ]
+    state = rebuilt(state)
+    #expect(state.sessionItems[id: .task(taskA)]?.status == .working)
+
+    #expect(target(state, after: nil) == stop(taskA, 2))
+  }
+
+  @Test(.dependencies) func aTangentMaskedByAnErroredPrimaryIsTheTarget() {
+    var state = state()
+    state.taskSnapshots = [tabs(taskA, on: 1)]
+    state.taskSessions = [taskA: [key("a"), key("b")]]
+    state.sessionSnapshots = [
+      agent("a", in: taskA, on: 1, status: .needsYou, attention: false),
+      agent("b", in: taskA, on: 2, status: .doneUnseen),
+    ]
+    state = rebuilt(state)
+
+    #expect(target(state, after: nil) == stop(taskA, 2))
+  }
+
+  @Test(.dependencies) func twoAgentsOfOneTaskAreVisitedInMemberOrder() {
+    var state = state()
+    state.taskSnapshots = [tabs(taskA, on: 1)]
+    state.taskSessions = [taskA: [key("a"), key("b")]]
+    // `a` is listed first but sits on the later surface.
+    state.sessionSnapshots = [
+      agent("b", in: taskA, on: 1, status: .needsYou), agent("a", in: taskA, on: 2, status: .needsYou),
+    ]
+    state = rebuilt(state)
+
+    #expect(target(state, after: .task(taskA)) == stop(taskA, 2))
+    #expect(target(state, after: .task(taskA), on: 2) == stop(taskA, 1))
+    #expect(target(state, after: .task(taskA), on: 1) == stop(taskA, 2), "it wraps inside the only row")
+  }
+
+  @Test(.dependencies) func afterATasksLastAgentTheNextTaskIsTheTarget() {
+    let state = twoTasksEachWithAMaskedTangent()
+    #expect(state.sessionsSidebarStructure.liveIDs == [.task(taskA), .task(taskB)])
+
+    #expect(target(state, after: .task(taskA), on: 2) == stop(taskB, 4))
+    #expect(target(state, after: .task(taskB), on: 4) == stop(taskA, 2))
+    #expect(target(state, after: .task(taskB), on: 3) == stop(taskB, 4))
+  }
+
+  @Test(.dependencies) func aShellTabOfTheTaskComesBeforeItsAgents() {
+    let state = twoTasksEachWithAMaskedTangent()
+    #expect(state.sessionsSidebarStructure.liveIDs.last == .task(taskB))
+
+    #expect(target(state, after: .task(taskB), on: 77) == stop(taskB, 4), "its own task first, not the row above")
+  }
+
+  @Test(.dependencies) func theOnlyCandidateIsReturnedEvenWhenFocused() {
+    var state = state()
+    state.taskSnapshots = [tabs(taskA, on: 1)]
+    state.sessionSnapshots = [agent("a", in: taskA, on: 1, status: .needsYou)]
+    state = rebuilt(state)
+
+    #expect(target(state, after: .task(taskA), on: 1) == stop(taskA, 1))
+  }
+
+  @Test(.dependencies, arguments: ["idle", "working", "error", "shell", "empty"])
+  func nothingToJumpTo(shape: String) {
+    var state = state()
+    if shape != "empty" { state.taskSnapshots = [tabs(taskA, on: 1)] }
+    switch shape {
+    case "idle": state.sessionSnapshots = [agent("a", in: taskA, on: 1), agent("b", in: taskA, on: 2)]
+    case "working": state.sessionSnapshots = [agent("a", in: taskA, on: 1, status: .working)]
+    case "error": state.sessionSnapshots = [agent("a", in: taskA, on: 1, status: .needsYou, attention: false)]
+    default: break
+    }
+    state = rebuilt(state)
+    #expect(state.sessionsSidebarStructure.liveIDs.isEmpty == (shape == "empty"))
+
+    #expect(target(state, after: nil) == nil)
+    #expect(target(state, after: .task(taskA), on: 1) == nil)
+  }
+
+  @Test(.dependencies) func anUnlistedAgentFollowsListedMembers() {
+    var state = state()
+    state.taskSnapshots = [tabs(taskA, on: 1)]
+    state.taskSessions = [taskA: [key("a")]]
+    state.sessionSnapshots = [
+      agent("z", in: taskA, on: 1, status: .needsYou), agent("a", in: taskA, on: 2, status: .needsYou),
+    ]
+    state = rebuilt(state)
+
+    #expect(target(state, after: .task(taskA)) == stop(taskA, 2))
+    #expect(target(state, after: .task(taskA), on: 2) == stop(taskA, 1))
+  }
+
+  @Test(.dependencies) func ungroupedRowsKeepTheirPlaceAmongTasks() throws {
+    var state = state()
+    state.sessionSummaries = [summary("free", created: 5)]
+    state.taskSnapshots = [tabs(taskA, on: 1)]
+    state.sessionSnapshots = [
+      agent("a", in: taskA, on: 1, status: .needsYou), agent("free", in: taskB, on: 9, status: .doneUnseen),
+    ]
+    state = rebuilt(state)
+    let free = SessionRowID.implicit(key("free"))
+    #expect(Set(state.sessionsSidebarStructure.liveIDs) == [.task(taskA), free])
+    let ungrouped = SessionsSidebarStructure.AttentionTarget(rowID: free, location: location(taskB, 9))
+
+    #expect(target(state, after: .task(taskA), on: 1) == ungrouped)
+    #expect(target(state, after: free, on: 9) == stop(taskA, 1))
+    let first = try #require(state.sessionsSidebarStructure.liveIDs.first)
+    #expect(target(state, after: nil)?.rowID == first)
+  }
+
+  @Test(.dependencies) func aSessionListedByTwoTasksIsATargetOnlyWhereItRuns() {
+    var state = state()
+    state.taskSnapshots = [tabs(taskA, on: 1), tabs(taskB, on: 3)]
+    state.taskSessions = [taskA: [key("a")], taskB: [key("a"), key("b")]]
+    state.sessionSnapshots = [agent("a", in: taskA, on: 1, status: .needsYou), agent("b", in: taskB, on: 3)]
+    state = rebuilt(state)
+
+    for row in [nil, SessionRowID.task(taskA), .task(taskB)] {
+      #expect(target(state, after: row) == stop(taskA, 1))
+    }
+    #expect(target(state, after: .task(taskB), on: 3) == stop(taskA, 1))
+  }
+
+  @Test(.dependencies) func findingATargetWritesNothing() {
+    var state = state()
+    state.taskSnapshots = [tabs(taskA, on: 1)]
+    state.taskSessions = [taskA: [key("a"), key("b")]]
+    state.sessionSnapshots = [agent("a", in: taskA, on: 1, status: .working), agent("b", in: taskA, on: 2)]
+    state = rebuilt(state)
+    let before = state
+    #expect(target(state, after: .task(taskA), on: 1) == nil)
+    #expect(state == before)
+
+    // The target is worked out per press: a tangent's flip the row does not show changes no structure.
+    state.sessionSnapshots[1].status = .doneUnseen
+    state = rebuilt(state)
+    #expect(state.sessionItems[id: .task(taskA)]?.status == .working)
+    #expect(state.sessionsSidebarStructure == before.sessionsSidebarStructure)
+    #expect(target(state, after: .task(taskA), on: 1) == stop(taskA, 2))
+  }
+
   // MARK: - Activation and settle
 
   @Test(.dependencies) func activatingADormantTaskResumesItsPrimary() async {

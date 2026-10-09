@@ -29,6 +29,12 @@ struct SessionsSidebarStructure: Equatable, Sendable {
   var subRows: [SubRow] = []
   var allIDs: [SessionRowID] { sections.flatMap(\.rowIDs) }
 
+  /// Where jump-to-attention lands: the row to highlight and the agent's own surface.
+  struct AttentionTarget: Equatable, Sendable {
+    var rowID: SessionRowID
+    var location: SessionLocation
+  }
+
   func selection(
     byOffset offset: Int, from current: SessionRowID?, includingSettled: Bool = true
   ) -> SessionRowID? {
@@ -38,20 +44,6 @@ struct SessionsSidebarStructure: Equatable, Sendable {
       return offset > 0 ? ids.first : ids.last
     }
     return ids[(index + offset + ids.count) % ids.count]
-  }
-
-  func nextNeedingAttention(
-    from current: SessionRowID?, items: IdentifiedArrayOf<SessionSidebarItemFeature.State>
-  ) -> SessionRowID? {
-    guard !liveIDs.isEmpty else { return nil }
-    let startIndex = current.flatMap { liveIDs.firstIndex(of: $0) }.map { $0 + 1 } ?? 0
-    for offset in liveIDs.indices {
-      let id = liveIDs[(startIndex + offset) % liveIDs.count]
-      guard let item = items[id: id], item.allowsAttentionNavigation, let status = item.status
-      else { continue }
-      if status == .needsYou || status == .doneUnseen { return id }
-    }
-    return nil
   }
 }
 
@@ -123,6 +115,62 @@ extension RepositoriesFeature.State {
     var listed = Set(members)
     for agent in agents where listed.insert(agent.member).inserted { members.append(agent.member) }
     return members
+  }
+
+  /// The next agent waiting on the user, walking the live rows in order and
+  /// a task's agents in member order, from the focused agent and round again.
+  /// Worked out per press from the agents themselves: a task row only shows
+  /// its most urgent agent, which can mask a tangent that needs attention.
+  func nextAttentionTarget(
+    after current: SessionRowID?, focusedSurfaceID: UUID?
+  ) -> SessionsSidebarStructure.AttentionTarget? {
+    typealias Target = SessionsSidebarStructure.AttentionTarget
+    var agentsByTask: [LayoutID: [SessionLiveSnapshot]] = [:]
+    for agent in sessionSnapshots { agentsByTask[agent.location.layoutID, default: []].append(agent) }
+
+    // A stop is at (row, agent within the row).
+    var stops: [(at: (Int, Int), target: Target)] = []
+    var cursor: (Int, Int)?
+    for (rowIndex, id) in sessionsSidebarStructure.liveIDs.enumerated() {
+      guard case .task(let layoutID) = id else {
+        if id == current { cursor = (rowIndex, 0) }
+        guard let item = sessionItems[id: id], let location = item.location,
+          Self.wantsAttention(item.status, jumpable: item.allowsAttentionNavigation)
+        else { continue }
+        stops.append(((rowIndex, 0), Target(rowID: id, location: location)))
+        continue
+      }
+      let agents = agentsInMemberOrder(of: layoutID, agents: agentsByTask[layoutID] ?? [])
+      if id == current {
+        // Two harnesses on one surface are one stop; a shell tab sits before every agent.
+        let focused = focusedSurfaceID.flatMap { surfaceID in
+          agents.lastIndex { $0.location.surfaceID == surfaceID }
+        }
+        cursor = (rowIndex, focused ?? -1)
+      }
+      for (agentIndex, agent) in agents.enumerated()
+      where Self.wantsAttention(agent.status, jumpable: agent.allowsAttentionNavigation) {
+        stops.append(((rowIndex, agentIndex), Target(rowID: id, location: agent.location)))
+      }
+    }
+    guard let cursor else { return stops.first?.target }
+    return (stops.first { $0.at > cursor } ?? stops.first)?.target
+  }
+
+  private static func wantsAttention(_ status: SessionClassification.Status?, jumpable: Bool) -> Bool {
+    jumpable && (status == .needsYou || status == .doneUnseen)
+  }
+
+  private func agentsInMemberOrder(of layoutID: LayoutID, agents: [SessionLiveSnapshot]) -> [SessionLiveSnapshot] {
+    guard agents.count > 1 else { return agents }
+    var rank: [TaskMember: Int] = [:]
+    for (index, member) in members(of: layoutID, agents: agents).enumerated() where rank[member] == nil {
+      rank[member] = index
+    }
+    // Agents sharing a member keep their snapshot order.
+    return agents.enumerated().sorted {
+      (rank[$0.element.member] ?? .max, $0.offset) < (rank[$1.element.member] ?? .max, $1.offset)
+    }.map(\.element)
   }
 
   private func selectedTaskSubRows() -> (taskID: LayoutID?, rows: [SessionsSidebarStructure.SubRow]) {

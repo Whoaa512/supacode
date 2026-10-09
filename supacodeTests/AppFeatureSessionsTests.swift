@@ -4475,6 +4475,104 @@ struct AppFeatureSessionsTests {
     #expect(!recorded.mintedOrResumed)
   }
 
+  private func location(_ task: LayoutID, _ surface: UUID) -> SessionLocation {
+    SessionLocation(layoutID: task, directoryID: worktree.id, tabID: TabID(rawValue: surface), surfaceID: surface)
+  }
+
+  private func focusing(_ surface: UUID, of task: LayoutID, in state: AppFeature.State) -> AppFeature.State {
+    var state = state
+    state.terminals.selectedLayoutID = task
+    let paneID = state.terminals.layouts[id: task]?.layout.panes[0].id
+    state.terminals.layouts[id: task]?.layout.focusedPaneID = paneID
+    state.terminals.layouts[id: task]?.layout.panes[0].selectedTabID = TabID(rawValue: surface)
+    return state
+  }
+
+  /// The first task is on screen; the second, not shown, has a working
+  /// primary and a tangent that finished unseen, which its row does not show.
+  private func twoTasksWithATangentInTheSecond() -> AppFeature.State {
+    var state = twoTasksOnOneDirectory()
+    let extra = agentTask(second, surface: thirdSurface).layout.panes[0].tabs[0]
+    state.terminals.layouts[id: second]?.layout.panes[0].tabs.append(extra)
+    state.agentPresence.records[.init(agent: .pi, surfaceID: secondSurface)]?.activity = .busy
+    state.agentPresence.records[.init(agent: .pi, surfaceID: thirdSurface)] = record(ref: "three")
+    state.agentPresence.records[.init(agent: .pi, surfaceID: thirdSurface)]?.isDoneUnseen = true
+    state.repositories.$persistedLayouts = SharedReader(value: TaskLayoutsFile())
+    return withRows(focusing(firstSurface, of: first, in: state))
+  }
+
+  @Test(.dependencies) func nextSessionNeedsMeReachesATangentInATaskThatIsNotShown() async {
+    let initial = twoTasksWithATangentInTheSecond()
+    #expect(AppFeature.focusedSurfaceID(state: initial) == firstSurface)
+    #expect(initial.repositories.sessionItems[id: .task(second)]?.status == .working)
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    await store.send(.nextSessionNeedsMe)
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(store.state.repositories.sessionSelection == .task(second))
+    #expect(recorded.focused.value == [location(second, thirdSurface)])
+    #expect(store.state.repositories.selectedTask?.id == second)
+    #expect(!recorded.mintedOrResumed)
+    #expect(recorded.resumes.value == 0)
+    #expect(recorded.nonFocusCommands.isEmpty, "\(recorded.nonFocusCommands)")
+  }
+
+  @Test(.dependencies) func nextSessionNeedsMeStepsToTheNextAgentOfTheFocusedTask() async {
+    for (focused, expected) in [(firstSurface, secondSurface), (secondSurface, firstSurface)] {
+      var initial = oneTaskWithTwoAgents(firstRef: "one", secondRef: "two")
+      initial.agentPresence.records[.init(agent: .pi, surfaceID: firstSurface)]?.activity = .awaitingInput
+      initial.agentPresence.records[.init(agent: .pi, surfaceID: secondSurface)]?.activity = .awaitingInput
+      initial = withRows(focusing(focused, of: first, in: initial))
+      #expect(AppFeature.focusedSurfaceID(state: initial) == focused)
+      let recorded = Recorded()
+      let store = taskStore(initial, recorded: recorded)
+
+      await store.send(.nextSessionNeedsMe)
+      await store.finish()
+      await store.skipReceivedActions(strict: false)
+
+      #expect(recorded.focused.value == [location(first, expected)])
+      #expect(!recorded.mintedOrResumed)
+    }
+  }
+
+  @Test(.dependencies) func nextSessionNeedsMePressedTwiceBeforeFocusLandsTargetsTheSameSurface() async {
+    let recorded = Recorded()
+    let store = taskStore(twoTasksWithATangentInTheSecond(), recorded: recorded)
+
+    for _ in 0..<2 {
+      await store.send(.nextSessionNeedsMe)
+      await store.finish()
+      await store.skipReceivedActions(strict: false)
+    }
+
+    #expect(AppFeature.focusedSurfaceID(state: store.state) == firstSurface, "the terminal has not moved")
+    #expect(recorded.focused.value == [location(second, thirdSurface), location(second, thirdSurface)])
+    #expect(!recorded.mintedOrResumed)
+    #expect(recorded.resumes.value == 0)
+  }
+
+  @Test(.dependencies) func nextSessionNeedsMeIgnoresATargetWhoseTaskIsGone() async {
+    var initial = twoTasksWithATangentInTheSecond()
+    initial.terminals.layouts.remove(id: second)
+    let selection = initial.repositories.sessionSelection
+    let selectedTask = initial.repositories.selectedTask
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    await store.send(.nextSessionNeedsMe)
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(recorded.focused.value.isEmpty)
+    #expect(recorded.commands.value.isEmpty)
+    #expect(store.state.repositories.sessionSelection == selection)
+    #expect(store.state.repositories.selectedTask == selectedTask)
+  }
+
   @Test(.dependencies) func anAgentAlreadyListedWritesNothing() async {
     var initial = twoTasksOnOneDirectory()
     initial.terminals.members = [first: [.session(piKey("one"))], second: [.session(piKey("two"))]]
