@@ -427,6 +427,107 @@ struct AppFeatureDeeplinkTaskTests {
     #expect(targets(sent.value) == [other.id])
   }
 
+  // MARK: - Starting a script.
+
+  @Test(.dependencies) func aBareRunStartsTheRunScriptInTheTaskTheDirectoryShows() async {
+    await withScripts {
+      for (initial, expected) in [(state(), shown.id), (selectedBeforeTheEcho(), other.id)] {
+        for background in [true, false] {
+          let (store, sent) = makeStore(initial)
+          await store.send(.deeplink(.worktree(id: worktree.id, action: .run, background: background)))
+          await store.finish()
+          #expect(scriptCommands(sent.value) == ["run \(expected.externalID) \(runScript.id)"])
+          #expect(store.state.alert == nil)
+        }
+      }
+    }
+  }
+
+  @Test(.dependencies) func aRunNamingATaskStartsTheRunScriptThere() async {
+    await withScripts {
+      // The selection says `other`; the command names `shown`.
+      let (store, sent) = makeStore(selectedBeforeTheEcho())
+      await store.send(.deeplink(.worktree(id: worktree.id, action: .run, background: true, task: shown.id)))
+      await store.finish()
+      #expect(scriptCommands(sent.value) == ["run \(shown.id.externalID) \(runScript.id)"])
+    }
+  }
+
+  @Test(.dependencies) func aNamedScriptRunsInTheTaskTheCommandNames() async {
+    await withScripts {
+      let action = Deeplink.WorktreeAction.runScript(scriptID: testScript.id)
+      for (initial, task) in [(state(), other.id), (selectedBeforeTheEcho(), shown.id)] {
+        let (store, sent) = makeStore(initial)
+        await store.send(.deeplink(.worktree(id: worktree.id, action: action, background: true, task: task)))
+        await store.finish()
+        #expect(scriptCommands(sent.value) == ["run \(task.externalID) \(testScript.id)"])
+      }
+      // No task named: the one the directory shows.
+      for (initial, expected) in [(state(), shown.id), (selectedBeforeTheEcho(), other.id)] {
+        let (store, sent) = makeStore(initial)
+        await store.send(.deeplink(.worktree(id: worktree.id, action: action, background: true)))
+        await store.finish()
+        #expect(scriptCommands(sent.value) == ["run \(expected.externalID) \(testScript.id)"])
+      }
+    }
+  }
+
+  @Test(.dependencies) func aNamedScriptWaitsForTheConfirmationThenRunsInTheNamedTask() async {
+    await withScripts {
+      let action = Deeplink.WorktreeAction.runScript(scriptID: testScript.id)
+      let (store, sent) = makeStore(confirming())
+      await store.send(.deeplink(.worktree(id: worktree.id, action: action, background: true, task: other.id)))
+      #expect(store.state.deeplinkInputConfirmation?.task == other.id)
+      #expect(sent.value.isEmpty)
+      await confirm(action, in: store)
+      #expect(scriptCommands(sent.value) == ["run \(other.id.externalID) \(testScript.id)"])
+    }
+  }
+
+  @Test(.dependencies) func aCancelledNamedScriptRunsNothing() async {
+    await withScripts {
+      let action = Deeplink.WorktreeAction.runScript(scriptID: testScript.id)
+      let (store, sent) = makeStore(confirming())
+      await store.send(.deeplink(.worktree(id: worktree.id, action: action, background: true, task: other.id)))
+      #expect(store.state.deeplinkInputConfirmation != nil)
+      await withKnownIssue("TCA @Presents dismiss tracking") {
+        await store.send(.deeplinkInputConfirmation(.presented(.delegate(.cancel))))
+      }
+      await store.finish()
+      #expect(store.state.deeplinkInputConfirmation == nil)
+      #expect(sent.value.isEmpty)
+    }
+  }
+
+  /// The named task is removed while the dialog waits. The script must not
+  /// start in the task the directory shows instead.
+  @Test(.dependencies) func aNamedScriptWhoseTaskWentAwayDuringTheConfirmationRunsNothing() async {
+    await withScripts {
+      let action = Deeplink.WorktreeAction.runScript(scriptID: testScript.id)
+      var removed = confirming()
+      removed.terminals.layouts.remove(id: other.id)
+      removed.terminals.directories[other.id] = nil
+      removed.deeplinkInputConfirmation = DeeplinkInputConfirmationFeature.State(
+        worktreeID: worktree.id, worktreeName: worktree.name, repositoryName: "repo",
+        message: .command(testScript.command), action: action, background: true, task: other.id)
+      let (store, sent) = makeStore(removed)
+      await confirm(action, in: store)
+      #expect(sent.value.isEmpty)
+      #expect(store.state.alert != nil)
+    }
+  }
+
+  @Test(.dependencies) func aScriptAlreadyRunningOnTheDirectoryIsNotStartedInAnotherTask() async {
+    await withScripts {
+      let (store, sent) = makeStore(running: [shown.id: [testScript]])
+      let action = Deeplink.WorktreeAction.runScript(scriptID: testScript.id)
+      await store.send(.deeplink(.worktree(id: worktree.id, action: action, background: true, task: other.id)))
+      await store.finish()
+      #expect(sent.value.isEmpty)
+      #expect(store.state.alert != nil)
+    }
+  }
+
   // MARK: - Stopping a script that runs in one of the directory's tasks.
 
   @Test(.dependencies) func stoppingAScriptInATaskThatDoesNotRunItFailsAndLeavesTheOtherTaskAlone() async {
