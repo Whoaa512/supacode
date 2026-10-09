@@ -2970,6 +2970,92 @@ struct AppFeatureSessionsTests {
     #expect(remote.name == "app")
   }
 
+  // MARK: - A store split by the task migration is fully reachable
+
+  private func splitTab(_ number: Int, agent: Bool) -> TabItem {
+    let id = UUID(uuidString: String(format: "00000000-0000-0000-0000-0000000000%02d", number))!
+    let agents = [
+      TerminalLayoutSnapshot.SurfaceAgentRecord(
+        agent: "pi", pids: [], activity: "idle", doneUnseen: nil, sessionRef: "split-\(number)",
+        resumeCandidate: true)
+    ]
+    return TabItem(
+      id: TabID(rawValue: id), title: "Tab \(number)",
+      content: ContentSnapshot(
+        id: ContentID(rawValue: id),
+        state: .terminal(TerminalContentState(workingDirectory: nil, agents: agent ? agents : nil))))
+  }
+
+  private func splitRecord(_ tabs: [TabItem]) -> LayoutRecord {
+    let paneID = PaneID()
+    return LayoutRecord(
+      layout: PaneLayout(
+        tree: SplitTree(view: paneID),
+        panes: [Pane(id: paneID, tabs: IdentifiedArray(uniqueElements: tabs), selectedTabID: tabs.last?.id)],
+        focusedPaneID: paneID))
+  }
+
+  /// A v2 store run through the split: a mixed directory, an all-agent one and
+  /// one that is no longer a known worktree. Nothing is open yet.
+  private func migratedStore() -> (state: AppFeature.State, file: TaskLayoutsFile) {
+    let legacy = LayoutsFile(worktrees: [
+      "/workspace": splitRecord([splitTab(11, agent: false), splitTab(12, agent: true), splitTab(13, agent: true)]),
+      "/other": splitRecord([splitTab(21, agent: true), splitTab(22, agent: true)]),
+      "/gone/orphan": splitRecord([splitTab(31, agent: true), splitTab(32, agent: false)]),
+    ])
+    let file = LayoutsTaskSplitter.split(legacy, now: Date(timeIntervalSince1970: 9))
+    var state = state()
+    state.repositories.repositories.append(
+      Repository(id: "/other", rootURL: otherWorktree.workingDirectory, name: "other", worktrees: [otherWorktree]))
+    state.terminals.layouts = []
+    state.terminals.directories = [:]
+    state.terminals.selectedLayoutID = nil
+    state.repositories.$persistedLayouts = SharedReader(value: file)
+    return (state, file)
+  }
+
+  @Test(.dependencies, arguments: [1, -1])
+  func everyMigratedTaskHasARowAndIsInTheCycle(offset: Int) async {
+    let (unhydrated, file) = migratedStore()
+    let everyLayout = Set(file.tasks.values.map(\.id))
+    #expect(everyLayout.count == 7)
+    let hydrating = taskStore(unhydrated, recorded: Recorded())
+    await hydrating.send(.terminals(.layoutsHydrated(file)))
+    await hydrating.finish()
+    await hydrating.skipReceivedActions(strict: false)
+    #expect(Set(hydrating.state.terminals.layouts.ids) == everyLayout)
+    // A directory left with no task under its own key resolves to a real one.
+    #expect(everyLayout.contains(hydrating.state.layoutID(forDirectory: "/other")))
+    #expect(everyLayout.contains(hydrating.state.layoutID(forDirectory: "/workspace")))
+
+    let initial = withRows(hydrating.state)
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.sessions.rawValue }
+    let rows = initial.repositories.sessionItems
+    let rowIDs = initial.repositories.sessionsSidebarStructure.liveIDs
+    #expect(Set(rows.compactMap(\.location?.layoutID)) == everyLayout)
+    #expect(rows.count == 7, "one row per migrated task")
+    #expect(Set(rowIDs) == Set(rows.ids))
+
+    for start in rowIDs {
+      var from = initial
+      from.repositories.sessionSelection = start
+      let recorded = Recorded()
+      let store = taskStore(from, recorded: recorded)
+      for _ in 1..<rowIDs.count {
+        await store.send(.repositories(offset > 0 ? .selectNextWorktree : .selectPreviousWorktree))
+        await store.finish()
+        await store.skipReceivedActions(strict: false)
+        await store.skipReceivedActions(strict: false)
+      }
+      let startLayout = rows[id: start]?.location?.layoutID
+      #expect(Set(recorded.selectedLayouts).union([startLayout].compactMap { $0 }) == everyLayout)
+      #expect(Set(recorded.selectedLayouts).count == rowIDs.count - 1, "no task is shown twice in one lap")
+      #expect(!recorded.mintedOrResumed)
+      #expect(store.state.pendingSessionLaunch == nil)
+    }
+  }
+
   @Test(.dependencies, arguments: [1, -1])
   func cyclingVisitsOrphanTasksToo(offset: Int) async {
     let initial = withRows(withOrphans(sixTasksOnTwoDirectories()))
