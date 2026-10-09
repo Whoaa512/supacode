@@ -905,6 +905,47 @@ struct WorktreeTerminalManagerAckTests {
     ).finish()
   }
 
+  @Test(.dependencies) func aTasksSessionsReachItsStoredRecordAndKeepItWhenItsLastTabCloses() async {
+    let recorder = TeardownRecorder()
+    let clock = TestClock()
+    let harness = makeHarness(defaults: recorder.defaults, persistingOn: clock)
+    let pump = CreationEvents(harness.manager)
+    let directory = makeWorktree(id: "/tmp/repo/wt-members")
+    let task = LayoutID(task: UUID())
+    let surface = await openLayout(task, on: directory, in: harness, pump: pump)
+    let key = SessionKey(harness: .pi, sessionID: "member")
+
+    // Membership changes in the reducer; nothing here hands the writer a session.
+    await harness.store.send(.terminals(.membersChanged([task: [.session(key)]]))).finish()
+
+    let stored = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey]?.sessions == [key] }
+    #expect(stored.tasks[task.persistenceKey]?.layout.allContentIDs == [ContentID(rawValue: surface)])
+    #expect(stored.tasks[task.persistenceKey]?.directory.worktreeID == directory.id)
+
+    await closeTab(surface, of: task, in: harness)
+
+    let emptied = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey]?.layout.panes.isEmpty != false }
+    #expect(emptied.tasks[task.persistenceKey]?.sessions == [key], "the task is still there to resume")
+    #expect(harness.manager.hostIfExists(for: task) != nil)
+    #expect(harness.store.withState { $0.terminals.layouts[id: task] } != nil)
+    #expect(harness.store.withState { $0.terminals.members[task] } == [.session(key)])
+  }
+
+  @Test(.dependencies) func theQuitTimeSaveCarriesSessionsTheDebounceHasNotWrittenYet() async {
+    let recorder = TeardownRecorder()
+    let harness = makeHarness(defaults: recorder.defaults, persistingOn: TestClock())
+    let pump = CreationEvents(harness.manager)
+    let task = LayoutID(task: UUID())
+    _ = await openLayout(task, on: makeWorktree(id: "/tmp/repo/wt-quit"), in: harness, pump: pump)
+    let key = SessionKey(harness: .pi, sessionID: "member")
+    await harness.store.send(.terminals(.membersChanged([task: [.session(key)]]))).finish()
+
+    harness.manager.saveAllLayoutSnapshots()
+
+    let stored = await recorder.nextWrite { $0.tasks[task.persistenceKey] != nil }
+    #expect(stored.tasks[task.persistenceKey]?.sessions == [key])
+  }
+
   @Test(.dependencies) func aTaskWithNoSessionIsRemovedWhenItsLastTabCloses() async {
     let recorder = TeardownRecorder()
     let clock = TestClock()
