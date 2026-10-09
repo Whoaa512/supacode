@@ -4313,6 +4313,70 @@ struct AppFeatureSessionsTests {
       "shown once its first tab exists")
   }
 
+  @Test(.dependencies) func newTaskHereDoesNothingForADirectoryGoneFromDisk() async {
+    let recorded = Recorded()
+    let store = mintingStore(otherDirectoryMissing(), recorded: recorded)
+    #expect(store.state.repositories.worktree(for: otherWorktree.id)?.isMissing == true)
+
+    await store.send(.newTask(inDirectory: otherWorktree.id))
+    await store.finish()
+
+    #expect(recorded.commands.value.isEmpty)
+    #expect(store.state.pendingSessionLaunch == nil)
+    #expect(store.state.pendingTaskLaunches.isEmpty)
+  }
+
+  @Test(.dependencies) func newTaskHereOnARemoteDirectoryStartsOnItsHostWhileAnotherTaskIsSelected() async throws {
+    let host = try #require(RemoteHost(authority: "me@box"))
+    let remote = Worktree(
+      id: "me@box/srv/app", name: "app", detail: "",
+      workingDirectory: URL(fileURLWithPath: "/srv/app"), repositoryRootURL: URL(fileURLWithPath: "/srv/app"),
+      host: host)
+    var initial = mintedTasksOnly([(first, firstSurface)])
+    initial.repositories.repositories.append(
+      Repository(
+        id: "me@box/srv/app", rootURL: remote.repositoryRootURL, name: "app", worktrees: [remote], host: host))
+    // A local task is the one on screen: the launch still goes to the row's host.
+    initial.terminals.selectedLayoutID = first
+    initial.repositories.selectedTask = .init(id: first, directoryID: worktree.id)
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newTask(inDirectory: remote.id))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    let contexts = recorded.commands.value.compactMap { command -> DirectoryContext? in
+      guard case .createTabWithInput(_, let context, _, _, _, _, _, _) = command else { return nil }
+      return context
+    }
+    #expect(launches(recorded).map(\.input) == ["pi"])
+    #expect(launches(recorded).map(\.layoutID) == [LayoutID(task: UUID(1))], "a fresh task, not the selected one")
+    #expect(contexts == [DirectoryContext(worktree: remote)])
+    #expect(contexts.map(\.host) == [host])
+    #expect(contexts.map(\.worktreeID) == [remote.id])
+    #expect(contexts.map { $0.workingDirectory.path(percentEncoded: false) } == ["/srv/app"])
+    #expect(
+      store.state.pendingTaskLaunches == [PendingTaskLaunch(layoutID: LayoutID(task: UUID(1)), directoryID: remote.id)])
+  }
+
+  @Test(.dependencies) func newTaskHereLeavesALaunchAlreadyPendingAlone() async {
+    var initial = mintedTasksOnly([])
+    let pending = PendingSessionLaunch(
+      key: piKey("pending"), cwd: URL(fileURLWithPath: "/elsewhere"), command: "pi --session pending",
+      requestID: UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000001")!, launched: true)
+    initial.pendingSessionLaunch = pending
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newTask(inDirectory: worktree.id))
+    await store.finish()
+
+    #expect(recorded.commands.value.isEmpty)
+    #expect(store.state.pendingSessionLaunch == pending)
+    #expect(store.state.pendingTaskLaunches.isEmpty)
+  }
+
   @Test(.dependencies) func newTaskHereDoesNothingForADirectoryTheRosterDoesNotList() async {
     let recorded = Recorded()
     let store = mintingStore(mintedTasksOnly([]), recorded: recorded)
