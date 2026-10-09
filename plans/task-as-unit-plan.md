@@ -565,6 +565,11 @@ T4 and T5 (migrated tasks must already be reachable).
 - Verify: `supacodeFeatureTests/AppFeatureSessionsTests`,
   `supacodeTerminalTests`.
 - Assertions: A15, A21, A22.
+- **Revised (T7 r1 review)**: "deleted" means at runtime too, not only in
+  the file: the layout, host, directory entry, active-task entry and selected
+  task go when the last tab closes and no session is listed (see Progress).
+  "Current task's directory" for Cmd-N is the directory of the task on
+  screen, ahead of the focused session's cwd and the highlighted history row.
 
 **T8 — Branch capture uses the session surface's cwd.** Complex (small).
 - Files: `AppFeature+Sessions.swift:535-560` (capture), resume-warning path.
@@ -1716,11 +1721,8 @@ deviation.
   - Last tab closed: the manager no longer decides. It sends the empty
     layout and the writer deletes the record only when the stored record,
     after the merge, lists no session; otherwise the record stays with an
-    empty layout, its directory and its active-task hint. Runtime is
-    unchanged: the emptied layout and host stay until relaunch, as an
-    own-key layout always did, so a new tab in that directory can refill a
-    minted task whose record was deleted (the file's hint for it is gone
-    until it is selected again: the T10 resolver note).
+    empty layout, its directory and its active-task hint. (The first cut
+    left the emptied runtime layout and host in place; r1 below removes them.)
   - Splitter: a record that lists sessions is left as is (covers the T6 r2
     note: an empty task with sessions, and a multi-agent task on a
     lost-marker rerun). Consequence: if the split was deferred by an
@@ -1728,7 +1730,8 @@ deviation.
     own-key record, a later retry leaves that record's agent tabs together.
   - Minting: the id is minted in `launchSessionTab` (`LayoutID(task:)`), the
     task comes into being through `createTabWithInput` on that id, so a
-    launch whose tab is never created leaves no layout, record or member.
+    launch whose tab is never created leaves no layout or record (and, since
+    r1, no member: the first cut listed a resume's session up front).
     Resume reuses the task that lists the session only when that task sits
     on the directory the session resumes in (its tabs start in its own
     directory; a tangent that ran elsewhere gets a new task and stays listed
@@ -1753,12 +1756,73 @@ deviation.
     listed by both tasks; resume picks the one on its directory, lowest key.
   - T8/S: resuming a member whose task sits on another directory mints a
     task instead of reopening it there.
-  - Not covered by a test: the manager passing `members` into the record
-    (writer and reducer sides are); the first-responder handoff of the
-    deferred selection is not verified in the live UI.
+  - Not verified in the live UI: the first-responder handoff of the
+    deferred selection. (The manager passing `members` into the record is
+    covered since r1.)
   Tests: `AppFeatureSessionsTests` (minting and membership block, A15, A21,
   A22), `LayoutsIncrementalWriterTests` (sessions and the last tab),
   `LayoutsTaskSplitterTests`, `TerminalsFeatureTests`. Gate: check 0,
   `supacodeFeatureTests` + `supacodeTerminalTests` +
   `supacodeTests/TerminalsFeatureTests` 1519 tests with only 4 baseline
   failures (ack flake, settings-changed, 2 Ghostty), build-app 0.
+- T7 r1 (review fixes), 2026-10-09. Four findings, all held:
+  - Cmd-N directory (P1): `newSessionCwdFallback` now starts with
+    `currentTaskDirectory`: the task on screen (`selectedTaskID`, else the
+    terminal's selected layout, when `hasTask`) and its recorded directory.
+    The focused session's cwd and the highlighted history row only decide
+    when no task is on screen or the task is remote (the launch path checks
+    the directory with `FileManager`, as before). The Cmd-Shift-N browse
+    panel starts from the same place. The old test asserting "focused
+    session's cwd first" encoded the bug and was replaced.
+  - Sessionless task, last tab closed (P1): removed at runtime too.
+    `handleLayoutChanged` removes the task when the layout is empty, the
+    host's last lifecycle sweep still held a tab (so a task being minted,
+    empty before its first tab, is never taken for an emptied one), the file
+    is not read-only, and neither `members` nor the launch-time record lists
+    a session. It flushes the empty record at once (the writer still has the
+    last word and keeps a record whose stored sessions it finds), tears the
+    host down, detaches the layout, and if the task was the one on screen
+    re-selects what the directory resolves to. Nothing is killed there: the
+    tabs' sessions went with the tabs; the remote host is remembered so the
+    close's own session kill, which runs after, still reaches it. A task
+    with sessions keeps its empty layout, host and record. Applies to a
+    directory's own-key task as well (open question 4).
+    Decision (not in the plan): after removing the selected task the
+    directory shows its resolver target (own-key layout, usually the empty
+    state), not "the next task". It closes nothing and mints nothing; moving
+    on to another task is T9's settle-and-advance.
+  - Launch-time file vs removed tasks (found with the above; archive and
+    delete have hit it since T4): `persistedLayouts` is read once, so a
+    detached task came back as a dormant row and `hasTask` stayed true,
+    which kept a dead `selectedTask` that a roster reload would re-bootstrap
+    with a shell tab. `TerminalsFeature.State.removedLayoutIDs` (set by
+    `detachLayout`, cleared by `attachLayout`) is honoured by
+    `storedTask(s)`, now the only app-layer readers of stored records for
+    task identity (`hasTask`, `taskEntries`, `task(listing:)`,
+    `directoryContext`). Not switched: the `persistedSurfaces` seeding in
+    `syncSidebar` and `persistedLayout(forDirectory:)`.
+  - Manager boundary (P1 test gap): `LayoutChangeObserver.persisting(through:)`
+    is the app's wiring and the tests', so `WorktreeTerminalManagerAckTests`
+    drives membership change, dirty notification, debounce, the real writer
+    and last-tab close against in-memory defaults: sessions reach the record
+    and the emptied task survives; the sessionless one is deleted (record,
+    host, layout, active-task entry, selection) with its sibling untouched;
+    the quit-time save carries sessions too (same `recordChange`).
+  - Failed resume (P2): the resume's primary rides in
+    `PendingTaskSelection.primary` and is listed (ahead of anything the agent
+    reported) in the pass that first sees the task's tab; a resume whose tab
+    never appears lists nothing.
+  Left for later:
+  - T9: after a sessionless selected task is removed, selection falls to
+    the directory, not the next live task.
+  - T10: `persistedLayouts` stays a launch-time snapshot; `removedLayoutIDs`
+    only covers removals. Any new reader of stored records for task identity
+    must go through `storedTask(s)`.
+  Tests: red before the fixes (the four behaviour tests failed with the
+  fixes disabled, everything else green), green after:
+  `AppFeatureSessionsTests` (Cmd-N directory, removed task, resume seeding),
+  `WorktreeTerminalManagerAckTests` (four new), `TerminalsFeatureTests`.
+  Gate: check 0, `supacodeFeatureTests` + `supacodeTerminalTests` +
+  `supacodeTests/TerminalsFeatureTests` 1528 tests with only 4 baseline
+  failures (ack flake, settings-changed, 2 Ghostty), build-app 0, full
+  `make test` exit 2 with 4163 tests and only the 5 baseline failures.
