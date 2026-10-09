@@ -436,4 +436,45 @@ struct RepositoriesFeatureAutoSettleTests {
     #expect(sidecar[tangent.id]?.settledAt == nil)
     #expect(sidecar[heldRow.id]?.manualUnsettledAtActivity == heldRow.lastActivity, "still held")
   }
+
+  /// A member whose activity was not read this refresh may be the task's
+  /// newest, so nothing in the task settles until it is read.
+  @Test(.dependencies, arguments: [false, true])
+  func anUnreadMemberHoldsItsWholeTaskUntilItIsRead(tangentLeads: Bool) async {
+    let (primary, unrelated) = (summary("primary"), summary("x"))
+    var tangent = summary("tangent")
+    tangent.isVerified = false
+    let members = tangentLeads ? [tangent.id, primary.id] : [primary.id, tangent.id]
+    let store = store()
+    await store.send(.taskSessionsChanged([task: members]))
+    await store.send(.sessionsRestorationCompleted([]))
+
+    await store.send(.sessionsRefreshCompleted([primary, tangent, unrelated]))
+    #expect(store.state.sessions[primary.id] == nil, "the unread tangent may be newer")
+    #expect(store.state.sessions[tangent.id] == nil)
+    #expect(store.state.sessions[unrelated.id]?.settledAt == now, "only the task was held back")
+
+    tangent.isVerified = true
+    await store.send(.sessionsRefreshCompleted([primary, tangent, unrelated]))
+    #expect(store.state.sessions[primary.id]?.settledAt == now)
+    #expect(store.state.sessions[tangent.id]?.settledAt == now)
+    await store.skipInFlightEffects(strict: false)
+  }
+
+  /// A member the refresh lists nothing for is unread too: a file that
+  /// could not be parsed is left out the same way one that is gone is.
+  @Test(.dependencies, arguments: [false, true])
+  func aMemberMissingFromTheSummariesHoldsItsWholeTask(missingLeads: Bool) async {
+    let (primary, tangent) = (summary("primary"), summary("tangent"))
+    let missing = SessionKey(harness: .pi, sessionID: "missing")
+    let members = missingLeads ? [missing, primary.id, tangent.id] : [primary.id, tangent.id, missing]
+
+    let partial = await sidecarAfterRefresh([primary, tangent], taskSessions: [task: members])
+    #expect(partial[primary.id] == nil)
+    #expect(partial[tangent.id] == nil)
+
+    // A task of one session has no other member to wait for.
+    let alone = await sidecarAfterRefresh([primary], taskSessions: [task: [primary.id]])
+    #expect(alone[primary.id]?.settledAt == now)
+  }
 }

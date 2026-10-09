@@ -273,7 +273,9 @@ extension RepositoriesFeature.State {
   /// A task is judged as a whole, so its sessions get one answer: none
   /// settles while any agent runs in it or while the user's unsettle still
   /// holds one of them, it has been idle only as long as its most recently
-  /// active session, and it is as long as all of them together.
+  /// active session, and it is as long as all of them together. That needs
+  /// every one of them read: a session this refresh could not read, or lists
+  /// nothing for, may be the newest, so it holds the task like a running one.
   private struct TaskIdleness {
     let taskSessions: [LayoutID: [SessionKey]]
     let runningTasks: Set<LayoutID>
@@ -281,6 +283,7 @@ extension RepositoriesFeature.State {
     var activityByKey: [SessionKey: Date] = [:]
     var messagesByKey: [SessionKey: Int] = [:]
     var held: Set<SessionKey> = []
+    var read: Set<SessionKey> = []
 
     init(
       taskSessions: [LayoutID: [SessionKey]], snapshots: [SessionLiveSnapshot], summaries: [SessionSummary],
@@ -293,17 +296,20 @@ extension RepositoriesFeature.State {
       }
       // Only a task with several sessions has another member to read.
       guard taskSessions.values.contains(where: { $0.count > 1 }) else { return }
+      var unread: Set<SessionKey> = []
       for summary in summaries {
+        if summary.isVerified { read.insert(summary.id) } else { unread.insert(summary.id) }
         activityByKey[summary.id] = max(summary.lastActivity, activityByKey[summary.id] ?? .distantPast)
         messagesByKey[summary.id] = max(summary.messageCount, messagesByKey[summary.id] ?? 0)
         guard let hold = sidecar[summary.id]?.manualUnsettledAtActivity, summary.lastActivity <= hold else { continue }
         held.insert(summary.id)
       }
+      read.subtract(unread)
     }
 
     /// The session as its tasks stand: their newest activity and all their
     /// messages. `nil` while the session, or anything in a task that lists
-    /// it, is running or held, which no idle time settles.
+    /// it, is running, held or unread, which no idle time settles.
     func judged(_ summary: SessionSummary, liveKeys: Set<SessionKey>) -> SessionSummary? {
       if liveKeys.contains(summary.id) { return nil }
       var judged = summary
@@ -312,6 +318,7 @@ extension RepositoriesFeature.State {
         if runningTasks.contains(layoutID) || members.contains(where: { liveKeys.contains($0) || held.contains($0) }) {
           return nil
         }
+        if members.count > 1, !members.allSatisfy(read.contains) { return nil }
         var messages = 0
         for member in members {
           messages += messagesByKey[member] ?? 0
