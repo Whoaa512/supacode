@@ -771,7 +771,9 @@ struct RepositoriesFeature {
   enum Delegate: Equatable {
     case focusSession(SessionLocation)
     case focusTask(LayoutID, directory: Worktree.ID)
-    case resumeSession(SessionKey)
+    /// `task` is the task whose row asked: two tasks can list one session,
+    /// and the key alone cannot say which of them to reopen.
+    case resumeSession(SessionKey, task: LayoutID? = nil)
     case settleAndCloseSession(SessionKey)
     case settleTask(LayoutID)
     case newSessionDirectorySelected(URL)

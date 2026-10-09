@@ -165,7 +165,8 @@ extension RepositoriesFeature {
         }
         // A dormant task reopens on its primary; its tangents resume one by one.
         guard let key = row.sessionKey else { return .none }
-        return .send(.delegate(.resumeSession(key)))
+        guard case .task(let layoutID) = id else { return .send(.delegate(.resumeSession(key))) }
+        return .send(.delegate(.resumeSession(key, task: layoutID)))
 
       case .settleSession(let key):
         state.applySettle(key: key, now: date.now)

@@ -808,4 +808,98 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(settledAt("a", in: store) == nil)
     #expect(!AppFeature.isTaskSettled(task, state: store.state))
   }
+
+  /// Both fixture tasks closed on a directory that exists, each listing "a"
+  /// as its primary: the state a session resumed by hand in a second task
+  /// leaves once both are settled.
+  private func twoClosedTasksSharingAPrimary(at directory: URL) -> AppFeature.State {
+    let path = directory.path(percentEncoded: false)
+    let onDisk = Worktree(
+      id: Worktree.ID(path), name: "disk", detail: "", workingDirectory: directory, repositoryRootURL: directory)
+    var initial = state()
+    initial.repositories.repositories = [
+      Repository(id: RepositoryID(path), rootURL: directory, name: "disk", worktrees: [onDisk])
+    ]
+    initial.repositories.selection = .worktree(onDisk.id)
+    initial.terminals.layouts = [
+      LayoutFeature.State(id: task, layout: PaneLayout()), LayoutFeature.State(id: otherTask, layout: PaneLayout()),
+    ]
+    let taskDirectory = TaskRecord.Directory(worktreeID: onDisk.id)
+    initial.terminals.directories = [task: taskDirectory, otherTask: taskDirectory]
+    initial.terminals.members = [task: [.session(key("a"))], otherTask: [.session(key("a"))]]
+    initial.agentPresence.records = [:]
+    initial.repositories.taskSessions = [task: [key("a")], otherTask: [key("a")]]
+    initial.repositories.sessionSummaries = [
+      SessionSummary(
+        harness: .pi, sessionID: "a", createdAt: .distantPast, cwd: path, title: "Primary", messageCount: 4,
+        lastActivity: .distantPast)
+    ]
+    return withRows(initial)
+  }
+
+  private func temporaryDirectory() throws -> URL {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("supacode-tests-\(UUID().uuidString)-reopen", isDirectory: true).standardizedFileURL
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory
+  }
+
+  private func launchedTasks(_ recorded: Recorded) -> [LayoutID] {
+    recorded.commands.value.compactMap {
+      guard case .createTabWithInput(let layoutID, _, _, _, _, _, _, _) = $0 else { return nil }
+      return layoutID
+    }
+  }
+
+  @Test(.dependencies) func reopeningATaskThatSharesItsPrimaryReopensTheTaskThatWasClicked() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let initial = twoClosedTasksSharingAPrimary(at: directory)
+    #expect(Set(initial.repositories.sessionItems.map(\.id)) == [.task(task), .task(otherTask)])
+    #expect(task.persistenceKey < otherTask.persistenceKey, "by the key alone the resume picks the first")
+    let recorded = Recorded()
+    let store = store(initial, recorded: recorded)
+
+    await store.send(.repositories(.activateSession(.task(otherTask))))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    #expect(launchedTasks(recorded) == [otherTask])
+  }
+
+  @Test(.dependencies) func reopeningATaskWhosePrimaryRunsInAnotherShowsWhereItRuns() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var initial = twoClosedTasksSharingAPrimary(at: directory)
+    initial.terminals.layouts[id: task] = layout(task, surfaces: [primarySurface])
+    initial.agentPresence.records[.init(agent: .pi, surfaceID: primarySurface)] = live("a")
+    initial = withRows(initial)
+    let row = try #require(initial.repositories.sessionItems[id: .task(otherTask)])
+    #expect(row.location == nil, "nothing of the clicked task is open")
+    let recorded = Recorded()
+    let store = store(initial, recorded: recorded)
+
+    await store.send(.repositories(.activateSession(.task(otherTask))))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(launchedTasks(recorded).isEmpty, "one session never gets a second agent")
+    #expect(recorded.focused.value == [task])
+    #expect(store.state.pendingSessionLaunch == nil)
+  }
+
+  @Test(.dependencies) func aResumeFallsBackToTheKeyWhenTheTaskAskedForNoLongerListsTheSession() throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var state = twoClosedTasksSharingAPrimary(at: directory)
+    let directoryID = Worktree.ID(directory.path(percentEncoded: false))
+    #expect(
+      AppFeature.task(listing: key("a"), onDirectory: directoryID, preferring: otherTask, state: state) == otherTask)
+    #expect(AppFeature.task(listing: key("a"), onDirectory: directoryID, state: state) == task)
+
+    state.terminals.members[otherTask] = [.session(key("b"))]
+    #expect(AppFeature.task(listing: key("a"), onDirectory: directoryID, preferring: otherTask, state: state) == task)
+    state.terminals.members[task] = []
+    #expect(AppFeature.task(listing: key("a"), onDirectory: directoryID, preferring: otherTask, state: state) == nil)
+  }
 }

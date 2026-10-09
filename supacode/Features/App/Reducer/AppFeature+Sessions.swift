@@ -11,6 +11,9 @@ struct PendingSessionLaunch: Equatable {
   var probing: Bool = false
   /// A brand-new agent rather than the resume of a known session.
   var isNewSession: Bool = false
+  /// The task whose row asked for the resume. Checked again at launch: it
+  /// may be gone, or no longer list the session, by then.
+  var task: LayoutID?
 }
 
 /// A task a launch targeted whose first tab has not appeared yet. A launch
@@ -226,8 +229,8 @@ extension AppFeature {
       case .repositories(.delegate(.settleTask(let layoutID))):
         return Self.settleTask(layoutID, state: state)
 
-      case .repositories(.delegate(.resumeSession(let key))):
-        return Self.handleResumeSession(key, state: &state)
+      case .repositories(.delegate(.resumeSession(let key, let task))):
+        return Self.handleResumeSession(key, task: task, state: &state)
 
       case .resumeBranchProbeCompleted(let requestID, let currentBranch):
         return Self.finishResumeBranchProbe(
@@ -647,7 +650,9 @@ extension AppFeature {
     return launchSessionTab(pending, directory: directory, state: &state)
   }
 
-  private static func handleResumeSession(_ key: SessionKey, state: inout State) -> Effect<Action> {
+  private static func handleResumeSession(
+    _ key: SessionKey, task: LayoutID?, state: inout State
+  ) -> Effect<Action> {
     @Dependency(\.date) var date
     if let last = state.recentSessionLaunchDate[key],
       date.now.timeIntervalSince(last) < 10
@@ -657,7 +662,7 @@ extension AppFeature {
     guard let prepared = prepareResumeSession(key, state: &state) else { return .none }
     @Dependency(\.uuid) var uuid
     let pending = PendingSessionLaunch(
-      key: key, cwd: prepared.cwd, command: prepared.command, requestID: uuid(), probing: true)
+      key: key, cwd: prepared.cwd, command: prepared.command, requestID: uuid(), probing: true, task: task)
     state.pendingSessionLaunch = pending
     return runResumeBranchProbe(pending)
   }
@@ -814,8 +819,11 @@ extension AppFeature {
     }
     @Dependency(\.uuid) var uuid
     let requestID = reservedID ?? uuid()
+    // The reserved launch is the one that was probed and confirmed: its task
+    // goes with it.
     var pending = PendingSessionLaunch(
-      key: prepared.key, cwd: prepared.cwd, command: prepared.command, requestID: requestID)
+      key: prepared.key, cwd: prepared.cwd, command: prepared.command, requestID: requestID,
+      task: state.pendingSessionLaunch?.task)
     if let worktree = worktreeForCwd(prepared.cwd, state: state) {
       pending.launched = true
       state.pendingSessionLaunch = pending
@@ -850,7 +858,9 @@ extension AppFeature {
   ) -> Effect<Action> {
     @Dependency(TerminalClient.self) var terminalClient
     @Dependency(\.uuid) var uuid
-    let owner = pending.isNewSession ? nil : task(listing: pending.key, onDirectory: directory.worktreeID, state: state)
+    let owner =
+      pending.isNewSession
+      ? nil : task(listing: pending.key, onDirectory: directory.worktreeID, preferring: pending.task, state: state)
     let layoutID = owner ?? LayoutID(task: uuid())
     // The resumed session is the minted task's primary before its agent
     // reports. It is listed when the task's first tab exists, not here, so a
@@ -881,17 +891,21 @@ extension AppFeature {
 
   /// The task that lists a session, when it sits on the directory the session
   /// resumes in. A task elsewhere is not reused: its tabs start in its own
-  /// directory, and the session has to resume in the one it ran in.
-  static func task(listing key: SessionKey, onDirectory directoryID: Worktree.ID, state: State) -> LayoutID? {
+  /// directory, and the session has to resume in the one it ran in. Several
+  /// tasks can list it: the one asked for wins while it still qualifies,
+  /// else the lowest key.
+  static func task(
+    listing key: SessionKey, onDirectory directoryID: Worktree.ID, preferring preferred: LayoutID? = nil,
+    state: State
+  ) -> LayoutID? {
     var owners = state.terminals.members.filter { $0.value.contains(.session(key)) }.map(\.key)
     owners += storedTasks(state: state)
       .filter { $0.sessions.contains(key) && state.terminals.members[$0.id] == nil }.map(\.id)
-    return
-      owners
-      .filter {
-        (state.terminals.directories[$0] ?? storedTask($0, state: state)?.directory)?.worktreeID == directoryID
-      }
-      .min { $0.persistenceKey < $1.persistenceKey }
+    owners = owners.filter {
+      (state.terminals.directories[$0] ?? storedTask($0, state: state)?.directory)?.worktreeID == directoryID
+    }
+    if let preferred, owners.contains(preferred) { return preferred }
+    return owners.min { $0.persistenceKey < $1.persistenceKey }
   }
 
   /// Every reporting agent with the task that owns its surface.

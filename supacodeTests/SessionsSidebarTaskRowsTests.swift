@@ -455,7 +455,7 @@ struct SessionsSidebarTaskRowsTests {
     store.exhaustivity = .off
 
     await store.send(.activateSession(.task(taskA)))
-    await store.receive(\.delegate, .resumeSession(key("a")))
+    await store.receive(\.delegate, .resumeSession(key("a"), task: taskA))
     await store.finish()
 
     #expect(store.state.sessionSelection == .task(taskA))
