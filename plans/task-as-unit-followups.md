@@ -56,6 +56,17 @@ and must be documented so). Likely shape: the
 task segment / `--task` on agent routes, narrowing the surface set to that
 task's before the kind lookup.
 
+## A resume in the task's own directory starts in the focused tab's pwd (S2, 2026-10-09)
+
+A resume into a task sends the bare command when the session ran in the
+task's directory. A new tab inherits the focused surface's pwd, so if that
+tab has `cd`ed away the agent resumes there, not in the task directory.
+Pre-existing (every same-directory resume and new session); S2 only added
+the `cd` prefix for a session that ran elsewhere.
+
+**Fix with**: whichever slice next touches `createTabWithInput`. Likely
+shape: always prefix the `cd`, or pass the working directory to the tab.
+
 ## Assumptions confirmed by cj (2026-10-09)
 
 These were assumptions in the plan's open questions; cj confirmed each, so

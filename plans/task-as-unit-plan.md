@@ -2908,3 +2908,66 @@ deviation.
   Gate: check 0; `AppFeatureSessionsTaskSettleTests`,
   `AppFeatureSessionsTests`, `RepositoriesFeatureSessionsTests`,
   `SessionsSidebarTaskRowsTests` exit 0 with 250 tests; build-app 0.
+- S2, 2026-10-09, `06cc7f20`, `c09262ef`. Sub-rows under the selected task
+  (A23 view and activation half; A35 UI). Brief: `plans/briefs/S2.md`.
+  - View: the selected task's `subRows` render under its row from the
+    cached structure only (no store read in a sub-row), indented, dormant
+    ones dimmed with the moon glyph, untagged so the highlight and the
+    arrow keys stay on tasks. Tooltips: live names the effective Next/
+    Previous Tab chords, dormant "Resume this session in a new tab of this
+    task"; a dormant task row now reads "Reopen this task on its primary
+    session".
+  - `activateSessionSubRow(task:member:)` acts on the current structure and
+    writes no state: live → `focusSession`; dormant here but running in
+    another task → focused there (one process per session); dormant →
+    `resumeSession(key, task:)`. A click for a task no longer selected or a
+    member no longer listed does nothing.
+  - Revised (S1 r2): a resume that names a task now launches into it
+    whatever directory the session ran in, while the task still exists and
+    still lists the session (`taskDirectory(_:listing:)`, checked after
+    the probe and any alert). r2's "sits on the resume directory" condition
+    is gone: when the session's cwd is not the task's directory the input
+    is `cd '<cwd>' && <resume command>`, otherwise the bare command. No
+    task is minted, no folder registered, no primary seeded, member order
+    untouched. This also covers a dormant task row whose primary ran
+    elsewhere. A task gone or no longer listing the session falls back to
+    the untargeted path unchanged (reuse by directory, else mint).
+  - The "already live" checks prefer the named task's own surface.
+  - Differences from the brief: the source already had
+    `resumeSession(key, task:)` and `PendingSessionLaunch.task` (S1 r2), so
+    no `resumeSessionInTask` delegate was added; the target must still list
+    the session (r2's rule, the brief only asked that it exist);
+    `shellQuote` is `ZmxAttach`'s; the cwd comparison uses paths without
+    the trailing slash.
+  - Decided (brief §8, D6): no settle or menu on a sub-row (M3 adds the
+    menu); sub-rows are not selections (K1/K2 own keyboard reach); a
+    tangent resume does not resume or unsettle the primary.
+  Left for later:
+  - M3: sub-row context menu. K1/K2: keyboard reach of a sub-row.
+  - Remote tasks: a sub-row resume is refused by the existing local cwd
+    check (unchanged; no test added here).
+  - Same-directory resume into a task whose focused tab has `cd`ed away
+    starts in the inherited pwd (pre-existing; in the follow-ups file).
+  Not done from the brief's test list: the "red first" runs on cj-main were
+  skipped to save test runs; no separate tests for clicked-not-lowest-key
+  and second-click-while-pending (already pinned by S1 r2's
+  `reopeningATaskThatSharesItsPrimary…` and
+  `resumeProbeReservationRejectsDuplicates…`), for a stored-only dormant
+  task, a remote task, or the cancel variant of the mismatch alert.
+  Only the live UI can confirm (cj, A35): sub-rows appear only under the
+  selected task and the highlight stays on it; dimming and glyphs; a live
+  click focuses that tab, a dormant click opens a tab in the same task and
+  a tangent from another directory visibly `cd`s first; arrows skip
+  sub-rows and Return acts on the task; no stray highlight from untagged
+  rows; tooltips show the overridden chords; a settled task with a resumed
+  tangent goes Active and back to Settled when the tab closes.
+  Tests: `SessionsSidebarTaskRowsTests` sub-row activation (live, dormant,
+  running elsewhere, unreported agent, stale task, stale member, shared
+  primary from the task row); `AppFeatureSessionsTests` "Resume into a
+  task" (other directory with `cd`, bare command, quoting, member order
+  after the agent reports, task removed during the probe, mismatch
+  confirmed, live in the named task, orphan task).
+  Gate: check 0; `SessionsSidebarTaskRowsTests`, `AppFeatureSessionsTests`,
+  `AppFeatureSessionsTaskSettleTests`, `RepositoriesFeatureSessionsTests`,
+  `RepositoriesFeatureSessionsScaleTests` exit 0 with 271 tests;
+  build-app 0. No full run (not the phase's last slice).
