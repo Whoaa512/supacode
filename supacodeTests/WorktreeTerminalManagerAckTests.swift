@@ -1031,6 +1031,26 @@ struct WorktreeTerminalManagerAckTests {
     #expect(harness.store.withState { $0.terminals.members[task] } == [.session(key)])
   }
 
+  @Test(.dependencies) func aReplacingSessionIsStoredInTheReplacedOnesSlot() async {
+    let recorder = TeardownRecorder()
+    let clock = TestClock()
+    let harness = makeHarness(defaults: recorder.defaults, persistingOn: clock)
+    let pump = CreationEvents(harness.manager)
+    let task = LayoutID(task: UUID())
+    _ = await openLayout(task, on: makeWorktree(id: "/tmp/repo/wt-replaced"), in: harness, pump: pump)
+    let old = SessionKey(harness: .pi, sessionID: "old")
+    let new = SessionKey(harness: .pi, sessionID: "new")
+    await harness.store.send(.terminals(.membersChanged([task: [.session(old)]]))).finish()
+    _ = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey]?.sessions == [old] }
+
+    // The reducer places the newcomer; the stored record must follow, even
+    // though the writer never reorders on the list alone.
+    await harness.store.send(.terminals(.sessionReplaced(task, old: old, new: new))).finish()
+
+    let stored = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey]?.sessions.count == 2 }
+    #expect(stored.tasks[task.persistenceKey]?.sessions == [new, old])
+  }
+
   @Test(.dependencies) func theQuitTimeSaveCarriesSessionsTheDebounceHasNotWrittenYet() async {
     let recorder = TeardownRecorder()
     let harness = makeHarness(defaults: recorder.defaults, persistingOn: TestClock())

@@ -61,7 +61,10 @@ actor LayoutsIncrementalWriter {
     /// are kept, and no stored session is ever dropped or moved); a new one
     /// is created from all four. A task left with
     /// no tab and no session is removed like a `.delete`.
-    case record(layout: PaneLayout, directory: TaskRecord.Directory, sessions: [SessionKey] = [], createdAt: Date)
+    /// `replaced` names, per new session, the one whose slot it took.
+    case record(
+      layout: PaneLayout, directory: TaskRecord.Directory, sessions: [SessionKey] = [],
+      replaced: [SessionKey: SessionKey] = [:], createdAt: Date)
     case delete
     /// A delete keyed on a guess from the directory: a stored record that
     /// names another directory is that directory's task and stays.
@@ -156,13 +159,14 @@ actor LayoutsIncrementalWriter {
     for (id, change) in changes {
       let key = id.persistenceKey
       switch change {
-      case .record(let layout, let directory, let sessions, let createdAt):
+      case .record(let layout, let directory, let sessions, let replaced, let createdAt):
         var task = file.tasks[key] ?? TaskRecord(id: id, directory: directory, createdAt: createdAt)
         task.layout = layout
         // The caller may not have loaded the stored sessions, so its list
         // only adds to them: stored order stands (the first is the primary)
-        // and anything new goes after.
-        task.sessions += sessions.filter { !task.sessions.contains($0) }
+        // and anything new goes after, except a session known to have
+        // replaced a stored one, which takes that one's slot.
+        task.sessions = TaskMembership.storing(sessions, replaced: replaced, into: task.sessions)
         // Nothing open and nothing to resume: the task leaves no trace. One
         // with sessions stays, so its members are still there to resume.
         guard layout.panes.isEmpty, task.sessions.isEmpty else {

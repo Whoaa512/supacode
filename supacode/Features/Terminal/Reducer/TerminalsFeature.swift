@@ -55,6 +55,10 @@ struct TerminalsFeature {
     /// Each task's agents, primary first. Stored sessions load at hydration;
     /// an agent that has not reported its session yet is held provisionally.
     var members: [LayoutID: [TaskMember]] = [:]
+    /// Per task, each session that took another's slot this run, keyed by the
+    /// newcomer. The writer needs it to place the newcomer in a stored list:
+    /// order alone cannot tell a replacement from a list it has not loaded.
+    var replacedSessions: [LayoutID: [SessionKey: SessionKey]] = [:]
     /// Tasks removed this run. The stored layouts are read once at launch and
     /// still list them, so anything that falls back to a stored record skips
     /// these or a removed task comes back as a dormant one.
@@ -100,6 +104,9 @@ struct TerminalsFeature {
     case detachLayout(worktreeID: LayoutID)
     /// The agents presence reports changed which sessions belong to which task.
     case membersChanged([LayoutID: [TaskMember]])
+    /// The agent on one of the task's surfaces switched sessions (`/new`,
+    /// `/fork`): `new` takes `old`'s slot and `old` stays a member after it.
+    case sessionReplaced(LayoutID, old: SessionKey, new: SessionKey)
     /// Worktree selection moved; visibility-driven hibernation re-diffs and
     /// the newly visible selection wakes.
     case selectedLayoutChanged(LayoutID?)
@@ -185,6 +192,7 @@ struct TerminalsFeature {
         state.removedLayoutIDs.insert(worktreeID)
         state.directories.removeValue(forKey: worktreeID)
         state.members.removeValue(forKey: worktreeID)
+        state.replacedSessions.removeValue(forKey: worktreeID)
         state.activeTasks = state.activeTasks.filter { $0.value != worktreeID }
         state.recentLayoutIDs.removeAll { $0 == worktreeID }
         state.selectionOrder.removeAll { $0 == worktreeID }
@@ -203,6 +211,14 @@ struct TerminalsFeature {
             await layoutChangeObserver.sessionsChanged(layoutID)
           }
         }
+
+      case .sessionReplaced(let layoutID, let old, let new):
+        guard
+          let members = TaskMembership.replacing(old, with: new, in: state.members[layoutID] ?? [])
+        else { return .none }
+        state.members[layoutID] = members
+        state.replacedSessions[layoutID, default: [:]][new] = old
+        return .run { _ in await layoutChangeObserver.sessionsChanged(layoutID) }
 
       case .selectedLayoutChanged(let layoutID):
         state.selectedLayoutID = layoutID

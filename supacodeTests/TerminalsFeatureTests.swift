@@ -1072,4 +1072,46 @@ struct TerminalsFeatureTests {
     await store.finish()
     #expect(reported.value == [minted])
   }
+
+  @Test(.dependencies) func aReplacingSessionTakesTheReplacedOnesSlotAndIsWritten() async {
+    let minted = LayoutID(task: UUID())
+    let reported = LockIsolated<[LayoutID]>([])
+    let key = { SessionKey(harness: .pi, sessionID: $0) }
+    var initial = TerminalsFeature.State()
+    initial.members[minted] = [.session(key("one")), .session(key("two"))]
+    let store = TestStore(initialState: initial) {
+      TerminalsFeature()
+    } withDependencies: {
+      $0[LayoutChangeObserver.self].sessionsChanged = { id in reported.withValue { $0.append(id) } }
+    }
+    store.exhaustivity = .off
+
+    // The primary's surface moved on: the newcomer leads, the replaced one stays behind it.
+    await store.send(.sessionReplaced(minted, old: key("one"), new: key("new")))
+    await store.finish()
+    #expect(store.state.members[minted] == [.session(key("new")), .session(key("one")), .session(key("two"))])
+    #expect(store.state.replacedSessions[minted] == [key("new"): key("one")])
+
+    // A tangent's slot works the same way and the primary is untouched.
+    await store.send(.sessionReplaced(minted, old: key("two"), new: key("fork")))
+    await store.finish()
+    #expect(
+      store.state.members[minted]
+        == [.session(key("new")), .session(key("one")), .session(key("fork")), .session(key("two"))])
+    #expect(reported.value == [minted, minted])
+
+    // Nothing to place: a session already listed keeps its slot, and an
+    // unlisted old session names no slot.
+    await store.send(.sessionReplaced(minted, old: key("new"), new: key("two")))
+    await store.send(.sessionReplaced(minted, old: key("stranger"), new: key("other")))
+    await store.send(.sessionReplaced(LayoutID(task: UUID()), old: key("one"), new: key("other")))
+    await store.finish()
+    #expect(store.state.members.count == 1)
+    #expect(store.state.members[minted]?.count == 4)
+    #expect(reported.value == [minted, minted])
+
+    // A removed task takes its slots with it.
+    await store.send(.detachLayout(worktreeID: minted))
+    #expect(store.state.replacedSessions[minted] == nil)
+  }
 }

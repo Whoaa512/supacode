@@ -1878,9 +1878,12 @@ final class WorktreeTerminalManager {
     let directory =
       hosts[layoutID].map { TaskRecord.Directory(worktreeID: $0.worktreeID, host: $0.context.host) }
       ?? LayoutsTaskSplitter.directory(forLegacyKey: layoutID.persistenceKey)
-    let members = appStore?.withState { $0.terminals.members[layoutID] } ?? []
+    let (members, replaced) =
+      appStore?.withState { ($0.terminals.members[layoutID] ?? [], $0.terminals.replacedSessions[layoutID] ?? [:]) }
+      ?? ([], [:])
     return .record(
-      layout: layout, directory: directory, sessions: members.compactMap(\.sessionKey), createdAt: Date())
+      layout: layout, directory: directory, sessions: members.compactMap(\.sessionKey), replaced: replaced,
+      createdAt: Date())
   }
 
   /// Removes `worktreeID` from disk immediately, bypassing the debounce and

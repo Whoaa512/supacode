@@ -192,6 +192,38 @@ nonisolated enum TaskMembership {
     return result
   }
 
+  /// The session that replaced `old` on its surface takes `old`'s slot (so it
+  /// is the primary when `old` was) and `old` stays a member directly after
+  /// it. `nil` when there is nothing to move: `old` is not listed, or `new`
+  /// already is (a listed session keeps its slot).
+  static func replacing(_ old: SessionKey, with new: SessionKey, in members: [TaskMember]) -> [TaskMember]? {
+    guard old != new, !members.contains(.session(new)), let slot = members.firstIndex(of: .session(old))
+    else { return nil }
+    var result = members
+    result.insert(.session(new), at: slot)
+    return result
+  }
+
+  /// The stored order with the caller's unlisted sessions added: one that
+  /// replaced a stored session goes into that session's slot, anything else
+  /// after the rest. No stored session is dropped or moved.
+  static func storing(
+    _ sessions: [SessionKey], replaced: [SessionKey: SessionKey], into stored: [SessionKey]
+  ) -> [SessionKey] {
+    var result = stored
+    var appended: [SessionKey] = []
+    // Newest replacement first in the caller's list, so walking it backwards
+    // places a chain (C replaced B replaced A) one link at a time.
+    for session in sessions.reversed() where !result.contains(session) {
+      guard let old = replaced[session], let slot = result.firstIndex(of: old) else {
+        appended.insert(session, at: 0)
+        continue
+      }
+      result.insert(session, at: slot)
+    }
+    return result + appended
+  }
+
   /// Stored sessions first, then whatever this run added before they loaded.
   static func merged(stored: [SessionKey], runtime: [TaskMember]) -> [TaskMember] {
     let known = stored.map(TaskMember.session)
