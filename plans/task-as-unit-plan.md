@@ -1306,3 +1306,15 @@ deviation.
   are never in `archivedDirectories`. Gate: check 0, build-app 0,
   `supacodeTerminalTests` + `supacodeFeatureTests` 1382 tests with only 4
   baseline failures.
+- T3 review fix 2, 2026-10-08: an own-key selection made before hydration
+  now outranks the stored active task even after the user moved on to
+  another directory (before: only the current selection was reapplied, and
+  an own-key selection leaves no `activeTasks` entry, so hydration restored
+  the older stored task). Decision: `TerminalsFeature.State.selectedDirectories`
+  records every directory whose selection resolved, hydration skips the
+  stored entry for those and empties the set; the skipped entry is also
+  cleared from the file through `activeTaskChanged(directory, nil)`, else
+  the next launch would restore it. Not covered: a selection whose host
+  attaches only after hydration (directory unknown at selection time, and no
+  longer selected) still loses to the stored entry. Gate: check 0,
+  build-app 0, full `make test` 4047 with only the 5 baseline failures.
