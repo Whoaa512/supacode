@@ -308,12 +308,20 @@ struct AgentPresenceFeature {
 
   // MARK: - Mutators.
 
+  /// Checked against every agent on the surface, not only the event's own
+  /// harness: one harness can start another (Pi running Claude), and the
+  /// child then has no record of its own to be compared with.
   static func isFromNestedAgent(_ event: AgentHookEvent, in state: State) -> Bool {
-    guard let agent = SkillAgent(rawValue: event.agent),
-      let record = state.records[PresenceKey(agent: agent, surfaceID: event.surfaceID)]
-    else { return false }
+    guard let agent = SkillAgent(rawValue: event.agent), let pid = event.pid else { return false }
+    // A process already tracked as its own agent stays one.
+    if state.records[PresenceKey(agent: agent, surfaceID: event.surfaceID)]?.pids.contains(pid) == true {
+      return false
+    }
     @Dependency(\.processAncestry) var processAncestry
-    return record.isFromNestedAgent(event, isDescendant: processAncestry.isDescendant)
+    return state.records.contains {
+      $0.key.surfaceID == event.surfaceID
+        && $0.value.isFromNestedAgent(event, isDescendant: processAncestry.isDescendant)
+    }
   }
 
   /// Whether applying this event leaves its session ref on the surface's

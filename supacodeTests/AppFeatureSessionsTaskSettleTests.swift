@@ -418,6 +418,36 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(store.state.endedSessions.isEmpty)
   }
 
+  /// The child need not be the parent's harness: Pi can start Claude.
+  @Test(.dependencies) func aSubAgentOfAnotherHarnessLeavesTheSurfacesSessionAlone() async {
+    let recorded = Recorded()
+    let store = store(state(), recorded: recorded) { pid, ancestor in pid == 22 && ancestor == 11 }
+    let presence = store.state.agentPresence
+
+    await send("session_start", on: primarySurface, ref: "child", pid: 22, agent: "claude", to: store)
+    await send("busy", on: primarySurface, ref: "child", pid: 22, agent: "claude", to: store)
+    await send("idle", on: primarySurface, ref: "child", pid: 22, agent: "claude", to: store)
+    await send("session_end", on: primarySurface, ref: "child", pid: 22, agent: "claude", to: store)
+
+    #expect(store.state.agentPresence.records == presence.records, "no record for the child, the parent's untouched")
+    #expect(store.state.terminals.members[task] == [.session(key("a"))], "the child is no member")
+    #expect(store.state.repositories.sessions.isEmpty, "nothing settles")
+    #expect(recorded.closed.value.isEmpty)
+    #expect(store.state.branchCaptureQueue.isEmpty)
+    #expect(!store.state.branchCaptureInFlight, "no branch is captured for it")
+    #expect(store.state.repositories.sessionItems[id: .session(key("child", .claude))] == nil)
+    #expect(store.state.endedSessions.isEmpty)
+  }
+
+  @Test(.dependencies) func aSiblingAgentOfAnotherHarnessIsStillItsOwnSession() async {
+    let recorded = Recorded()
+    let store = store(state(), recorded: recorded) { pid, ancestor in pid == 22 && ancestor == 11 }
+
+    await send("session_start", on: primarySurface, ref: "sibling", pid: 23, agent: "claude", to: store)
+
+    #expect(store.state.agentPresence.records[.init(agent: .claude, surfaceID: primarySurface)]?.pids == [23])
+  }
+
   @Test func onlyAProcessStartedByTheRecordsOwnCountsAsNested() {
     let record = live("a", pid: 11)
     let event = { (pid: pid_t?) in
