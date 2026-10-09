@@ -181,6 +181,7 @@ enum SettingsRelocationMigrator {
     }
     if !userDefaultsHoldValidLayouts(defaults),
       presentButUnreadable(SupacodePaths.legacyLayoutsURL, fileSystem)
+        || legacyLayoutsAwaitBackup(defaults, fileSystem)
     {
       names.append("terminal layouts")
     }
@@ -190,6 +191,17 @@ enum SettingsRelocationMigrator {
       names.append("Ghostty config")
     }
     return names
+  }
+
+  /// A readable pre-v3 `layouts.json` that was not seeded because its backup
+  /// could not be made. Retried rather than stamped complete: once the marker
+  /// exists nothing would seed it again.
+  private static func legacyLayoutsAwaitBackup(_ defaults: UserDefaults, _ fileSystem: RelocationFileSystem) -> Bool {
+    guard defaults.data(forKey: LayoutsFile.preTasksBackupKey) == nil,
+      let data = fileSystem.readData(SupacodePaths.legacyLayoutsURL),
+      case .legacy = TaskLayoutsFile.classify(data)
+    else { return false }
+    return true
   }
 
   private static func presentButUnreadable(_ url: URL, _ fileSystem: RelocationFileSystem) -> Bool {
@@ -271,22 +283,43 @@ enum SettingsRelocationMigrator {
     // Layouts: normalize the final legacy `layouts.json` (v2) into UserDefaults as v3,
     // seeding only when the key holds no valid value.
     if !userDefaultsHoldValidLayouts(defaults),
-      fileSystem.readData(SupacodePaths.legacyLayoutsURL) != nil
+      let data = fileSystem.readData(SupacodePaths.legacyLayoutsURL)
     {
-      if case .file(let file) = TaskLayoutsFile.readFromDisk(url: SupacodePaths.legacyLayoutsURL),
-        let encoded = try? encoder.encode(file)
-      {
-        stashCorruptUserDefaults(forKey: LayoutsFile.userDefaultsKey, defaults)
-        defaults.set(encoded, forKey: LayoutsFile.userDefaultsKey)
-        // Flush before retiring the source (UserDefaults writes are deferred).
-        defaults.synchronize()
-        moveToBackup(SupacodePaths.legacyLayoutsURL, fileSystem: fileSystem)
-      } else {
-        logger.error("Legacy layouts.json present but unreadable; leaving it in place, not seeding.")
-        problems.append("Your terminal layouts could not be read, so they were left untouched.")
-      }
+      problems += seedLayouts(from: data, defaults, encoder: encoder, fileSystem: fileSystem)
     }
     return problems
+  }
+
+  /// The pre-v3 bytes are backed up before the v3 value replaces them, as for
+  /// every other first v3 writer; without a backup nothing is written and the
+  /// legacy file stays where it is.
+  private static func seedLayouts(
+    from data: Data, _ defaults: UserDefaults, encoder: JSONEncoder, fileSystem: RelocationFileSystem
+  ) -> [String] {
+    let file: TaskLayoutsFile
+    switch TaskLayoutsFile.classify(data) {
+    case .tasks(let tasks):
+      file = tasks
+    case .legacy(let legacy):
+      guard LayoutsUserDefaultsStore(defaults: defaults).backUpLegacyIfAbsent(data) else {
+        logger.error("Legacy layouts.json could not be backed up; leaving it in place, not seeding.")
+        return ["Your terminal layouts could not be backed up, so they were left untouched."]
+      }
+      file = legacy
+    case .newer, .lossy, .undecodable:
+      logger.error("Legacy layouts.json present but unreadable; leaving it in place, not seeding.")
+      return ["Your terminal layouts could not be read, so they were left untouched."]
+    }
+    guard let encoded = try? encoder.encode(file) else {
+      logger.error("Encoding v3 layouts failed; leaving layouts.json in place, not seeding.")
+      return ["Your terminal layouts could not be read, so they were left untouched."]
+    }
+    stashCorruptUserDefaults(forKey: LayoutsFile.userDefaultsKey, defaults)
+    defaults.set(encoded, forKey: LayoutsFile.userDefaultsKey)
+    // Flush before retiring the source (UserDefaults writes are deferred).
+    defaults.synchronize()
+    moveToBackup(SupacodePaths.legacyLayoutsURL, fileSystem: fileSystem)
+    return []
   }
 
   private static func relocateGhosttyConfig(fileSystem: RelocationFileSystem) -> [String] {

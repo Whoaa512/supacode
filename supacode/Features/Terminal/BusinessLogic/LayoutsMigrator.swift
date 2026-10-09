@@ -531,7 +531,10 @@ nonisolated extension LayoutsMigrator {
         migrationLogger.error("Encoding v3 layouts failed; leaving v2 in place.")
         return
       }
-      store.backUpLegacyIfAbsent(data)
+      guard store.backUpLegacyIfAbsent(data) else {
+        migrationLogger.error("Backing up the v2 layouts failed; leaving v2 in place.")
+        return
+      }
       store.write(encoded)
       migrationLogger.info("Upgraded persisted layouts to schema v\(TaskLayoutsFile.currentSchemaVersion).")
     }

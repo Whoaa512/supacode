@@ -18,10 +18,12 @@ nonisolated struct LayoutsUserDefaultsStore: @unchecked Sendable {
   func stashCorrupt(_ data: Data) { defaults.set(data, forKey: LayoutsFile.userDefaultsKey + ".corrupt") }
 
   /// Keeps the pre-v3 bytes before v3 replaces them. Write-once: a later
-  /// legacy blob never overwrites the first backup.
-  func backUpLegacyIfAbsent(_ data: Data) {
-    guard defaults.data(forKey: LayoutsFile.preTasksBackupKey) == nil else { return }
+  /// legacy blob never overwrites the first backup. False when no backup is
+  /// held afterwards; the caller must then leave the legacy bytes alone.
+  func backUpLegacyIfAbsent(_ data: Data) -> Bool {
+    if defaults.data(forKey: LayoutsFile.preTasksBackupKey) != nil { return true }
     defaults.set(data, forKey: LayoutsFile.preTasksBackupKey)
+    return defaults.data(forKey: LayoutsFile.preTasksBackupKey) != nil
   }
 
   /// Forces a synchronous flush for the on-quit write, where the run loop is
@@ -129,14 +131,18 @@ actor LayoutsIncrementalWriter {
   /// wholly-undecodable blob is stashed aside; `nil` (abort the flush) on a
   /// lossy-but-decodable value, so the caller never makes partial loss
   /// permanent, and on a newer schema, which is read-only for this build.
-  /// A v2 blob is backed up before the caller's v3 write replaces it.
+  /// A v2 blob is backed up before the caller's v3 write replaces it, and a
+  /// failed backup aborts the flush too.
   private nonisolated func readPersisted() -> TaskLayoutsFile? {
     guard let data = store.read() else { return TaskLayoutsFile() }
     switch TaskLayoutsFile.classify(data) {
     case .tasks(let file):
       return file
     case .legacy(let file):
-      store.backUpLegacyIfAbsent(data)
+      guard store.backUpLegacyIfAbsent(data) else {
+        Self.logger.error("Aborting layout flush: the pre-v3 layouts could not be backed up.")
+        return nil
+      }
       return file
     case .newer(let version):
       Self.logger.warning("Skipping layout flush into newer schema v\(version).")

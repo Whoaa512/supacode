@@ -76,6 +76,7 @@ let sharedTestSupportSources: [Path] = [
   "supacodeTests/BrandedIDTestSupport.swift",
   "supacodeTests/LoginShellTestSupport.swift",
   "supacodeTests/ProcessTestSupport.swift",
+  "supacodeTests/RecordingUserDefaults.swift",
   "supacodeTests/RemoteRepoTestSupport.swift",
   "supacodeTests/RepositoriesSidebarTestHelpers.swift",
   "supacodeTests/RepositoryLocalSettingsTestStorage.swift",

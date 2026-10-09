@@ -187,6 +187,33 @@ struct LayoutsIncrementalWriterTests {
     #expect(defaults.data(forKey: LayoutsFile.preTasksBackupKey) == v2Data)
   }
 
+  @Test func firstV3WriteComesAfterTheBackup() async throws {
+    let defaults = RecordingUserDefaults()
+    let v2Data = try seedV2(defaults, LayoutsFile(worktrees: ["/w1": LayoutRecord(layout: layout("/w1"))]))
+
+    await makeWriter(defaults).flush(records: ["/w2": record("/w2")])
+
+    #expect(
+      defaults.writtenKeys == [
+        LayoutsFile.userDefaultsKey, LayoutsFile.preTasksBackupKey, LayoutsFile.userDefaultsKey,
+      ])
+    #expect(defaults.data(forKey: LayoutsFile.preTasksBackupKey) == v2Data)
+  }
+
+  @Test func aFailedBackupAbortsEveryFlushAndLeavesV2Untouched() async throws {
+    let defaults = RecordingUserDefaults(refusingWritesTo: [LayoutsFile.preTasksBackupKey])
+    let v2Data = try seedV2(defaults, LayoutsFile(worktrees: ["/w1": LayoutRecord(layout: layout("/w1"))]))
+    let writer = makeWriter(defaults)
+
+    await writer.flush(records: ["/w2": record("/w2")])
+    await writer.flush(records: ["/w1": .delete])
+    await writer.flush(activeTask: LayoutID(task: UUID()), forDirectory: "/w1")
+    writer.flushSync(records: ["/w3": record("/w3")])
+
+    #expect(defaults.data(forKey: LayoutsFile.userDefaultsKey) == v2Data)
+    #expect(defaults.writtenKeys == [LayoutsFile.userDefaultsKey])
+  }
+
   @Test func lossyV2BlobAbortsTheFlushAndIsLeftUntouched() async {
     let defaults = makeDefaults()
     let lossy = Data(

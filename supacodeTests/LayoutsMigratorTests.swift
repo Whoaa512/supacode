@@ -656,6 +656,31 @@ struct LayoutsMigratorTests {
     return (file, originOnly)
   }
 
+  @Test func v2StoreUpgradeWritesTheBackupBeforeTheV3Value() throws {
+    let defaults = RecordingUserDefaults()
+    let v2Data = try JSONEncoder().encode(Self.v2Fixture().file)
+    defaults.set(v2Data, forKey: LayoutsFile.userDefaultsKey)
+
+    LayoutsMigrator.migrateStoreToTasksIfNeeded(defaults: defaults)
+
+    #expect(
+      defaults.writtenKeys == [
+        LayoutsFile.userDefaultsKey, LayoutsFile.preTasksBackupKey, LayoutsFile.userDefaultsKey,
+      ])
+    #expect(defaults.data(forKey: LayoutsFile.preTasksBackupKey) == v2Data)
+  }
+
+  @Test func v2StoreIsLeftAloneWhenTheBackupCannotBeMade() throws {
+    let defaults = RecordingUserDefaults(refusingWritesTo: [LayoutsFile.preTasksBackupKey])
+    let v2Data = try JSONEncoder().encode(Self.v2Fixture().file)
+    defaults.set(v2Data, forKey: LayoutsFile.userDefaultsKey)
+
+    LayoutsMigrator.migrateStoreToTasksIfNeeded(defaults: defaults)
+
+    #expect(defaults.data(forKey: LayoutsFile.userDefaultsKey) == v2Data)
+    #expect(defaults.writtenKeys == [LayoutsFile.userDefaultsKey])
+  }
+
   @Test func v2StoreUpgradesToOneTaskPerDirectoryWithABackup() throws {
     let defaults = UserDefaults.inMemory
     let (legacy, originOnly) = Self.v2Fixture()
