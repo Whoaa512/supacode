@@ -236,8 +236,9 @@ extension RepositoriesFeature.State {
         if let surfaceCwd = snapshot.surfaceCwd { provisionalCwds.insert(standardized(surfaceCwd)) }
       }
     }
-    let tasks = TaskIdleness(taskSessions: taskSessions, snapshots: sessionSnapshots, summaries: sessionSummaries)
     let sidecar = sessions
+    let tasks = TaskIdleness(
+      taskSessions: taskSessions, snapshots: sessionSnapshots, summaries: sessionSummaries, sidecar: sidecar)
     var releasedHolds: [SessionKey] = []
     var settled: [SessionKey] = []
     for summary in sessionSummaries where summary.isVerified {
@@ -246,12 +247,10 @@ extension RepositoriesFeature.State {
         entry?.manualUnsettledAtActivity = nil
         releasedHolds.append(summary.id)
       }
-      guard entry?.settledAt == nil, !provisionalCwds.contains(standardized(summary.cwd)) else { continue }
-      var judged = summary
-      let isLive = tasks.judge(&judged, liveKeys: liveKeys)
-      guard
+      guard entry?.settledAt == nil, !provisionalCwds.contains(standardized(summary.cwd)),
+        let judged = tasks.judged(summary, liveKeys: liveKeys),
         SessionClassification.classify(
-          summary: judged, isLive: isLive, sidecar: entry, now: now, idleDays: idleDays
+          summary: judged, isLive: false, sidecar: entry, now: now, idleDays: idleDays
         ).lifecycle == .settled
       else { continue }
       settled.append(summary.id)
@@ -271,39 +270,57 @@ extension RepositoriesFeature.State {
     recomputeSessionsSidebarStructureIfChanged()
   }
 
-  /// A task is judged as a whole: none of its sessions settles while any
-  /// agent runs in it, and it has been idle only as long as its most
-  /// recently active session.
+  /// A task is judged as a whole, so its sessions get one answer: none
+  /// settles while any agent runs in it or while the user's unsettle still
+  /// holds one of them, it has been idle only as long as its most recently
+  /// active session, and it is as long as all of them together.
   private struct TaskIdleness {
     let taskSessions: [LayoutID: [SessionKey]]
     let runningTasks: Set<LayoutID>
     var tasksBySession: [SessionKey: [LayoutID]] = [:]
     var activityByKey: [SessionKey: Date] = [:]
+    var messagesByKey: [SessionKey: Int] = [:]
+    var held: Set<SessionKey> = []
 
-    init(taskSessions: [LayoutID: [SessionKey]], snapshots: [SessionLiveSnapshot], summaries: [SessionSummary]) {
+    init(
+      taskSessions: [LayoutID: [SessionKey]], snapshots: [SessionLiveSnapshot], summaries: [SessionSummary],
+      sidecar: SessionSidecar
+    ) {
       self.taskSessions = taskSessions
       runningTasks = Set(snapshots.map(\.location.layoutID))
       for (layoutID, members) in taskSessions {
         for key in members { tasksBySession[key, default: []].append(layoutID) }
       }
-      // Only a task with several sessions has another member's activity to read.
+      // Only a task with several sessions has another member to read.
       guard taskSessions.values.contains(where: { $0.count > 1 }) else { return }
-      activityByKey = Dictionary(summaries.map { ($0.id, $0.lastActivity) }, uniquingKeysWith: max)
+      for summary in summaries {
+        activityByKey[summary.id] = max(summary.lastActivity, activityByKey[summary.id] ?? .distantPast)
+        messagesByKey[summary.id] = max(summary.messageCount, messagesByKey[summary.id] ?? 0)
+        guard let hold = sidecar[summary.id]?.manualUnsettledAtActivity, summary.lastActivity <= hold else { continue }
+        held.insert(summary.id)
+      }
     }
 
-    /// Whether the session, or anything in a task that lists it, is running.
-    /// Moves the summary's activity up to its tasks' newest.
-    func judge(_ summary: inout SessionSummary, liveKeys: Set<SessionKey>) -> Bool {
-      if liveKeys.contains(summary.id) { return true }
+    /// The session as its tasks stand: their newest activity and all their
+    /// messages. `nil` while the session, or anything in a task that lists
+    /// it, is running or held, which no idle time settles.
+    func judged(_ summary: SessionSummary, liveKeys: Set<SessionKey>) -> SessionSummary? {
+      if liveKeys.contains(summary.id) { return nil }
+      var judged = summary
       for layoutID in tasksBySession[summary.id] ?? [] {
         let members = taskSessions[layoutID] ?? []
-        if runningTasks.contains(layoutID) || members.contains(where: liveKeys.contains) { return true }
-        for member in members {
-          guard let activity = activityByKey[member], activity > summary.lastActivity else { continue }
-          summary.lastActivity = activity
+        if runningTasks.contains(layoutID) || members.contains(where: { liveKeys.contains($0) || held.contains($0) }) {
+          return nil
         }
+        var messages = 0
+        for member in members {
+          messages += messagesByKey[member] ?? 0
+          guard let activity = activityByKey[member], activity > judged.lastActivity else { continue }
+          judged.lastActivity = activity
+        }
+        judged.messageCount = max(judged.messageCount, messages)
       }
-      return false
+      return judged
     }
   }
 

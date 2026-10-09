@@ -318,9 +318,11 @@ struct RepositoriesFeatureAutoSettleTests {
 
   /// Runs a refresh over `rows` with the given task membership and live agents.
   private func sidecarAfterRefresh(
-    _ rows: [SessionSummary], taskSessions: [LayoutID: [SessionKey]], live: [SessionLiveSnapshot] = []
+    _ rows: [SessionSummary], taskSessions: [LayoutID: [SessionKey]], live: [SessionLiveSnapshot] = [],
+    sidecar: SessionSidecar = [:]
   ) async -> [SessionKey: SessionSidecarEntry] {
     let store = store()
+    store.state.$sessions.withLock { $0 = sidecar }
     await store.send(.sessionsCacheLoaded(rows))
     await store.send(.taskSessionsChanged(taskSessions))
     await store.send(.sessionSnapshotsChanged(live))
@@ -377,5 +379,61 @@ struct RepositoriesFeatureAutoSettleTests {
 
     #expect(sidecar[primary.id]?.settledAt == now)
     #expect(sidecar[tangent.id]?.settledAt == now)
+  }
+
+  private func summary(_ id: String, count: Int, idle: TimeInterval) -> SessionSummary {
+    var summary = summary(id, count: count)
+    summary.lastActivity = now.addingTimeInterval(-idle)
+    return summary
+  }
+
+  /// The short-session rule is the task's too: a primary of one message
+  /// does not settle a task whose tangent did the work.
+  @Test(.dependencies) func aShortPrimaryDoesNotSettleATaskWithASubstantiveTangent() async {
+    let primary = summary("primary", count: 1, idle: 2 * 3_600)
+    let tangent = summary("tangent", count: 100, idle: 2 * 3_600)
+
+    let together = await sidecarAfterRefresh([primary, tangent], taskSessions: [task: [primary.id, tangent.id]])
+    #expect(together[primary.id] == nil, "the task is settled exactly when its primary is")
+    #expect(together[tangent.id] == nil)
+
+    // Whichever of the two leads.
+    let swapped = await sidecarAfterRefresh([primary, tangent], taskSessions: [task: [tangent.id, primary.id]])
+    #expect(swapped[primary.id] == nil)
+    #expect(swapped[tangent.id] == nil)
+
+    // On its own the primary is short enough to go after an hour.
+    let alone = await sidecarAfterRefresh([primary, tangent], taskSessions: [:])
+    #expect(alone[primary.id]?.settledAt == now)
+    #expect(alone[tangent.id] == nil)
+  }
+
+  @Test(.dependencies, arguments: [[1, 2], [2, 2]])
+  func aTaskIsShortOnlyWhenAllItsSessionsTogetherAre(counts: [Int]) async {
+    let primary = summary("primary", count: counts[0], idle: 2 * 3_600)
+    let tangent = summary("tangent", count: counts[1], idle: 2 * 3_600)
+    let isShort = counts.reduce(0, +) < 4
+
+    let sidecar = await sidecarAfterRefresh([primary, tangent], taskSessions: [task: [primary.id, tangent.id]])
+
+    #expect(sidecar[primary.id]?.settledAt == (isShort ? now : nil))
+    #expect(sidecar[tangent.id]?.settledAt == (isShort ? now : nil))
+  }
+
+  /// A session the user unsettled holds until it has new activity of its
+  /// own; another member's newer activity must not lift that.
+  @Test(.dependencies, arguments: ["primary", "tangent"])
+  func aMemberTheUserUnsettledHoldsItsWholeTask(held: String) async {
+    let primary = summary("primary", count: 5, idle: 5 * 86_400)
+    let tangent = summary("tangent", count: 5, idle: 4 * 86_400)
+    let heldRow = held == "primary" ? primary : tangent
+    let hold = SessionSidecarEntry(manualUnsettledAtActivity: heldRow.lastActivity)
+
+    let sidecar = await sidecarAfterRefresh(
+      [primary, tangent], taskSessions: [task: [primary.id, tangent.id]], sidecar: [heldRow.id: hold])
+
+    #expect(sidecar[primary.id]?.settledAt == nil)
+    #expect(sidecar[tangent.id]?.settledAt == nil)
+    #expect(sidecar[heldRow.id]?.manualUnsettledAtActivity == heldRow.lastActivity, "still held")
   }
 }
