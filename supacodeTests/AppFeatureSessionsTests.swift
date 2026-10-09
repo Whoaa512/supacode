@@ -2810,6 +2810,18 @@ struct AppFeatureSessionsTests {
     let commands = LockIsolated<[TerminalClient.Command]>([])
     let focused = LockIsolated<[SessionLocation]>([])
     let watcher = LockIsolated<[WorktreeInfoWatcherClient.Command]>([])
+    let resumes = LockIsolated(0)
+
+    /// Anything but showing a task: the chord may only select and focus.
+    var nonFocusCommands: [TerminalClient.Command] {
+      commands.value.filter {
+        switch $0 {
+        case .setSelectedLayoutID: false
+        case .ensureInitialTab(_, _, runSetupScriptIfNew: false, focusing: _): false
+        default: true
+        }
+      }
+    }
 
     var selectedLayouts: [LayoutID] {
       commands.value.compactMap {
@@ -2828,9 +2840,19 @@ struct AppFeatureSessionsTests {
     }
   }
 
-  private func taskStore(_ initial: AppFeature.State, recorded: Recorded) -> TestStoreOf<AppFeature> {
+  /// `hostingContent` is for tests that move the terminal's own selection,
+  /// which re-diffs tab visibility and so builds tab content.
+  private func taskStore(
+    _ initial: AppFeature.State, recorded: Recorded, hostingContent: Bool = false
+  ) -> TestStoreOf<AppFeature> {
     let store = TestStore(initialState: initial) {
-      AppFeature()
+      CombineReducers {
+        AppFeature()
+        Reduce<AppFeature.State, AppFeature.Action> { _, action in
+          if case .repositories(.delegate(.resumeSession)) = action { recorded.resumes.withValue { $0 += 1 } }
+          return .none
+        }
+      }
     } withDependencies: {
       $0.date.now = .distantPast
       $0.terminalClient.send = { command in recorded.commands.withValue { $0.append(command) } }
@@ -2843,6 +2865,12 @@ struct AppFeatureSessionsTests {
       $0.worktreeInfoWatcher.send = { command in recorded.watcher.withValue { $0.append(command) } }
       $0.continuousClock = ImmediateClock()
       $0.terminalClient.saveLayoutsWithAgents = { _ in }
+      guard hostingContent else { return }
+      $0.contentRuntime = ContentRuntime()
+      $0[LayoutContentFactory.self] = LayoutContentFactory { request in
+        InertTabContent(id: request.contentID, state: request.content)
+      }
+      $0[ContentSessionKiller.self] = ContentSessionKiller(kill: { _, _ in })
     }
     store.exhaustivity = .off
     return store
@@ -4819,5 +4847,200 @@ struct AppFeatureSessionsTests {
     #expect(recorded.commands.value.isEmpty)
     #expect(store.state.pendingSessionLaunch == nil)
     #expect(store.state.pendingTaskLaunches.isEmpty)
+  }
+
+  // MARK: - Task chord and tab chord (A25)
+
+  private func press(_ store: TestStoreOf<AppFeature>, offset: Int) async {
+    await store.send(.repositories(offset > 0 ? .selectNextWorktree : .selectPreviousWorktree))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+    await store.skipReceivedActions(strict: false)
+  }
+
+  private func onSessionsTab() {
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.sessions.rawValue }
+  }
+
+  @Test(.dependencies, arguments: [1, -1])
+  func heldChordAdvancesBeforeTheTerminalEchoes(offset: Int) async {
+    var initial = withRows(sixTasksOnTwoDirectories())
+    onSessionsTab()
+    initial.terminals.selectedLayoutID = first
+    #expect(AppFeature.focusedSessionRowID(state: initial) == .task(first))
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    // The terminal never echoes a selection here: every press lands inside the window.
+    for _ in initial.repositories.sessionsSidebarStructure.liveIDs { await press(store, offset: offset) }
+
+    let shown = recorded.selectedLayouts
+    #expect(zip(shown, shown.dropFirst()).allSatisfy { $0 != $1 }, "no press re-shows the task it left from")
+    #expect(Set(shown) == allSixLayouts)
+    #expect(store.state.terminals.selectedLayoutID == first)
+  }
+
+  @Test(.dependencies) func anEchoForATaskAlreadyLeftDoesNotMoveTheHighlight() async {
+    var initial = withRows(twoTasksOnOneDirectory())
+    onSessionsTab()
+    initial.terminals.selectedLayoutID = first
+    #expect(initial.repositories.sessionsSidebarStructure.liveIDs.count == 3)
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded, hostingContent: true)
+
+    await press(store, offset: 1)
+    await press(store, offset: 1)
+    let shown = recorded.selectedLayouts
+    #expect(shown.count == 2)
+    guard shown.count == 2 else { return }
+    let recordedFocus = store.state.lastFocusedSessionRowID
+    #expect(store.state.repositories.sessionSelection == .task(shown[1]))
+
+    await store.send(.terminals(.selectedLayoutChanged(shown[0])))
+    #expect(store.state.repositories.sessionSelection == .task(shown[1]), "the echo is for the task being left")
+    #expect(store.state.lastFocusedSessionRowID == recordedFocus)
+
+    await store.send(.terminals(.selectedLayoutChanged(shown[1])))
+    await store.finish()
+    #expect(store.state.repositories.sessionSelection == .task(shown[1]))
+    #expect(store.state.lastFocusedSessionRowID == .task(shown[1]))
+  }
+
+  @Test(.dependencies) func theHoldReleasesWhenTheAskedTaskIsGone() async {
+    var initial = withRows(twoTasksOnOneDirectory())
+    onSessionsTab()
+    initial.terminals.selectedLayoutID = first
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded, hostingContent: true)
+
+    await press(store, offset: 1)
+    guard let asked = recorded.selectedLayouts.first else {
+      Issue.record("the press showed no task")
+      return
+    }
+    #expect(store.state.repositories.selectedTaskID == asked)
+
+    // The terminal still shows `first`, which has a focused surface.
+    await store.send(.terminals(.detachLayout(worktreeID: asked)))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(store.state.repositories.sessionSelection == .task(first), "the highlight follows the focus again")
+    #expect(store.state.repositories.selectedTask == nil)
+  }
+
+  @Test(.dependencies) func aStaleLiveRowIsNotBootstrapped() async {
+    var initial = withRows(twoTasksOnOneDirectory())
+    onSessionsTab()
+    // The row outlives the task by one snapshot.
+    initial.terminals.layouts.remove(id: second)
+    #expect(initial.repositories.sessionItems[id: .task(second)]?.location != nil)
+    let liveIDs = initial.repositories.sessionsSidebarStructure.liveIDs
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    for _ in liveIDs where store.state.repositories.sessionSelection != .task(second) {
+      await press(store, offset: 1)
+    }
+
+    #expect(store.state.repositories.sessionSelection == .task(second))
+    #expect(!recorded.selectedLayouts.contains(second))
+    #expect(
+      !recorded.commands.value.contains {
+        if case .ensureInitialTab(self.second, _, _, _) = $0 { true } else { false }
+      })
+    #expect(store.state.repositories.selectedTask?.id != second)
+    #expect(!recorded.mintedOrResumed)
+  }
+
+  @Test(.dependencies) func aNeverOpenedTaskIsStillShownByTheChord() async {
+    var initial = withRows(sixTasksOnTwoDirectories())
+    onSessionsTab()
+    let liveIDs = initial.repositories.sessionsSidebarStructure.liveIDs
+    guard let index = liveIDs.firstIndex(of: .task(fourth)) else {
+      Issue.record("the never-opened task has no live row")
+      return
+    }
+    #expect(initial.terminals.layouts[id: fourth] == nil)
+    initial.repositories.sessionSelection = liveIDs[(index - 1 + liveIDs.count) % liveIDs.count]
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    await press(store, offset: 1)
+
+    #expect(recorded.selectedLayouts == [fourth])
+    #expect(store.state.repositories.selectedTaskID == fourth)
+  }
+
+  @Test(.dependencies, arguments: [1, -1])
+  func cyclingSendsNothingButSelectAndFocus(offset: Int) async {
+    let initial = withRows(sixTasksOnTwoDirectories())
+    onSessionsTab()
+    let liveIDs = initial.repositories.sessionsSidebarStructure.liveIDs
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    for _ in 0..<(liveIDs.count * 2) { await press(store, offset: offset) }
+
+    #expect(recorded.selectedLayouts.count >= liveIDs.count * 2)
+    #expect(recorded.nonFocusCommands.isEmpty)
+    #expect(!recorded.mintedOrResumed)
+    #expect(recorded.resumes.value == 0)
+    #expect(store.state.pendingSessionLaunch == nil)
+  }
+
+  @Test(.dependencies) func aTaskWithTwoAgentsIsOneStopPerLap() async {
+    var initial = twoTasksOnOneDirectory()
+    let tangent = agentTask(first, surface: thirdSurface).layout.panes[0].tabs[0]
+    initial.terminals.layouts[id: first]?.layout.panes[0].tabs.append(tangent)
+    initial.agentPresence.records[.init(agent: .pi, surfaceID: thirdSurface)] = record(ref: "three")
+    initial.terminals.members[first] = [.session(piKey("one")), .session(piKey("three"))]
+    initial = withRows(initial)
+    onSessionsTab()
+    let liveIDs = initial.repositories.sessionsSidebarStructure.liveIDs
+    #expect(Set(liveIDs) == [.task(worktree.id.layoutID), .task(first), .task(second)])
+    #expect(AppFeature.sessionSnapshots(state: initial).filter { $0.location.layoutID == first }.count == 2)
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    for _ in liveIDs { await press(store, offset: 1) }
+
+    #expect(recorded.selectedLayouts.count == 3)
+    #expect(Set(recorded.selectedLayouts) == [worktree.id.layoutID, first, second])
+    #expect(recorded.focused.value.isEmpty, "the task is shown with its own focus, not a member's surface")
+  }
+
+  @Test(.dependencies) func theChordSkipsDormantAndSettledTasks() async {
+    var initial = sixTasksOnTwoDirectories()
+    let closed = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A8")!)
+    initial.terminals.layouts.append(LayoutFeature.State(id: closed, layout: PaneLayout()))
+    initial.terminals.directories[closed] = TaskRecord.Directory(worktreeID: worktree.id)
+    initial.terminals.members[closed] = [.session(piKey("closed"))]
+    initial.repositories.taskSessions = AppFeature.taskSessions(initial.terminals.members)
+    initial.repositories.sessionSummaries = ["closed", "loose"].map {
+      SessionSummary(
+        harness: .pi, sessionID: $0, createdAt: .distantPast, cwd: "/workspace", title: $0, messageCount: 4,
+        lastActivity: .distantPast)
+    }
+    initial = withRows(initial)
+    onSessionsTab()
+    let dormant: Set<SessionRowID> = [.task(closed), .implicit(piKey("loose"))]
+    let rows = initial.repositories.sessionItems
+    #expect(dormant.allSatisfy { rows[id: $0] != nil && rows[id: $0]?.location == nil })
+    let liveIDs = initial.repositories.sessionsSidebarStructure.liveIDs
+    #expect(liveIDs.count == 6)
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    for _ in 0..<(liveIDs.count * 2) {
+      await press(store, offset: 1)
+      #expect(store.state.repositories.sessionSelection.map(dormant.contains) == false)
+    }
+
+    #expect(Set(recorded.selectedLayouts) == allSixLayouts)
+    #expect(recorded.resumes.value == 0)
+    #expect(!recorded.mintedOrResumed)
+    #expect(store.state.pendingSessionLaunch == nil)
   }
 }

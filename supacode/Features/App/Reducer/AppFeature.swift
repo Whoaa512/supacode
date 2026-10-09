@@ -614,9 +614,9 @@ struct AppFeature {
 
       case .repositories(.selectNextWorktree), .repositories(.selectPreviousWorktree):
         if state.repositories.isSessionsSidebarTabActive,
-          let focused = Self.focusedSessionRowID(state: state)
+          let origin = Self.sessionCycleOrigin(state: state)
         {
-          state.repositories.selectSessionRow(focused)
+          state.repositories.selectSessionRow(origin)
         }
         return .none
 

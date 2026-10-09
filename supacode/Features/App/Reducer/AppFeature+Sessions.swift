@@ -72,6 +72,18 @@ extension AppFeature {
     return state.repositories.sessionSnapshots.first { $0.location.surfaceID == surfaceID }?.id
   }
 
+  /// Where the task chord steps from: the task last asked for, since the
+  /// terminal echoes a selection after the press that made it; else the
+  /// focused row.
+  static func sessionCycleOrigin(state: State) -> SessionRowID? {
+    if let asked = state.repositories.selectedTaskID,
+      let row = state.repositories.sessionItems[id: .task(asked)]?.id
+    {
+      return row
+    }
+    return focusedSessionRowID(state: state)
+  }
+
   /// The directory facts for a task: the roster worktree's, else what the task
   /// itself recorded, so a task on a directory the roster no longer lists is
   /// still shown.
@@ -94,10 +106,13 @@ extension AppFeature {
     )
   }
 
-  /// Shows a task with whatever it had focused. Only reached for a task that
-  /// already holds tabs, so the bootstrap half of the command never fires.
+  /// Shows a task with whatever it had focused. Only for a task that holds
+  /// tabs, so the bootstrap half of the command never fires.
   static func focusTask(_ layoutID: LayoutID, directoryID: Worktree.ID, state: State) -> Effect<Action> {
     @Dependency(TerminalClient.self) var terminalClient
+    // The row may outlive the task's last tab by one snapshot; showing an
+    // emptied task would bootstrap a shell tab in it.
+    guard taskHoldsTabs(layoutID, state: state) else { return .none }
     let context = directoryContext(forTask: layoutID, directoryID: directoryID, state: state)
     return .concatenate(
       .send(.repositories(.selectTask(layoutID, directory: directoryID))),
@@ -111,6 +126,15 @@ extension AppFeature {
   /// Rows are rebuilt from tasks, so a selected task that no longer exists is dropped here.
   static func hasTask(_ layoutID: LayoutID, state: State) -> Bool {
     state.terminals.layouts[id: layoutID] != nil || storedTask(layoutID, state: state) != nil
+  }
+
+  /// Whether the task holds a tab on any pane: by its layout once it has one
+  /// this run, else by its stored record.
+  static func taskHoldsTabs(_ layoutID: LayoutID, state: State) -> Bool {
+    if let live = state.terminals.layouts[id: layoutID] {
+      return live.layout.panes.contains { !$0.tabs.isEmpty }
+    }
+    return storedTask(layoutID, state: state)?.layout.panes.contains { !$0.tabs.isEmpty } == true
   }
 
   /// Whether a task holds a tab on this directory: by its layout once it
@@ -141,6 +165,17 @@ extension AppFeature {
     let rowID = focusedSessionRowID(state: state)
     // Until the row exists nothing is recorded, so the next pass retries.
     if let rowID, state.repositories.sessionItems[id: rowID] == nil { return }
+    // A task was asked for and the terminal has not shown it yet: the focus
+    // seen now is the one being left. Nothing is recorded, so the echo for
+    // the asked task still lands. Only a task that can be shown is waited
+    // for: one whose last tab closed is never echoed.
+    if let asked = state.repositories.selectedTaskID,
+      asked != state.terminals.selectedLayoutID,
+      state.repositories.sessionItems[id: .task(asked)] != nil,
+      taskHoldsTabs(asked, state: state)
+    {
+      return
+    }
     guard rowID != state.lastFocusedSessionRowID else { return }
     state.lastFocusedSessionRowID = rowID
     state.repositories.selectSessionRow(rowID)
