@@ -1659,8 +1659,14 @@ final class WorktreeTerminalManager {
   ) {
     // The host's directory decides, never its key: a layout id need not be
     // the directory id, and a mismatch here kills sessions silently.
+    // A host goes only when its directory is named as archived. The kept set
+    // was computed before this command was delivered, so absence from it
+    // proves nothing: a task attached in between, one on a directory deleted
+    // outside the app or one whose repository left the roster is an orphan
+    // and keeps its sessions.
+    let prunable = archivedDirectories.subtracting(directoryIDs)
     let shouldKeep: (WorktreeContentHost) -> Bool = { host in
-      directoryIDs.contains(host.worktreeID) || protectedRepositoryIDs.contains(host.repositoryID)
+      !prunable.contains(host.worktreeID) || protectedRepositoryIDs.contains(host.repositoryID)
     }
     var removed: [(LayoutID, WorktreeContentHost)] = []
     for (id, host) in hosts where !shouldKeep(host) {
@@ -1708,7 +1714,7 @@ final class WorktreeTerminalManager {
     killZmxSessions(
       prunedSessionIDs, remoteSessions: prunedRemoteSessions,
       clearingTombstones: prunedSurfaceIDs.map { ContentID(rawValue: $0) })
-    pruneHostlessLayouts(in: archivedDirectories.subtracting(directoryIDs))
+    pruneHostlessLayouts(in: prunable)
   }
 
   /// A hydrated task the user never opened has no host, so the roster pass

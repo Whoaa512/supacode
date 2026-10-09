@@ -350,8 +350,18 @@ struct WorktreeTerminalManagerAckTests {
     #expect(harness.manager.hostIfExists(for: layoutID) != nil)
     #expect(harness.store.withState { $0.terminals.layouts[id: layoutID] } != nil)
 
-    // Keeping the key alone protects nothing: the directory is gone.
-    harness.manager.handleCommand(.prune(keepingDirectories: ["/tmp/repo/wt-layout-key"], protectingRepositoryIDs: []))
+    // Archiving the key names no directory a host sits on.
+    harness.manager.handleCommand(
+      .prune(
+        keepingDirectories: [], protectingRepositoryIDs: [], archivedDirectories: ["/tmp/repo/wt-layout-key"]))
+
+    #expect(harness.manager.hostIfExists(for: layoutID) != nil)
+
+    // Keeping the key alone protects nothing once the directory is archived.
+    harness.manager.handleCommand(
+      .prune(
+        keepingDirectories: ["/tmp/repo/wt-layout-key"], protectingRepositoryIDs: [],
+        archivedDirectories: [directory.id]))
 
     #expect(harness.manager.hostIfExists(for: layoutID) == nil)
     #expect(harness.store.withState { $0.terminals.layouts[id: layoutID] } == nil)
@@ -422,13 +432,66 @@ struct WorktreeTerminalManagerAckTests {
     _ = await openLayout(second, on: archived, in: harness, pump: pump)
     _ = await openLayout(kept, on: other, in: harness, pump: pump)
 
-    // An archived directory drops out of the kept set.
-    harness.manager.handleCommand(.prune(keepingDirectories: [other.id], protectingRepositoryIDs: []))
+    harness.manager.handleCommand(
+      .prune(keepingDirectories: [other.id], protectingRepositoryIDs: [], archivedDirectories: [archived.id]))
 
     #expect(harness.manager.hostIfExists(for: first) == nil)
     #expect(harness.manager.hostIfExists(for: second) == nil)
     #expect(harness.manager.hostIfExists(for: kept) != nil)
     #expect(harness.store.withState { Array($0.terminals.layouts.ids) } == [kept])
+  }
+
+  @Test(.dependencies) func aTaskAttachedAfterThePruneWasComputedKeepsItsHostRecordAndSessions() async throws {
+    let recorder = TeardownRecorder()
+    let harness = makeHarness(
+      defaults: recorder.defaults, killSession: recorder.killSession, killRemoteSession: recorder.killRemoteSession)
+    let pump = CreationEvents(harness.manager)
+    let listed = makeWorktree(id: "/tmp/repo/wt-listed")
+    let archived = makeWorktree(id: "/tmp/repo/wt-archived")
+    let gone = makeWorktree(id: "/tmp/gone")
+    let listedTask = LayoutID(task: UUID())
+    let archivedTask = LayoutID(task: UUID())
+    let orphanTask = LayoutID(task: UUID())
+    let listedSurface = await openLayout(listedTask, on: listed, in: harness, pump: pump)
+    // The reducer computes the prune from the roster it sees: one listed
+    // directory, nothing archived, and no orphan yet.
+    let computedEarlier = TerminalClient.Command.prune(
+      keepingDirectories: [listed.id], protectingRepositoryIDs: [], archivedDirectories: [])
+    // Before that command is delivered, a task opens on a directory the
+    // roster does not list.
+    let orphanSurface = await openLayout(orphanTask, on: gone, in: harness, pump: pump)
+    let archivedSurface = await openLayout(archivedTask, on: archived, in: harness, pump: pump)
+    let created = Date(timeIntervalSince1970: 1)
+    recorder.seed([
+      TaskRecord(
+        id: listedTask, directory: .init(worktreeID: listed.id), layout: singleTabLayout(contentID: listedSurface),
+        createdAt: created),
+      TaskRecord(
+        id: orphanTask, directory: .init(worktreeID: gone.id), layout: singleTabLayout(contentID: orphanSurface),
+        createdAt: created),
+      TaskRecord(
+        id: archivedTask, directory: .init(worktreeID: archived.id),
+        layout: singleTabLayout(contentID: archivedSurface), createdAt: created),
+    ])
+
+    harness.manager.handleCommand(computedEarlier)
+
+    #expect(harness.manager.hostIfExists(for: orphanTask) != nil)
+    #expect(harness.manager.hostIfExists(for: archivedTask) != nil)
+    #expect(harness.store.withState { Set($0.terminals.layouts.ids) } == [listedTask, orphanTask, archivedTask])
+    #expect(harness.store.withState { $0.terminals.directories[orphanTask]?.worktreeID } == gone.id)
+
+    // A later, positively archived directory is the only thing that goes. Its
+    // delete and kill land after anything the stale command could have queued.
+    harness.manager.handleCommand(
+      .prune(keepingDirectories: [listed.id], protectingRepositoryIDs: [], archivedDirectories: [archived.id]))
+
+    let written = await recorder.nextWrite { $0.tasks[archivedTask.persistenceKey] == nil }
+    #expect(Set(written.tasks.keys) == [listedTask.persistenceKey, orphanTask.persistenceKey])
+    await recorder.awaitKills(1)
+    #expect(recorder.localKills.value == [ZmxSessionID.make(surfaceID: archivedSurface)])
+    #expect(recorder.remoteKills.value.isEmpty)
+    #expect(harness.manager.hostIfExists(for: orphanTask) != nil)
   }
 
   @Test(.dependencies) func archivingADirectoryPrunesItsNeverOpenedTasksToo() async throws {
@@ -602,6 +665,70 @@ struct WorktreeTerminalManagerAckTests {
     let layout = harness.store.withState { $0.terminals.layouts[id: harness.worktree.id.layoutID]?.layout }
     let anchorPane = layout?.tab(containingContent: ContentID(rawValue: anchor))?.pane
     #expect(anchorPane?.tabs[id: TabID(rawValue: added)] != nil)
+  }
+}
+
+/// Records what a teardown leaves behind: every layouts blob written and
+/// every local and remote session kill, each awaitable without polling.
+private final class TeardownRecorder {
+  nonisolated struct RemoteKill: Hashable, Sendable {
+    let alias: String
+    let session: String
+  }
+
+  let defaults: LayoutsSignalingDefaults
+  let localKills = LockIsolated<Set<String>>([])
+  let remoteKills = LockIsolated<Set<RemoteKill>>([])
+  // Pulled sequentially on the test's one task, as in `CreationEvents`.
+  nonisolated(unsafe) private var writes: AsyncStream<TaskLayoutsFile>.AsyncIterator
+  nonisolated(unsafe) private var kills: AsyncStream<Void>.AsyncIterator
+  private let killSignal: AsyncStream<Void>.Continuation
+
+  init() {
+    let (writes, writeSignal) = AsyncStream<TaskLayoutsFile>.makeStream()
+    let (kills, killSignal) = AsyncStream<Void>.makeStream()
+    defaults = LayoutsSignalingDefaults { data in
+      if let file = try? JSONDecoder().decode(TaskLayoutsFile.self, from: data) {
+        writeSignal.yield(file)
+      }
+    }
+    self.writes = writes.makeAsyncIterator()
+    self.kills = kills.makeAsyncIterator()
+    self.killSignal = killSignal
+  }
+
+  var killSession: @Sendable (String) -> Void {
+    { [localKills, killSignal] session in
+      localKills.withValue { _ = $0.insert(session) }
+      killSignal.yield()
+    }
+  }
+
+  var killRemoteSession: @Sendable (RemoteHost, String) -> Void {
+    { [remoteKills, killSignal] host, session in
+      remoteKills.withValue { _ = $0.insert(RemoteKill(alias: host.alias, session: session)) }
+      killSignal.yield()
+    }
+  }
+
+  func seed(_ tasks: [TaskRecord], origins: [String: TerminalLayoutSnapshot] = [:]) {
+    let file = TaskLayoutsFile(
+      tasks: Dictionary(uniqueKeysWithValues: tasks.map { ($0.id.persistenceKey, $0) }), origins: origins)
+    // The fixture cannot fail to encode; an empty seed would fail the test's
+    // own assertions.
+    defaults.seed((try? JSONEncoder().encode(file)) ?? Data())
+  }
+
+  /// The first written blob that satisfies `matches`.
+  func nextWrite(where matches: (TaskLayoutsFile) -> Bool) async -> TaskLayoutsFile {
+    while let file = await writes.next() {
+      if matches(file) { return file }
+    }
+    return TaskLayoutsFile()
+  }
+
+  func awaitKills(_ count: Int) async {
+    for _ in 0..<count { await kills.next() }
   }
 }
 
