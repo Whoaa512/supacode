@@ -1969,13 +1969,13 @@ deviation.
     branch); a tab in a subdirectory of the task directory probes to the
     same branch and shows nothing.
   Left for later:
-  - S/K (or whoever first needs it): `SurfaceEntry.cwd` is the tab's
-    recorded launch or restored cwd, not the live pwd (T4 note). An agent
-    that `cd`s after launch is captured, and protected from auto-settle, by
-    its recorded cwd until the next layout snapshot. The live pwd sits on
-    the content's `TabChrome` and the hook event carries no cwd; feeding it
-    to the reducer per report is what AGENTS.md forbids, so this needs the
-    hook payload to carry cwd or a read at capture time.
+  - **Revised (T8 r1)**: the note that stood here deferred the live pwd to
+    S/K and was wrong on two points. Capture now reads it (see T8 r1). The
+    live pwd sits on the surface bridge (`bridge.state.pwd`), not on
+    `TabChrome`; and a layout snapshot does not refresh the reducer's
+    layout: persistence overlays the live pwd onto a copy
+    (`LayoutPersistence.swift:19-25`), so `SurfaceEntry.cwd` stays the
+    launch or restored cwd for the whole run.
   - T8/S notes from T7 still open: a member whose task sits on another
     directory resumes into a newly minted task, and a session that ran on a
     remote host cannot be resumed from its history row.
@@ -1986,4 +1986,37 @@ deviation.
   probes the directory; a remote task's tab elsewhere is never probed;
   resume in B silent, resume in A warns (parameterised).
   Gate: check 0, `supacodeFeatureTests/AppFeatureSessionsTests` 124 tests
+  0 failures, build-app 0. No full `make test` (not a full-run slice).
+
+- T8 r1, 2026-10-09, `0e31f535`, `e3a90a9d`: review fixes.
+  - P1 (held): capture went by the layout's recorded cwd. A new tab
+    records none (`createTabAsync` passes `workingDirectory: nil`) and can
+    launch in an inherited directory, and a restored tab can `cd`, so both
+    kept recording the task directory's cached branch. Capture now asks
+    the running surface through a new `TerminalClient.surfaceWorkingDirectory
+    (LayoutID, UUID) -> String?` (live: the host's live surface
+    `bridge.state.pwd`; default and test value `nil`), falling back to
+    `SurfaceEntry.cwd` when it is nil or empty. One synchronous read per
+    busy/idle hook, no layout action. The same-directory check compares
+    standardized paths, not URLs, so a reported trailing slash still hits
+    the cache.
+  - P1 (held): orphan-task capture had no test. Added, see below.
+  Left for later:
+  - S/K: `sessionSnapshots` still derives `surfaceCwd` (auto-settle
+    protection of provisional rows, `SessionsSidebarStructure.swift:236`)
+    and the live row's branch annotation from the recorded cwd. Reading the
+    live pwd there needs a trigger when it changes, which is the
+    per-report traffic AGENTS.md forbids; capture has a natural trigger
+    (the hook), those do not.
+  - A remote task's live pwd is whatever the surface reports (remote path
+    with shell integration over ssh, else nothing); it is only compared
+    with the task path for the cache, never probed.
+  Tests (`AppFeatureSessionsTests`): tab with no recorded cwd and tab
+  recorded in A, both running in B with A's branch cached, probe B (red
+  before the fix; also asserts the owning layout is the one asked); tab
+  recorded elsewhere but running in the task directory uses the cache (red
+  before); orphan task, running and persisted-only, probes its recorded
+  directory and stores the branch; remote orphan, running and
+  persisted-only, is never probed.
+  Gate: check 0, `supacodeFeatureTests/AppFeatureSessionsTests` 128 tests
   0 failures, build-app 0. No full `make test` (not a full-run slice).
