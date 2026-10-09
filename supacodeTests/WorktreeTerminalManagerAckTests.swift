@@ -703,6 +703,70 @@ struct WorktreeTerminalManagerAckTests {
     #expect(harness.store.withState { $0.terminals.directories } == [kept: other])
   }
 
+  /// A layout key is no proof of a directory: a never-opened task stored
+  /// under directory A's key but recorded on B must survive A's deletion.
+  @Test(.dependencies, arguments: [true, false])
+  func deletingADirectoryKeepsAnotherDirectorysTaskStoredUnderItsKey(hydrated: Bool) async throws {
+    let recorder = TeardownRecorder()
+    let harness = makeHarness(
+      defaults: recorder.defaults, killSession: recorder.killSession, killRemoteSession: recorder.killRemoteSession)
+    let deleted = Worktree.ID("/tmp/repo/wt-deleted")
+    let home = TaskRecord.Directory(worktreeID: "/tmp/repo/wt-home")
+    let sentinelDirectory = TaskRecord.Directory(worktreeID: "/tmp/repo/wt-sentinel")
+    let mismatched = LayoutID(legacyWorktreeKey: deleted.rawValue)
+    let sentinel = LayoutID(task: UUID())
+    let mismatchedSurface = UUID()
+    let sentinelSurface = UUID()
+    let originSurface = UUID()
+    let created = Date(timeIntervalSince1970: 1)
+    let tasks = [
+      TaskRecord(
+        id: mismatched, directory: home, layout: singleTabLayout(contentID: mismatchedSurface), createdAt: created),
+      TaskRecord(
+        id: sentinel, directory: sentinelDirectory, layout: singleTabLayout(contentID: sentinelSurface),
+        createdAt: created),
+    ]
+    let origins = [
+      home.worktreeID.rawValue: TerminalLayoutSnapshot(
+        tabs: [
+          .init(
+            id: originSurface, title: "Old", customTitle: nil, icon: nil, tintColor: nil,
+            layout: .leaf(.init(id: originSurface, workingDirectory: nil)), focusedLeafIndex: 0)
+        ],
+        selectedTabIndex: 0)
+    ]
+    recorder.seed(tasks, origins: origins)
+    // Never selected, so no host either way; unhydrated, the runtime does not
+    // even know the record exists.
+    let hydratedTasks = hydrated ? tasks : [tasks[1]]
+    harness.store.send(
+      .terminals(
+        .layoutsHydrated(
+          TaskLayoutsFile(
+            tasks: Dictionary(uniqueKeysWithValues: hydratedTasks.map { ($0.id.persistenceKey, $0) }),
+            origins: origins))))
+
+    harness.manager.handleCommand(.removeLayouts(forDirectory: deleted, remoteHost: RemoteHost(alias: "build-box")))
+
+    #expect(harness.store.withState { Set($0.terminals.layouts.ids) } == Set(hydratedTasks.map(\.id)))
+    #expect(harness.store.withState { $0.terminals.directories[sentinel] } == sentinelDirectory)
+    if hydrated {
+      #expect(harness.store.withState { $0.terminals.directories[mismatched] } == home)
+    }
+
+    // A real deletion afterwards: its tombstone and kill land after anything
+    // the first command could have queued.
+    harness.manager.handleCommand(.removeLayouts(forDirectory: sentinelDirectory.worktreeID, remoteHost: nil))
+
+    let written = await recorder.nextWrite { $0.tasks[sentinel.persistenceKey] == nil }
+    #expect(written.tasks == [mismatched.persistenceKey: tasks[0]])
+    #expect(written.origins == origins)
+    #expect(written.allKnownSurfaceIDs == [mismatchedSurface, originSurface])
+    await recorder.awaitKills(1)
+    #expect(recorder.localKills.value == [ZmxSessionID.make(surfaceID: sentinelSurface)])
+    #expect(recorder.remoteKills.value.isEmpty)
+  }
+
   @Test(.dependencies) func theDirectoryRowProjectionCoversEveryTaskOnIt() async {
     let harness = makeHarness()
     let pump = CreationEvents(harness.manager)

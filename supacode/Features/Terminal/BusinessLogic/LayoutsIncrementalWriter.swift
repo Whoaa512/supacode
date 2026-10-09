@@ -46,6 +46,9 @@ actor LayoutsIncrementalWriter {
     /// and `createdAt` are kept); a new one is created from all three.
     case record(layout: PaneLayout, directory: TaskRecord.Directory, createdAt: Date)
     case delete
+    /// A delete keyed on a guess from the directory: a stored record that
+    /// names another directory is that directory's task and stays.
+    case deleteIfOn(Worktree.ID)
   }
 
   private static let logger = SupaLogger("Layouts")
@@ -110,6 +113,11 @@ actor LayoutsIncrementalWriter {
         var task = file.tasks[key] ?? TaskRecord(id: id, directory: directory, createdAt: createdAt)
         task.layout = layout
         file.tasks[key] = task
+      case .deleteIfOn(let directoryID):
+        // The directory itself is going, whoever holds its key.
+        vacatedDirectories.insert(directoryID.rawValue)
+        if let stored = file.tasks[key], stored.directory.worktreeID != directoryID { continue }
+        fallthrough
       case .delete:
         // A task that was never written can only be a directory's own-key
         // one, whose key is the directory.

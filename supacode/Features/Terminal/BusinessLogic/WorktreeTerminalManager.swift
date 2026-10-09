@@ -1588,16 +1588,23 @@ final class WorktreeTerminalManager {
   /// a directory named as archived, since one merely missing from the kept
   /// set could belong to a repository that failed to load.
   func removeLayouts(forDirectory directoryID: Worktree.ID, remoteHost: RemoteHost?) {
-    var layoutIDs = layoutIDs(onDirectory: directoryID)
-    // A hostless layout that names no directory is found through the seam; a
-    // host under that id has already answered.
-    if let resolved = layoutID(forDirectory: directoryID), hosts[resolved] == nil, !layoutIDs.contains(resolved) {
-      layoutIDs.append(resolved)
-    }
-    for layoutID in layoutIDs {
+    for layoutID in layoutIDs(onDirectory: directoryID) {
       removeLayout(layoutID, directoryID: directoryID, remoteHost: remoteHost)
     }
+    removeUnnamedLayout(forDirectory: directoryID, remoteHost: remoteHost)
     pendingSetupScriptDirectories.remove(directoryID)
+  }
+
+  /// The layout the seam resolves a directory to, when nothing at runtime
+  /// says whose it is (not hydrated yet, or dropped at hydration). A layout
+  /// key is no proof of a directory: one that names another directory is
+  /// that directory's task, and the stored record goes only if it names
+  /// this one.
+  private func removeUnnamedLayout(forDirectory directoryID: Worktree.ID, remoteHost: RemoteHost?) {
+    guard let resolved = layoutID(forDirectory: directoryID), hosts[resolved] == nil else { return }
+    let isNamed = appStore?.withState { $0.terminals.directories[resolved] != nil } ?? false
+    guard !isNamed else { return }
+    removeLayout(resolved, directoryID: directoryID, remoteHost: remoteHost, guessedFromDirectory: true)
   }
 
   private func layoutIDs(hostedOn directoryID: Worktree.ID) -> [LayoutID] {
@@ -1616,12 +1623,14 @@ final class WorktreeTerminalManager {
     return layoutIDs
   }
 
-  private func removeLayout(_ layoutID: LayoutID, directoryID: Worktree.ID, remoteHost: RemoteHost?) {
+  private func removeLayout(
+    _ layoutID: LayoutID, directoryID: Worktree.ID, remoteHost: RemoteHost?, guessedFromDirectory: Bool = false
+  ) {
     let surfaceIDs =
       hosts[layoutID]?.allSurfaceIDs
       ?? layoutState(for: layoutID)?.layout.allContentIDs.map(\.rawValue) ?? []
     paneWindows.closeAll(for: layoutID)
-    deleteLayoutSnapshot(worktreeID: layoutID)
+    deleteLayoutSnapshot(worktreeID: layoutID, onlyIfStoredOn: guessedFromDirectory ? directoryID : nil)
     if let host = hosts.removeValue(forKey: layoutID) {
       // Watchers stop before the kill.
       host.tearDown()
@@ -1813,7 +1822,7 @@ final class WorktreeTerminalManager {
   /// cancelling any queued positive save so a stale snapshot can't resurrect a
   /// removed worktree. Awaits any in-flight positive flush for the key first so
   /// the `.delete` always reaches the writer after the record.
-  private func deleteLayoutSnapshot(worktreeID: LayoutID) {
+  private func deleteLayoutSnapshot(worktreeID: LayoutID, onlyIfStoredOn directoryID: Worktree.ID? = nil) {
     layoutDirtyTasks[worktreeID]?.cancel()
     layoutDirtyTasks[worktreeID] = nil
     let inflightFlush = layoutFlushTasks[worktreeID]?.task
@@ -1822,7 +1831,7 @@ final class WorktreeTerminalManager {
     let generation = layoutFlushGeneration
     let task = Task { [weak self] in
       await inflightFlush?.value
-      await writer.flush(records: [worktreeID: .delete])
+      await writer.flush(records: [worktreeID: directoryID.map { .deleteIfOn($0) } ?? .delete])
       guard let self, self.layoutFlushTasks[worktreeID]?.generation == generation else { return }
       self.layoutFlushTasks[worktreeID] = nil
     }

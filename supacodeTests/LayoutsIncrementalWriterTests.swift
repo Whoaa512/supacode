@@ -275,6 +275,32 @@ struct LayoutsIncrementalWriterTests {
     )
   }
 
+  @Test func aDeleteGuessedFromADirectoryNeverRemovesAnotherDirectorysTask() async throws {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let elsewhere = TaskRecord.Directory(worktreeID: "/w2", host: RemoteHost(alias: "build-box"))
+    // Stored under the key of /w1, but it is a task of /w2.
+    await writer.flush(records: ["/w1": record("/w1", directory: elsewhere)])
+    let seeded = try #require(readFile(defaults))
+    var withOrigins = seeded
+    withOrigins.origins = ["/w1": origin(surface: UUID()), "/w2": origin(surface: UUID())]
+    defaults.set(try JSONEncoder().encode(withOrigins), forKey: LayoutsFile.userDefaultsKey)
+
+    await writer.flush(records: ["/w1": .deleteIfOn("/w1")])
+
+    // The task and its directory's origin stay; only the deleted directory's
+    // own origin is released.
+    var file = try #require(readFile(defaults))
+    #expect(file.tasks == seeded.tasks)
+    #expect(Set(file.origins.keys) == ["/w2"])
+
+    // A record that does name the directory goes, with its origin.
+    await writer.flush(records: ["/w1": .deleteIfOn("/w2")])
+    file = try #require(readFile(defaults))
+    #expect(file.tasks.isEmpty)
+    #expect(file.origins.isEmpty)
+  }
+
   @Test func deletingTheOwnKeyTaskKeepsTheOriginWhileASiblingTaskRemains() async throws {
     let defaults = makeDefaults()
     let originSurface = UUID()
