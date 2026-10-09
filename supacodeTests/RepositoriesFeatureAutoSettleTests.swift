@@ -319,18 +319,53 @@ struct RepositoriesFeatureAutoSettleTests {
   /// Runs a refresh over `rows` with the given task membership and live agents.
   private func sidecarAfterRefresh(
     _ rows: [SessionSummary], taskSessions: [LayoutID: [SessionKey]], live: [SessionLiveSnapshot] = [],
-    sidecar: SessionSidecar = [:]
+    open: [LayoutID] = [], sidecar: SessionSidecar = [:]
   ) async -> [SessionKey: SessionSidecarEntry] {
     let store = store()
     store.state.$sessions.withLock { $0 = sidecar }
     await store.send(.sessionsCacheLoaded(rows))
     await store.send(.taskSessionsChanged(taskSessions))
+    await store.send(.taskSnapshotsChanged(open.map(openTab)))
     await store.send(.sessionSnapshotsChanged(live))
     let liveKeys = Set(live.compactMap { $0.sessionRef.map { SessionKey(harness: .pi, sessionID: $0) } })
     await store.send(.sessionsRestorationCompleted(liveKeys))
     await store.send(.sessionsRefreshCompleted(rows))
     await store.skipInFlightEffects(strict: false)
     return store.state.sessions
+  }
+
+  /// A task with a tab open, whatever runs in it.
+  private func openTab(in layoutID: LayoutID) -> TaskLiveSnapshot {
+    let surface = UUID()
+    return TaskLiveSnapshot(
+      title: "task", cwd: "/elsewhere", createdAt: nil,
+      location: SessionLocation(
+        layoutID: layoutID, directoryID: "/elsewhere", tabID: TabID(rawValue: surface), surfaceID: surface))
+  }
+
+  /// Auto-settle closes nothing, so a task that still shows a tab (a shell,
+  /// or an agent's tab after the agent ended) is left alone however idle.
+  @Test(.dependencies, arguments: [1, 2])
+  func aTaskWithATabStillOpenIsNotAutoSettled(sessions: Int) async {
+    let rows = [summary("primary"), summary("tangent")].prefix(sessions) + [summary("x")]
+    let members = rows.dropLast().map(\.id)
+
+    let open = await sidecarAfterRefresh(Array(rows), taskSessions: [task: members], open: [task])
+    for member in members { #expect(open[member] == nil) }
+    #expect(open[summary("x").id]?.settledAt == now, "settlement ran; only the task was held back")
+
+    // With its last tab closed the same task settles, by mark alone.
+    let closed = await sidecarAfterRefresh(Array(rows), taskSessions: [task: members])
+    for member in members { #expect(closed[member]?.settledAt == now) }
+  }
+
+  @Test(.dependencies) func anotherTasksOpenTabHoldsNothingBack() async {
+    let primary = summary("primary")
+
+    let sidecar = await sidecarAfterRefresh(
+      [primary], taskSessions: [task: [primary.id]], open: [LayoutID(task: UUID())])
+
+    #expect(sidecar[primary.id]?.settledAt == now)
   }
 
   @Test(.dependencies) func idleMembersDoNotAutoSettleWhileATangentOfTheirTaskIsLive() async {

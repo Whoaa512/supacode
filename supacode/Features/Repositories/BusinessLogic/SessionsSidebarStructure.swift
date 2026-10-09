@@ -238,7 +238,8 @@ extension RepositoriesFeature.State {
     }
     let sidecar = sessions
     let tasks = TaskIdleness(
-      taskSessions: taskSessions, snapshots: sessionSnapshots, summaries: sessionSummaries, sidecar: sidecar)
+      taskSessions: taskSessions, snapshots: sessionSnapshots, openTasks: Set(taskSnapshots.map(\.location.layoutID)),
+      summaries: sessionSummaries, sidecar: sidecar)
     var releasedHolds: [SessionKey] = []
     var settled: [SessionKey] = []
     for summary in sessionSummaries where summary.isVerified {
@@ -271,7 +272,9 @@ extension RepositoriesFeature.State {
   }
 
   /// A task is judged as a whole, so its sessions get one answer: none
-  /// settles while any agent runs in it or while the user's unsettle still
+  /// settles while the task has a tab open (a shell, or an agent's tab after
+  /// the agent ended: auto-settle closes nothing, and a settled task shows no
+  /// tab), while any agent runs in it or while the user's unsettle still
   /// holds one of them, it has been idle only as long as its most recently
   /// active session, and it is as long as all of them together. That needs
   /// every one of them read: a session this refresh could not read, or lists
@@ -279,6 +282,7 @@ extension RepositoriesFeature.State {
   private struct TaskIdleness {
     let taskSessions: [LayoutID: [SessionKey]]
     let runningTasks: Set<LayoutID>
+    let openTasks: Set<LayoutID>
     var tasksBySession: [SessionKey: [LayoutID]] = [:]
     var activityByKey: [SessionKey: Date] = [:]
     var messagesByKey: [SessionKey: Int] = [:]
@@ -286,10 +290,11 @@ extension RepositoriesFeature.State {
     var read: Set<SessionKey> = []
 
     init(
-      taskSessions: [LayoutID: [SessionKey]], snapshots: [SessionLiveSnapshot], summaries: [SessionSummary],
-      sidecar: SessionSidecar
+      taskSessions: [LayoutID: [SessionKey]], snapshots: [SessionLiveSnapshot], openTasks: Set<LayoutID>,
+      summaries: [SessionSummary], sidecar: SessionSidecar
     ) {
       self.taskSessions = taskSessions
+      self.openTasks = openTasks
       runningTasks = Set(snapshots.map(\.location.layoutID))
       for (layoutID, members) in taskSessions {
         for key in members { tasksBySession[key, default: []].append(layoutID) }
@@ -309,13 +314,15 @@ extension RepositoriesFeature.State {
 
     /// The session as its tasks stand: their newest activity and all their
     /// messages. `nil` while the session, or anything in a task that lists
-    /// it, is running, held or unread, which no idle time settles.
+    /// it, is open, running, held or unread, which no idle time settles.
     func judged(_ summary: SessionSummary, liveKeys: Set<SessionKey>) -> SessionSummary? {
       if liveKeys.contains(summary.id) { return nil }
       var judged = summary
       for layoutID in tasksBySession[summary.id] ?? [] {
         let members = taskSessions[layoutID] ?? []
-        if runningTasks.contains(layoutID) || members.contains(where: { liveKeys.contains($0) || held.contains($0) }) {
+        if openTasks.contains(layoutID) || runningTasks.contains(layoutID)
+          || members.contains(where: { liveKeys.contains($0) || held.contains($0) })
+        {
           return nil
         }
         if members.count > 1, !members.allSatisfy(read.contains) { return nil }
