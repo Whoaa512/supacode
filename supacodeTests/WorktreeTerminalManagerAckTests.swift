@@ -494,6 +494,125 @@ struct WorktreeTerminalManagerAckTests {
     #expect(harness.manager.hostIfExists(for: orphanTask) != nil)
   }
 
+  /// One directory holding an opened task and a never-opened one, plus a task
+  /// on another directory. All three are persisted, and the directory has an
+  /// origin.
+  private struct SharedDirectoryFixture {
+    let directory: Worktree
+    let remoteHost: RemoteHost?
+    let opened: LayoutID
+    let neverOpened: LayoutID
+    let elsewhere: LayoutID
+    let openedSurface: UUID
+    let neverOpenedSurface: UUID
+    let elsewhereSurface: UUID
+    let originSurface: UUID
+
+    var sessions: Set<String> {
+      [ZmxSessionID.make(surfaceID: openedSurface), ZmxSessionID.make(surfaceID: neverOpenedSurface)]
+    }
+  }
+
+  private func makeSharedDirectoryFixture(
+    remote: Bool, harness: Harness, recorder: TeardownRecorder
+  ) async -> SharedDirectoryFixture {
+    let remoteHost = remote ? RemoteHost(alias: "build-box") : nil
+    let directory =
+      remoteHost.map { RepositoriesFeature.remoteMainWorktree(host: $0, remotePath: "/srv/repo") }
+      ?? makeWorktree(id: "/tmp/repo/wt-shared")
+    let other = makeWorktree(id: "/tmp/repo/wt-other")
+    let pump = CreationEvents(harness.manager)
+    let created = Date(timeIntervalSince1970: 1)
+    let neverOpened = LayoutID(task: UUID())
+    let neverOpenedSurface = UUID()
+    let neverOpenedRecord = TaskRecord(
+      id: neverOpened, directory: .init(worktreeID: directory.id, host: remoteHost),
+      layout: singleTabLayout(contentID: neverOpenedSurface), createdAt: created)
+    harness.store.send(
+      .terminals(.layoutsHydrated(TaskLayoutsFile(tasks: [neverOpened.persistenceKey: neverOpenedRecord]))))
+    let opened = LayoutID(task: UUID())
+    let elsewhere = LayoutID(task: UUID())
+    let openedSurface = await openLayout(opened, on: directory, in: harness, pump: pump)
+    let elsewhereSurface = await openLayout(elsewhere, on: other, in: harness, pump: pump)
+    let originSurface = UUID()
+    recorder.seed(
+      [
+        neverOpenedRecord,
+        TaskRecord(
+          id: opened, directory: .init(worktreeID: directory.id, host: remoteHost),
+          layout: singleTabLayout(contentID: openedSurface), createdAt: created),
+        TaskRecord(
+          id: elsewhere, directory: .init(worktreeID: other.id),
+          layout: singleTabLayout(contentID: elsewhereSurface), createdAt: created),
+      ],
+      origins: [
+        directory.id.rawValue: TerminalLayoutSnapshot(
+          tabs: [
+            .init(
+              id: originSurface, title: "Old", customTitle: nil, icon: nil, tintColor: nil,
+              layout: .leaf(.init(id: originSurface, workingDirectory: nil)), focusedLeafIndex: 0)
+          ],
+          selectedTabIndex: 0)
+      ])
+    return SharedDirectoryFixture(
+      directory: directory, remoteHost: remoteHost, opened: opened, neverOpened: neverOpened,
+      elsewhere: elsewhere, openedSurface: openedSurface, neverOpenedSurface: neverOpenedSurface,
+      elsewhereSurface: elsewhereSurface, originSurface: originSurface)
+  }
+
+  /// Every task of the directory is gone from runtime and store, each of its
+  /// sessions was killed on every side it lives on, and nothing else was.
+  private func expectOnlyTheSharedDirectoryWasTornDown(
+    _ fixture: SharedDirectoryFixture, harness: Harness, recorder: TeardownRecorder
+  ) async {
+    #expect(harness.manager.hostIfExists(for: fixture.opened) == nil)
+    #expect(harness.manager.hostIfExists(for: fixture.elsewhere) != nil)
+    #expect(harness.store.withState { Array($0.terminals.layouts.ids) } == [fixture.elsewhere])
+    #expect(harness.store.withState { Array($0.terminals.directories.keys) } == [fixture.elsewhere])
+
+    // One tombstone per task: the last write holds neither record, and the
+    // directory's origin went with its last task.
+    let written = await recorder.nextWrite {
+      $0.tasks[fixture.opened.persistenceKey] == nil && $0.tasks[fixture.neverOpened.persistenceKey] == nil
+    }
+    #expect(Array(written.tasks.keys) == [fixture.elsewhere.persistenceKey])
+    #expect(written.origins.isEmpty)
+    #expect(written.allKnownSurfaceIDs == [fixture.elsewhereSurface])
+
+    await recorder.awaitKills(fixture.remoteHost == nil ? 2 : 4)
+    #expect(recorder.localKills.value == fixture.sessions)
+    let remoteKills = Set(fixture.sessions.map { TeardownRecorder.RemoteKill(alias: "build-box", session: $0) })
+    #expect(recorder.remoteKills.value == (fixture.remoteHost == nil ? [] : remoteKills))
+  }
+
+  @Test(.dependencies, arguments: [false, true])
+  func archivingADirectoryDeletesEveryTaskRecordAndKillsEverySession(remote: Bool) async {
+    let recorder = TeardownRecorder()
+    let harness = makeHarness(
+      defaults: recorder.defaults, killSession: recorder.killSession, killRemoteSession: recorder.killRemoteSession)
+    let fixture = await makeSharedDirectoryFixture(remote: remote, harness: harness, recorder: recorder)
+
+    harness.manager.handleCommand(
+      .prune(
+        keepingDirectories: ["/tmp/repo/wt-other"], protectingRepositoryIDs: [],
+        archivedDirectories: [fixture.directory.id]))
+
+    await expectOnlyTheSharedDirectoryWasTornDown(fixture, harness: harness, recorder: recorder)
+  }
+
+  @Test(.dependencies, arguments: [false, true])
+  func deletingADirectoryDeletesEveryTaskRecordAndKillsEverySession(remote: Bool) async {
+    let recorder = TeardownRecorder()
+    let harness = makeHarness(
+      defaults: recorder.defaults, killSession: recorder.killSession, killRemoteSession: recorder.killRemoteSession)
+    let fixture = await makeSharedDirectoryFixture(remote: remote, harness: harness, recorder: recorder)
+
+    harness.manager.handleCommand(
+      .removeLayouts(forDirectory: fixture.directory.id, remoteHost: fixture.remoteHost))
+
+    await expectOnlyTheSharedDirectoryWasTornDown(fixture, harness: harness, recorder: recorder)
+  }
+
   @Test(.dependencies) func archivingADirectoryPrunesItsNeverOpenedTasksToo() async throws {
     let (fileWrites, writeSignal) = AsyncStream<TaskLayoutsFile>.makeStream()
     let defaults = LayoutsSignalingDefaults { data in
