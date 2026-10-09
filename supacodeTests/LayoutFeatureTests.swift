@@ -1799,6 +1799,48 @@ struct LayoutFeatureTests {
     #expect(harness.store.state.layout.isConsistent)
   }
 
+  @Test(.dependencies) func confirmingCloseAllAfterATabWasAddedAsksAgainAndClosesNothing() async {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.confirmCloseTab = .always }
+    let harness = await makeHarness()
+    let sibling = await splitPane(harness, anchor: harness.paneID)
+    let asked = [harness.tabID, sibling.tabID]
+    await harness.store.send(.closeAllTabsRequested) {
+      $0.alert = self.closeAllAlert(tabs: asked, interrupts: false)
+    }
+    harness.store.exhaustivity = .off
+    let added = await addTab(harness, title: "Late")
+    await harness.store.send(.alert(.presented(.confirmCloseAll(tabs: asked))))
+    await harness.store.finish()
+
+    let current = harness.store.state.layout.panes.flatMap(\.tabs).map(\.id)
+    #expect(Set(current) == Set(asked + [added.tabID]), "nothing closes on an answer that did not cover every tab")
+    #expect(harness.store.state.alert == closeAllAlert(tabs: current, interrupts: false), "asked again for all")
+    #expect(harness.runtime.pendingKill.isEmpty)
+
+    await harness.store.send(.alert(.presented(.confirmCloseAll(tabs: current))))
+    await harness.store.finish()
+    #expect(harness.store.state.layout.panes.isEmpty)
+    #expect(harness.store.state.alert == nil)
+  }
+
+  @Test(.dependencies) func confirmingCloseAllAfterATabClosedClosesTheRest() async {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.confirmCloseTab = .always }
+    let harness = await makeHarness()
+    let sibling = await splitPane(harness, anchor: harness.paneID)
+    let asked = [harness.tabID, sibling.tabID]
+    await harness.store.send(.closeAllTabsRequested) {
+      $0.alert = self.closeAllAlert(tabs: asked, interrupts: false)
+    }
+    harness.store.exhaustivity = .off
+    await harness.store.send(.closeTab(id: sibling.tabID))
+    await harness.store.send(.alert(.presented(.confirmCloseAll(tabs: asked))))
+    await harness.store.finish()
+    #expect(harness.store.state.layout.panes.isEmpty)
+    #expect(harness.store.state.alert == nil)
+  }
+
   @Test(.dependencies) func closeAllTabsCancelledKeepsEveryPane() async {
     @Shared(.settingsFile) var settingsFile
     $settingsFile.withLock { $0.global.confirmCloseTab = .always }

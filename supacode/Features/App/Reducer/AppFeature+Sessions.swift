@@ -391,14 +391,14 @@ extension AppFeature {
 
   /// The task whose tabs this action just closed for a settle: a close-all
   /// that needed no confirmation, or its confirmation. Read after the
-  /// layout reducer ran.
+  /// layout reducer ran: a task still asking, or with a tab left open (one
+  /// opened while the confirmation waited is asked about again), is not settled.
   static func taskClosedForSettle(_ action: Action, state: State) -> LayoutID? {
     switch action {
-    case .terminals(.layouts(.element(let layoutID, .closeAllTabsRequested))):
-      // Still asking: the mark waits for the answer.
-      return state.terminals.layouts[id: layoutID]?.alert == nil ? layoutID : nil
-    case .terminals(.layouts(.element(let layoutID, .alert(.presented(.confirmCloseAll))))):
-      return layoutID
+    case .terminals(.layouts(.element(let layoutID, .closeAllTabsRequested))),
+      .terminals(.layouts(.element(let layoutID, .alert(.presented(.confirmCloseAll))))):
+      guard let layout = state.terminals.layouts[id: layoutID] else { return layoutID }
+      return layout.alert == nil && layout.layout.allContentIDs.isEmpty ? layoutID : nil
     default:
       return nil
     }

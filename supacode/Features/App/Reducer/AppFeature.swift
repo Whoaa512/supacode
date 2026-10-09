@@ -2372,7 +2372,10 @@ struct AppFeature {
         terminalClient.markUserCloseIntent(worktreeID, ids)
         return .none
 
-      case .terminals(.layouts(.element(let layoutID, .closeAllTabsRequested))):
+      // The confirmation too: it closes the tabs there are now, and a tab
+      // opened while it waited was not there to mark at the request.
+      case .terminals(.layouts(.element(let layoutID, .closeAllTabsRequested))),
+        .terminals(.layouts(.element(let layoutID, .alert(.presented(.confirmCloseAll))))):
         let ids = state.terminals.layouts[id: layoutID]?.layout.allContentIDs.map(\.rawValue) ?? []
         terminalClient.markUserCloseIntent(layoutID, Set(ids))
         return .none

@@ -139,6 +139,9 @@ struct AppFeatureSessionsTaskSettleTests {
       $0[LayoutChangeObserver.self].sessionsChanged = { id in recorded.written.withValue { $0.append(id) } }
       $0.processAncestry.isDescendant = isDescendant
       $0[ContentSessionKiller.self] = ContentSessionKiller(kill: { _, _ in })
+      $0[LayoutContentFactory.self] = LayoutContentFactory { request in
+        InertTabContent(id: request.contentID, state: request.content)
+      }
     }
     store.exhaustivity = .off
     return store
@@ -469,6 +472,57 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(settledAt("a", in: store) == now)
     #expect(AppFeature.isTaskSettled(task, state: store.state))
     #expect(surfaces(of: otherTask, in: store) == [otherSurface])
+  }
+
+  @Test(.dependencies) func confirmingAfterATabWasAddedAsksAgainAndSettlesOnlyOnceEveryTabCloses() async throws {
+    confirmClose(.always)
+    let recorded = Recorded()
+    let store = store(try splitIntoTwoPanes(state(second: live("b", pid: 12))), recorded: recorded)
+    let late = UUID(uuidString: "00000000-0000-0000-0000-0000000000B9")!
+
+    await store.send(.repositories(.settleSessionRequested(key("a"))))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+    let alert = try #require(store.state.terminals.layouts[id: task]?.alert)
+    let stale = try #require(alert.buttons.compactMap(\.action.action).first)
+    let paneID = try #require(store.state.terminals.layouts[id: task]?.layout.panes.first?.id)
+    await store.send(
+      .terminals(
+        .layouts(
+          .element(
+            id: task,
+            action: .newTab(
+              inPane: paneID,
+              spec: NewTabSpec(
+                tabID: TabID(rawValue: late), contentID: ContentID(rawValue: late), title: "Late",
+                content: .terminal(TerminalContentState(workingDirectory: nil)), geometry: .fallback))))))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+    #expect(Set(surfaces(of: task, in: store)) == [primarySurface, secondSurface, late])
+    recorded.closed.setValue([])
+
+    await store.send(.terminals(.layouts(.element(id: task, action: .alert(.presented(stale))))))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(Set(surfaces(of: task, in: store)) == [primarySurface, secondSurface, late], "the answer named two tabs")
+    #expect(settledAt("a", in: store) == nil, "a task with a tab still open is not settled")
+    #expect(!AppFeature.isTaskSettled(task, state: store.state))
+    let again = try #require(store.state.terminals.layouts[id: task]?.alert)
+    let fresh = try #require(again.buttons.compactMap(\.action.action).first)
+    guard case .confirmCloseAll(let named) = fresh else {
+      Issue.record("expected a close-all confirmation")
+      return
+    }
+    #expect(Set(named.map(\.rawValue)) == [primarySurface, secondSurface, late], "asked again, for every tab")
+
+    await store.send(.terminals(.layouts(.element(id: task, action: .alert(.presented(fresh))))))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(surfaces(of: task, in: store).isEmpty)
+    #expect(settledAt("a", in: store) == now)
+    #expect(recorded.closed.value.contains(late), "the late tab closes as a user close too")
   }
 
   @Test(.dependencies) func cancellingTheTaskCloseConfirmationSettlesAndClosesNothing() async throws {

@@ -349,9 +349,11 @@ struct LayoutFeature {
         return reduceContentRequestedGotoTab(&state, contentID: contentID, target: target)
       case .contentRequestedMoveTab(let contentID, let amount):
         return reduceContentRequestedMoveTab(&state, contentID: contentID, amount: amount)
-      case .alert(.presented(.confirmClose(let tabIDs))), .alert(.presented(.confirmCloseAll(let tabIDs))):
+      case .alert(.presented(.confirmClose(let tabIDs))):
         state.alertPaneID = nil
         return closeTabs(&state, tabIDs: tabIDs)
+      case .alert(.presented(.confirmCloseAll(let tabIDs))):
+        return reduceConfirmCloseAll(&state, confirmed: tabIDs)
       case .alert:
         state.alertPaneID = nil
         return .none
@@ -471,6 +473,22 @@ extension LayoutFeature {
     state.alert = Self.closeConfirmationAlert(
       tabs: targets, interrupts: interrupts, action: .confirmCloseAll(tabs: targets))
     return .none
+  }
+
+  /// The answer covers only the tabs the confirmation named. A tab opened
+  /// while it waited was never agreed to, so the question is asked again for
+  /// the tabs there are now instead of closing some and leaving the rest.
+  private func reduceConfirmCloseAll(_ state: inout State, confirmed: [TabID]) -> Effect<Action> {
+    state.alertPaneID = nil
+    let tabs = state.layout.panes.flatMap(\.tabs)
+    let current = tabs.map(\.id)
+    guard Set(current).isSubset(of: confirmed) else {
+      state.alert = Self.closeConfirmationAlert(
+        tabs: current, interrupts: tabs.contains { closeWouldInterrupt($0.content) },
+        action: .confirmCloseAll(tabs: current))
+      return .none
+    }
+    return closeTabs(&state, tabIDs: current)
   }
 
   private func closeNeedsConfirmation(interrupts: Bool) -> Bool {
