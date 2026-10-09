@@ -570,6 +570,9 @@ T4 and T5 (migrated tasks must already be reachable).
   task go when the last tab closes and no session is listed (see Progress).
   "Current task's directory" for Cmd-N is the directory of the task on
   screen, ahead of the focused session's cwd and the highlighted history row.
+- **Revised (T7 r2 review)**: that holds for a remote task too (the launch
+  goes to its host, no local path check), and a launch's pending
+  bookkeeping is per task until its first tab appears (see Progress).
 
 **T8 — Branch capture uses the session surface's cwd.** Complex (small).
 - Files: `AppFeature+Sessions.swift:535-560` (capture), resume-warning path.
@@ -1826,3 +1829,39 @@ deviation.
   `supacodeTests/TerminalsFeatureTests` 1528 tests with only 4 baseline
   failures (ack flake, settings-changed, 2 Ghostty), build-app 0, full
   `make test` exit 2 with 4163 tests and only the 5 baseline failures.
+- T7 r2 (review fixes), 2026-10-09, `c034d74a` + `be532240`.
+  Two findings, both held; this supersedes two notes above ("the pending
+  selection is simply replaced by the next launch" and "the highlighted
+  history row only decide when ... the task is remote"):
+  - Two launches before either tab (P1): `launchSessionCompleted` frees the
+    launch slot when the command is sent, before the tab exists, so the
+    single `pendingTaskSelection` was overwritten and the first resumed
+    task never had its session seeded as primary. Now
+    `pendingTaskLaunches: [PendingTaskLaunch]`, one entry per task until
+    its first tab appears; every entry seeds its primary, only the latest
+    (`isShown`) is selected, whichever tab arrives first.
+    Decision: an entry whose tab never appears stays in the list for the
+    run (it used to be dropped by the next launch). It names a task that
+    does not exist, so it lists and selects nothing; nothing reports a
+    failed tab creation to clear it on.
+  - Cmd-N on a remote task (P1): `currentTaskContext` resolves the task on
+    screen to its `DirectoryContext`, host included (roster worktree or
+    recorded directory). A remote one launches straight into it; the
+    `FileManager` check and folder registration only run for local
+    directories. `launchSessionTab` takes a `DirectoryContext`.
+  Same class, checked and left:
+  - P: the Cmd-Shift-N browse panel still starts from a local path when the
+    task on screen is remote (`currentTaskDirectory` is nil there); a remote
+    directory is the picker's job (A31).
+  - T8/S: resume validates the session's cwd with the local `FileManager`
+    and finds its directory by local path, so a session that ran on a remote
+    host cannot be resumed from its history row (alert, nothing launched).
+  Tests, red before the fixes: `AppFeatureSessionsTests`
+  `twoResumesLaunchedBeforeEitherTabAppearsEachLeadTheirOwnTask` (both tab
+  orders) and `newSessionOnARemoteTaskStartsOnItsHostNotInALocalDirectory`.
+  Gate: check 0, `supacodeFeatureTests` + `supacodeTerminalTests` +
+  `supacodeTests/TerminalsFeatureTests` 1530 tests with only 4 baseline
+  failures (ack flake, settings-changed, 2 Ghostty), then
+  `AppFeatureSessionsTests` 119 tests 0 failures on the final tree (a
+  test-only lint fix came after the wide run), build-app 0. No full
+  `make test` (T7 is not a full-run slice).
