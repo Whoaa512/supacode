@@ -235,6 +235,34 @@ struct WorktreeTerminalManagerAckTests {
     #expect(after?.panes.first?.selectedTabID == TabID(rawValue: tabID))
   }
 
+  /// Activating an agent row asks for one surface of a task. With nothing
+  /// mounted (hibernated tab, or a detail view that is not on screen yet) the
+  /// request has to be held, not dropped.
+  @Test(.dependencies) func focusSurfaceOnAnOrphanTaskSelectsItsTabAndHoldsFocusWithoutATab() async throws {
+    let harness = makeHarness()
+    let pump = CreationEvents(harness.manager)
+    let layoutID = LayoutID(task: UUID())
+    let context = DirectoryContext(orphan: TaskRecord.Directory(worktreeID: "/gone/checkout"))
+    let surfaces = [UUID(), UUID()]
+    for surface in surfaces {
+      harness.manager.handleCommand(
+        .createTab(layoutID, context, runSetupScriptIfNew: false, id: surface, focusing: false))
+      _ = await pump.next(2)
+    }
+    let before = try #require(harness.store.withState { $0.terminals.layouts[id: layoutID]?.layout })
+    let selected = try #require(before.panes.first?.selectedTabID)
+    let target = try #require(surfaces.first { TabID(rawValue: $0) != selected })
+    #expect(harness.manager.hostIfExists(for: layoutID)?.pendingFocusClaim == false)
+
+    harness.manager.handleCommand(
+      .focusSurface(layoutID, context, tabID: TabID(rawValue: target), surfaceID: target))
+
+    let after = try #require(harness.store.withState { $0.terminals.layouts[id: layoutID]?.layout })
+    #expect(after.panes.first?.selectedTabID == TabID(rawValue: target))
+    #expect(harness.manager.hostIfExists(for: layoutID)?.pendingFocusClaim == true)
+    #expect(after.panes.flatMap(\.tabs).map(\.id) == before.panes.flatMap(\.tabs).map(\.id), "no tab is made")
+  }
+
   private func singleTabLayout(contentID: UUID) -> PaneLayout {
     let paneID = PaneID()
     let tabID = TabID(rawValue: contentID)

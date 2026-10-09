@@ -422,6 +422,9 @@ final class WorktreeTerminalManager {
       sendLayout(layoutID, .wakeTab(id: owningTab))
       sendLayout(layoutID, .selectTab(id: owningTab))
       host.liveSurface(surfaceID)?.requestFocus()
+      // A hibernated or not yet mounted surface has nothing to ask: latch the
+      // request so it lands once the renderer is live and its window is key.
+      host.focusSelectedTab()
       if let input, !input.isEmpty {
         host.focusAndInsertText(input + "\r")
       }
