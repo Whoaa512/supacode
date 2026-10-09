@@ -450,7 +450,8 @@ extension RepositoriesFeature.Action {
       .sessionsCoarseClockFired, .sessionsStopped,
       .sessionItems, .sessionsStarted, .sessionsSidebarShown, .sessionsRefreshRequested,
       .sessionsRefreshDebounced, .sessionsRefreshFailed, .sessionSelectionChanged, .activateSession,
-      .registerSessionFolder, .sessionBranchCaptured, .settleSessionRequested, .selectedTaskRemoved:
+      .registerSessionFolder, .sessionBranchCaptured, .settleSessionRequested, .selectedTaskRemoved,
+      .taskSessionsChanged:
       return []
     case .sidebarItems(.element(id: _, action: let inner)):
       return inner.cacheInvalidations

@@ -122,6 +122,10 @@ extension RepositoriesFeature {
         state.reconcileSessionItems(now: date.now)
         return .none
 
+      case .taskSessionsChanged(let taskSessions):
+        state.taskSessions = taskSessions
+        return .none
+
       case .selectTask(let layoutID, let directoryID):
         guard let worktree = state.worktree(for: directoryID) else {
           // No roster directory to select: the task is shown on its own and

@@ -334,6 +334,8 @@ struct RepositoriesFeature {
     var sessionSummaries: [SessionSummary] = []
     var sessionSnapshots: [SessionLiveSnapshot] = []
     var taskSnapshots: [TaskLiveSnapshot] = []
+    /// Every task's sessions, primary first. Auto-settle judges a task as a whole.
+    var taskSessions: [LayoutID: [SessionKey]] = [:]
     /// Read through `selectedTaskID`, which drops it once the selection leaves the directory.
     var selectedTask: SelectedTask?
     @Shared(.sessions) var sessions: SessionSidecar
@@ -422,6 +424,7 @@ struct RepositoriesFeature {
     case sessionsRefreshFailed
     case sessionSnapshotsChanged([SessionLiveSnapshot])
     case taskSnapshotsChanged([TaskLiveSnapshot])
+    case taskSessionsChanged([LayoutID: [SessionKey]])
     /// Shows one task of a directory; the directory becomes the selected worktree.
     case selectTask(LayoutID, directory: Worktree.ID)
     case selectedTaskRemoved
@@ -5014,7 +5017,7 @@ struct RepositoriesFeature {
         .sessionItems, .sessionsStarted, .sessionsCacheLoaded, .sessionsSidebarShown,
         .sessionsRefreshRequested, .sessionsRefreshDebounced, .sessionsRefreshCompleted,
         .sessionsRefreshFailed, .sessionSnapshotsChanged, .sessionSelectionChanged, .activateSession,
-        .taskSnapshotsChanged, .selectTask, .selectedTaskRemoved,
+        .taskSnapshotsChanged, .taskSessionsChanged, .selectTask, .selectedTaskRemoved,
         .settleSession, .settleSessionRequested, .unsettleSession, .sessionBranchCaptured:
         return .none
 

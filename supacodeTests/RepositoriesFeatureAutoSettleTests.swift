@@ -303,4 +303,79 @@ struct RepositoriesFeatureAutoSettleTests {
     #expect(calls.value == expectedCalls)
     await store.finish()
   }
+
+  // MARK: - A task is judged as a whole
+
+  private let task = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!)
+
+  private func liveAgent(ref: String?, in layoutID: LayoutID) -> SessionLiveSnapshot {
+    let surface = UUID()
+    return SessionLiveSnapshot(
+      harness: .pi, sessionRef: ref, cwd: "/elsewhere",
+      location: SessionLocation(
+        layoutID: layoutID, directoryID: "/elsewhere", tabID: TabID(rawValue: surface), surfaceID: surface))
+  }
+
+  /// Runs a refresh over `rows` with the given task membership and live agents.
+  private func sidecarAfterRefresh(
+    _ rows: [SessionSummary], taskSessions: [LayoutID: [SessionKey]], live: [SessionLiveSnapshot] = []
+  ) async -> [SessionKey: SessionSidecarEntry] {
+    let store = store()
+    await store.send(.sessionsCacheLoaded(rows))
+    await store.send(.taskSessionsChanged(taskSessions))
+    await store.send(.sessionSnapshotsChanged(live))
+    let liveKeys = Set(live.compactMap { $0.sessionRef.map { SessionKey(harness: .pi, sessionID: $0) } })
+    await store.send(.sessionsRestorationCompleted(liveKeys))
+    await store.send(.sessionsRefreshCompleted(rows))
+    await store.skipInFlightEffects(strict: false)
+    return store.state.sessions
+  }
+
+  @Test(.dependencies) func idleMembersDoNotAutoSettleWhileATangentOfTheirTaskIsLive() async {
+    let (primary, idle, tangent, unrelated) = (summary("primary"), summary("idle"), summary("tangent"), summary("x"))
+
+    let sidecar = await sidecarAfterRefresh(
+      [primary, idle, tangent, unrelated],
+      taskSessions: [task: [primary.id, idle.id, tangent.id]],
+      live: [liveAgent(ref: "tangent", in: task)])
+
+    #expect(sidecar[primary.id] == nil)
+    #expect(sidecar[idle.id] == nil)
+    #expect(sidecar[tangent.id] == nil)
+    #expect(sidecar[unrelated.id]?.settledAt == now, "settlement ran; only the task was held back")
+  }
+
+  @Test(.dependencies) func anAgentThatHasNotReportedItsSessionHoldsItsTaskToo() async {
+    let (primary, unrelated) = (summary("primary"), summary("x"))
+
+    let sidecar = await sidecarAfterRefresh(
+      [primary, unrelated], taskSessions: [task: [primary.id]], live: [liveAgent(ref: nil, in: task)])
+
+    #expect(sidecar[primary.id] == nil, "the agent runs in another directory, so only its task protects it")
+    #expect(sidecar[unrelated.id]?.settledAt == now)
+  }
+
+  @Test(.dependencies) func aTaskIsOnlyAsIdleAsItsMostRecentlyActiveMember() async {
+    let primary = summary("primary")
+    var tangent = summary("tangent")
+    tangent.lastActivity = now.addingTimeInterval(-60)
+
+    let recent = await sidecarAfterRefresh([primary, tangent], taskSessions: [task: [primary.id, tangent.id]])
+    #expect(recent[primary.id] == nil)
+    #expect(recent[tangent.id] == nil)
+
+    // Without the task the primary is old enough on its own.
+    let alone = await sidecarAfterRefresh([primary, tangent], taskSessions: [:])
+    #expect(alone[primary.id]?.settledAt == now)
+    #expect(alone[tangent.id] == nil)
+  }
+
+  @Test(.dependencies) func aTaskWhoseMembersAreAllIdleSettlesThemAll() async {
+    let (primary, tangent) = (summary("primary"), summary("tangent"))
+
+    let sidecar = await sidecarAfterRefresh([primary, tangent], taskSessions: [task: [primary.id, tangent.id]])
+
+    #expect(sidecar[primary.id]?.settledAt == now)
+    #expect(sidecar[tangent.id]?.settledAt == now)
+  }
 }
