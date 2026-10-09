@@ -2474,3 +2474,53 @@ deviation.
   `supacodeTests/TerminalsFeatureTests`) exit 2 with 1626 tests and only 4
   known failures (ack flake, settings-changed, 2 Ghostty), build-app 0,
   full `make test` exit 2 with 4262 tests and only the 5 known failures.
+- T10 r1, 2026-10-09, `f5090863`, `b3ad3ebe`, `35dda9cb`: review fixes.
+  - Resolver order (`f5090863`): no `activeTasks` entry is no longer read as
+    a vote for the own-key task (removing the active task clears the entry
+    too). `task(forDirectory:)` is now: valid recorded entry, else the task
+    on the directory selected last this run (`selectionOrder`, which holds
+    the own-key task when it was the one selected), else the own-key task,
+    else the first by key. Still no scan in the usual cases.
+  - Directory-only selection (`b3ad3ebe`): the selected-task override holds
+    only while that task has a tab on the directory (`taskHoldsTabs`: the
+    runtime layout once there is one, else the stored record, so a stored
+    task picked before hydration is still shown). An emptied task that
+    lists a session keeps its row and `selectedTask`, but selecting its
+    directory sends no bootstrap to it. An explicit task-addressed
+    selection (`layoutID:` on the delegate, `focusTask`, resume) is
+    unchanged.
+  - One projection for selection and detail view (`b3ad3ebe`):
+    `TerminalsFeature.State.displayLayoutID(forDirectory:)` =
+    `task(forDirectory:)`, else the layout a first tab lands in, else nil
+    when that layout is another directory's. `AppFeature.State
+    .detailLayoutID(forDirectory:)` adds the missing-directory task in
+    front. `WorktreeDetailView` mounts `WorktreeLayoutView` only for a
+    non-nil answer and otherwise renders `EmptyTerminalPaneView` with New
+    Task Here. Choice: with no task, a recorded entry naming an empty task
+    of this directory is still what is selected and mounted (its empty
+    state, New Task Here, and where Cmd-T lands), rather than the own key:
+    it is what the seam already answers, so view and commands agree.
+  - Tests (`35dda9cb` and the two above): own-key sibling with the active
+    minted task removed; selected session-bearing task with no tab, with
+    and without a populated sibling; the detail projection for none, two
+    and cross-directory; `newTask(inDirectory:)` on a listed missing
+    directory, a remote roster directory while a local task is selected
+    (minted id, exact `DirectoryContext`), and with a launch pending.
+    Seen red before the fix: the no-tab selection test. The own-key test
+    was rewritten after its red run (the first form hit an unimplemented
+    test dependency) and the projection tests need the new API, so those
+    two are red by construction against the old code, not by a run.
+  Left for later:
+  - Z1 (A32): the command seam `layoutID(forDirectory:)` is still
+    non-optional and, for a directory whose only resolvable id is another
+    directory's layout, still answers that id. Nothing is mounted or
+    selected for it now, but a seam command (Cmd-T from the menu) would
+    target it. No app path stores such a record; removing the own-key
+    fallback in Z1 closes it.
+  - In that same cross-directory empty state a pending terminal-focus flag
+    is not consumed until a layout is mounted.
+  Only the live UI can confirm: New Task Here appearance and focus after
+  it; the hint wording of the cross-directory empty state.
+  Gate: check 0, focused (`supacodeFeatureTests` + `supacodeTerminalTests` +
+  `supacodeTests/TerminalsFeatureTests`) exit 2 with 1632 tests and only 4
+  known failures (ack flake, settings-changed, 2 Ghostty), build-app 0.
