@@ -1318,3 +1318,17 @@ deviation.
   attaches only after hydration (directory unknown at selection time, and no
   longer selected) still loses to the stored entry. Gate: check 0,
   build-app 0, full `make test` 4047 with only the 5 baseline failures.
+- T3 review fix 3, 2026-10-08: closes the gap fix 2 left. A selection whose
+  directory becomes known only later (host attached after the user moved on,
+  or the record that names it hydrated later) now still outranks the stored
+  entry, and its hint is persisted. Decision: `selectedDirectories` is
+  replaced by `TerminalsFeature.State.selectionOrder`, every layout selected
+  this run, oldest first, uncapped (`recentLayoutIDs` is capped and reset on
+  memory pressure, so it cannot serve), dropped on `detachLayout`. Whenever a
+  directory is named (`attachLayout`, hydration) the latest selected layout
+  on it wins; an attach never overrides a later selection on the same
+  directory. Hydration applies run selections before the stored entries so a
+  directory gets one write rather than a clear racing a set. The log is kept
+  after hydration (the late attach needs it); it is runtime only. Gate:
+  check 0, build-app 0, `supacodeTerminalTests` + `supacodeFeatureTests` +
+  `supacodeTests/TerminalsFeatureTests` with only baseline failures.
