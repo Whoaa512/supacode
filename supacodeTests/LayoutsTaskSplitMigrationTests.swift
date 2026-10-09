@@ -225,6 +225,26 @@ struct LayoutsTaskSplitMigrationTests {
     #expect(defaults.data(forKey: LayoutsFile.preTasksBackupKey) == earlier)
   }
 
+  /// The all-agent directory loses the task under its own key, so a stale
+  /// hint must not cost it the mapping to one of the tasks it became.
+  @Test func staleHintOnAnAllAgentDirectoryStillMapsItToARealTask() throws {
+    var unsplit = TaskLayoutsFile(oneTaskPerDirectory: try Self.v2Fixture())
+    unsplit.activeTasks = [Self.allAgents: "no-such-task", Self.mixed: "also-gone"]
+    let defaults = UserDefaults.inMemory
+    defaults.set(try JSONEncoder().encode(unsplit), forKey: LayoutsFile.userDefaultsKey)
+
+    Self.migrate(defaults)
+
+    let file = try Self.stored(defaults)
+    #expect(file.tasksSplit)
+    #expect(file.tasks[Self.allAgents] == nil)
+    let focused = try #require(Self.task(holdingTab: 7, in: file))
+    #expect(file.activeTasks[Self.allAgents] == focused.id.persistenceKey)
+    #expect(focused.directory.worktreeID.rawValue == Self.allAgents)
+    // A stale hint reads as no hint: the directory follows its focused tab.
+    #expect(file.activeTasks[Self.mixed] == Self.task(holdingTab: 2, in: file)?.id.persistenceKey)
+  }
+
   @Test func backupIsWrittenBeforeTheSplitValue() throws {
     let defaults = RecordingUserDefaults()
     let v3Data = try JSONEncoder().encode(TaskLayoutsFile(oneTaskPerDirectory: try Self.v2Fixture()))
@@ -433,6 +453,10 @@ struct LayoutsTaskSplitMigrationTests {
     var dangling = good
     dangling.activeTasks[Self.shells] = "no-such-task"
     #expect(LayoutsMigrator.splitIntegrityFailure(from: source, to: dangling) == "active task missing")
+
+    var unmapped = good
+    unmapped.activeTasks[Self.allAgents] = nil
+    #expect(LayoutsMigrator.splitIntegrityFailure(from: source, to: unmapped) == "directory left without a task")
 
     var misfiled = good
     misfiled.tasks["elsewhere"] = misfiled.tasks.removeValue(forKey: Self.shells)

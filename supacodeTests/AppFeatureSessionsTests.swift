@@ -2997,13 +2997,17 @@ struct AppFeatureSessionsTests {
 
   /// A v2 store run through the split: a mixed directory, an all-agent one and
   /// one that is no longer a known worktree. Nothing is open yet.
-  private func migratedStore() -> (state: AppFeature.State, file: TaskLayoutsFile) {
-    let legacy = LayoutsFile(worktrees: [
-      "/workspace": splitRecord([splitTab(11, agent: false), splitTab(12, agent: true), splitTab(13, agent: true)]),
-      "/other": splitRecord([splitTab(21, agent: true), splitTab(22, agent: true)]),
-      "/gone/orphan": splitRecord([splitTab(31, agent: true), splitTab(32, agent: false)]),
-    ])
-    let file = LayoutsTaskSplitter.split(legacy, now: Date(timeIntervalSince1970: 9))
+  private func migratedStore(
+    activeTasks: [String: String] = [:]
+  ) -> (state: AppFeature.State, file: TaskLayoutsFile) {
+    var unsplit = TaskLayoutsFile(
+      oneTaskPerDirectory: LayoutsFile(worktrees: [
+        "/workspace": splitRecord([splitTab(11, agent: false), splitTab(12, agent: true), splitTab(13, agent: true)]),
+        "/other": splitRecord([splitTab(21, agent: true), splitTab(22, agent: true)]),
+        "/gone/orphan": splitRecord([splitTab(31, agent: true), splitTab(32, agent: false)]),
+      ]))
+    unsplit.activeTasks = activeTasks
+    let file = LayoutsTaskSplitter.split(unsplit, now: Date(timeIntervalSince1970: 9))
     var state = state()
     state.repositories.repositories.append(
       Repository(id: "/other", rootURL: otherWorktree.workingDirectory, name: "other", worktrees: [otherWorktree]))
@@ -3012,6 +3016,23 @@ struct AppFeatureSessionsTests {
     state.terminals.selectedLayoutID = nil
     state.repositories.$persistedLayouts = SharedReader(value: file)
     return (state, file)
+  }
+
+  /// A hint naming a task that no longer exists must not strand the directory
+  /// on the own-key layout the split just removed.
+  @Test(.dependencies)
+  func allAgentDirectoryWithAStaleHintResolvesToAMigratedTask() async {
+    let (unhydrated, file) = migratedStore(activeTasks: ["/other": "no-such-task"])
+    let onOther = Set(file.tasks.values.filter { $0.directory.worktreeID == "/other" }.map(\.id))
+    #expect(onOther.count == 2)
+    #expect(file.tasks["/other"] == nil)
+    let store = taskStore(unhydrated, recorded: Recorded())
+    await store.send(.terminals(.layoutsHydrated(file)))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+    let resolved = store.state.layoutID(forDirectory: "/other")
+    #expect(onOther.contains(resolved))
+    #expect(store.state.terminals.layouts[id: resolved] != nil)
   }
 
   @Test(.dependencies, arguments: [1, -1])
