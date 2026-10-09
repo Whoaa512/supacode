@@ -452,7 +452,7 @@ extension RepositoriesFeature.Action {
       .sessionItems, .sessionsStarted, .sessionsSidebarShown, .sessionsRefreshRequested,
       .sessionsRefreshDebounced, .sessionsRefreshFailed, .sessionSelectionChanged, .activateSession,
       .registerSessionFolder, .sessionBranchCaptured, .settleSessionRequested, .settleTaskRequested,
-      .selectedTaskRemoved:
+      .selectedTaskRemoved, .activateSessionSubRow:
       return []
     case .sidebarItems(.element(id: _, action: let inner)):
       return inner.cacheInvalidations

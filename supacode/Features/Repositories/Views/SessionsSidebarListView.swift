@@ -29,9 +29,14 @@ struct SessionsSidebarListView: View {
 
   var body: some View {
     let shortcutHintByID: [SessionRowID: String]
+    let overrides = settingsFile.global.shortcutOverrides
+    let structure = store.sessionsSidebarStructure
+    let subRows = SubRows(
+      taskID: structure.subRowsTaskID,
+      rows: structure.subRows,
+      nextTab: AppShortcuts.selectNextTab.effective(from: overrides)?.display,
+      previousTab: AppShortcuts.selectPreviousTab.effective(from: overrides)?.display)
     if commandKeyObserver.isPressed {
-      let overrides = settingsFile.global.shortcutOverrides
-      let structure = store.sessionsSidebarStructure
       shortcutHintByID = structure.liveIDs.enumerated().reduce(into: [:]) { dict, pair in
         let (index, rowID) = pair
         if let hint = AppShortcuts.worktreeSelectionShortcutDisplay(atSlot: index, overrides: overrides) {
@@ -49,7 +54,7 @@ struct SessionsSidebarListView: View {
     ) {
       // Running agents show up as rows before the first scan lands, so the
       // list is rarely empty while history is still loading.
-      let isEmpty = store.sessionsSidebarStructure.sections.isEmpty
+      let isEmpty = structure.sections.isEmpty
       if !store.sessionsHasCompletedRefresh || (isEmpty && store.sessionsIndexingInProgress) {
         Text("Indexing sessions\u{2026}")
           .foregroundStyle(.secondary)
@@ -57,14 +62,14 @@ struct SessionsSidebarListView: View {
         Text("No sessions")
           .foregroundStyle(.secondary)
       }
-      ForEach(store.sessionsSidebarStructure.sections) { section in
+      ForEach(structure.sections) { section in
         if section.id == .active {
-          Section(section.title) { rows(section.rowIDs, shortcutHintByID: shortcutHintByID) }
+          Section(section.title) { rows(section.rowIDs, shortcutHintByID: shortcutHintByID, subRows: subRows) }
         } else {
           // Settled is the whole history, thousands of rows; they are only
           // built while the section is open.
           Section("\(section.title) (\(section.rowIDs.count))", isExpanded: $isSettledExpanded) {
-            if isSettledExpanded { rows(section.rowIDs, shortcutHintByID: shortcutHintByID) }
+            if isSettledExpanded { rows(section.rowIDs, shortcutHintByID: shortcutHintByID, subRows: subRows) }
           }
         }
       }
@@ -80,7 +85,18 @@ struct SessionsSidebarListView: View {
     }
   }
 
-  private func rows(_ ids: [SessionRowID], shortcutHintByID: [SessionRowID: String]) -> some View {
+  /// The selected task's sessions, from the cached structure, with the tab
+  /// chords their tooltips name.
+  private struct SubRows {
+    let taskID: LayoutID?
+    let rows: [SessionsSidebarStructure.SubRow]
+    let nextTab: String?
+    let previousTab: String?
+  }
+
+  private func rows(
+    _ ids: [SessionRowID], shortcutHintByID: [SessionRowID: String], subRows: SubRows
+  ) -> some View {
     ForEach(ids, id: \.self) { id in
       if let rowStore = store.scope(state: \.sessionItems[id: id], action: \.sessionItems[id: id]) {
         SessionSidebarRowView(store: rowStore, shortcutHint: shortcutHintByID[id])
@@ -98,6 +114,14 @@ struct SessionsSidebarListView: View {
               onUnsettle: { store.send(.unsettleSession($0)) }
             )
           }
+      }
+      // Untagged: a sub-row is not a selection, so the highlight stays on its task.
+      if case .task(let layoutID) = id, layoutID == subRows.taskID {
+        ForEach(subRows.rows) { row in
+          SessionSubRowView(row: row, nextTab: subRows.nextTab, previousTab: subRows.previousTab) {
+            store.send(.activateSessionSubRow(task: layoutID, member: row.id))
+          }
+        }
       }
     }
   }
@@ -162,8 +186,48 @@ private struct SessionSidebarRowView: View {
 
 extension SessionSidebarRowView {
   private var helpText: String {
-    if store.isTask, store.isLive { return "Show this task (Return when selected)" }
+    if store.isTask {
+      return store.isLive
+        ? "Show this task (Return when selected)" : "Reopen this task on its primary session (Return when selected)"
+    }
     return store.isLive ? "Focus this session (Return when selected)" : "Dormant session — \(store.cwd)"
+  }
+}
+
+/// One session of the selected task. Plain values only: it reads no store.
+private struct SessionSubRowView: View {
+  let row: SessionsSidebarStructure.SubRow
+  let nextTab: String?
+  let previousTab: String?
+  let activate: () -> Void
+
+  var body: some View {
+    Button(action: activate) {
+      HStack {
+        Image(systemName: row.isDormant ? "moon" : "terminal")
+          .accessibilityLabel(row.isDormant ? "Dormant session" : "Live session")
+        if let status = row.status {
+          Image(systemName: status.systemImage)
+            .foregroundStyle(status.tint)
+            .accessibilityLabel(status.accessibilityLabel)
+        }
+        Text(row.title)
+          .font(.callout)
+          .lineLimit(1)
+        Spacer()
+      }
+      .foregroundStyle(row.isDormant ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+      .contentShape(.rect)
+    }
+    .buttonStyle(.plain)
+    .padding(.leading)
+    .help(helpText)
+  }
+
+  private var helpText: String {
+    guard !row.isDormant else { return "Resume this session in a new tab of this task" }
+    let chords = [nextTab.map { "Next Tab \($0)" }, previousTab.map { "Previous Tab \($0)" }].compactMap { $0 }
+    return chords.isEmpty ? "Focus this session" : "Focus this session (\(chords.joined(separator: ", ")))"
   }
 }
 

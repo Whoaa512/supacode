@@ -168,6 +168,20 @@ extension RepositoriesFeature {
         guard case .task(let layoutID) = id else { return .send(.delegate(.resumeSession(key))) }
         return .send(.delegate(.resumeSession(key, task: layoutID)))
 
+      case .activateSessionSubRow(let layoutID, let member):
+        let structure = state.sessionsSidebarStructure
+        // The list as it is now decides: the click may be older than it.
+        guard structure.subRowsTaskID == layoutID,
+          let row = structure.subRows.first(where: { $0.id == member })
+        else { return .none }
+        if let location = row.location { return .send(.delegate(.focusSession(location))) }
+        guard let key = member.sessionKey else { return .none }
+        // Dormant here but running in another task: shown there, never started twice.
+        if let elsewhere = state.sessionSnapshots.first(where: { $0.sessionKey == key })?.location {
+          return .send(.delegate(.focusSession(elsewhere)))
+        }
+        return .send(.delegate(.resumeSession(key, task: layoutID)))
+
       case .settleSession(let key):
         state.applySettle(key: key, now: date.now)
         state.reconcileSessionItems(now: date.now)

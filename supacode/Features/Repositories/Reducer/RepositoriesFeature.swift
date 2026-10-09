@@ -430,6 +430,8 @@ struct RepositoriesFeature {
     case selectedTaskRemoved
     case sessionSelectionChanged(SessionRowID?)
     case activateSession(SessionRowID)
+    /// A click on one session listed under the selected task's row.
+    case activateSessionSubRow(task: LayoutID, member: TaskMember)
     case settleSession(SessionKey)
     /// A manual settle from the sidebar: also closes the session's tabs.
     case settleSessionRequested(SessionKey)
@@ -5021,7 +5023,7 @@ struct RepositoriesFeature {
         .sessionItems, .sessionsStarted, .sessionsCacheLoaded, .sessionsSidebarShown,
         .sessionsRefreshRequested, .sessionsRefreshDebounced, .sessionsRefreshCompleted,
         .sessionsRefreshFailed, .sessionSnapshotsChanged, .sessionSelectionChanged, .activateSession,
-        .taskSnapshotsChanged, .taskSessionsChanged, .selectTask, .selectedTaskRemoved,
+        .activateSessionSubRow, .taskSnapshotsChanged, .taskSessionsChanged, .selectTask, .selectedTaskRemoved,
         .settleSession, .settleSessionRequested, .settleTaskRequested, .unsettleSession, .sessionBranchCaptured:
         return .none
 

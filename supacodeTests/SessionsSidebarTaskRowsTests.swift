@@ -462,6 +462,89 @@ struct SessionsSidebarTaskRowsTests {
     #expect(store.state.sessionCwd(for: key("b")) == "/repo/main", "a tangent's directory is still known")
   }
 
+  @Test(.dependencies) func aDormantTaskRowResumesInItsOwnTaskWhenAnotherTaskSharesThePrimary() async {
+    var initial = state()
+    initial.sessionSummaries = [summary("a", created: 30), summary("b", created: 20), summary("c", created: 10)]
+    initial.taskSessions = [taskA: [key("a"), key("b")], taskB: [key("a"), key("c")]]
+    initial = rebuilt(initial)
+    let store = TestStore(initialState: initial) { RepositoriesFeature() }
+    store.exhaustivity = .off
+
+    await store.send(.activateSession(.task(taskB)))
+    await store.receive(\.delegate, .resumeSession(key("a"), task: taskB))
+    await store.finish()
+  }
+
+  // MARK: - Sub-row activation (A23)
+
+  /// `taskA` selected, listing `a` then `b`, with `a` running on surface 1.
+  private func selectedTaskWithATangent(running agents: [SessionLiveSnapshot] = []) -> RepositoriesFeature.State {
+    var state = state()
+    state.sessionSummaries = [summary("a", created: 30), summary("b", created: 20), summary("solo", created: 5)]
+    state.taskSessions = [taskA: [key("a"), key("b")], taskB: [key("solo")]]
+    state.taskSnapshots = [tabs(taskA, on: 1), tabs(taskB, on: 9)]
+    state.sessionSnapshots = [agent("a", in: taskA, on: 1)] + agents
+    state.sessionSelection = .task(taskA)
+    return rebuilt(state)
+  }
+
+  @Test(.dependencies) func activatingALiveSubRowFocusesItsOwnSurface() async {
+    let initial = selectedTaskWithATangent(running: [agent("b", in: taskA, on: 2)])
+    let store = TestStore(initialState: initial) { RepositoriesFeature() }
+
+    // No state closure under full exhaustivity: a sub-row click writes nothing.
+    await store.send(.activateSessionSubRow(task: taskA, member: .session(key("b"))))
+    await store.receive(\.delegate, .focusSession(location(taskA, 2)))
+    await store.finish()
+
+    #expect(store.state.sessionSelection == .task(taskA))
+  }
+
+  @Test(.dependencies) func activatingADormantSubRowResumesItInItsTask() async {
+    let store = TestStore(initialState: selectedTaskWithATangent()) { RepositoriesFeature() }
+
+    await store.send(.activateSessionSubRow(task: taskA, member: .session(key("b"))))
+    await store.receive(\.delegate, .resumeSession(key("b"), task: taskA))
+    await store.finish()
+  }
+
+  @Test(.dependencies) func aMemberRunningInAnotherTaskIsShownThereNotStartedAgain() async {
+    let initial = selectedTaskWithATangent(running: [agent("b", in: taskB, on: 8)])
+    #expect(
+      initial.sessionsSidebarStructure.subRows.map(\.isDormant) == [false, true], "dormant here: it runs elsewhere")
+    let store = TestStore(initialState: initial) { RepositoriesFeature() }
+
+    await store.send(.activateSessionSubRow(task: taskA, member: .session(key("b"))))
+    await store.receive(\.delegate, .focusSession(location(taskB, 8)))
+    await store.finish()
+  }
+
+  @Test(.dependencies) func anUnreportedAgentSubRowFocusesItsSurface() async {
+    let initial = selectedTaskWithATangent(running: [agent(nil, in: taskA, on: 2)])
+    let store = TestStore(initialState: initial) { RepositoriesFeature() }
+
+    await store.send(.activateSessionSubRow(task: taskA, member: .provisional(harness: .pi, surfaceID: surface(2))))
+    await store.receive(\.delegate, .focusSession(location(taskA, 2)))
+    await store.finish()
+  }
+
+  @Test(.dependencies) func aSubRowClickForATaskNoLongerSelectedDoesNothing() async {
+    let store = TestStore(initialState: selectedTaskWithATangent()) { RepositoriesFeature() }
+    store.exhaustivity = .off
+    await store.send(.sessionSelectionChanged(.task(taskB)))
+    store.exhaustivity = .on
+
+    await store.send(.activateSessionSubRow(task: taskA, member: .session(key("b"))))
+    await store.finish()
+  }
+
+  @Test(.dependencies) func aSubRowClickForAMemberNoLongerListedDoesNothing() async {
+    let store = TestStore(initialState: selectedTaskWithATangent()) { RepositoriesFeature() }
+
+    await store.send(.activateSessionSubRow(task: taskA, member: .session(key("gone"))))
+    await store.finish()
+  }
+
   @Test(.dependencies) func activatingALiveTaskShowsItWithoutResuming() async {
     let store = TestStore(initialState: twoTasksWithMembers()) { RepositoriesFeature() }
     store.exhaustivity = .off
