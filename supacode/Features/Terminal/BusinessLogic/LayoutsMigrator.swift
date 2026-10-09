@@ -94,6 +94,10 @@ nonisolated extension LayoutsFile {
   /// first v3 write.
   static let preTasksBackupKey = userDefaultsKey + ".pre-tasks.bak"
 
+  /// Sibling key holding the last unsplit blob verbatim (v2, or v3 with one
+  /// task per directory), written once before the task split replaces it.
+  static let preSplitBackupKey = userDefaultsKey + ".pre-task-split.bak"
+
   /// Every session identity persisted anywhere in the file, including the
   /// write-once v1 origin, so the orphan reaper can never kill a session a
   /// dropped or not-yet-migrated record still owns.
@@ -120,6 +124,7 @@ nonisolated extension TaskLayoutsFile {
   /// legacy id, its origin moves to `origins`. No tab moves.
   init(oneTaskPerDirectory file: LayoutsFile) {
     self.init()
+    tasksSplit = false
     undecodedEntryCount = file.undecodedEntryCount
     for (key, record) in file.worktrees {
       tasks[key] = TaskRecord(
@@ -511,32 +516,101 @@ nonisolated extension LayoutsMigrator {
 }
 
 nonisolated extension LayoutsMigrator {
-  /// Rewrites a persisted v2 layouts blob as v3 (one task per directory, no
-  /// split), once, before hydration. The v2 bytes are kept under
-  /// `preTasksBackupKey` first. A lossy, newer or undecodable blob is left
-  /// untouched and retried next launch; a v3 blob is a no-op.
-  static func migrateStoreToTasksIfNeeded(defaults: UserDefaults) {
+  /// Upgrades the persisted layouts before hydration, once each: a v2 blob
+  /// becomes v3, and an unsplit store (v2, or v3 written before the split) has
+  /// every agent tab moved into its own task. The bytes about to be replaced
+  /// are backed up first. A lossy, newer or undecodable blob is left untouched
+  /// and retried next launch. A split that fails its integrity check is not
+  /// written: the store stays unsplit (a v2 blob still upgrades one task per
+  /// directory) and the split is retried next launch.
+  static func migrateStoreToTasksIfNeeded(
+    defaults: UserDefaults,
+    now: Date = Date(),
+    makeUUID: () -> UUID = { UUID() },
+    split: ((TaskLayoutsFile) -> TaskLayoutsFile)? = nil
+  ) {
     let store = LayoutsUserDefaultsStore(defaults: defaults)
     guard let data = store.read() else { return }
     switch TaskLayoutsFile.classify(data) {
-    case .tasks:
-      return
     case .newer, .lossy, .undecodable:
       migrationLogger.error("Persisted layouts not cleanly readable; deferring the v3 upgrade.")
-      return
+    case .tasks(let file):
+      guard !file.tasksSplit else { return }
+      guard let encoded = verifiedSplit(of: file, now: now, makeUUID: makeUUID, split: split) else { return }
+      guard store.backUpUnsplitIfAbsent(data) else {
+        migrationLogger.error("Backing up the unsplit layouts failed; leaving them in place.")
+        return
+      }
+      store.write(encoded)
+      migrationLogger.info("Split persisted layouts into tasks.")
     case .legacy(let file):
       let encoder = JSONEncoder()
       encoder.outputFormatting = [.sortedKeys]
-      guard let encoded = try? encoder.encode(file) else {
+      let splitEncoded = verifiedSplit(of: file, now: now, makeUUID: makeUUID, split: split)
+      guard let encoded = splitEncoded ?? (try? encoder.encode(file)) else {
         migrationLogger.error("Encoding v3 layouts failed; leaving v2 in place.")
         return
       }
-      guard store.backUpLegacyIfAbsent(data) else {
+      guard store.backUpLegacyIfAbsent(data), splitEncoded == nil || store.backUpUnsplitIfAbsent(data) else {
         migrationLogger.error("Backing up the v2 layouts failed; leaving v2 in place.")
         return
       }
       store.write(encoded)
       migrationLogger.info("Upgraded persisted layouts to schema v\(TaskLayoutsFile.currentSchemaVersion).")
     }
+  }
+
+  /// The encoded split of `file`, or nil when the split cannot be proved
+  /// lossless. Checked on the value that would be written, read back through
+  /// the same decode every reader uses.
+  private static func verifiedSplit(
+    of file: TaskLayoutsFile,
+    now: Date,
+    makeUUID: () -> UUID,
+    split: ((TaskLayoutsFile) -> TaskLayoutsFile)?
+  ) -> Data? {
+    let result = split?(file) ?? LayoutsTaskSplitter.split(file, now: now, makeUUID: makeUUID)
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    guard let encoded = try? encoder.encode(result),
+      case .tasks(let written) = TaskLayoutsFile.classify(encoded)
+    else {
+      migrationLogger.error("Split layouts do not read back; keeping the unsplit store.")
+      return nil
+    }
+    if let failure = splitIntegrityFailure(from: file, to: written) {
+      migrationLogger.error("Split layouts failed the integrity check (\(failure)); keeping the unsplit store.")
+      return nil
+    }
+    return encoded
+  }
+
+  /// Why `split` is not a lossless regrouping of `source`, or nil when it is:
+  /// same tabs with the same content (ids are compared as multisets, so a
+  /// duplicated tab fails too), same origins, same reaper and presence-restore
+  /// coverage, and no directory pointing at a task that does not exist.
+  static func splitIntegrityFailure(from source: TaskLayoutsFile, to split: TaskLayoutsFile) -> String? {
+    func tabs(_ file: TaskLayoutsFile) -> [TabItem] {
+      file.tasks.values
+        .flatMap { $0.layout.panes.flatMap(\.tabs) }
+        .sorted {
+          ($0.id.rawValue.uuidString, $0.content.id.rawValue.uuidString) < (
+            $1.id.rawValue.uuidString, $1.content.id.rawValue.uuidString
+          )
+        }
+    }
+    func agentSurfaces(_ file: TaskLayoutsFile) -> Set<UUID> {
+      Set(file.tasks.values.flatMap { $0.layout.allAgentRecords().map(\.surfaceID) })
+    }
+    guard split.tasksSplit, split.undecodedEntryCount == 0 else { return "not a clean split file" }
+    guard tabs(split) == tabs(source) else { return "tabs differ" }
+    guard split.origins == source.origins else { return "origins differ" }
+    guard split.allKnownSurfaceIDs == source.allKnownSurfaceIDs else { return "known surfaces differ" }
+    guard agentSurfaces(split) == agentSurfaces(source) else { return "agent surfaces differ" }
+    guard split.tasks.allSatisfy({ $0.key == $0.value.id.persistenceKey }) else {
+      return "task stored under another id"
+    }
+    guard split.activeTasks.values.allSatisfy({ split.tasks[$0] != nil }) else { return "active task missing" }
+    return nil
   }
 }

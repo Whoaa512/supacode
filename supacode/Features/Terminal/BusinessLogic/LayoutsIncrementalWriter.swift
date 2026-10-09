@@ -26,6 +26,14 @@ nonisolated struct LayoutsUserDefaultsStore: @unchecked Sendable {
     return defaults.data(forKey: LayoutsFile.preTasksBackupKey) != nil
   }
 
+  /// Keeps the unsplit bytes before the task split replaces them. Write-once,
+  /// same contract as `backUpLegacyIfAbsent`.
+  func backUpUnsplitIfAbsent(_ data: Data) -> Bool {
+    if defaults.data(forKey: LayoutsFile.preSplitBackupKey) != nil { return true }
+    defaults.set(data, forKey: LayoutsFile.preSplitBackupKey)
+    return defaults.data(forKey: LayoutsFile.preSplitBackupKey) != nil
+  }
+
   /// Forces a synchronous flush for the on-quit write, where the run loop is
   /// tearing down before UserDefaults' own periodic flush would run.
   func synchronize() { defaults.synchronize() }

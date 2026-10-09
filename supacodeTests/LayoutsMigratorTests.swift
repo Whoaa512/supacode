@@ -665,7 +665,8 @@ struct LayoutsMigratorTests {
 
     #expect(
       defaults.writtenKeys == [
-        LayoutsFile.userDefaultsKey, LayoutsFile.preTasksBackupKey, LayoutsFile.userDefaultsKey,
+        LayoutsFile.userDefaultsKey, LayoutsFile.preTasksBackupKey, LayoutsFile.preSplitBackupKey,
+        LayoutsFile.userDefaultsKey,
       ])
     #expect(defaults.data(forKey: LayoutsFile.preTasksBackupKey) == v2Data)
   }

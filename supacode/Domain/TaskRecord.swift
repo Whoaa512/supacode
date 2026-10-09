@@ -52,6 +52,10 @@ nonisolated struct TaskLayoutsFile: Equatable, Codable, Sendable {
   /// A directory's most recently selected task, directory → task key. A
   /// directory with no entry resolves to the task stored under its own key.
   var activeTasks: [String: String] = [:]
+  /// Set once agent tabs have been split into their own tasks. A file written
+  /// before the split decodes as false; a store created fresh starts true,
+  /// because nothing in it predates task ownership.
+  var tasksSplit = true
   /// Entries or tabs a tolerant decode dropped; never encoded. A non-zero
   /// count marks the value as lossy, so readers and writers must reject it.
   var undecodedEntryCount = 0
@@ -61,6 +65,7 @@ nonisolated struct TaskLayoutsFile: Equatable, Codable, Sendable {
     case tasks
     case origins
     case activeTasks
+    case tasksSplit
     /// Always written empty: lets a pre-v3 build decode the stamp, see a newer
     /// schema and leave the blob alone instead of stashing it as corrupt.
     case worktrees
@@ -89,6 +94,7 @@ nonisolated struct TaskLayoutsFile: Equatable, Codable, Sendable {
     origins = rawOrigins.compactMapValues(\.value)
     // A selection hint, never an owner of sessions: an unreadable one is not a loss.
     activeTasks = (try? container.decodeIfPresent([String: String].self, forKey: .activeTasks)) ?? [:]
+    tasksSplit = (try? container.decodeIfPresent(Bool.self, forKey: .tasksSplit)) ?? false
     let droppedContent = (decoder.userInfo[.layoutDecodeLoss] as? LayoutDecodeLoss)?.droppedCount ?? 0
     undecodedEntryCount =
       (rawTasks.count - tasks.count) + (rawOrigins.count - origins.count) + droppedContent
@@ -101,6 +107,9 @@ nonisolated struct TaskLayoutsFile: Equatable, Codable, Sendable {
     try container.encode(origins, forKey: .origins)
     if !activeTasks.isEmpty {
       try container.encode(activeTasks, forKey: .activeTasks)
+    }
+    if tasksSplit {
+      try container.encode(true, forKey: .tasksSplit)
     }
     try container.encode([String: String](), forKey: .worktrees)
   }
