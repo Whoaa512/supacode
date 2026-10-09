@@ -3014,7 +3014,7 @@ struct AppFeature {
     let policyBypass = state.settings.automatedActionPolicy.allowsBypass(from: source)
     // Appearance and tab rename are metadata-only updates; don't steal focus for a title change.
     guard
-      let layoutID = state.terminals.commandLayoutID(
+      let layoutID = state.commandLayoutID(
         forDirectory: worktreeID, task: task, holding: action.addressedIDs)
     else {
       state.alert = taskNotFoundAlert()
@@ -3084,7 +3084,7 @@ struct AppFeature {
     // Resolved again here, not carried from the dispatch: a confirmation can
     // sit between the two, and the task or tab may be gone by then.
     guard
-      let layoutID = state.terminals.commandLayoutID(
+      let layoutID = state.commandLayoutID(
         forDirectory: worktreeID, task: task, holding: action.addressedIDs)
     else {
       state.alert = taskNotFoundAlert()
@@ -3116,6 +3116,7 @@ struct AppFeature {
       // Bare `run` never prompted, so keep it unprompted; `run --script` still does.
       return runScriptDeeplinkEffect(
         worktreeID: worktreeID,
+        layoutID: layoutID,
         scriptID: definition.id,
         state: &state,
         bypassConfirmation: true,
@@ -3124,22 +3125,24 @@ struct AppFeature {
         background: background
       )
     case .stop:
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { seamLayoutID, worktree in
+      return sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) { seamLayoutID, worktree in
         .stopRunScript(seamLayoutID, DirectoryContext(worktree: worktree), focusing: !background)
       }
     case .runScript(let scriptID):
       return runScriptDeeplinkEffect(
         worktreeID: worktreeID,
+        layoutID: layoutID,
         scriptID: scriptID,
         state: &state,
         bypassConfirmation: bypassConfirmation,
         responseFD: responseFD,
         timeoutSeconds: timeoutSeconds,
-        background: background
+        background: background,
+        task: task
       )
     case .stopScript(let scriptID):
       return stopScriptDeeplinkEffect(
-        worktreeID: worktreeID, scriptID: scriptID, state: &state, background: background)
+        worktreeID: worktreeID, layoutID: layoutID, scriptID: scriptID, state: &state, background: background)
     case .archive:
       return deeplinkArchiveWorktreeEffect(
         worktreeID: worktreeID,
@@ -3522,12 +3525,14 @@ struct AppFeature {
 
   private func runScriptDeeplinkEffect(
     worktreeID: Worktree.ID,
+    layoutID: LayoutID,
     scriptID: UUID,
     state: inout State,
     bypassConfirmation: Bool,
-    responseFD: Int32?,
+    responseFD: Int32? = nil,
     timeoutSeconds: Int = defaultCommandTimeoutSeconds,
-    background: Bool = false
+    background: Bool = false,
+    task: LayoutID? = nil
   ) -> Effect<Action> {
     // Read scripts from storage so cross-worktree deeplinks are selection-agnostic.
     guard let worktree = state.repositories.worktree(for: worktreeID) else {
@@ -3558,7 +3563,7 @@ struct AppFeature {
     }
     if requiresInputConfirmation(state: state, bypassConfirmation: bypassConfirmation) {
       return presentDeeplinkConfirmation(
-        worktreeID: worktreeID,
+        worktreeID: worktreeID, task: task,
         responseFD: responseFD,
         timeoutSeconds: timeoutSeconds,
         message: .command(definition.command),
@@ -3571,7 +3576,6 @@ struct AppFeature {
     let terminalClient = terminalClient
     // The row's `runningScripts` reconciles from the terminal's projection
     // once the script tab is tracked; no optimistic mirror write (#573).
-    let layoutID = state.layoutID(forDirectory: worktree.id)
     return .run { _ in
       await terminalClient.send(
         .runBlockingScript(
@@ -3583,6 +3587,7 @@ struct AppFeature {
 
   private func stopScriptDeeplinkEffect(
     worktreeID: Worktree.ID,
+    layoutID: LayoutID,
     scriptID: UUID,
     state: inout State,
     background: Bool = false
@@ -3608,7 +3613,6 @@ struct AppFeature {
       return .none
     }
     let terminalClient = terminalClient
-    let layoutID = state.layoutID(forDirectory: worktree.id)
     return .run { _ in
       await terminalClient.send(
         .stopScript(layoutID, DirectoryContext(worktree: worktree), definitionID: scriptID, focusing: !background))
@@ -4462,7 +4466,20 @@ extension AppFeature.State {
   /// it across every task of the directory, so the layout to reach it through
   /// is its owner, not whichever task the directory shows.
   func layoutID(forDirectory worktreeID: Worktree.ID, holding id: UUID) -> LayoutID {
-    terminals.commandLayoutID(forDirectory: worktreeID, holding: [id]) ?? layoutID(forDirectory: worktreeID)
+    commandLayoutID(forDirectory: worktreeID, holding: [id]) ?? layoutID(forDirectory: worktreeID)
+  }
+
+  /// The layout a directory-addressed command means (see the terminal state's
+  /// `commandLayoutID`), where the directory's own answer is the task a
+  /// selection of it shows. A task just selected, which the terminal has not
+  /// echoed into the directory's active task yet, is already what the user
+  /// looks at: a bare command sent to the recorded one would act on the task
+  /// they left and select it back.
+  func commandLayoutID(
+    forDirectory worktreeID: Worktree.ID, task: LayoutID? = nil, holding ids: [UUID] = []
+  ) -> LayoutID? {
+    terminals.commandLayoutID(
+      forDirectory: worktreeID, task: task, holding: ids, shown: shownTask(forDirectory: worktreeID))
   }
 
   /// See `AppFeature.resolveWorktreeID`: the one place a parsed directory id
@@ -4486,7 +4503,7 @@ extension AppFeature.State {
       guard let named = LayoutID(external: externalTaskID) else { return nil }
       task = named
     }
-    return terminals.commandLayoutID(forDirectory: resolveWorktreeID(parsed), task: task, holding: ids)
+    return commandLayoutID(forDirectory: resolveWorktreeID(parsed), task: task, holding: ids)
   }
 
   /// The task selecting a directory shows: the task still selected on it (the

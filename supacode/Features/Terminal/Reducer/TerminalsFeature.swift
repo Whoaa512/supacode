@@ -411,12 +411,13 @@ extension TerminalsFeature.State {
   /// the command carries decides first: ids are unique across tasks, so the
   /// task that holds one is the target whichever task the directory shows.
   /// Then the task the command names, which has to sit on this directory.
-  /// Then the directory's own answer. Nil only for a named task that is not
-  /// one of this directory's.
+  /// Then the directory's own answer: `shown` when the caller knows a task
+  /// selection the terminal has not recorded yet, else the recorded one. Nil
+  /// only for a named task that is not one of this directory's.
   func commandLayoutID(
-    forDirectory directoryID: Worktree.ID, task: LayoutID? = nil, holding ids: [UUID] = []
+    forDirectory directoryID: Worktree.ID, task: LayoutID? = nil, holding ids: [UUID] = [], shown: LayoutID? = nil
   ) -> LayoutID? {
-    let resolved = layoutID(forDirectory: directoryID)
+    let resolved = shown ?? layoutID(forDirectory: directoryID)
     if !ids.isEmpty {
       // The resolved layout first: it is the usual owner, and the only
       // candidate nothing names yet.

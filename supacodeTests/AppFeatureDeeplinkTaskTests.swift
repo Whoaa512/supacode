@@ -73,14 +73,18 @@ struct AppFeatureDeeplinkTaskTests {
     return state
   }
 
+  /// `gone` names layouts the terminal no longer has although the state still
+  /// lists them: a target closed while a confirmation waited.
   private func makeStore(
-    _ initial: AppFeature.State? = nil
+    _ initial: AppFeature.State? = nil,
+    gone: LockIsolated<Set<LayoutID>> = LockIsolated([])
   ) -> (store: TestStoreOf<AppFeature>, sent: LockIsolated<[TerminalClient.Command]>) {
     let initial = initial ?? state()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     // Answered from the fixture layouts, per layout, so a command validated
     // against the wrong task fails the way it would in the app.
-    let layouts = Dictionary(uniqueKeysWithValues: initial.terminals.layouts.map { ($0.id, $0.layout) })
+    let all = Dictionary(uniqueKeysWithValues: initial.terminals.layouts.map { ($0.id, $0.layout) })
+    let layouts = LiveLayouts(all: all, gone: gone)
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
@@ -95,9 +99,54 @@ struct AppFeatureDeeplinkTaskTests {
       }
       $0.terminalClient.tabCanRename = { _, _ in true }
       $0.terminalClient.idExistsAnywhere = { _ in false }
+      // A surface close fans out to the agent-presence persist effect.
+      $0.continuousClock = ImmediateClock()
+      $0.date = .constant(Date(timeIntervalSince1970: 0))
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
     }
     store.exhaustivity = .off
     return (store, sent)
+  }
+
+  private struct LiveLayouts: Sendable {
+    let all: [LayoutID: PaneLayout]
+    let gone: LockIsolated<Set<LayoutID>>
+
+    subscript(id: LayoutID) -> PaneLayout? { gone.value.contains(id) ? nil : all[id] }
+  }
+
+  private func confirming() -> AppFeature.State {
+    var initial = state()
+    initial.settings.automatedActionPolicy = .never
+    return initial
+  }
+
+  private func confirm(_ action: Deeplink.WorktreeAction, in store: TestStoreOf<AppFeature>) async {
+    await withKnownIssue("TCA @Presents dismiss tracking") {
+      await store.send(
+        .deeplinkInputConfirmation(
+          .presented(.delegate(.confirm(worktreeID: worktree.id, action: action, alwaysAllow: false)))))
+    }
+    await store.finish()
+  }
+
+  private func pipe() -> (read: Int32, write: Int32) {
+    var fds: [Int32] = [0, 0]
+    precondition(fds.withUnsafeMutableBufferPointer { Darwin.pipe($0.baseAddress!) } == 0)
+    return (fds[0], fds[1])
+  }
+
+  /// Every close a run of commands asked for, as (layout, target).
+  private func closes(_ commands: [TerminalClient.Command]) -> [String] {
+    commands.compactMap {
+      switch $0 {
+      case .destroySurface(let layoutID, _, let tabID, let surfaceID, _):
+        "surface \(layoutID.externalID) \(tabID.rawValue) \(surfaceID)"
+      case .closePane(let layoutID, let token): "pane \(layoutID.externalID) \(token)"
+      case .destroyTab(let layoutID, let tabID, _): "tab \(layoutID.externalID) \(tabID.rawValue)"
+      default: nil
+      }
+    }
   }
 
   private func targets(_ commands: [TerminalClient.Command]) -> [LayoutID] {
@@ -110,6 +159,7 @@ struct AppFeatureDeeplinkTaskTests {
       case .destroySurface(let layoutID, _, _, _, _): layoutID
       case .focusPane(let layoutID, _): layoutID
       case .equalizeSplits(let layoutID): layoutID
+      case .stopRunScript(let layoutID, _, _): layoutID
       default: nil
       }
     }
@@ -280,6 +330,55 @@ struct AppFeatureDeeplinkTaskTests {
       return nil
     }
     #expect(created == [other.id])
+  }
+
+  // MARK: - A task selected, not yet echoed by the terminal.
+
+  /// The user picked `other`; the directory's active task still says `shown`.
+  private func selectedBeforeTheEcho() -> AppFeature.State {
+    var initial = state()
+    initial.repositories.selectedTask = SelectedTask(id: other.id, directoryID: worktree.id)
+    return initial
+  }
+
+  @Test func aJustSelectedTaskIsWhatTheDirectoryMeans() {
+    let state = selectedBeforeTheEcho()
+    let directory = "%2Ftmp%2Frepo%2Fwt-1"
+    #expect(state.commandLayoutID(forDirectory: worktree.id) == other.id)
+    #expect(state.commandLayoutID(externalWorktreeID: directory, externalTaskID: nil) == other.id)
+    #expect(state.layoutID(forDirectory: worktree.id, holding: UUID()) == other.id)
+    // An id or a named task still decides first.
+    #expect(state.commandLayoutID(forDirectory: worktree.id, holding: [shown.tab]) == shown.id)
+    #expect(state.commandLayoutID(forDirectory: worktree.id, task: shown.id) == shown.id)
+    #expect(state.commandLayoutID(externalWorktreeID: directory, externalTaskID: shown.id.externalID) == shown.id)
+    // The selection is another directory's: it says nothing about this one.
+    #expect(state.commandLayoutID(forDirectory: sibling.id) == elsewhere.id)
+  }
+
+  @Test(.dependencies) func aBareCommandFollowsAJustSelectedTaskAndDoesNotSelectTheOldOneBack() async {
+    let (store, sent) = makeStore(selectedBeforeTheEcho())
+    await store.send(.deeplink(.worktree(id: worktree.id, action: .paneEqualize)))
+    await store.receive(\.repositories.selectWorktree)
+    await store.finish()
+    #expect(targets(sent.value).filter { $0 == shown.id || $0 == other.id } == [other.id])
+    #expect(store.state.repositories.selectedTask?.id == other.id)
+  }
+
+  @Test(.dependencies) func aBareBackgroundCommandFollowsAJustSelectedTask() async {
+    let (store, sent) = makeStore(selectedBeforeTheEcho())
+    for action in [Deeplink.WorktreeAction.tabNew(input: nil, id: nil), .paneEqualize, .stop] {
+      await store.send(.deeplink(.worktree(id: worktree.id, action: action, background: true)))
+    }
+    await store.finish()
+    #expect(targets(sent.value) == [other.id, other.id, other.id])
+    #expect(store.state.repositories.selectedTask?.id == other.id)
+  }
+
+  @Test(.dependencies) func stoppingTheRunScriptGoesToTheNamedTask() async {
+    let (store, sent) = makeStore()
+    await store.send(.deeplink(.worktree(id: worktree.id, action: .stop, background: true, task: other.id)))
+    await store.finish()
+    #expect(targets(sent.value) == [other.id])
   }
 
   // MARK: - Acks.

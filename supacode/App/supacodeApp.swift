@@ -690,7 +690,9 @@ struct SupacodeApp: App {
         clientFD: clientFD, ok: false, error: "Worktree not found: \(rawWorktreeID)")
       return
     }
-    let seamLayoutID = store.withState { $0.layoutID(forDirectory: worktreeID) }
+    let seamLayoutID = store.withState {
+      $0.commandLayoutID(forDirectory: worktreeID) ?? $0.layoutID(forDirectory: worktreeID)
+    }
     let surfaceID: UUID?
     if let rawAgent = params["agent"] {
       guard let agent = SkillAgent(rawValue: rawAgent) else {
