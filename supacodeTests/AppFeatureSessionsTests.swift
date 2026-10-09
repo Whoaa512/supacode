@@ -3618,6 +3618,37 @@ struct AppFeatureSessionsTests {
     #expect(store.state.pendingTaskLaunches.isEmpty)
   }
 
+  @Test(.dependencies) func newSessionOnARemoteTaskStartsOnItsHostNotInALocalDirectory() async throws {
+    let historyCwd = try temporaryDirectory(named: "mint-remote-history")
+    var (initial, _) = stateOnDisk(historyCwd)
+    let host = try #require(RemoteHost(authority: "me@box"))
+    let remoteID: Worktree.ID = "me@box/srv/app"
+    initial.terminals.layouts = [agentTask(first, surface: firstSurface)]
+    initial.terminals.directories[first] = TaskRecord.Directory(worktreeID: remoteID, host: host)
+    initial.terminals.selectedLayoutID = first
+    initial.repositories.selectedTask = .init(id: first, directoryID: remoteID)
+    // A local directory is highlighted in history and selected in the roster; neither is the task's.
+    initial.repositories.sessionItems = [dormantRow(piKey("history"), cwd: historyCwd)]
+    initial.repositories.sessionSelection = .session(piKey("history"))
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newSession)
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    let contexts = recorded.commands.value.compactMap { command -> DirectoryContext? in
+      guard case .createTabWithInput(_, let context, _, _, _, _, _, _) = command else { return nil }
+      return context
+    }
+    #expect(launches(recorded).map(\.input) == ["pi"])
+    #expect(launches(recorded).first?.layoutID != first)
+    #expect(contexts.map(\.worktreeID) == [remoteID])
+    #expect(contexts.map(\.host) == [host])
+    #expect(contexts.map { $0.workingDirectory.path(percentEncoded: false) } == ["/srv/app"])
+    #expect(store.state.pendingSessionLaunch == nil)
+  }
+
   @Test(.dependencies) func resumingASessionReusesTheTaskThatListsIt() async throws {
     let directory = try temporaryDirectory(named: "mint-reuse")
     var (initial, onDisk) = stateOnDisk(directory)

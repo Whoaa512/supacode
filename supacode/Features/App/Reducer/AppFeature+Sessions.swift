@@ -285,18 +285,23 @@ extension AppFeature {
 
   // MARK: - Launch orchestration
 
-  /// The directory of the task on screen, when it is a local one. A tab of
+  /// The directory of the task on screen, remote host included. A tab of
   /// that task may run elsewhere (a tangent); the task's directory is still
   /// where its next sibling starts.
-  static func currentTaskDirectory(state: State) -> URL? {
+  static func currentTaskContext(state: State) -> DirectoryContext? {
     guard let layoutID = state.repositories.selectedTaskID ?? state.terminals.selectedLayoutID,
       hasTask(layoutID, state: state),
       let directoryID = state.terminals.directories[layoutID]?.worktreeID
         ?? storedTask(layoutID, state: state)?.directory.worktreeID
         ?? state.worktree(forLayout: layoutID)?.id
     else { return nil }
-    let context = directoryContext(forTask: layoutID, directoryID: directoryID, state: state)
-    guard context.host == nil else { return nil }
+    return directoryContext(forTask: layoutID, directoryID: directoryID, state: state)
+  }
+
+  /// The local path of the task on screen. A remote task has none: its path
+  /// names nothing on this machine.
+  static func currentTaskDirectory(state: State) -> URL? {
+    guard let context = currentTaskContext(state: state), context.host == nil else { return nil }
     return context.workingDirectory.standardizedFileURL
   }
 
@@ -399,6 +404,21 @@ extension AppFeature {
   static func handleNewSession(directory: URL?, state: inout State) -> Effect<Action> {
     guard state.pendingSessionLaunch == nil else { return .none }
     @Dependency(\.uuid) var uuid
+    // A remote task's directory cannot be checked or registered from here:
+    // the launch goes straight to its host.
+    if directory == nil, let remote = currentTaskContext(state: state), remote.host != nil {
+      let requestID = uuid()
+      let pending = PendingSessionLaunch(
+        key: SessionKey(harness: .pi, sessionID: "new:\(requestID.uuidString)"),
+        cwd: remote.workingDirectory,
+        command: "pi",
+        requestID: requestID,
+        launched: true,
+        isNewSession: true
+      )
+      state.pendingSessionLaunch = pending
+      return launchSessionTab(pending, directory: remote, state: &state)
+    }
     let cwd = (directory ?? newSessionCwdFallback(state: state)).standardizedFileURL
     let cwdPath = cwd.path(percentEncoded: false)
     var isDir: ObjCBool = false
@@ -421,7 +441,7 @@ extension AppFeature {
     if let worktree = worktreeForCwd(cwd, state: state) {
       pending.launched = true
       state.pendingSessionLaunch = pending
-      return launchSessionTab(pending, worktree: worktree, state: &state)
+      return launchSessionTab(pending, directory: DirectoryContext(worktree: worktree), state: &state)
     }
     state.pendingSessionLaunch = pending
     return .send(.repositories(.registerSessionFolder(cwd)))
@@ -599,7 +619,7 @@ extension AppFeature {
     if let worktree = worktreeForCwd(prepared.cwd, state: state) {
       pending.launched = true
       state.pendingSessionLaunch = pending
-      return launchSessionTab(pending, worktree: worktree, state: &state)
+      return launchSessionTab(pending, directory: DirectoryContext(worktree: worktree), state: &state)
     }
     state.pendingSessionLaunch = pending
     return .send(.repositories(.registerSessionFolder(prepared.cwd)))
@@ -611,7 +631,7 @@ extension AppFeature {
   ) -> Effect<Action>? {
     guard let worktree = worktreeForCwd(pending.cwd, state: state) else { return nil }
     state.pendingSessionLaunch?.launched = true
-    return launchSessionTab(pending, worktree: worktree, state: &state)
+    return launchSessionTab(pending, directory: DirectoryContext(worktree: worktree), state: &state)
   }
 
   private static func worktreeForCwd(_ cwd: URL, state: State) -> Worktree? {
@@ -626,11 +646,11 @@ extension AppFeature {
   /// gets a task of its own, and so does a session no task lists. The task
   /// is created by its first tab, so no launch leaves an empty one behind.
   private static func launchSessionTab(
-    _ pending: PendingSessionLaunch, worktree: Worktree, state: inout State
+    _ pending: PendingSessionLaunch, directory: DirectoryContext, state: inout State
   ) -> Effect<Action> {
     @Dependency(TerminalClient.self) var terminalClient
     @Dependency(\.uuid) var uuid
-    let owner = pending.isNewSession ? nil : task(listing: pending.key, onDirectory: worktree.id, state: state)
+    let owner = pending.isNewSession ? nil : task(listing: pending.key, onDirectory: directory.worktreeID, state: state)
     let layoutID = owner ?? LayoutID(task: uuid())
     // The resumed session is the minted task's primary before its agent
     // reports. It is listed when the task's first tab exists, not here, so a
@@ -641,13 +661,13 @@ extension AppFeature {
     state.pendingTaskLaunches.removeAll { $0.layoutID == layoutID }
     for index in state.pendingTaskLaunches.indices { state.pendingTaskLaunches[index].isShown = false }
     state.pendingTaskLaunches.append(
-      PendingTaskLaunch(layoutID: layoutID, directoryID: worktree.id, primary: primary))
+      PendingTaskLaunch(layoutID: layoutID, directoryID: directory.worktreeID, primary: primary))
     let command = pending.command
     let requestID = pending.requestID
     return .run { send in
       await terminalClient.send(
         .createTabWithInput(
-          layoutID, DirectoryContext(worktree: worktree),
+          layoutID, directory,
           input: command,
           runSetupScriptIfNew: false,
           title: nil,
