@@ -1189,3 +1189,46 @@ deviation.
     (v2 drops a rotten origin silently) because the origin still owns
     surface ids. T2 owns refusing a lossy value (A9).
   Gate: check 0, `LayoutsTaskSplitterTests` 17 pass, build-app 0.
+- T2, 2026-10-08, `6f0dd838`: production codec and every consumer are on
+  `TaskLayoutsFile` (schema 3), still one task per directory. `LayoutsFile`
+  stays as the legacy v2 decode type only (`readPersisted`/`readFromDisk`/
+  `DiskState` moved to `TaskLayoutsFile`). Decisions:
+  - One decode for readers and writer, `TaskLayoutsFile.classify`: `.tasks`,
+    `.legacy` (v2 or v1 mapped by `init(oneTaskPerDirectory:)`, legacy id,
+    directory parsed from the key, origin → `origins`, no split), `.newer`,
+    `.lossy`, `.undecodable`. Readers serve only the first two.
+  - Backup: the v2 bytes go to the defaults key `layoutsFile.pre-tasks.bak`,
+    write-once, before the first v3 write. Two writers can be first: the
+    launch upgrade `LayoutsMigrator.migrateStoreToTasksIfNeeded` (called
+    after `SettingsRelocationMigrator.run()`) and the incremental writer;
+    both back up. Lossy/newer/undecodable defer and leave the blob as is.
+  - A mapped task has no real creation date: `TaskRecord.legacyCreatedAt`
+    (fixed), so the mapping is pure and re-reads compare equal. T6's split
+    stamps its own `now`.
+  - v3 also encodes an empty `worktrees` key. Without it a pre-v3 build's
+    writer fails the `LayoutsFile` decode, stashes the v3 blob as corrupt
+    and starts fresh; with it the old build sees schema 3 > 2 and stays
+    read-only, which is what the T2 note promises.
+  - Writer changes are keyed by `LayoutID`; `.record(layout:directory:
+    createdAt:)` is an upsert (an existing task keeps directory, sessions,
+    `createdAt`). `.delete` also drops `origins[key]`, as v2 did when the
+    origin lived on the record. A new task's directory is its host's, or for
+    a hostless layout the one its legacy key spells.
+  - `TerminalsFeature.State.directories` holds each hydrated layout's record
+    directory; `worktree(forLayout:)` reads it first, the roster scan is the
+    fallback for a layout created this run.
+  - Sidebar surface seeding groups persisted tasks by
+    `directory.worktreeID` (no key conversion in `RepositoriesFeature`);
+    `AppFeature+Sessions` reads `persistedLayout(forDirectory:)` through the
+    seam.
+  - `SettingsRelocationMigrator` seeds v3 straight from the legacy
+    `layouts.json` (which it then moves to `.backup`) and treats any blob
+    `classify` can name as valid, so a v3 store is never overwritten by a
+    legacy file. `SidebarPersistenceMigrator.rekeyLayouts` untouched: it
+    only rewrites the legacy file, which never holds v3.
+  Left for T3: `directories` for layouts created this run and the
+  `persistenceKey` path parse for a hostless layout's name and directory;
+  for T3/T6: `.delete` drops an origin only under the task's own key, so a
+  directory whose tasks all have minted ids keeps its origin until the
+  directory is removed. Gate: check 0, build-app 0, full `make test` 4023
+  with only the 5 baseline failures.
