@@ -61,6 +61,8 @@ struct WorktreeTerminalManagerPaneCycleTests {
       AppFeature()
     } withDependencies: {
       $0.uuid = .incrementing
+      // A tab change rebuilds the sessions sidebar rows, which are stamped.
+      $0.date.now = Date(timeIntervalSince1970: 0)
       $0.contentRuntime = ContentRuntime()
       $0[LayoutContentFactory.self] = LayoutContentFactory { request in
         InertTabContent(id: request.contentID, state: request.content)

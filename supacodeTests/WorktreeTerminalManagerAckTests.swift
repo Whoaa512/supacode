@@ -63,6 +63,8 @@ struct WorktreeTerminalManagerAckTests {
       AppFeature()
     } withDependencies: {
       $0.uuid = .incrementing
+      // A tab change rebuilds the sessions sidebar rows, which are stamped.
+      $0.date.now = Date(timeIntervalSince1970: 0)
       // One shared registry: the per-access `testValue` would otherwise hand
       // provision and lookup different runtimes.
       $0.contentRuntime = ContentRuntime()
@@ -206,6 +208,31 @@ struct WorktreeTerminalManagerAckTests {
         focusing: false))
     let events = await pump.next(1)
     #expect(events.first == .tabCreated(layoutID: harness.worktree.id.layoutID))
+  }
+
+  /// Activating a shell-only task row sends this command for a task that
+  /// already holds tabs, on a directory the roster may no longer list.
+  @Test(.dependencies) func ensureInitialTabOnAPopulatedOrphanTaskRequestsFocusWithoutATab() async {
+    let harness = makeHarness()
+    let pump = CreationEvents(harness.manager)
+    let layoutID = LayoutID(task: UUID())
+    let context = DirectoryContext(orphan: TaskRecord.Directory(worktreeID: "/gone/checkout"))
+    let tabID = UUID()
+    harness.manager.handleCommand(
+      .createTab(layoutID, context, runSetupScriptIfNew: false, id: tabID, focusing: false))
+    _ = await pump.next(2)
+    let before = harness.store.withState { $0.terminals.layouts[id: layoutID]?.layout }
+    #expect(harness.manager.hostIfExists(for: layoutID)?.pendingFocusClaim == false)
+
+    harness.manager.handleCommand(.ensureInitialTab(layoutID, context, runSetupScriptIfNew: false, focusing: true))
+    let events = await pump.next(1)
+
+    #expect(events == [.tabCreated(layoutID: layoutID)])
+    // No surface is mounted in a test, so the request is held until one is.
+    #expect(harness.manager.hostIfExists(for: layoutID)?.pendingFocusClaim == true)
+    let after = harness.store.withState { $0.terminals.layouts[id: layoutID]?.layout }
+    #expect(after == before, "no tab is made and the selected tab is kept")
+    #expect(after?.panes.first?.selectedTabID == TabID(rawValue: tabID))
   }
 
   private func singleTabLayout(contentID: UUID) -> PaneLayout {

@@ -64,7 +64,7 @@ final class WorktreeContentHost {
   /// a hibernated tab). Resolved by `applySurfaceActivity` once the focused
   /// surface is live and its window is key; it targets whatever pane is focused
   /// then, so it follows the user, and is cleared on worktree deselection.
-  @ObservationIgnored private var pendingFocusClaim = false
+  @ObservationIgnored private(set) var pendingFocusClaim = false
   @ObservationIgnored private(set) var isWorktreeSelected = false
   private var lastWindowIsKey: Bool?
   private var lastWindowIsVisible: Bool?
