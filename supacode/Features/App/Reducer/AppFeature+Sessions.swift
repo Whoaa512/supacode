@@ -740,12 +740,20 @@ extension AppFeature {
     let ref: String? = event.sessionRef ?? state.agentPresence.records[presenceKey]?.sessionRef
     guard let ref, !ref.isEmpty else { return .none }
     let sessionKey = SessionKey(harness: agent, sessionID: ref)
-    guard let worktreeID = worktreeIDForSurface(event.surfaceID, state: state) else { return .none }
-    if let branch = state.repositories.sidebarItems[id: worktreeID]?.branchName, !branch.isEmpty {
+    guard let entry = surfaceIndex(state: state)[event.surfaceID] else { return .none }
+    // The branch is the one the surface runs on. The directory's cached branch
+    // only speaks for a surface sitting in that directory; a tab elsewhere is probed.
+    let cwd = URL(fileURLWithPath: entry.cwd).standardizedFileURL
+    let runsInTaskDirectory = cwd == URL(fileURLWithPath: entry.directoryPath).standardizedFileURL
+    if runsInTaskDirectory,
+      let branch = state.repositories.sidebarItems[id: entry.directoryID]?.branchName, !branch.isEmpty
+    {
       return .send(.repositories(.sessionBranchCaptured(key: sessionKey, branch: branch)))
     }
-    guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
-    let request = BranchCaptureRequest(key: sessionKey, cwd: worktree.workingDirectory)
+    // A remote task's paths name nothing on this machine: never probe them here.
+    let context = directoryContext(forTask: entry.layoutID, directoryID: entry.directoryID, state: state)
+    guard context.host == nil else { return .none }
+    let request = BranchCaptureRequest(key: sessionKey, cwd: cwd)
     if state.branchCaptureInFlight {
       state.branchCaptureQueue.append(request)
       return .none
@@ -760,10 +768,6 @@ extension AppFeature {
       let branch = await gitClient.branchName(cwd)
       await send(.branchCaptureProbeCompleted(key: key, branch: branch))
     }
-  }
-
-  private static func worktreeIDForSurface(_ surfaceID: UUID, state: State) -> Worktree.ID? {
-    surfaceIndex(state: state)[surfaceID]?.directoryID
   }
 
   // MARK: - Surface index

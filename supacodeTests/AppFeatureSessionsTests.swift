@@ -2468,6 +2468,148 @@ struct AppFeatureSessionsTests {
           directoryPath: "/workspace", cwd: "/elsewhere"))
   }
 
+  // MARK: - Branch capture follows the surface's cwd
+
+  /// Branch by path: `/elsewhere` (and anything named so) is on `b-branch`, everything else on `a-branch`.
+  private func captureStore(
+    _ initial: AppFeature.State, probes: LockIsolated<[String]>, elsewhere: String = "/elsewhere"
+  ) -> TestStoreOf<AppFeature> {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.uuid = .incrementing
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+      $0.terminalClient.send = { _ in }
+      $0[GitClientDependency.self].branchName = { url in
+        let path = url.path(percentEncoded: false)
+        probes.withValue { $0.append(path) }
+        return path == elsewhere ? "b-branch" : "a-branch"
+      }
+    }
+    store.exhaustivity = .off
+    return store
+  }
+
+  private func busy(_ surfaceID: UUID, ref: String) -> AppFeature.Action {
+    .terminalEvent(
+      .agentHookEventReceived(
+        AgentHookEvent(
+          version: 1, agent: "pi", event: "busy", surfaceID: surfaceID, pid: nil, timestamp: nil,
+          sessionRef: ref, data: nil)))
+  }
+
+  /// The fixture directory's sidebar row, whose branch is what capture caches.
+  private func directoryRow(branch: String) -> SidebarItemFeature.State {
+    SidebarItemFeature.State(
+      id: worktree.id, repositoryID: "/workspace", kind: .gitWorktree, name: "workspace", branchName: branch,
+      subtitle: nil, workingDirectory: worktree.workingDirectory, repositoryAccent: nil, isMainWorktree: true,
+      isPinned: false, hasMergedBadge: false)
+  }
+
+  @Test(.dependencies) func aTangentRunningElsewhereCapturesTheBranchOfItsOwnDirectory() async {
+    var initial = twoTasksOnOneDirectory()
+    // The task's directory has a cached branch; it does not speak for a tab running elsewhere.
+    initial.repositories.sidebarItems = [directoryRow(branch: "a-branch")]
+    let probes = LockIsolated<[String]>([])
+    let store = captureStore(initial, probes: probes)
+
+    await store.send(busy(secondSurface, ref: "two"))
+    await store.finish()
+
+    #expect(store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "two")]?.branches == ["b-branch"])
+    #expect(probes.value == ["/elsewhere"])
+  }
+
+  @Test(.dependencies) func aSurfaceInTheTaskDirectoryCapturesTheCachedBranchWithoutProbing() async {
+    var initial = twoTasksOnOneDirectory()
+    initial.repositories.sidebarItems = [directoryRow(branch: "cached-branch")]
+    let probes = LockIsolated<[String]>([])
+    let store = captureStore(initial, probes: probes)
+
+    // One tab recorded no cwd, the other recorded the task directory itself.
+    await store.send(busy(firstSurface, ref: "one"))
+    await store.send(busy(surface, ref: "own"))
+    await store.finish()
+
+    #expect(
+      store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "one")]?.branches == ["cached-branch"])
+    #expect(
+      store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "own")]?.branches == ["cached-branch"])
+    #expect(probes.value.isEmpty)
+  }
+
+  @Test(.dependencies) func aSurfaceInTheTaskDirectoryIsProbedThereWhenNoBranchIsCached() async {
+    let probes = LockIsolated<[String]>([])
+    let store = captureStore(twoTasksOnOneDirectory(), probes: probes)
+
+    await store.send(busy(firstSurface, ref: "one"))
+    await store.finish()
+
+    #expect(store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "one")]?.branches == ["a-branch"])
+    #expect(probes.value == ["/workspace"])
+  }
+
+  @Test(.dependencies) func aRemoteTasksTabElsewhereIsNeverProbedOnThisMachine() async throws {
+    var initial = twoTasksOnOneDirectory()
+    let host = try #require(RemoteHost(authority: "me@box"))
+    initial.terminals.directories[second] = TaskRecord.Directory(worktreeID: "me@box/srv/app", host: host)
+    let probes = LockIsolated<[String]>([])
+    let store = captureStore(initial, probes: probes)
+
+    await store.send(busy(secondSurface, ref: "two"))
+    await store.finish()
+
+    #expect(store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "two")] == nil)
+    #expect(probes.value.isEmpty)
+  }
+
+  /// A tangent that ran in B inside a task on A recorded B's branch. Resuming
+  /// it where it ran compares against B; resuming it in A compares against A.
+  @Test(.dependencies, arguments: [true, false])
+  func resumingATangentComparesItsBranchWithTheDirectoryItResumesIn(resumesWhereItRan: Bool) async throws {
+    let directoryA = try temporaryDirectory(named: "tangent-a")
+    let directoryB = try temporaryDirectory(named: "tangent-b")
+    defer {
+      try? FileManager.default.removeItem(at: directoryA)
+      try? FileManager.default.removeItem(at: directoryB)
+    }
+    var initial = state()
+    for directory in [directoryA, directoryB] {
+      let worktree = Worktree(
+        id: WorktreeID(directory.path), name: directory.lastPathComponent, detail: "",
+        workingDirectory: directory, repositoryRootURL: directory)
+      initial.repositories.repositories.append(
+        Repository(
+          id: RepositoryID(directory.path), rootURL: directory, name: directory.lastPathComponent,
+          worktrees: [worktree]))
+    }
+    let key = SessionKey(harness: .pi, sessionID: "tangent")
+    let resumeDirectory = resumesWhereItRan ? directoryB : directoryA
+    initial.repositories.sessionItems = [
+      SessionSidebarItemFeature.State(
+        id: .session(key), title: "Tangent", cwd: resumeDirectory.path, createdAt: .distantPast)
+    ]
+    initial.repositories.$sessions.withLock { $0[key] = SessionSidecarEntry(branches: ["b-branch"]) }
+    let probes = LockIsolated<[String]>([])
+    let store = captureStore(initial, probes: probes, elsewhere: directoryB.path(percentEncoded: false))
+
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\.resumeBranchProbeCompleted)
+    await store.finish()
+
+    #expect(probes.value == [resumeDirectory.path(percentEncoded: false)])
+    if resumesWhereItRan {
+      #expect(store.state.alert == nil)
+      #expect(store.state.pendingBranchMismatchResume == nil)
+    } else {
+      #expect(store.state.pendingBranchMismatchResume?.recordedBranch == "b-branch")
+      #expect(store.state.pendingBranchMismatchResume?.currentBranch == "a-branch")
+      #expect(store.state.pendingBranchMismatchResume?.cwd == directoryA)
+    }
+  }
+
   @Test func provisionalAgentInNonActiveTaskIsNotUnresolved() {
     var state = twoTasksOnOneDirectory()
     state.agentPresence.records[.init(agent: .pi, surfaceID: secondSurface)] = record(ref: nil)
