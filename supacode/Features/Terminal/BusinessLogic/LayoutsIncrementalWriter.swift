@@ -50,9 +50,10 @@ actor LayoutsIncrementalWriter {
   /// tombstone: absence from a flush means "leave the key alone", so a pruned
   /// layout must be carried as `.delete`, never as omission.
   enum RecordChange: Sendable {
-    /// Upsert: an existing task takes the layout and any session it does not
-    /// list yet (its directory and `createdAt` are kept, and no stored session
-    /// is ever dropped); a new one is created from all four. A task left with
+    /// Upsert: an existing task takes the layout and, after the sessions it
+    /// already lists, any it does not list yet (its directory and `createdAt`
+    /// are kept, and no stored session is ever dropped or moved); a new one
+    /// is created from all four. A task left with
     /// no tab and no session is removed like a `.delete`.
     case record(layout: PaneLayout, directory: TaskRecord.Directory, sessions: [SessionKey] = [], createdAt: Date)
     case delete
@@ -130,8 +131,9 @@ actor LayoutsIncrementalWriter {
         var task = file.tasks[key] ?? TaskRecord(id: id, directory: directory, createdAt: createdAt)
         task.layout = layout
         // The caller may not have loaded the stored sessions, so its list
-        // adds to them and never replaces them.
-        task.sessions = sessions + task.sessions.filter { !sessions.contains($0) }
+        // only adds to them: stored order stands (the first is the primary)
+        // and anything new goes after.
+        task.sessions += sessions.filter { !task.sessions.contains($0) }
         // Nothing open and nothing to resume: the task leaves no trace. One
         // with sessions stays, so its members are still there to resume.
         guard layout.panes.isEmpty, task.sessions.isEmpty else {

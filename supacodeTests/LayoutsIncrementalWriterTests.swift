@@ -474,7 +474,7 @@ struct LayoutsIncrementalWriterTests {
     #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [sessionKey("one"), sessionKey("two")])
   }
 
-  @Test func recordNeverDropsAStoredSession() async {
+  @Test func recordNeverDropsOrReordersAStoredSession() async {
     let defaults = makeDefaults()
     let writer = makeWriter(defaults)
     let minted = LayoutID(task: UUID())
@@ -484,8 +484,24 @@ struct LayoutsIncrementalWriterTests {
     await writer.flush(records: [minted: change(layout("/w1"), sessions: [])])
     await writer.flush(records: [minted: change(layout("/w1"), sessions: [sessionKey("three")])])
 
+    // The first session is the primary: a partial list never takes its place.
     #expect(
-      Set(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions ?? [])
+      readFile(defaults)?.tasks[minted.persistenceKey]?.sessions
+        == [sessionKey("one"), sessionKey("two"), sessionKey("three")])
+  }
+
+  @Test func aPartialListNamingAStoredTangentDoesNotPromoteIt() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let minted = LayoutID(task: UUID())
+    await writer.flush(records: [minted: change(layout("/w1"), sessions: [sessionKey("one"), sessionKey("two")])])
+
+    await writer.flush(records: [minted: change(layout("/w1"), sessions: [sessionKey("two"), sessionKey("three")])])
+    // The same holds when the last tab closes with a partial list.
+    await writer.flush(records: [minted: change(PaneLayout(), sessions: [sessionKey("three"), sessionKey("two")])])
+
+    #expect(
+      readFile(defaults)?.tasks[minted.persistenceKey]?.sessions
         == [sessionKey("one"), sessionKey("two"), sessionKey("three")])
   }
 
