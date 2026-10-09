@@ -2369,3 +2369,48 @@ deviation.
   tests (it is deleted); the writer tests for the map went with it.
   Gate: check 0, full `make test` exit 2 with 4251 tests and only the 5
   baseline failures, build-app 0.
+- T9 r6 (review fixes), 2026-10-09, `2675d8ee`. **Revised**: this overrides
+  r5 where they differ. In particular r5's accepted cost ("a quit inside
+  the launch window stores no session that first appeared in it") is gone.
+  - Membership lost by a quit or a last-tab close before the load (P1, D5).
+    Confirmed: while `storedSessions` was `.pending` the writer kept the
+    stored list, so a task minted in the window was saved with no session
+    and, once its last tab closed, deleted. Fix: remove the window rather
+    than approximate it. `SupacodeApp.init` sends
+    `TerminalsFeature.Action.storedSessions(readPersisted)` right after the
+    store is wired, with no suspension in between: `.storedSessionsLoaded`
+    (a readable or absent store) or `.storedSessionsUnreadable`. It runs
+    the same merge-and-replay the layouts' load ran
+    (`State.loadStoredSessions`), creates no layout, and flips to
+    `.loaded`. `layoutsHydrated` still follows `resolveLiveZmxSessions` and
+    calls the same helper, which by then only adds stored sessions the run
+    does not list. So in the app `storedSessions` is never `.pending` once
+    `init` returns; every write, the quit's included, merges the run's
+    list over the stored one (`.loaded`) or adds after it (`.unreadable`).
+    Decisions:
+    - Load early over "durably preserve pending operations": one
+      synchronous read removes the case, where persisting a queue would
+      add a second stored format.
+    - The pending queue, `storing(.pending)` and the pending quit guard
+      stay: they are what makes the reducer exact when driven without the
+      early load (tests, and `layoutsHydrated` alone), and cost nothing.
+    - Same class checked: `removeTaskIfEmptied` already decides on the
+      run's members and the writer's stored list, so with the run's list
+      now written it keeps the emptied task; `saveAllLayoutSnapshots`,
+      `flushLayoutSnapshot` all go through `recordChange`, which reads
+      `storedSessions`; nothing else writes or deletes on membership.
+  - Live-only checks (P3): not run here, for cj. The r1-r5 lists stand.
+  Not unit-tested: the one line in `SupacodeApp.init` that sends the
+  action (the mapping it sends and everything after it are).
+  Tests: `TerminalsFeatureTests` (sessions load ahead of the layouts with
+  a queued replacement, the layouts' load then changes no member; the
+  disk-state mapping), `WorktreeTerminalManagerAckTests` (quit save
+  before the layouts load, for a stored task with a replacement and a
+  minted one, then a relaunch with no agent; last tab closed before the
+  layouts load, record kept empty with its session, then relaunch).
+  Mutation-checked: with `.storedSessionsLoaded` a no-op the reducer test
+  fails and the two manager tests never get their write (the run hung
+  and was killed).
+  Gate: check 0, focused (`TerminalsFeatureTests` +
+  `WorktreeTerminalManagerAckTests`) exit 0 with 89 tests, build-app 0,
+  full `make test` exit 2 with 4255 tests and only the 5 known failures.
