@@ -571,6 +571,27 @@ struct LayoutsIncrementalWriterTests {
     #expect(TaskMembership.storing([new, two, one], into: [one, two], known: .unreadable) == [one, two, new])
   }
 
+  @Test func replayingAppliesOnlyTheTasksOwnChangesInOrder() {
+    let (task, other) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    let (one, two, new) = (sessionKey("one"), sessionKey("two"), sessionKey("new"))
+    let surface = UUID()
+    let waiting = TaskAgent(layoutID: task, harness: .pi, surfaceID: surface, sessionRef: nil)
+    let reported = TaskAgent(layoutID: task, harness: .pi, surfaceID: surface, sessionRef: "new")
+    let elsewhere = TaskAgent(layoutID: other, harness: .pi, surfaceID: UUID(), sessionRef: "stray")
+    let changes: [TaskMembership.Change] = [
+      .agents([waiting, elsewhere]),
+      .replaced(other, old: one, new: two),
+      .replaced(task, old: two, new: new),
+      .agents([reported, elsewhere]),
+    ]
+
+    // The newcomer takes the tangent's slot; the agent that was waiting
+    // for it leaves no second entry, and the other task's changes none.
+    #expect(
+      TaskMembership.replaying(changes, for: task, onto: [one, two]) == [.session(one), .session(new), .session(two)])
+    #expect(TaskMembership.replaying([], for: task, onto: [one, two]) == [.session(one), .session(two)])
+  }
+
   /// The review's sequence: stored `[a, b]`, then a>b, b>a, b>c, c>b before
   /// the load, with a write after every step.
   @Test func replacementsBeforeTheLoadWithWritesBetweenKeepTheStoredPrimary() async {

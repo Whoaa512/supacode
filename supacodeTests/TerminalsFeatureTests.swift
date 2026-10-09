@@ -1150,6 +1150,64 @@ struct TerminalsFeatureTests {
     #expect(store.state.members[minted] == members)
   }
 
+  /// The load writes only the tasks whose sessions differ from the stored
+  /// ones: a task the run changed nothing about is left alone.
+  @Test(.dependencies) func theLoadWritesOnlyTasksWhoseSessionsChanged() async {
+    let key = { SessionKey(harness: .pi, sessionID: $0) }
+    let (same, grown, fresh) = (LayoutID(task: UUID()), LayoutID(task: UUID()), LayoutID(task: UUID()))
+    var unchanged = Self.task(same, on: "/tmp/repo")
+    unchanged.sessions = [key("one"), key("two")]
+    var added = Self.task(grown, on: "/tmp/repo")
+    added.sessions = [key("three")]
+    let reported = LockIsolated<[LayoutID]>([])
+    let store = TestStore(initialState: TerminalsFeature.State()) {
+      TerminalsFeature()
+    } withDependencies: {
+      $0[LayoutChangeObserver.self].sessionsChanged = { id in reported.withValue { $0.append(id) } }
+    }
+    store.exhaustivity = .off
+    let agents = [
+      TaskAgent(layoutID: same, harness: .pi, surfaceID: UUID(), sessionRef: "two"),
+      TaskAgent(layoutID: grown, harness: .pi, surfaceID: UUID(), sessionRef: "four"),
+      TaskAgent(layoutID: fresh, harness: .pi, surfaceID: UUID(), sessionRef: "five"),
+    ]
+    await store.send(
+      .membersChanged(
+        [same: [.session(key("two"))], grown: [.session(key("four"))], fresh: [.session(key("five"))]],
+        agents: agents))
+    await store.finish()
+    reported.setValue([])
+
+    await store.send(.layoutsHydrated(Self.file([unchanged, added])))
+    await store.finish()
+
+    #expect(store.state.members[same] == [.session(key("one")), .session(key("two"))])
+    #expect(store.state.members[grown] == [.session(key("three")), .session(key("four"))])
+    #expect(store.state.members[fresh] == [.session(key("five"))])
+    #expect(Set(reported.value) == [grown, fresh])
+    #expect(reported.value.count == 2)
+  }
+
+  /// A task removed before the load takes its queued changes with it: a
+  /// record of the same id read afterwards gets none of them.
+  @Test(.dependencies) func aTaskRemovedBeforeTheLoadIsNotReplayed() async {
+    let minted = LayoutID(task: UUID())
+    let key = { SessionKey(harness: .pi, sessionID: $0) }
+    var record = Self.task(minted, on: "/tmp/repo")
+    record.sessions = [key("one"), key("two")]
+    let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
+    store.exhaustivity = .off
+    let agent = TaskAgent(layoutID: minted, harness: .pi, surfaceID: UUID(), sessionRef: "two")
+
+    await store.send(.membersChanged([minted: [.session(key("two"))]], agents: [agent]))
+    await store.send(.sessionReplaced(minted, old: key("one"), new: key("two")))
+    await store.send(.detachLayout(worktreeID: minted))
+    #expect(store.state.pendingMembership == [.agents([])])
+    await store.send(.layoutsHydrated(Self.file([record])))
+
+    #expect(store.state.members[minted] == [.session(key("one")), .session(key("two"))])
+  }
+
   @Test(.dependencies) func anUnreadableStoreEndsTheWaitAndWritesWhatTheRunLists() async {
     let minted = LayoutID(task: UUID())
     let key = SessionKey(harness: .pi, sessionID: "one")
