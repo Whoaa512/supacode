@@ -123,8 +123,10 @@ Ownership and migration:
 - A16 (auto) Every indexed session with no `TaskRecord` appears as its own
   task row; row count on first launch ≥ today's session row count (D2).
 - A17 (auto) Selecting a different task in the same directory changes the
-  shown layout and emits no directory-side effects (no watcher reselect, no
-  script/settings reload).
+  shown layout and leaves the selected directory unchanged. (Revised
+  2026-10-08 with R7: the handler is not gated, so the directory-side
+  sends repeat for the same directory, as they already do today on same-id
+  re-sends. Skipping them is an optimisation, not part of done.)
 - A18 (auto) `selectedWorktreeID` equals the selected task's directory, so
   directory features (scripts, PR, explorer, open-in) follow the task.
 - A19 (auto) Task settle closes every tab of the task and settles the
