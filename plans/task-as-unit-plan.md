@@ -1419,3 +1419,19 @@ deviation.
   exists since R6). Gate: check 0, `supacodeFeatureTests` + `supacodeTests`
   3189 tests with only 3 baseline failures (ack flake, settings-changed,
   bracket chords), build-app 0.
+  Review fix r1: mapping a non-active or orphan task's provisional agent
+  cleared the global unresolved-presence gate, but auto-settle then protected
+  only the task directory, so an old session indexed where the tab actually
+  ran could be settled while possibly being that agent. The snapshot now
+  also carries `surfaceCwd` (the tab's recorded cwd when it differs from the
+  task directory) and `autoSettleSessions` protects both directories. Chosen
+  over putting the tab cwd in `SessionLiveSnapshot.cwd` because row cwd and
+  branch annotation stay T8's; over keeping the global gate because that
+  blocks all settlement for any mapped provisional agent. Reducer tests drive
+  restore then refresh for a live non-active task and a persisted orphan.
+  Left for T8: a tab that `cd`s after launch has no recorded cwd until the
+  next layout snapshot, so only its task directory is protected (same as
+  before T4 for the active task); T8's cwd-aware work should feed the live
+  pwd here. Gate: check 0, `AppFeatureSessionsTests` 71 pass,
+  `supacodeFeatureTests` 1004 and `supacodeTests` 2187 with only the 3
+  baseline failures, build-app 0.
