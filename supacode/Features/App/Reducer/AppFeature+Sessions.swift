@@ -150,6 +150,13 @@ extension AppFeature {
           Self.membershipEffect(state: state, index: index) ?? .none,
           .send(.repositories(.sessionSnapshotsChanged(snapshots))),
           .send(.repositories(.taskSnapshotsChanged(Self.taskSnapshots(tasks: tasks)))),
+          // Ahead of the auto-settle pass below, which judges tasks as a whole.
+          .send(
+            .repositories(
+              .taskSessionsChanged(
+                Self.taskSessions(
+                  TaskMembership.reconciled(
+                    state.terminals.members, agents: Self.taskAgents(state: state, index: index)))))),
           .send(
             .repositories(
               .sessionsRestorationCompleted(
@@ -180,6 +187,10 @@ extension AppFeature {
         let taskRows = Self.taskSnapshots(tasks: tasks)
         if taskRows != state.repositories.taskSnapshots {
           effects.append(.send(.repositories(.taskSnapshotsChanged(taskRows))))
+        }
+        let taskSessions = Self.taskSessions(state.terminals.members)
+        if taskSessions != state.repositories.taskSessions {
+          effects.append(.send(.repositories(.taskSessionsChanged(taskSessions))))
         }
         if let selected = state.repositories.selectedTask, !Self.hasTask(selected.id, state: state) {
           effects.append(.send(.repositories(.selectedTaskRemoved)))
@@ -222,6 +233,11 @@ extension AppFeature {
         return .send(.repositories(.unsettleSession(key)))
 
       case .terminalEvent(.agentHookEventReceived(let event)):
+        // An agent running inside the surface's own is not its session:
+        // nothing here follows it, and presence ignores it too.
+        if AgentPresenceFeature.isFromNestedAgent(event, in: state.agentPresence) {
+          return .send(.agentPresence(.hookEventReceived(event)))
+        }
         let suppressEnd =
           event.eventName == .sessionEnd
           && (state.isQuitting || terminalClient.isHarnessEndSuppressed(event.surfaceID))
@@ -232,7 +248,7 @@ extension AppFeature {
         let branchEffect = Self.enqueueBranchCapture(for: event, state: &state)
         let settlement: Effect<Action> =
           !state.isQuitting && !terminalClient.isHarnessEndSuppressed(event.surfaceID)
-          ? Self.settleReplacedOrEndedSession(event: event, state: state) : .none
+          ? Self.settleReplacedOrEndedSession(event: event, state: &state) : .none
         var activity: Effect<Action> = .none
         if event.eventName == .busy || event.eventName == .idle,
           let agent = SkillAgent(rawValue: event.agent), let ref = event.sessionRef,
@@ -264,23 +280,132 @@ extension AppFeature {
     }
   }
 
-  static func settleReplacedOrEndedSession(event: AgentHookEvent, state: State) -> Effect<Action> {
-    guard let agent = SkillAgent(rawValue: event.agent),
-      let record = state.agentPresence.records[
-        AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: event.surfaceID)],
-      let oldRef = record.sessionRef
+  /// A changed session on a surface is a replacement, not a quit: the task
+  /// stays open and only the replaced session is marked. A quit settles the
+  /// task when it was the primary's and no other agent of the task is running.
+  static func settleReplacedOrEndedSession(event: AgentHookEvent, state: inout State) -> Effect<Action> {
+    guard let agent = SkillAgent(rawValue: event.agent) else { return .none }
+    let presenceKey = AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: event.surfaceID)
+    let record = state.agentPresence.records[presenceKey]
+    if event.eventName == .sessionStart || event.eventName == .busy {
+      guard let newRef = event.sessionRef else { return .none }
+      let new = SessionKey(harness: agent, sessionID: newRef)
+      guard new.isValid else { return .none }
+      if let oldRef = record?.sessionRef {
+        guard newRef != oldRef else { return .none }
+        state.endedSessions[presenceKey] = nil
+        return replaceSession(
+          SessionKey(harness: agent, sessionID: oldRef), with: new, onSurface: event.surfaceID, state: state)
+      }
+      // Pi ends the old session before it starts the next, so by now the
+      // record is gone and the ended session is all that names the old one.
+      guard let old = state.endedSessions.removeValue(forKey: presenceKey), old != new else { return .none }
+      return replaceSession(old, with: new, onSurface: event.surfaceID, state: state)
+    }
+    guard event.eventName == .sessionEnd, let record, let oldRef = record.sessionRef,
+      record.matchesSessionEnd(event)
     else { return .none }
     let key = SessionKey(harness: agent, sessionID: oldRef)
-    if event.eventName == .sessionStart || event.eventName == .busy {
-      guard let newRef = event.sessionRef, newRef != oldRef else { return .none }
+    // Only Pi says why it ended. A bare end may be a quit or the first half
+    // of a replacement (Claude ends the session on `/clear` too).
+    var reason: String?
+    if agent == .pi {
+      guard event.sessionRef == oldRef, let named = event.shutdownReason, named != "reload" else { return .none }
+      reason = named
+    }
+    let isQuit = reason == "quit"
+    state.endedSessions[presenceKey] = isQuit ? nil : key
+    if reason != nil, !isQuit {
+      // `new`, `resume`, `fork`: the replaced session is marked, nothing closes.
       return .send(.repositories(.settleSession(key)))
     }
-    guard event.eventName == .sessionEnd, record.matchesSessionEnd(event) else { return .none }
-    if agent == .pi {
-      guard event.sessionRef == oldRef, let reason = event.shutdownReason, reason != "reload"
-      else { return .none }
+    let index = surfaceIndex(state: state)
+    guard let layoutID = index[event.surfaceID]?.layoutID,
+      let members = state.terminals.members[layoutID], members.contains(.session(key))
+    else {
+      // No task lists it: there is only the session to mark.
+      return .send(.repositories(.settleSession(key)))
     }
-    return .send(.repositories(.settleSession(key)))
+    let othersAreRunning = state.agentPresence.records.keys.contains {
+      $0 != presenceKey && index[$0.surfaceID]?.layoutID == layoutID
+    }
+    // A tangent quitting settles nothing, and the primary quitting beside a
+    // running tangent leaves the task open: settling would close its tabs.
+    guard members.first == .session(key), !othersAreRunning else { return .none }
+    // Tabs close only for a quit the harness named, from a local process. A
+    // bare or remote end cannot be told from an agent that is still there.
+    guard isQuit, event.pid != nil else { return .send(.repositories(.settleSession(key))) }
+    return settleTask(layoutID, state: state)
+  }
+
+  /// `new` takes `old`'s slot in the task that owns the surface. `old` is
+  /// only marked settled; `new` is running, so a mark on it is lifted.
+  private static func replaceSession(
+    _ old: SessionKey, with new: SessionKey, onSurface surfaceID: UUID, state: State
+  ) -> Effect<Action> {
+    var effects: [Effect<Action>] = []
+    if let layoutID = surfaceIndex(state: state)[surfaceID]?.layoutID {
+      effects.append(.send(.terminals(.sessionReplaced(layoutID, old: old, new: new))))
+    }
+    if state.repositories.sessions[old]?.settledAt == nil {
+      effects.append(.send(.repositories(.settleSession(old))))
+    }
+    if state.repositories.sessions[new]?.settledAt != nil {
+      effects.append(.send(.repositories(.unsettleSession(new))))
+    }
+    return .concatenate(effects)
+  }
+
+  // MARK: - Task settle
+
+  /// The task's primary session: the first member, once its agent has reported.
+  static func primarySession(of layoutID: LayoutID, state: State) -> SessionKey? {
+    if let members = state.terminals.members[layoutID] { return members.first?.sessionKey }
+    return storedTask(layoutID, state: state)?.sessions.first
+  }
+
+  /// A task is settled exactly when its current primary's entry is.
+  static func isTaskSettled(_ layoutID: LayoutID, state: State) -> Bool {
+    guard let primary = primarySession(of: layoutID, state: state) else { return false }
+    return state.repositories.sessions[primary]?.settledAt != nil
+  }
+
+  /// Settles the task: marks its current primary and closes every tab the
+  /// way Cmd-W would, so the close-confirmation setting still guards a busy
+  /// one. A shell-only task has no session to mark; its last tab closing
+  /// removes it.
+  static func settleTask(_ layoutID: LayoutID, state: State) -> Effect<Action> {
+    var effects: [Effect<Action>] = []
+    if let primary = primarySession(of: layoutID, state: state) {
+      effects.append(.send(.repositories(.settleSession(primary))))
+    }
+    for pane in state.terminals.layouts[id: layoutID]?.layout.panes ?? [] {
+      guard let tab = pane.tabs.first else { continue }
+      effects.append(
+        .send(
+          .terminals(
+            .layouts(.element(id: layoutID, action: .contentRequestedClose(content: tab.content.id, scope: .allTabs)))
+          )))
+    }
+    return .merge(effects)
+  }
+
+  /// The task a session leads. A session two tasks lead resolves to the one
+  /// its row points at, else the lowest key.
+  static func taskLed(by key: SessionKey, state: State) -> LayoutID? {
+    let led = state.terminals.members.filter { $0.value.first == .session(key) }.map(\.key)
+    if let shown = state.repositories.sessionItems[id: .session(key)]?.location?.layoutID, led.contains(shown) {
+      return shown
+    }
+    return led.min { $0.persistenceKey < $1.persistenceKey }
+  }
+
+  /// Every task's sessions, primary first, for the task-level auto-settle.
+  static func taskSessions(_ members: [LayoutID: [TaskMember]]) -> [LayoutID: [SessionKey]] {
+    members.compactMapValues {
+      let sessions = $0.compactMap(\.sessionKey)
+      return sessions.isEmpty ? nil : sessions
+    }
   }
 
   // MARK: - Launch orchestration
@@ -328,9 +453,12 @@ extension AppFeature {
     return URL(fileURLWithPath: item.cwd).standardizedFileURL
   }
 
-  /// A manual settle means "done with this": close its tabs the way Cmd-W
-  /// would, so the close-confirmation setting still guards a busy agent.
+  /// A manual settle means "done with this". On a task's primary it settles
+  /// the task. On any other session it marks that session and closes its own
+  /// tab the way Cmd-W would: until rows are grouped by task, a tangent's row
+  /// must not take the rest of its task down with it.
   static func settleAndCloseSession(_ key: SessionKey, state: State) -> Effect<Action> {
+    if let layoutID = taskLed(by: key, state: state) { return settleTask(layoutID, state: state) }
     let closes = state.repositories.sessionSnapshots.filter { $0.id == .session(key) }.map {
       Effect<Action>.send(
         .terminals(
@@ -345,11 +473,20 @@ extension AppFeature {
 
   static func handleSettleSessionAndAdvance(state: inout State) -> Effect<Action> {
     let currentID = focusedSessionRowID(state: state) ?? state.repositories.sessionSelection
-    guard let currentID, case .session(let key) = currentID else { return .none }
-    let nextID = state.repositories.sessionRowID(byOffset: 1, focusedRowID: currentID)
-    let advanceTarget = nextID != currentID ? nextID : nil
-    let settleEffect = settleAndCloseSession(key, state: state)
-    guard let target = advanceTarget,
+    let settledTask: LayoutID?
+    let settleEffect: Effect<Action>
+    switch currentID {
+    case .session(let key):
+      settledTask = taskLed(by: key, state: state)
+      settleEffect = settleAndCloseSession(key, state: state)
+    case .task(let layoutID):
+      settledTask = layoutID
+      settleEffect = settleTask(layoutID, state: state)
+    case .provisional, nil:
+      return .none
+    }
+    guard let currentID,
+      let target = nextLiveRow(after: currentID, outside: settledTask, state: state),
       let targetItem = state.repositories.sessionItems[id: target],
       let location = targetItem.location
     else { return settleEffect }
@@ -361,6 +498,22 @@ extension AppFeature {
       effects.append(.send(.repositories(.unsettleSession(targetKey))))
     }
     return .merge(effects)
+  }
+
+  /// The next live row after `current`, skipping rows of the task being
+  /// settled: its tabs are closing, so advancing must land on another task.
+  private static func nextLiveRow(
+    after current: SessionRowID, outside settledTask: LayoutID?, state: State
+  ) -> SessionRowID? {
+    let live = state.repositories.sessionsSidebarStructure.liveIDs
+    let start = live.firstIndex(of: current).map { $0 + 1 } ?? 0
+    for offset in live.indices {
+      let id = live[(start + offset) % live.count]
+      guard id != current else { continue }
+      if let settledTask, state.repositories.sessionItems[id: id]?.location?.layoutID == settledTask { continue }
+      return id
+    }
+    return nil
   }
 
   static func handleSessionDeeplink(

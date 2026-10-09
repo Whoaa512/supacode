@@ -93,6 +93,15 @@ struct AgentPresenceFeature {
     var sessionRef: String?
     var currentSessionPID: pid_t?
 
+    /// An event from a process one of this record's own started: an agent
+    /// running inside this one (a workflow sub-agent inherits the surface's
+    /// identity and terminal). It is not this surface's session, so it must
+    /// neither replace nor end it. Only a local event carries a pid to check.
+    func isFromNestedAgent(_ event: AgentHookEvent, isDescendant: (pid_t, pid_t) -> Bool) -> Bool {
+      guard let pid = event.pid, !pids.contains(pid) else { return false }
+      return pids.contains { isDescendant(pid, $0) }
+    }
+
     func matchesSessionEnd(_ event: AgentHookEvent) -> Bool {
       if let ref = event.sessionRef, let sessionRef, ref != sessionRef { return false }
       guard let pid = event.pid else { return pids.isEmpty }
@@ -299,6 +308,14 @@ struct AgentPresenceFeature {
 
   // MARK: - Mutators.
 
+  static func isFromNestedAgent(_ event: AgentHookEvent, in state: State) -> Bool {
+    guard let agent = SkillAgent(rawValue: event.agent),
+      let record = state.records[PresenceKey(agent: agent, surfaceID: event.surfaceID)]
+    else { return false }
+    @Dependency(\.processAncestry) var processAncestry
+    return record.isFromNestedAgent(event, isDescendant: processAncestry.isDescendant)
+  }
+
   /// `apply(event:)` plus the per-record diagnostics `agent explain` reports.
   /// Diagnostics are written after the fact so no mutator has to thread them,
   /// and they never widen the returned dirty-surface set: nothing renders them.
@@ -307,6 +324,7 @@ struct AgentPresenceFeature {
   ) -> Set<UUID> {
     guard let agent = SkillAgent(rawValue: event.agent) else { return apply(event: event, into: &state) }
     let key = PresenceKey(agent: agent, surfaceID: event.surfaceID)
+    if isFromNestedAgent(event, in: state) { return [] }
     if event.eventName == .sessionEnd,
       state.records[key]?.matchesSessionEnd(event) != true
     {

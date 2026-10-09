@@ -201,6 +201,9 @@ struct AppFeature {
     /// The tasks launches targeted, oldest first, each until its first tab exists.
     var pendingTaskLaunches: [PendingTaskLaunch] = []
     var lastFocusedSessionRowID: SessionRowID?
+    /// The session an agent last ended on a surface that is still open, so
+    /// the next session it reports there is known to replace that one.
+    var endedSessions: [AgentPresenceFeature.PresenceKey: SessionKey] = [:]
     var pendingBranchMismatchResume: PendingBranchMismatchResume?
     /// Tracks when each key last launched a tab; prevents re-launch within 10 s of dispatch.
     var recentSessionLaunchDate: [SessionKey: Date] = [:]
@@ -2405,6 +2408,7 @@ struct AppFeature {
           }
           return false
         }
+        state.endedSessions = state.endedSessions.filter { !ids.contains($0.key.surfaceID) }
         let presenceEffect: Effect<Action> =
           ids.count == 1
           ? .send(.agentPresence(.surfaceClosed(ids.first!)))
