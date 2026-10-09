@@ -5,6 +5,10 @@ Fold each into the named slice when that slice is implemented.
 
 ## Workflow sub-agents disturb the parent session's row (reported 2026-10-08)
 
+**Folded into T9 (2026-10-09)**: fixed app-side by ignoring events from a
+process the surface's own agent started. See the T9 Progress entry; the live
+UI still has to confirm the symptom is gone.
+
 **Symptom** (cj, live): while a pi session runs background workflows, its
 sidebar row keeps reverting to "New session" or gets settled unexpectedly.
 

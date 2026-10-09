@@ -2020,3 +2020,84 @@ deviation.
   persisted-only, is never probed.
   Gate: check 0, `supacodeFeatureTests/AppFeatureSessionsTests` 128 tests
   0 failures, build-app 0. No full `make test` (not a full-run slice).
+
+- T9, 2026-10-09, `317c945e` + `8374ff71` + `7011b2f7`: replacement,
+  quit and settle at the level of a task; the sub-agent follow-up folded in.
+  - Replacement: a changed ref on a surface puts the new session in the
+    replaced one's slot (`TerminalsFeature` `.sessionReplaced`,
+    `TaskMembership.replacing`), marks the replaced one with `settleSession`
+    and lifts a settled mark on the new one (it is running). Nothing closes,
+    no task is minted. Pi ends the old session before it starts the next, so
+    the record is gone by then: `AppFeature.State.endedSessions` remembers,
+    per agent and surface, the session that ended there (Pi `new`, `resume`,
+    `fork`; any bare end of another harness) until the next ref arrives or
+    the surface closes.
+  - Stored order: the writer still never moves or drops a stored session and
+    never reorders on the caller's list alone. The reducer names each
+    replacement for the run (`replacedSessions`, new → replaced), the manager
+    passes it with the record, and `TaskMembership.storing` places only an
+    unlisted session whose replaced one is stored. Chains written at once
+    keep their order. This is T7 r4's "T9 needs its own reorder change".
+  - Quit: a tangent's quit settles nothing; the primary's settles nothing
+    while any other agent runs in the task (reported or not).
+    Decision (not in the plan): `settleTask` on quit, which closes tabs,
+    needs a quit that is positively identified: Pi `reason=quit` from a local
+    process. A bare end (Claude ends its session on `/clear` too) or a
+    pid-less remote end of a lone primary only marks the primary, as before.
+    Reason: closing a tab under an agent that is still there kills a session.
+  - `settleTask(id)`: marks the current primary (if it has reported) and
+    asks every pane to close all its tabs through `contentRequestedClose`,
+    so the close-confirmation setting still applies. `isTaskSettled` is the
+    current primary's entry. No row reads it yet: rows stay per session
+    until S1, each with its own mark.
+  - Manual settle. Decision: on a task's primary it is `settleTask`; on any
+    other session's row it stays what it was (mark that session, close its
+    own tab). Until S1 groups rows, a tangent's row must not take its task's
+    other tabs down. Settle-and-advance does the same, also works on a
+    shell-only task's row, and advances to the next live row outside the
+    settled task (this is T7 r1's "next live task", for the chord only: a
+    plain last-tab close still falls back to the directory).
+  - Auto-settle. Decision: every member is judged with its task: none
+    settles while an agent runs in a task that lists it (by layout, so a
+    provisional agent counts) and the idle age is the newest member's
+    activity. All members of an idle task settle together, not only the
+    primary, so no tangent row is left behind in Active before S1.
+    Membership reaches `RepositoriesFeature` as `taskSessions`.
+  - Reopen needed no change: a row resumes its own session into the task
+    that lists it, so reopening the primary resumes only the primary.
+  - Sub-agents (follow-up, 2026-10-08). Cause checked from inside one, not
+    from the app's signals (the app was not run): this slice's agent was a
+    workflow sub-agent whose pi process had the parent's
+    `SUPACODE_SURFACE_ID`, the parent's controlling tty, and a session file
+    under `~/.pi/agent/subagent-sessions`, so the Pi extension in it reports
+    its own session and end on the parent's surface. With T9 that would have
+    read as replace-then-quit and closed the parent's tabs. Fix is on the app
+    side and not Pi-specific: an event whose pid is a descendant of a pid the
+    surface's record tracks (`ProcessAncestryClient`, a bounded `sysctl`
+    parent walk) is ignored by presence and by everything in the hook
+    handler. The session ref cannot be used: it is an id, not a path.
+  Left for later:
+  - S1: `userClosedSurfaces` still marks whatever session was on a closed
+    tab, primary or not, and closes nothing else; `settleTask` on a task
+    whose primary has not reported marks nothing; trailing members that T7
+    appended for earlier `/new` and sub-agent refs stay (nothing identifies
+    them after the fact); a session already listed keeps its slot when it is
+    resumed over another, so the replaced primary stays first and settled
+    while the resumed one runs.
+  - A remote (pid-less) sub-agent cannot be told apart and still replaces
+    the parent's session; it can no longer close tabs. Sub-agent
+    notifications are a separate path and still arrive.
+  - A local agent that dies without an end and is replaced by a child of
+    the same shell within the 2 s liveness sweep is unaffected (a sibling is
+    not a descendant).
+  Only the live UI can confirm: Pi quitting closes the task's tabs and the
+  row moves to Settled; `/new` keeps the tab and the row; a workflow no
+  longer flips the parent row to "New session" or settles it; the wait on
+  several panes' close confirmations when one is busy.
+  Tests: new `AppFeatureSessionsTaskSettleTests` (A37 table, A19, sub-agent,
+  settle-and-advance, reopen), `RepositoriesFeatureAutoSettleTests` (four),
+  `LayoutsIncrementalWriterTests` (four), `TerminalsFeatureTests`,
+  `WorktreeTerminalManagerAckTests`. Mutation-checked: slot, nested check,
+  running-tangent guard and task-level liveness each fail their tests.
+  Gate: check 0, full `make test` exit 2 with 4212 tests and only the 5
+  baseline failures, build-app 0.
