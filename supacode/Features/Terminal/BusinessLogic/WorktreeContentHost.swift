@@ -58,7 +58,15 @@ final class WorktreeContentHost {
   /// leaf signal, the dictionary itself must not fan out invalidation.
   @ObservationIgnored private(set) var surfaceStates: [UUID: WorktreeSurfaceState] = [:]
   @ObservationIgnored private var lastCustomNotificationAt: [UUID: any InstantProtocol<Duration>] = [:]
-  @ObservationIgnored private var pendingAgentOSCNotifications: [UUID: Task<Void, Never>] = [:]
+  /// Held OSC 9s. The payload is kept beside its timer so a tab that moves
+  /// to another task can have the notification re-held there, not dropped.
+  @ObservationIgnored private var pendingAgentOSCNotifications: [UUID: HeldOSC] = [:]
+
+  private struct HeldOSC {
+    let task: Task<Void, Never>
+    let title: String
+    let body: String
+  }
   @ObservationIgnored private var lastEmittedFocusSurfaceId: UUID?
   /// A focus request that arrived before its surface was live (launch restore of
   /// a hibernated tab). Resolved by `applySurfaceActivity` once the focused
@@ -287,7 +295,7 @@ final class WorktreeContentHost {
     }
     lastCustomNotificationAt[surfaceID] = clock.now
     if let held = pendingAgentOSCNotifications.removeValue(forKey: surfaceID) {
-      held.cancel()
+      held.task.cancel()
       Self.logger.debug("Custom notification superseded a held OSC 9 for surface \(surfaceID)")
     }
     appendNotification(title: title, body: body, surfaceID: surfaceID)
@@ -303,8 +311,8 @@ final class WorktreeContentHost {
       Self.logger.debug("Dropped OSC 9 within the custom-notification window for surface \(surfaceID)")
       return
     }
-    pendingAgentOSCNotifications[surfaceID]?.cancel()
-    pendingAgentOSCNotifications[surfaceID] = Task { [weak self, clock] in
+    pendingAgentOSCNotifications[surfaceID]?.task.cancel()
+    let hold = Task { [weak self, clock] in
       do {
         try await clock.sleep(for: .seconds(AgentSignal.oscHoldWindow))
       } catch is CancellationError {
@@ -318,6 +326,7 @@ final class WorktreeContentHost {
       guard self.isKnownSurface(surfaceID) else { return }
       self.appendNotification(title: title, body: body, surfaceID: surfaceID)
     }
+    pendingAgentOSCNotifications[surfaceID] = HeldOSC(task: hold, title: title, body: body)
   }
 
   // MARK: - Notifications: read and dismiss.
@@ -1140,7 +1149,7 @@ final class WorktreeContentHost {
 
   /// Cancels held OSC state so a reused UUID never inherits stale dedupe.
   private func discardSurfaceBookkeeping(for surfaceID: UUID) {
-    pendingAgentOSCNotifications.removeValue(forKey: surfaceID)?.cancel()
+    pendingAgentOSCNotifications.removeValue(forKey: surfaceID)?.task.cancel()
     lastCustomNotificationAt.removeValue(forKey: surfaceID)
     pendingExplicitSurfaceCloseIDs.remove(surfaceID)
     pendingUserCloseSurfaceIDs.remove(surfaceID)
@@ -1165,6 +1174,103 @@ final class WorktreeContentHost {
     registerSurfaceState(for: surfaceID)
     reconcileDormantWatchers()
     onDormancyChanged?()
+  }
+
+  // MARK: - Tabs moving between tasks.
+
+  /// Everything a host keeps per surface or per tab, lifted out so a tab that
+  /// moves to another task takes it along.
+  struct TransferredSurfaceState {
+    var surfaceIDs: Set<UUID> = []
+    var tabIDs: Set<TabID> = []
+    /// Newest first, as held.
+    var notifications: [WorktreeTerminalNotification] = []
+    /// The same instances: tab badges observe them.
+    var surfaceStates: [UUID: WorktreeSurfaceState] = [:]
+    var lastCustomNotificationAt: [UUID: any InstantProtocol<Duration>] = [:]
+    var heldOSC: [UUID: (title: String, body: String)] = [:]
+    var explicitCloses: Set<UUID> = []
+    var userCloses: Set<UUID> = []
+    var automaticCloses: Set<UUID> = []
+    var bypassedConfirmations: Set<UUID> = []
+    var dormant: Set<UUID> = []
+    var completedScriptTabs: Set<TabID> = []
+    var scriptLaunchDirectories: [TabID: URL] = [:]
+    var tabProgress: [TabID: TerminalTabProgressDisplay?] = [:]
+  }
+
+  /// Hands over the tabs' bookkeeping and forgets them, before they leave
+  /// this layout. Reports nothing: the tabs are not closing, and the next
+  /// sweep must not find them missing. The caller refuses a tab that is
+  /// running a blocking script.
+  func relinquish(_ tabs: [TabItem]) -> TransferredSurfaceState {
+    var moved = TransferredSurfaceState()
+    moved.surfaceIDs = Set(tabs.map(\.content.id.rawValue))
+    moved.tabIDs = Set(tabs.map(\.id))
+    moved.notifications = notifications.filter { moved.surfaceIDs.contains($0.surfaceID) }
+    notifications.removeAll { moved.surfaceIDs.contains($0.surfaceID) }
+    for surfaceID in moved.surfaceIDs {
+      moved.surfaceStates[surfaceID] = surfaceStates.removeValue(forKey: surfaceID)
+      moved.lastCustomNotificationAt[surfaceID] = lastCustomNotificationAt.removeValue(forKey: surfaceID)
+      if let held = pendingAgentOSCNotifications.removeValue(forKey: surfaceID) {
+        held.task.cancel()
+        moved.heldOSC[surfaceID] = (held.title, held.body)
+      }
+      if pendingExplicitSurfaceCloseIDs.remove(surfaceID) != nil { moved.explicitCloses.insert(surfaceID) }
+      if pendingUserCloseSurfaceIDs.remove(surfaceID) != nil { moved.userCloses.insert(surfaceID) }
+      if automaticCloseSurfaceIDs.remove(surfaceID) != nil { moved.automaticCloses.insert(surfaceID) }
+      if bypassCloseConfirmationSurfaceIDs.remove(surfaceID) != nil { moved.bypassedConfirmations.insert(surfaceID) }
+      if lastDormantContentIDs.remove(surfaceID) != nil { moved.dormant.insert(surfaceID) }
+      lastSweptContentIDs.remove(surfaceID)
+      if lastEmittedFocusSurfaceId == surfaceID { lastEmittedFocusSurfaceId = nil }
+    }
+    for tabID in moved.tabIDs {
+      if completedBlockingScriptTabs.contains(tabID) { moved.completedScriptTabs.insert(tabID) }
+      moved.scriptLaunchDirectories[tabID] = blockingScriptLaunchDirectories.removeValue(forKey: tabID)
+      if let progress = lastTabProgressDisplays.removeValue(forKey: tabID) { moved.tabProgress[tabID] = progress }
+    }
+    // This unlocks the tab's chrome; `adopt` locks it again on the host
+    // that takes the tab, in the same turn.
+    completedBlockingScriptTabs.subtract(moved.completedScriptTabs)
+    lastBlockingScriptTabByKind = lastBlockingScriptTabByKind.filter { !moved.tabIDs.contains($0.value) }
+    return moved
+  }
+
+  /// Takes over tabs that arrived from another task, after they are in this
+  /// layout. Reports nothing: they were open before and still are.
+  func adopt(_ moved: TransferredSurfaceState) {
+    lastSweptContentIDs.formUnion(moved.surfaceIDs)
+    lastDormantContentIDs.formUnion(moved.dormant)
+    surfaceStates.merge(moved.surfaceStates) { _, arriving in arriving }
+    lastCustomNotificationAt.merge(moved.lastCustomNotificationAt) { _, arriving in arriving }
+    pendingExplicitSurfaceCloseIDs.formUnion(moved.explicitCloses)
+    pendingUserCloseSurfaceIDs.formUnion(moved.userCloses)
+    automaticCloseSurfaceIDs.formUnion(moved.automaticCloses)
+    bypassCloseConfirmationSurfaceIDs.formUnion(moved.bypassedConfirmations)
+    blockingScriptLaunchDirectories.merge(moved.scriptLaunchDirectories) { _, arriving in arriving }
+    lastTabProgressDisplays.merge(moved.tabProgress) { _, arriving in arriving }
+    completedBlockingScriptTabs.formUnion(moved.completedScriptTabs)
+    if !moved.notifications.isEmpty {
+      // Both logs are newest first; on a tie this host's entry stays ahead.
+      notifications = (notifications + moved.notifications).enumerated()
+        .sorted { ($1.element.createdAt, $0.offset) < ($0.element.createdAt, $1.offset) }
+        .map(\.element)
+      _ = trimNotificationsToRetentionLimit()
+    }
+    for (surfaceID, held) in moved.heldOSC {
+      handleAgentOSCNotification(title: held.title, body: held.body, surfaceID: surfaceID)
+    }
+    reconcileDormantWatchers()
+  }
+
+  /// What moves with the tabs of a task that has no host: nothing was ever
+  /// recorded for them, only whether each is hibernated.
+  static func bare(_ tabs: [TabItem], runtime: ContentRuntime) -> TransferredSurfaceState {
+    var moved = TransferredSurfaceState()
+    moved.surfaceIDs = Set(tabs.map(\.content.id.rawValue))
+    moved.tabIDs = Set(tabs.map(\.id))
+    moved.dormant = moved.surfaceIDs.filter { runtime.renderer(for: ContentID(rawValue: $0)) == nil }
+    return moved
   }
 
   // MARK: - Dormant sessions.
@@ -1230,8 +1336,8 @@ final class WorktreeContentHost {
   /// Full teardown on prune or quit: watchers stop, bookkeeping clears.
   func tearDown() {
     dormantSessionWatchers.reconcile(dormantSurfaceIDs: [])
-    for task in pendingAgentOSCNotifications.values {
-      task.cancel()
+    for held in pendingAgentOSCNotifications.values {
+      held.task.cancel()
     }
     pendingAgentOSCNotifications.removeAll()
     cleanupAllBlockingScriptLaunchDirectories()

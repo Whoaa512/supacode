@@ -102,6 +102,11 @@ final class WorktreeTerminalManager {
   /// Remote hosts of tasks removed when their last tab closed. The close's
   /// session kill runs after the host is gone and still has to reach it.
   @ObservationIgnored private var remoteHostsOfEmptiedTasks: [LayoutID: RemoteHost] = [:]
+  /// Tasks a transfer emptied and removed, with the change that removes
+  /// their stored record. The quit-time save writes hosted tasks only, so a
+  /// quit before the transfer's own write lands would leave the stored
+  /// source holding the same tabs as the destination.
+  @ObservationIgnored private var removedByTransfer: [LayoutID: LayoutsIncrementalWriter.RecordChange] = [:]
   /// Reads the freshest `agentsBySurface` at flush time so incremental captures
   /// embed live badge records instead of the empty default.
   var currentAgentsBySurface: (() -> [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]])?
@@ -536,7 +541,8 @@ final class WorktreeTerminalManager {
       .setNotificationsEnabled, .enforceNotificationRetentionLimit, .setSelectedLayoutID, .beginTabRename,
       .setTerminalHibernationEnabled, .toggleWindowModeForFocusedPane,
       .splitFocusedPane, .focusSplit, .focusRelativePane, .toggleSplitZoom, .equalizeSplits,
-      .splitPane, .focusPane, .closePane, .toggleZoomPane, .toggleWindowModeForPane, .moveTabToSplit:
+      .splitPane, .focusPane, .closePane, .toggleZoomPane, .toggleWindowModeForPane, .moveTabToSplit,
+      .transferTabs:
       return false
     }
     return true
@@ -583,7 +589,7 @@ final class WorktreeTerminalManager {
       .navigateSearchNext, .navigateSearchPrevious, .selectTab, .selectTabAtIndex, .selectRelativeTab,
       .focusSurface, .splitSurface, .destroyTab, .destroySurface, .renameTab, .prune, .removeLayouts,
       .setNotificationsEnabled, .enforceNotificationRetentionLimit, .setSelectedLayoutID, .beginTabRename,
-      .setTerminalHibernationEnabled, .toggleWindowModeForFocusedPane:
+      .setTerminalHibernationEnabled, .toggleWindowModeForFocusedPane, .transferTabs:
       return false
     }
     return true
@@ -608,6 +614,8 @@ final class WorktreeTerminalManager {
         archivedDirectories: archivedDirectories.intersection(stillArchived))
     case .removeLayouts(let directoryID, let remoteHost):
       removeLayouts(forDirectory: directoryID, remoteHost: remoteHost)
+    case .transferTabs(let from, let target, let context, let scope):
+      transferTabs(from: from, into: target, context: context, scope: scope)
     case .setNotificationsEnabled(let enabled):
       setNotificationsEnabled(enabled)
     case .enforceNotificationRetentionLimit:
@@ -788,6 +796,8 @@ final class WorktreeTerminalManager {
       clock: clock
     )
     let directoryID = context.worktreeID
+    // Hosted again: the quit-time save writes it, and must not delete it.
+    removedByTransfer.removeValue(forKey: layoutID)
     if runSetupScriptIfNew() {
       // A new host arms whatever its own layout holds, as it always has.
       armSetupScriptIfNeeded(forDirectory: directoryID, ignoring: layoutID)
@@ -927,6 +937,136 @@ final class WorktreeTerminalManager {
     }
     refreshFocusedSurfaceBackground()
     terminalLogger.info("Removed task \(layoutID): its last tab closed and it lists no session")
+  }
+
+  // MARK: - Tabs moving between tasks.
+
+  /// Moves tabs from one task to another without closing them. One turn on
+  /// the main actor: the source host forgets the tabs before the store moves
+  /// them, so no sweep finds them missing and nothing reports them closed.
+  /// Kills no session and tombstones no content; the runtime holds the same
+  /// content objects before and after. A refusal changes nothing.
+  private func transferTabs(from: LayoutID, into target: LayoutID, context: DirectoryContext, scope: TabTransferScope) {
+    func refuse(_ reason: TabTransferRefusal) {
+      terminalLogger.warning("Refused to move tabs from \(from) to \(target): \(reason.rawValue)")
+      emit(.tabsTransferFailed(from: from, into: target, reason: reason))
+    }
+    guard !isEndingAllSessions else { return refuse(.quitting) }
+    guard let terminals = appStore?.withState(\.terminals) else { return refuse(.notReady) }
+    let destination = TaskRecord.Directory(worktreeID: context.worktreeID, host: context.host)
+    if let reason = terminals.transferRefusal(from: from, into: target, scope: scope, destination: destination) {
+      return refuse(reason)
+    }
+    guard let moving = terminals.tabsToTransfer(from: from, scope: scope) else { return refuse(.unknownTab) }
+    // A running script is reported under its host's directory: moved, its
+    // end could archive or delete the wrong worktree; left, it looks cancelled.
+    let source = hosts[from]
+    guard !moving.contains(where: { source?.blockingScriptKind(for: $0.id) != nil }) else {
+      return refuse(.scriptRunning)
+    }
+    let sourceDirectoryID = source?.worktreeID ?? terminals.directories[from]?.worktreeID
+    let sessionsBefore = (terminals.members[from] ?? []).compactMap(\.sessionKey)
+
+    // The source's host is never created for a transfer: creating one runs
+    // the restore prune, which can kill.
+    let destinationHost = host(for: target, context: context)
+    let baggage = source?.relinquish(moving) ?? WorktreeContentHost.bare(moving, runtime: ContentRuntime.liveValue)
+    sendTerminals(.transferTabs(from: from, into: target, scope: scope))
+
+    let landed = layoutState(for: target)?.layout
+    let sourceLayout = layoutState(for: from)?.layout
+    let moved =
+      moving.allSatisfy { landed?.pane(containingTab: $0.id) != nil }
+      && moving.allSatisfy { sourceLayout?.pane(containingTab: $0.id) == nil }
+      && (scope != .all || sourceLayout?.panes.isEmpty == true)
+    guard moved else {
+      // The reducer moved nothing; put the bookkeeping back where it was.
+      source?.adopt(baggage)
+      if scope != .all {
+        hosts.removeValue(forKey: target)?.tearDown()
+        sendTerminals(.detachLayout(worktreeID: target))
+      }
+      return refuse(.layoutRejected)
+    }
+
+    // Before the destination starts watching the same hibernated sessions.
+    source?.reconcileDormantWatchers()
+    destinationHost.adopt(baggage)
+    // A live surface's callbacks hold the host they were wired to.
+    for tab in moving {
+      guard let view = ContentRuntime.liveValue.renderer(for: tab.content.id) as? GhosttySurfaceView else { continue }
+      wireSurface(view, contentID: tab.content.id, layoutID: target)
+    }
+
+    let after = appStore?.withState(\.terminals)
+    let sessionsAfter = (after?.members[from] ?? []).compactMap(\.sessionKey)
+    let sourceRemoved = sourceLayout?.panes.isEmpty == true && sessionsAfter.isEmpty
+    let removal: LayoutsIncrementalWriter.RecordChange? =
+      sourceRemoved ? (scope == .all ? .mergedInto(target) : .delete) : nil
+    persistTransfer(
+      from: from, into: target, removal: removal,
+      released: sessionsBefore.filter { !sessionsAfter.contains($0) })
+
+    if let removal {
+      // While the emptied host is still there to say its row is empty.
+      emitProjection(for: from)
+      if let sourceDirectoryID { emitRunStatus(forDirectory: sourceDirectoryID) }
+      paneWindows.closeAll(for: from)
+      // Only stops watchers and timers for what the source still held.
+      hosts.removeValue(forKey: from)?.tearDown()
+      sendTerminals(.detachLayout(worktreeID: from))
+      if let sourceDirectoryID {
+        emit(.worktreeStateTornDown(worktreeID: sourceDirectoryID, layoutID: from))
+      }
+      lastEmittedCoalescable.removeValue(forKey: .focus(from))
+      removedByTransfer[from] = removal
+      if selectedLayoutID == from {
+        handleManagementCommand(.setSelectedLayoutID(target))
+      }
+    } else {
+      // The sweep finds nothing missing: the host already forgot the tabs.
+      handleLayoutChanged(for: from)
+    }
+    handleLayoutChanged(for: target)
+    emit(.tabsTransferred(from: from, into: target, tabIDs: moving.map(\.id), sourceRemoved: sourceRemoved))
+    terminalLogger.info("Moved \(moving.count) tab(s) from \(from) to \(target)")
+  }
+
+  /// Writes both tasks in one flush, so no stored state holds a moved tab in
+  /// neither task or in both. Queued behind any flush already in flight for
+  /// either, and replaces their pending debounced saves.
+  private func persistTransfer(
+    from: LayoutID, into target: LayoutID, removal: LayoutsIncrementalWriter.RecordChange?, released: [SessionKey]
+  ) {
+    guard appStore?.withState({ $0.terminals.layoutsAreReadOnly }) != true else { return }
+    func record(_ layoutID: LayoutID, releasing: [SessionKey] = []) -> LayoutsIncrementalWriter.RecordChange? {
+      guard let layout = layoutState(for: layoutID)?.layout else { return nil }
+      let stored = LayoutPersistence.record(
+        for: layout, runtime: ContentRuntime.liveValue, agentsBySurface: currentAgentsBySurface?() ?? [:])
+      return recordChange(for: layoutID, layout: stored.layout, releasing: releasing)
+    }
+    var changes: [LayoutID: LayoutsIncrementalWriter.RecordChange] = [:]
+    changes[target] = record(target)
+    changes[from] = removal ?? record(from, releasing: released)
+    var inflight: [Task<Void, Never>] = []
+    for layoutID in [from, target] {
+      layoutDirtyTasks[layoutID]?.cancel()
+      layoutDirtyTasks[layoutID] = nil
+      if let task = layoutFlushTasks[layoutID]?.task { inflight.append(task) }
+    }
+    let writer = layoutsWriter
+    layoutFlushGeneration += 1
+    let generation = layoutFlushGeneration
+    let task = Task { [weak self, changes, inflight] in
+      for earlier in inflight { await earlier.value }
+      await writer.flush(records: changes)
+      guard let self else { return }
+      for layoutID in [from, target] where self.layoutFlushTasks[layoutID]?.generation == generation {
+        self.layoutFlushTasks[layoutID] = nil
+      }
+    }
+    layoutFlushTasks[from] = (generation, task)
+    layoutFlushTasks[target] = (generation, task)
   }
 
   /// Re-derives surface activity once more on the next tick: a structural
@@ -1902,7 +2042,9 @@ final class WorktreeTerminalManager {
   /// so an empty layout is sent as is, never as a delete decided here. The
   /// directory only matters for a task not persisted yet: the host's, or for
   /// a hostless layout the one its legacy key spells.
-  private func recordChange(for layoutID: LayoutID, layout: PaneLayout) -> LayoutsIncrementalWriter.RecordChange {
+  private func recordChange(
+    for layoutID: LayoutID, layout: PaneLayout, releasing: [SessionKey] = []
+  ) -> LayoutsIncrementalWriter.RecordChange {
     let directory =
       hosts[layoutID].map { TaskRecord.Directory(worktreeID: $0.worktreeID, host: $0.context.host) }
       ?? LayoutsTaskSplitter.directory(forLegacyKey: layoutID.persistenceKey)
@@ -1911,7 +2053,7 @@ final class WorktreeTerminalManager {
       layout: layout, directory: directory,
       sessions: (terminals?.members[layoutID] ?? []).compactMap(\.sessionKey),
       storedSessions: terminals?.storedSessions ?? .pending,
-      createdAt: Date())
+      createdAt: Date(), releasing: releasing)
   }
 
   /// Removes `worktreeID` from disk immediately, bypassing the debounce and
@@ -2520,7 +2662,8 @@ final class WorktreeTerminalManager {
     agentsBySurface: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]]? = nil
   ) {
     guard appStore?.withState({ $0.terminals.layoutsAreReadOnly }) != true else { return }
-    var changes: [LayoutID: LayoutsIncrementalWriter.RecordChange] = [:]
+    // The removals first: a task hosted again is written over its own.
+    var changes = removedByTransfer
     for (id, _) in hosts {
       guard let layoutState = layoutState(for: id) else { continue }
       let record = LayoutPersistence.record(

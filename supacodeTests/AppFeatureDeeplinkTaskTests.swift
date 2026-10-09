@@ -334,6 +334,31 @@ struct AppFeatureDeeplinkTaskTests {
     }
   }
 
+  /// A shell started in a task that was merged away still names the old id.
+  private let mergedAway = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A9")!)
+
+  @Test(.dependencies) func tabCommandNamingAMergedTaskReachesItsDestination() async {
+    var initial = state()
+    initial.terminals.mergedTasks[mergedAway] = other.id
+    let (store, sent) = makeStore(initial)
+    await store.send(
+      .deeplink(.worktree(id: worktree.id, action: .tabNew(input: nil, id: nil), background: true, task: mergedAway)))
+    await store.finish()
+    #expect(targets(sent.value) == [other.id])
+    #expect(store.state.alert == nil)
+  }
+
+  @Test(.dependencies) func tabCommandNamingATaskMergedOntoAnotherDirectoryIsRefused() async {
+    var initial = state()
+    initial.terminals.mergedTasks[mergedAway] = elsewhere.id
+    let (store, sent) = makeStore(initial)
+    await store.send(
+      .deeplink(.worktree(id: worktree.id, action: .tabNew(input: nil, id: nil), background: true, task: mergedAway)))
+    await store.finish()
+    #expect(sent.value.isEmpty)
+    #expect(store.state.alert != nil)
+  }
+
   @Test(.dependencies) func closingATabClosesItInItsOwnTaskOnly() async {
     let (store, sent) = makeStore()
     await store.send(

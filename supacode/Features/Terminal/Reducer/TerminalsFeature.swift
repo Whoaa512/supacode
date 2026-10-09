@@ -73,6 +73,12 @@ struct TerminalsFeature {
     /// True when the persisted file was written by a newer schema; its records
     /// are served but must never be written back.
     var layoutsAreReadOnly = false
+    /// True once the stored layouts have hydrated. Before that a hydration
+    /// could still re-add a tab or a session a transfer moved away.
+    var layoutsLoaded = false
+    /// Tasks merged away this run or before, removed task → the task that
+    /// took its tabs. A shell started in a merged task still names the old id.
+    var mergedTasks: [LayoutID: LayoutID] = [:]
     /// The selected worktree; only its panes' selected tabs are visible, so
     /// everything else is a hibernation candidate.
     var selectedLayoutID: LayoutID?
@@ -105,6 +111,10 @@ struct TerminalsFeature {
     case replaceRestoredLayout(worktreeID: LayoutID, layout: PaneLayout)
     /// Drops a pruned worktree's layout and bookkeeping.
     case detachLayout(worktreeID: LayoutID)
+    /// Moves tabs and members from one task's layout to another's in one
+    /// turn, both or neither. Sent only by the terminal manager, which moves
+    /// the per-task surface bookkeeping around it; nothing is closed.
+    case transferTabs(from: LayoutID, into: LayoutID, scope: TabTransferScope)
     /// The agents presence reports changed which sessions belong to which task.
     case membersChanged([LayoutID: [TaskMember]], agents: [TaskAgent] = [])
     /// The stored layouts cannot be read this run, so no hydration follows.
@@ -151,6 +161,7 @@ struct TerminalsFeature {
   @Dependency(LayoutChangeObserver.self) private var layoutChangeObserver
   @Dependency(MemoryPressureClient.self) private var memoryPressure
   @Dependency(\.continuousClock) private var clock
+  @Dependency(\.uuid) private var uuid
 
   var body: some Reducer<State, Action> {
     Reduce { state, action in
@@ -181,6 +192,8 @@ struct TerminalsFeature {
           state.layouts.append(LayoutFeature.State(id: worktreeID, layout: PaneLayout()))
         }
         state.removedLayoutIDs.remove(worktreeID)
+        // A task again, not a forward to the one it was merged into.
+        state.mergedTasks.removeValue(forKey: worktreeID)
         state.layouts[id: worktreeID]?.titlePrefix = titlePrefix
         guard state.directories[worktreeID] == nil else { return .none }
         state.directories[worktreeID] = directory
@@ -205,7 +218,11 @@ struct TerminalsFeature {
         state.activeTasks = state.activeTasks.filter { $0.value != worktreeID }
         state.recentLayoutIDs.removeAll { $0 == worktreeID }
         state.selectionOrder.removeAll { $0 == worktreeID }
+        state.mergedTasks = state.mergedTasks.filter { $0.value != worktreeID }
         return reconcileHibernation(&state)
+
+      case .transferTabs(let from, let target, let scope):
+        return reduceTransferTabs(&state, from: from, into: target, scope: scope)
 
       case .membersChanged(let members, let agents):
         // Only a change in stored sessions is worth a write; a provisional
@@ -259,6 +276,14 @@ struct TerminalsFeature {
 
       case .layoutsHydrated(let file):
         state.layoutsAreReadOnly = file.schemaVersion > TaskLayoutsFile.currentSchemaVersion
+        state.layoutsLoaded = true
+        for (key, destinationKey) in file.mergedTasks {
+          let merged = LayoutID(legacyWorktreeKey: key)
+          guard let destination = file.tasks[destinationKey]?.id, state.mergedTasks[merged] == nil,
+            state.layouts[id: merged] == nil
+          else { continue }
+          state.mergedTasks[merged] = destination
+        }
         // The runtime keys globally by content id and hibernation by tab id, so
         // seed from what is already hydrated and refuse any record that reuses an
         // id from another worktree (possible in pre-creation-gate layouts).
@@ -384,6 +409,118 @@ extension TerminalsFeature.State {
   }
 }
 
+// MARK: - Transfer between tasks.
+
+extension TerminalsFeature.State {
+  /// The tabs a transfer would move, in landing order. Nil when the source
+  /// or the named tab does not exist.
+  func tabsToTransfer(from: LayoutID, scope: TabTransferScope) -> [TabItem]? {
+    guard let layout = layouts[id: from]?.layout else { return nil }
+    switch scope {
+    case .all:
+      return layout.tree.leaves().compactMap { layout.panes[id: $0] }.flatMap { Array($0.tabs) }
+    case .tab(let tabID, _):
+      return layout.pane(containingTab: tabID)?.tabs[id: tabID].map { [$0] }
+    }
+  }
+
+  /// Why a transfer cannot run, or nil. Pure: everything the state alone
+  /// decides, in a fixed order.
+  func transferRefusal(
+    from: LayoutID, into target: LayoutID, scope: TabTransferScope, destination: TaskRecord.Directory
+  ) -> TabTransferRefusal? {
+    guard from != target else { return .sameTask }
+    // Until both loads land, a hydration would re-add what the transfer moved.
+    guard layoutsLoaded, storedSessions == .loaded, !layoutsAreReadOnly else { return .notReady }
+    guard let source = layouts[id: from] else { return .unknownSource }
+    switch scope {
+    case .all:
+      guard layouts[id: target] != nil else { return .unknownDestination }
+    case .tab(let tabID, let moving):
+      guard layouts[id: target] == nil else { return .destinationExists }
+      guard source.layout.pane(containingTab: tabID) != nil else { return .unknownTab }
+      let listed = members[from] ?? []
+      guard moving.allSatisfy(listed.contains) else { return .memberNotInSource }
+    }
+    guard source.alert == nil, layouts[id: target]?.alert == nil else { return .confirmationPending }
+    // A relaunch rebuilds a tab against its task's host: on another machine
+    // its session would be lost, and a close would kill on the wrong side.
+    guard directories[from]?.host == destination.host else { return .differentMachine }
+    return nil
+  }
+}
+
+extension TerminalsFeature {
+  /// Both layouts and both member lists change, or nothing does. No tab is
+  /// closed, so nothing here reaps a content or reports a layout change: the
+  /// manager, which sent this, moves the per-task bookkeeping around it.
+  fileprivate func reduceTransferTabs(
+    _ state: inout State, from: LayoutID, into target: LayoutID, scope: TabTransferScope
+  ) -> Effect<Action> {
+    guard from != target, let source = state.layouts[id: from], let destination = state.layouts[id: target],
+      let moving = state.tabsToTransfer(from: from, scope: scope)
+    else { return .none }
+    let makePaneID = { [uuid] in PaneID(rawValue: uuid()) }
+    let remaining: PaneLayout
+    let grown: PaneLayout
+    do {
+      switch scope {
+      case .all:
+        remaining = PaneLayout()
+        grown = try LayoutTransfer.flatten(source.layout, into: destination.layout, makePaneID: makePaneID).layout
+      case .tab(let tabID, _):
+        let extraction = try LayoutTransfer.extract(tabID, from: source.layout, makePaneID: makePaneID)
+        remaining = extraction.remainder
+        grown = try LayoutTransfer.flatten(extraction.extracted, into: destination.layout, makePaneID: makePaneID)
+          .layout
+      }
+    } catch {
+      Self.logger.error("Refused to move tabs from \(from) to \(target): \(error)")
+      return .none
+    }
+    let movedTabIDs = Set(moving.map(\.id))
+    state.layouts[id: from]?.layout = remaining
+    state.layouts[id: from]?.windowedPaneIDs.formIntersection(remaining.panes.ids)
+    if let editing = source.editingTabID, movedTabIDs.contains(editing) {
+      state.layouts[id: from]?.editingTabID = nil
+    }
+    state.layouts[id: target]?.layout = grown
+
+    // The destination's first member stays primary; a task with no member
+    // takes the arriving order whole.
+    let sourceMembers = state.members[from] ?? []
+    let moved: [TaskMember]
+    switch scope {
+    case .all: moved = sourceMembers
+    case .tab(_, let members): moved = sourceMembers.filter(members.contains)
+    }
+    let kept = sourceMembers.filter { !moved.contains($0) }
+    state.members[from] = kept.isEmpty ? nil : kept
+    let listed = state.members[target] ?? []
+    let joined = listed + moved.filter { !listed.contains($0) }
+    state.members[target] = joined.isEmpty ? nil : joined
+
+    if scope == .all {
+      for (earlier, pointed) in state.mergedTasks where pointed == from {
+        state.mergedTasks[earlier] = target
+      }
+      state.mergedTasks[from] = target
+    }
+
+    // A timer armed for a moved tab carries the source's id; drop it and let
+    // the re-diff arm one under the task that holds the tab now.
+    var cancels: [Effect<Action>] = []
+    for tab in moving {
+      if state.hibernationArmedTabs.remove(tab.id) != nil {
+        cancels.append(.cancel(id: HibernationTimerID.tab(tab.id)))
+      }
+      state.hibernationDeferralLogged.remove(tab.id)
+      state.wakeRequestedTabs.remove(tab.id)
+    }
+    return .concatenate(.merge(cancels), reconcileHibernation(&state))
+  }
+}
+
 // MARK: - Directory resolution.
 
 extension TerminalsFeature.State {
@@ -417,6 +554,8 @@ extension TerminalsFeature.State {
   func commandLayoutID(
     forDirectory directoryID: Worktree.ID, task: LayoutID? = nil, holding ids: [UUID] = [], shown: LayoutID? = nil
   ) -> LayoutID? {
+    // A task merged away is the task that took its tabs.
+    let task = task.map { mergedTasks[$0] ?? $0 }
     let resolved = shown ?? layoutID(forDirectory: directoryID)
     if !ids.isEmpty {
       // The resolved layout first: it is the usual owner, and the only

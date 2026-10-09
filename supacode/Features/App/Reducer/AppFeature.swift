@@ -2383,6 +2383,10 @@ struct AppFeature {
         // The manager already detached the layout; nothing app-level remains.
         return .none
 
+      case .terminalEvent(.tabsTransferred), .terminalEvent(.tabsTransferFailed):
+        // The terminal layer moved the tabs and the members with them.
+        return .none
+
       case .terminals(.layouts(.element(let worktreeID, .contentRequestedClose(let contentID, let scope)))):
         let ids = closeTargetSurfaceIDs(worktreeID: worktreeID, contentID: contentID, scope: scope, state: state)
         terminalClient.markUserCloseIntent(worktreeID, ids)

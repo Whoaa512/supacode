@@ -727,6 +727,7 @@ struct TerminalsFeatureTests {
       ]))
     let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
     await store.send(.layoutsHydrated(file)) {
+      $0.layoutsLoaded = true
       $0.storedSessions = .loaded
       $0.layouts = [LayoutFeature.State(id: LayoutID(legacyWorktreeKey: "/tmp/good"), layout: good)]
       $0.directories = [LayoutID(legacyWorktreeKey: "/tmp/good"): TaskRecord.Directory(worktreeID: "/tmp/good")]
@@ -740,6 +741,7 @@ struct TerminalsFeatureTests {
     let task = TaskRecord(id: taskID, directory: directory, layout: layout, createdAt: Date(timeIntervalSince1970: 1))
     let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
     await store.send(.layoutsHydrated(TaskLayoutsFile(tasks: [taskID.persistenceKey: task]))) {
+      $0.layoutsLoaded = true
       $0.storedSessions = .loaded
       $0.layouts = [LayoutFeature.State(id: taskID, layout: layout)]
       $0.directories = [taskID: directory]
@@ -771,6 +773,7 @@ struct TerminalsFeatureTests {
       ]))
     let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
     await store.send(.layoutsHydrated(file)) {
+      $0.layoutsLoaded = true
       $0.storedSessions = .loaded
       $0.layouts = [LayoutFeature.State(id: LayoutID(legacyWorktreeKey: "/tmp/a"), layout: first)]
       $0.directories = [LayoutID(legacyWorktreeKey: "/tmp/a"): TaskRecord.Directory(worktreeID: "/tmp/a")]
@@ -790,6 +793,7 @@ struct TerminalsFeatureTests {
       .layoutsHydrated(
         TaskLayoutsFile(oneTaskPerDirectory: LayoutsFile(worktrees: ["/tmp/repo": LayoutRecord(layout: persisted)])))
     ) {
+      $0.layoutsLoaded = true
       $0.storedSessions = .loaded
     }
   }
@@ -804,6 +808,7 @@ struct TerminalsFeatureTests {
     )
     let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
     await store.send(.layoutsHydrated(file)) {
+      $0.layoutsLoaded = true
       $0.storedSessions = .loaded
       $0.layoutsAreReadOnly = true
       $0.layouts = [LayoutFeature.State(id: taskID, layout: good)]

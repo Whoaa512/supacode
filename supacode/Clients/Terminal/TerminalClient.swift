@@ -2,6 +2,35 @@ import ComposableArchitecture
 import Foundation
 import SupacodeSettingsShared
 
+/// What a transfer between two tasks moves.
+nonisolated enum TabTransferScope: Equatable, Sendable {
+  /// Merge: every tab and every member; the source task is removed.
+  case all
+  /// Detach: one tab and the members that ride on it, into a task that does
+  /// not exist yet.
+  case tab(TabID, members: [TaskMember])
+}
+
+/// Why a transfer was refused. A refused transfer changes nothing.
+nonisolated enum TabTransferRefusal: String, Equatable, Sendable {
+  case sameTask
+  /// The stored layouts or sessions have not loaded, or cannot be written.
+  case notReady
+  case unknownSource
+  case unknownDestination
+  case destinationExists
+  case unknownTab
+  case memberNotInSource
+  /// Either task is asking the user to confirm a close.
+  case confirmationPending
+  case differentMachine
+  /// A moved tab is running a blocking script, reported under its directory.
+  case scriptRunning
+  case quitting
+  /// The layouts could not be combined (a shared id, an inconsistent layout).
+  case layoutRejected
+}
+
 struct TerminalClient {
   var send: @MainActor @Sendable (Command) -> Void
   var events: @MainActor @Sendable () -> AsyncStream<Event>
@@ -149,6 +178,11 @@ struct TerminalClient {
     /// Explicitly deleted worktree: every layout on that directory goes, with
     /// its sessions and persisted record, host or no host.
     case removeLayouts(forDirectory: Worktree.ID, remoteHost: RemoteHost?)
+    /// Moves live tabs from one task to another without closing them: no
+    /// session is killed and nothing reports them closed. The context is the
+    /// destination's directory. Answered by `tabsTransferred` or
+    /// `tabsTransferFailed`.
+    case transferTabs(from: LayoutID, into: LayoutID, DirectoryContext, scope: TabTransferScope)
     case setNotificationsEnabled(Bool)
     case enforceNotificationRetentionLimit
     case setSelectedLayoutID(LayoutID?)
@@ -184,6 +218,10 @@ struct TerminalClient {
     case tabRenamed(layoutID: LayoutID, tabID: TabID, applied: Bool)
     /// The worktree's terminal state was torn down (prune path).
     case worktreeStateTornDown(worktreeID: Worktree.ID, layoutID: LayoutID)
+    /// Tabs moved to another task, still open. `sourceRemoved` when the
+    /// source task was left with no tab and no session and is gone.
+    case tabsTransferred(from: LayoutID, into: LayoutID, tabIDs: [TabID], sourceRemoved: Bool)
+    case tabsTransferFailed(from: LayoutID, into: LayoutID, reason: TabTransferRefusal)
     case userClosedSurfaces(layoutID: LayoutID, Set<UUID>)
     /// Forwarded from the terminal manager when surfaces close (single or bulk).
     /// `AppFeature` translates this into `agentPresence(.surfaceClosed/surfacesClosed)`.
