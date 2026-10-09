@@ -769,6 +769,17 @@ Membership already exists (T7). This phase is grouping and presentation only.
   drop dead `Worktree`-named helpers in the terminal layer; rename
   `WorktreeTerminalManager`/`WorktreeContentHost` only if it is a pure
   rename commit.
+- Added by T11 (2026-10-09), not mechanical, each needs reducer tests:
+  - App-menu terminal commands (new tab, close, split, search, rename; ~35
+    reducer sites on `state.layoutID(forDirectory:)` behind
+    `selectedWorktreeID`) target the shown task: enabled while an orphan task
+    is shown, and through `AppFeature.State.commandLayoutID(forDirectory:)`
+    so a task selected but not yet echoed by the terminal is the target (T11
+    r1 closed that window for deeplinks, the CLI and socket queries only).
+  - Agent CLI (`agent prompt|send-keys|resume|read`): take the task segment /
+    `--task` and narrow the surface set to that task before the kind lookup
+    (followups, "Agent commands cannot tell…"). Until this lands Z2 must
+    document the family as directory-scoped, not task-aware.
 - Verify: `rg -n 'legacyWorktreeKey' supacode --type swift` shows only the
   migrator and tests; A2/A3 commands; full `make test`; `make build-app`.
 - Assertions: A32, A1.
@@ -2632,3 +2643,34 @@ deviation.
   the five touched `supacodeTests` suites) exit 2 with 1759 tests and only 4
   known failures (ack flake, settings-changed, 2 Ghostty), build-app 0, full
   `make test` exit 2 with 4300 tests and only the 5 known failures.
+- T11 r1 (review fixes), 2026-10-09, `925579f4` + `cecdd1b7`.
+  - P2, held (seen red: 3 tests). With a task selected and the terminal not
+    yet having recorded it as the directory's active task, a bare directory
+    command resolved to the old task, acted there and selected it back.
+    `AppFeature.State.commandLayoutID(forDirectory:task:holding:)` is now the
+    app-layer entry: it hands `shownTask(forDirectory:)` to the terminal
+    resolver as the directory's own answer (`shown:`), so commands, the
+    confirm re-dispatch, socket list queries, `layoutID(forDirectory:holding:)`
+    and agent read's focused surface agree with what a directory selection
+    shows. Ids and a named task still decide first.
+  - Same class, fixed: `run`, `stop`, `run --script` and `stop --script`
+    resolved the directory themselves and ignored a named task, so they could
+    act in a task other than the one the command's select step showed. They
+    use the command's resolved layout now, and the script confirmation
+    carries the named task. Decision the plan did not make: a script command
+    with a task segment runs/stops in that task (running-state checks stay
+    directory-wide, as before).
+  - P1, held as a missing test; the routes were correct (the new tests passed
+    against the unfixed source). Added two-task surface-close and pane-close
+    tests: owner-only close with exact layout/target, stale tab hint, ack on
+    the owner's layout, confirm, cancel, target gone during the confirmation
+    (terminal-side and state-side), other directory's ids refused.
+  - P3: orphan app-menu targeting and the agent CLI follow-up are now written
+    into Z1 (agent CLI was unowned); the menu sites still read the recorded
+    task during the echo window, also Z1. M2 keeps the merged-shell task env.
+    Still only the live UI can confirm: an old shell with no
+    `SUPACODE_TASK_ID`, notification/`tab focus` bringing up a hidden task,
+    the reference-sheet rows.
+  Gate: check 0, focused `supacodeFeatureTests/AppFeatureDeeplinkTaskTests`
+  exit 0 with 28 tests, build-app 0, full `make test` exit 2 with 4311 tests
+  and only the 5 known failures.

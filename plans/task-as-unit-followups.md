@@ -51,6 +51,7 @@ directory. T11 made them reach that surface through the task that holds it,
 but with two tasks each running the same harness on one directory the pick is
 still arbitrary.
 
-**Fix with**: whichever slice next touches the agent CLI. Likely shape: the
+**Fix with**: Z1 (assigned by T11 r1; until then the family is directory-scoped
+and must be documented so). Likely shape: the
 task segment / `--task` on agent routes, narrowing the surface set to that
 task's before the kind lookup.
