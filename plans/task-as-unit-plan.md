@@ -1332,3 +1332,28 @@ deviation.
   after hydration (the late attach needs it); it is runtime only. Gate:
   check 0, build-app 0, `supacodeTerminalTests` + `supacodeFeatureTests` +
   `supacodeTests/TerminalsFeatureTests` with only baseline failures.
+- T3 review fix 4, 2026-10-08, `b268f33d`..`f468f271`: four findings, all held.
+  - Stale prune (P0, A13): hosted tasks were still pruned by absence from the
+    kept set, which is computed before the async send, so a task attached or
+    hydrated in between lost host, record and sessions. Decision: the manager
+    prunes a task, hosted or not, only when its directory is in
+    `archivedDirectories` and not kept or protected. `keepingDirectories` now
+    only outranks the archive (delete script running); the orphan union in
+    `AppFeature` is redundant but harmless. This supersedes the "prune killed
+    them" wording above for every non-archive case: nothing but an archive or
+    an explicit `removeLayouts(forDirectory:)` tears a task down.
+  - Origin lifetime: `.delete` no longer drops `origins[task key]`. An origin
+    is released when no task names its directory any more (decided from the
+    deleted record's directory; a task never written falls back to its own
+    key). Closes the T2 "left for T3/T6" note in both directions.
+  - Backup: `backUpLegacyIfAbsent` reports whether a backup is held; the
+    launch upgrade, the incremental writer and the `layouts.json` relocation
+    all write v3 only after it. The relocation now backs the file's bytes up
+    to `layoutsFile.pre-tasks.bak` first (it used to rely on the later move
+    to `.backup`), and a legacy file whose backup failed keeps the relocation
+    pending instead of being stamped complete.
+  - Tests: multi-task archive and delete, local and remote, now assert the
+    persisted tombstones, the origin release and the exact kill targets.
+  Siblings checked, no change needed: `removeLayouts(forDirectory:)` (explicit
+  deletion), `saveAllLayoutSnapshots` (hosts only, never deletes by absence),
+  the launch reaper (reads the persisted file, refuses unreadable stores).
