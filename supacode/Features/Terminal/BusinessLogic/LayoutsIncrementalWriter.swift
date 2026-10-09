@@ -106,6 +106,29 @@ actor LayoutsIncrementalWriter {
     }
   }
 
+  /// The sessions the stored record of `id` lists once every flush already
+  /// queued has landed: what the next flush for it will merge into. Empty
+  /// when no record is stored; `nil` when the store cannot be read, in which
+  /// case a flush would abort and leave whatever is there. Blocks behind the
+  /// queued flushes, so it is for the rare decision that must agree with the
+  /// writer (removing a task whose last tab closed), not for rendering.
+  nonisolated func storedSessions(of id: LayoutID) -> [SessionKey]? {
+    executorQueue.sync {
+      writeLock.lock()
+      defer { writeLock.unlock() }
+      guard let data = store.read() else { return [] }
+      switch TaskLayoutsFile.classify(data) {
+      case .tasks(let file), .legacy(let file):
+        return file.tasks[id.persistenceKey]?.sessions ?? []
+      case .undecodable:
+        // Nothing readable is stored, for this task or any other.
+        return []
+      case .newer, .lossy:
+        return nil
+      }
+    }
+  }
+
   private nonisolated func applyAndWriteRecords(_ changes: [LayoutID: RecordChange], synchronize: Bool) {
     guard !changes.isEmpty else { return }
     update(synchronize: synchronize) { file in Self.apply(changes, to: &file) }

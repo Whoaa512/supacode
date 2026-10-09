@@ -1091,6 +1091,55 @@ struct WorktreeTerminalManagerAckTests {
     #expect(recorder.remoteKills.value.isEmpty)
   }
 
+  /// The store alone decides here: the record was written after launch, so it
+  /// is in neither the runtime members nor the launch-time file.
+  @Test(.dependencies, arguments: [true, false])
+  func aTaskIsRemovedOnlyWhenTheStoredRecordListsNoSessionEither(storedSession: Bool) async {
+    let recorder = TeardownRecorder()
+    let clock = TestClock()
+    let harness = makeHarness(defaults: recorder.defaults, persistingOn: clock)
+    let pump = CreationEvents(harness.manager)
+    let directory = makeWorktree(id: "/tmp/repo/wt-late-member")
+    let task = LayoutID(task: UUID())
+    let surface = await openLayout(task, on: directory, in: harness, pump: pump)
+    let key = SessionKey(harness: .pi, sessionID: "late")
+    _ = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey] != nil }
+    recorder.seed([
+      TaskRecord(
+        id: task, directory: .init(worktreeID: directory.id), layout: singleTabLayout(contentID: surface),
+        sessions: storedSession ? [key] : [], createdAt: Date(timeIntervalSince1970: 1))
+    ])
+    #expect(harness.store.withState { $0.terminals.members[task] } == nil)
+    #expect(harness.store.withState { $0.repositories.persistedLayouts.tasks[task.persistenceKey] } == nil)
+
+    await closeTab(surface, of: task, in: harness)
+
+    let written = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey]?.layout.panes.isEmpty != false }
+    // The writer and the runtime agree: both keep the task or both drop it.
+    #expect(written.tasks[task.persistenceKey]?.sessions == (storedSession ? [key] : nil))
+    #expect((harness.manager.hostIfExists(for: task) != nil) == storedSession)
+    #expect(harness.store.withState { $0.terminals.layouts[id: task] != nil } == storedSession)
+    #expect(harness.store.withState { $0.terminals.removedLayoutIDs } == (storedSession ? [] : [task]))
+  }
+
+  @Test(.dependencies) func aSessionlessTaskIsNotRemovedWhileItsStoredRecordCannotBeRead() async {
+    let recorder = TeardownRecorder()
+    let clock = TestClock()
+    let harness = makeHarness(defaults: recorder.defaults, persistingOn: clock)
+    let pump = CreationEvents(harness.manager)
+    let task = LayoutID(task: UUID())
+    let surface = await openLayout(task, on: makeWorktree(id: "/tmp/repo/wt-lossy"), in: harness, pump: pump)
+    _ = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey] != nil }
+    // Decodable, but one record is not: the writer refuses to touch the file.
+    recorder.defaults.seed(
+      Data(#"{"schemaVersion":3,"tasks":{"\#(task.persistenceKey)":{"broken":true}},"worktrees":{}}"#.utf8))
+
+    await closeTab(surface, of: task, in: harness)
+
+    #expect(harness.manager.hostIfExists(for: task) != nil)
+    #expect(harness.store.withState { $0.terminals.layouts[id: task] } != nil)
+  }
+
   /// A sessionless task on a remote host is removed when its last tab closes,
   /// and that close's kill runs after the task's host is gone. Returns the
   /// closed tab's session once the task's removal is verified.

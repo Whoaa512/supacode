@@ -902,16 +902,17 @@ final class WorktreeTerminalManager {
   /// killed here: the closed tabs' sessions went with the tabs.
   private func removeTaskIfEmptied(_ layoutID: LayoutID) {
     guard let host = hosts[layoutID], let appStore else { return }
-    let isGone = appStore.withState { state in
+    let isEmptied = appStore.withState { state in
       state.terminals.layouts[id: layoutID]?.layout.panes.isEmpty == true
         && !state.terminals.layoutsAreReadOnly
         && state.terminals.members[layoutID]?.contains { $0.sessionKey != nil } != true
-        && state.repositories.persistedLayouts.tasks[layoutID.persistenceKey]?.sessions.isEmpty != false
     }
-    guard isGone else { return }
-    // Written now, while the layout still exists to be read. The writer has
-    // the last word: it drops the record only if the stored one lists no
-    // session either.
+    // The stored record as the writer will find it, not the launch-time
+    // file: the writer keeps a record that lists a session, and a task kept
+    // there must not be detached here. Unreadable counts as kept.
+    guard isEmptied, layoutsWriter.storedSessions(of: layoutID)?.isEmpty == true else { return }
+    // Written now, while the layout still exists to be read. The record goes
+    // with it: no session is listed here or in the store.
     layoutDirtyTasks[layoutID]?.cancel()
     flushLayoutSnapshot(worktreeID: layoutID)
     let directoryID = host.worktreeID
