@@ -684,12 +684,20 @@ struct AppFeature {
           },
           Self.loadWorktreeSettingsEffect(key: key, worktreeID: worktreeID)
         )
-        guard let layoutID = taskID ?? selectedTaskID ?? state.terminals.task(forDirectory: worktree.id) else {
+        let task = taskID ?? selectedTaskID ?? state.terminals.task(forDirectory: worktree.id)
+        // The directory by itself resolved to something else than the task
+        // picked earlier (it holds no tab here any more), so that pick is
+        // over: kept, it would stay mounted on a missing directory while the
+        // terminal is sent to the other one.
+        let landing = state.terminals.displayLayoutID(forDirectory: worktree.id)
+        if taskID == nil, let selectedTask = state.repositories.selectedTask, selectedTask.id != task ?? landing {
+          state.repositories.selectedTask = nil
+        }
+        guard let layoutID = task else {
           // A directory with no task shows the empty state: selecting it mints
           // nothing. The terminal follows what the detail view mounts: the
           // layout the directory's first tab would land in, or nothing when
           // that id is another directory's task.
-          let landing = state.terminals.displayLayoutID(forDirectory: worktree.id)
           return .merge(
             .run { _ in
               await terminalClient.send(.setSelectedLayoutID(landing))

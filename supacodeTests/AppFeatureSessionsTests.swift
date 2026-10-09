@@ -3379,6 +3379,62 @@ struct AppFeatureSessionsTests {
     #expect(store.state.taskOnMissingDirectory == nil)
   }
 
+  /// `fifth` was picked on the missing directory, then lost its last tab but
+  /// still lists a session; `sibling` puts `fourth`, with a tab, beside it.
+  private func emptiedSelectedTaskOnMissingDirectory(sibling: Bool) -> AppFeature.State {
+    var state = otherDirectoryMissing()
+    state.terminals.layouts[id: fifth]?.layout = PaneLayout()
+    state.terminals.members[fifth] = [.session(SessionKey(harness: .pi, sessionID: "five"))]
+    state.terminals.activeTasks[otherWorktree.id] = fifth
+    if sibling {
+      state.terminals.layouts.append(agentTask(fourth, surface: fourthSurface))
+      state.terminals.directories[fourth] = TaskRecord.Directory(worktreeID: otherWorktree.id)
+    }
+    state = withRows(state)
+    state.repositories.selection = .worktree(otherWorktree.id)
+    state.repositories.selectedTask = SelectedTask(id: fifth, directoryID: otherWorktree.id)
+    return state
+  }
+
+  @Test(.dependencies)
+  func selectingAMissingDirectoryWhoseSelectedTaskEmptiedShowsWhatTheTerminalIsSentTo() async {
+    let initial = emptiedSelectedTaskOnMissingDirectory(sibling: true)
+    #expect(initial.taskOnMissingDirectory == fifth, "the explicit pick is shown until the directory is selected")
+    let sibling = fourth
+    #expect(initial.terminals.task(forDirectory: otherWorktree.id) == sibling)
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+    store.exhaustivity = .off
+
+    await store.send(.repositories(.delegate(.selectedWorktreeChanged(otherWorktree))))
+    await store.finish()
+
+    #expect(recorded.selectedLayouts == [sibling])
+    #expect(store.state.repositories.selectedTask == nil)
+    #expect(store.state.taskOnMissingDirectory == nil, "the directory by itself is the placeholder")
+
+    // The terminal's echo of the sibling changes nothing about that.
+    var echoed = store.state
+    echoed.terminals.selectedLayoutID = sibling
+    echoed.terminals.selectionOrder.append(sibling)
+    echoed.terminals.activeTasks[otherWorktree.id] = sibling
+    #expect(echoed.taskOnMissingDirectory == nil)
+    #expect(echoed.detailLayoutID(forDirectory: otherWorktree.id) == sibling)
+  }
+
+  @Test(.dependencies) func anEmptiedSelectedTaskWithNoSiblingStaysWhereTheTerminalIsSent() async {
+    let recorded = Recorded()
+    let store = taskStore(emptiedSelectedTaskOnMissingDirectory(sibling: false), recorded: recorded)
+    store.exhaustivity = .off
+
+    await store.send(.repositories(.delegate(.selectedWorktreeChanged(otherWorktree))))
+    await store.finish()
+
+    #expect(recorded.selectedLayouts == [fifth])
+    #expect(store.state.taskOnMissingDirectory == fifth)
+    #expect(store.state.detailLayoutID(forDirectory: otherWorktree.id) == fifth)
+  }
+
   @Test(.dependencies) func aTaskThatIsGoneDoesNotHideThePlaceholder() {
     var state = withRows(otherDirectoryMissing())
     state.repositories.selection = .worktree(otherWorktree.id)
@@ -4223,6 +4279,7 @@ struct AppFeatureSessionsTests {
     #expect(!recorded.mintedOrResumed)
     if sibling {
       #expect(recorded.selectedLayouts == [second], "the task the detail view shows")
+      #expect(store.state.repositories.selectedTask == nil, "the pick ends once the directory shows another task")
       #expect(
         bootstraps == [
           .ensureInitialTab(second, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: false)
@@ -4230,6 +4287,7 @@ struct AppFeatureSessionsTests {
     } else {
       #expect(bootstraps.isEmpty, "an empty task gets no shell tab from a selection")
       #expect(recorded.selectedLayouts == [first], "the empty task stays where the directory's first tab lands")
+      #expect(store.state.repositories.selectedTask?.id == first)
     }
   }
 
