@@ -1946,3 +1946,44 @@ deviation.
   before closing, as the r1 ones do.
   Gate: check 0, the three suites above 89 tests 0 failures, build-app 0,
   full `make test` exit 2 with 4176 tests and only the 5 baseline failures.
+- T8, 2026-10-09, `6d1f8c6a`: branch capture follows the session surface's
+  cwd. `enqueueBranchCapture` resolves the surface through T4's index: the
+  directory's cached `sidebarItems[id:].branchName` is used only when
+  `SurfaceEntry.cwd` (standardized) equals the task directory's path;
+  otherwise `gitClient.branchName` is probed at the surface cwd, through the
+  same FIFO queue. `worktreeIDForSurface` had no other caller and is gone.
+  The resume-warning path needed no change: it already probes the directory
+  the session resumes in (the row's cwd, which for an indexed session is
+  the session's own), so with B's branch recorded a resume in B is silent
+  and a resume in A warns. Decisions (not in the plan):
+  - Remote task: cache only. Its paths name nothing on this machine, so a
+    surface outside the task directory (or one with no cached branch)
+    records nothing rather than the branch of a same-named local path.
+    Before, an uncached remote directory was probed locally.
+  - Orphan task (directory not in the roster): now probed at its cwd; before
+    it recorded nothing because capture required a roster worktree.
+  - The live row's branch annotation still compares against the task
+    directory (`SessionLiveSnapshot.cwd`), so a live tangent in B shows B's
+    branch beside the task's directory name. Left as is: it is a label, not
+    a warning, and it is true (the session is not on the task directory's
+    branch); a tab in a subdirectory of the task directory probes to the
+    same branch and shows nothing.
+  Left for later:
+  - S/K (or whoever first needs it): `SurfaceEntry.cwd` is the tab's
+    recorded launch or restored cwd, not the live pwd (T4 note). An agent
+    that `cd`s after launch is captured, and protected from auto-settle, by
+    its recorded cwd until the next layout snapshot. The live pwd sits on
+    the content's `TabChrome` and the hook event carries no cwd; feeding it
+    to the reducer per report is what AGENTS.md forbids, so this needs the
+    hook payload to carry cwd or a read at capture time.
+  - T8/S notes from T7 still open: a member whose task sits on another
+    directory resumes into a newly minted task, and a session that ran on a
+    remote host cannot be resumed from its history row.
+  Tests (`AppFeatureSessionsTests`): tangent in B inside task A captures
+  B's branch with A's branch cached (red before the change, the only one);
+  same-directory capture uses the cache with no probe (tab with no recorded
+  cwd and tab recorded in the directory); same-directory with no cache
+  probes the directory; a remote task's tab elsewhere is never probed;
+  resume in B silent, resume in A warns (parameterised).
+  Gate: check 0, `supacodeFeatureTests/AppFeatureSessionsTests` 124 tests
+  0 failures, build-app 0. No full `make test` (not a full-run slice).
