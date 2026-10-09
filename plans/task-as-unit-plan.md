@@ -2835,3 +2835,44 @@ deviation.
   tests and only three of the five baseline failures (ack flake,
   settings-changed, bracket chords); build-app 0. No full run (not the
   phase's last slice).
+- S1 review r1, 2026-10-09, `2ff4fe92`, `fc3c5e8b`. Three findings, all held.
+  - Revised: `supacode session list`. The S1 line "a task row answers for
+    its primary" is replaced. A task row only places its sessions (primary
+    first, then the rest, then any reported agent on one of its surfaces
+    the task does not list yet); every entry is the session's own: title
+    and cwd from its index entry, `lifecycle` from its own sidecar mark
+    (so a marked primary reads settled while the task row stays in Active
+    with tabs open), `live`/`status`/`surfaceID` from the agent running it
+    (the one on this task's surface first, else wherever it runs), empty
+    with no agent even if the task has a shell or a tangent open. Every
+    task's members are walked before deduplicating, so two tasks sharing a
+    primary both list their other sessions. A member neither running nor
+    indexed is still left out, except the primary a placeholder task row
+    is waiting on (named until the next scan, as before). `.implicit` rows
+    answer from the row as before: the row is the session.
+  - Linear grouping. `members(of:)` checks through a set; the selected
+    task's sub-rows use a key set and a member-to-agent map built once.
+    Measured in the new fixture before the fix: 0.93s per status flip at
+    3,000 sessions, 3.76s at 6,000. `RepositoriesFeatureSessionsScaleTests`
+    keeps its three baseline tests unmodified and gains a task-bearing
+    index (600 tasks of five, one selected task listing half the index
+    with an agent on every other member): member count, write-free
+    unchanged pass including the structure, and a 3,000 vs 6,000 linearity
+    check.
+  Left for later:
+  - T9 (auto-settle, not S1): `TaskIdleness.judged` walks all of a task's
+    members for each of its sessions, so a closed task with m indexed
+    members costs O(m²) per auto-settle pass. It returns early for an open
+    or running task and runs on refresh, not on a status flip. Not
+    exercised by the scale suite's `settle` budget (no tasks there).
+  - T7: `TaskMembership.reconciled` scans a task's member list per agent
+    (`list.contains`); bounded by agents × members of one task.
+  Tests: `SessionsSidebarTaskRowsTests` session-list block (primary with a
+  more urgent tangent, dormant primary with open tabs and a shell-only
+  task, session cwd vs task directory, shared primary with two distinct
+  tangents, unlisted reported agent, placeholder primary); five of the six
+  fail on the old code. Scale tests as above; the linearity one fails on
+  the old code.
+  Gate: check 0; `supacodeFeatureTests` + the three sessions suites of
+  `supacodeTests` (task rows, CLI, observation) exit 2 with 1228 tests and
+  only two baseline failures (ack flake, settings-changed); build-app 0.
