@@ -583,17 +583,7 @@ extension AppFeature {
     // A remote task's directory cannot be checked or registered from here:
     // the launch goes straight to its host.
     if directory == nil, let remote = currentTaskContext(state: state), remote.host != nil {
-      let requestID = uuid()
-      let pending = PendingSessionLaunch(
-        key: SessionKey(harness: .pi, sessionID: "new:\(requestID.uuidString)"),
-        cwd: remote.workingDirectory,
-        command: "pi",
-        requestID: requestID,
-        launched: true,
-        isNewSession: true
-      )
-      state.pendingSessionLaunch = pending
-      return launchSessionTab(pending, directory: remote, state: &state)
+      return launchNewSession(in: remote, state: &state)
     }
     let cwd = (directory ?? newSessionCwdFallback(state: state)).standardizedFileURL
     let cwdPath = cwd.path(percentEncoded: false)
@@ -621,6 +611,31 @@ extension AppFeature {
     }
     state.pendingSessionLaunch = pending
     return .send(.repositories(.registerSessionFolder(cwd)))
+  }
+
+  /// Mints a task with the default agent on a directory the roster lists,
+  /// local or remote. Nothing is asked and no path is checked here: the
+  /// directory is the row's own.
+  static func handleNewTask(inDirectory directoryID: Worktree.ID, state: inout State) -> Effect<Action> {
+    guard state.pendingSessionLaunch == nil,
+      let worktree = state.repositories.worktree(for: directoryID), !worktree.isMissing
+    else { return .none }
+    return launchNewSession(in: DirectoryContext(worktree: worktree), state: &state)
+  }
+
+  private static func launchNewSession(in directory: DirectoryContext, state: inout State) -> Effect<Action> {
+    @Dependency(\.uuid) var uuid
+    let requestID = uuid()
+    let pending = PendingSessionLaunch(
+      key: SessionKey(harness: .pi, sessionID: "new:\(requestID.uuidString)"),
+      cwd: directory.workingDirectory,
+      command: "pi",
+      requestID: requestID,
+      launched: true,
+      isNewSession: true
+    )
+    state.pendingSessionLaunch = pending
+    return launchSessionTab(pending, directory: directory, state: &state)
   }
 
   private static func handleResumeSession(_ key: SessionKey, state: inout State) -> Effect<Action> {

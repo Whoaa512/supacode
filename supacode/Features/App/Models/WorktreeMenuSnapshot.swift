@@ -130,7 +130,7 @@ extension AppFeature.Action {
       .refreshWorktreesRequested,
       .worktreeSettingsLoaded, .openSelectedWorktree, .revealInFinder,
       .openWorktree, .openWorktreeFailed, .openFile, .openFileFromExplorer, .requestQuit,
-      .requestTerminateAllTerminalSessions, .newTerminal, .newSession, .newSessionInDirectory,
+      .requestTerminateAllTerminalSessions, .newTerminal, .newSession, .newSessionInDirectory, .newTask,
       .newSessionDirectorySelected, .settleSessionAndAdvance, .unsettleCurrentSession,
       .nextSessionNeedsMe,
       .renameSelectedTerminalTab,

@@ -391,10 +391,10 @@ struct AppFeatureTerminalSetupScriptTests {
     )
   }
 
-  @Test(.dependencies) func selectedWorktreeChangedCarriesSetupScriptFlagForPendingWorktree() async {
+  @Test(.dependencies) func selectedWorktreeChangedLeavesTheFirstTabToWorktreeCreated() async {
     // A freshly created worktree emits `selectedWorktreeChanged` before
-    // `worktreeCreated`, so this bootstrap must carry the setup-script intent
-    // or the later, setup-aware call finds the tab already made.
+    // `worktreeCreated`. Selecting a directory mints nothing, so the
+    // setup-aware bootstrap is `worktreeCreated`'s alone.
     let worktree = makeWorktree()
     let repositoriesState = makeRepositoriesState(
       worktree: worktree,
@@ -420,44 +420,14 @@ struct AppFeatureTerminalSetupScriptTests {
 
     await store.send(.repositories(.delegate(.selectedWorktreeChanged(worktree))))
     await store.finish()
-    #expect(
-      sent.value.contains(
-        .ensureInitialTab(
-          worktree.id.layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, focusing: false)
-      )
-    )
-  }
+    #expect(sent.value == [.setSelectedLayoutID(worktree.id.layoutID)])
 
-  @Test(.dependencies) func selectedWorktreeChangedOmitsSetupScriptFlagForIdleWorktree() async {
-    let worktree = makeWorktree()
-    let repositoriesState = makeRepositoriesState(
-      worktree: worktree,
-      pendingSetupScript: false,
-      selected: true
-    )
-    let sent = LockIsolated<[TerminalClient.Command]>([])
-    let storage = SettingsTestStorage()
-    let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
-    ) {
-      AppFeature()
-    } withDependencies: {
-      $0.terminalClient.send = { command in sent.withValue { $0.append(command) } }
-      $0.worktreeInfoWatcher.send = { _ in }
-      $0.settingsFileStorage = storage.storage
-      $0.settingsFileURL = URL(fileURLWithPath: "/tmp/supacode-settings-\(UUID().uuidString).json")
-    }
-    store.exhaustivity = .off
-
-    await store.send(.repositories(.delegate(.selectedWorktreeChanged(worktree))))
+    await store.send(.repositories(.delegate(.worktreeCreated(worktree))))
     await store.finish()
     #expect(
-      sent.value.contains(
-        .ensureInitialTab(
-          worktree.id.layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: false))
+      sent.value.last
+        == .ensureInitialTab(
+          worktree.id.layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, focusing: false)
     )
   }
 
@@ -483,12 +453,20 @@ struct AppFeatureTerminalSetupScriptTests {
     repositoriesState.sidebarItems[id: worktree.id]?.shouldFocusTerminal = true
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let storage = SettingsTestStorage()
-    let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
+    var initial = AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
+    // The directory has a task to focus; one with none gets no command at all.
+    let paneID = PaneID()
+    let tab = TabItem(
+      id: TabID(rawValue: UUID()), title: "Shell",
+      content: ContentSnapshot(
+        id: ContentID(rawValue: UUID()), state: .terminal(TerminalContentState(workingDirectory: nil))))
+    initial.terminals.layouts = [
+      LayoutFeature.State(
+        id: worktree.id.layoutID,
+        layout: PaneLayout(tree: SplitTree(view: paneID), panes: [Pane(id: paneID, tabs: [tab], selectedTabID: tab.id)])
       )
-    ) {
+    ]
+    let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
       $0.terminalClient.send = { command in sent.withValue { $0.append(command) } }

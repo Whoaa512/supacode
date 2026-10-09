@@ -387,10 +387,34 @@ extension TerminalsFeature.State {
 // MARK: - Directory resolution.
 
 extension TerminalsFeature.State {
-  /// The layout a directory resolves to: its most recently selected task, or
-  /// the layout stored under the directory's own key when none was recorded.
+  /// The layout a directory resolves to: the task its row shows, or, when it
+  /// has none, where its first tab lands.
   func layoutID(forDirectory directoryID: Worktree.ID) -> LayoutID {
+    task(forDirectory: directoryID) ?? recordedLayoutID(forDirectory: directoryID)
+  }
+
+  /// The task a directory's row shows: one that holds a tab and sits on that
+  /// directory. The recorded one when it still is such a task (the usual
+  /// case, no scan), else the one selected most recently this run, else the
+  /// first by key. Nil when the directory has no task to show.
+  func task(forDirectory directoryID: Worktree.ID) -> LayoutID? {
+    let recorded = recordedLayoutID(forDirectory: directoryID)
+    // A layout no record or host names yet is the one the directory was sent to.
+    if holdsTabs(recorded), directories[recorded].map({ $0.worktreeID == directoryID }) ?? true {
+      return recorded
+    }
+    let tasks = layoutIDs(onDirectory: directoryID).filter(holdsTabs)
+    return selectionOrder.last { tasks.contains($0) } ?? tasks.first
+  }
+
+  /// The directory's most recently selected task as recorded, unchecked: the
+  /// entry may name nothing that exists, and no entry means its own key.
+  private func recordedLayoutID(forDirectory directoryID: Worktree.ID) -> LayoutID {
     activeTasks[directoryID] ?? Self.ownKeyLayoutID(forDirectory: directoryID)
+  }
+
+  private func holdsTabs(_ layoutID: LayoutID) -> Bool {
+    layouts[id: layoutID]?.layout.panes.contains { !$0.tabs.isEmpty } == true
   }
 
   /// The layout stored under the directory's own key: the one task every

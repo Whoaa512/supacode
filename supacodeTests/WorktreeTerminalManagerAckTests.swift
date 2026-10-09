@@ -1215,21 +1215,24 @@ struct WorktreeTerminalManagerAckTests {
 
     await closeTab(surface, of: task, in: harness)
 
-    let written = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey] == nil }
+    // The directory stays on screen and follows the task it still has, not
+    // its own-key layout, which does not exist.
+    let written = await flushed(recorder, on: clock) {
+      $0.tasks[task.persistenceKey] == nil && $0.activeTasks[directory.id.rawValue] == sibling.persistenceKey
+    }
     #expect(Array(written.tasks.keys) == [sibling.persistenceKey])
-    #expect(written.activeTasks.isEmpty)
+    #expect(written.activeTasks == [directory.id.rawValue: sibling.persistenceKey])
     #expect(harness.manager.hostIfExists(for: task) == nil)
     #expect(harness.manager.hostIfExists(for: sibling) != nil)
     harness.store.withState { state in
       #expect(Array(state.terminals.layouts.ids) == [sibling])
       #expect(state.terminals.directories[task] == nil)
-      #expect(state.terminals.activeTasks.isEmpty)
+      #expect(state.terminals.activeTasks == [directory.id: sibling])
       #expect(state.terminals.removedLayoutIDs == [task])
       #expect(!AppFeature.hasTask(task, state: state))
       #expect(state.terminals.layouts[id: sibling]?.layout.allContentIDs == [ContentID(rawValue: siblingSurface)])
     }
-    // The directory stays on screen and shows what it resolves to now.
-    #expect(harness.manager.selectedLayoutID == TerminalsFeature.State.ownKeyLayoutID(forDirectory: directory.id))
+    #expect(harness.manager.selectedLayoutID == sibling)
     #expect(recorder.localKills.value.isEmpty, "removing the task kills nothing")
     #expect(recorder.remoteKills.value.isEmpty)
   }

@@ -316,7 +316,9 @@ struct WorktreeDetailView: View {
           terminalsStore: store.scope(state: \.terminals, action: \.terminals),
           runtime: ContentRuntime.liveValue,
           forceAutoFocus: shouldFocusTerminal,
-          isLifecycleBusy: selectedSlice?.lifecycle.isBusy ?? false
+          isLifecycleBusy: selectedSlice?.lifecycle.isBusy ?? false,
+          newTaskHere: selectedWorktree.isMissing
+            ? nil : { store.send(.newTask(inDirectory: selectedWorktree.id)) }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(.container, edges: .bottom)

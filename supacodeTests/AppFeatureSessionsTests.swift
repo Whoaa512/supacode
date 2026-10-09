@@ -4077,4 +4077,164 @@ struct AppFeatureSessionsTests {
 
     #expect(recorded.selectedLayouts == [second])
   }
+
+  // MARK: - A directory row shows its most recent task
+
+  /// The fixture directory with only minted tasks on it: no own-key layout and
+  /// no recorded active task, as after the active one was removed.
+  private func mintedTasksOnly(_ ids: [(LayoutID, UUID)]) -> AppFeature.State {
+    var state = state()
+    state.terminals.layouts = []
+    for (id, surface) in ids {
+      state.terminals.layouts.append(agentTask(id, surface: surface))
+      state.terminals.directories[id] = TaskRecord.Directory(worktreeID: worktree.id)
+    }
+    state.terminals.selectedLayoutID = nil
+    return state
+  }
+
+  private func isBootstrap(_ command: TerminalClient.Command) -> Bool {
+    if case .ensureInitialTab = command { return true }
+    return false
+  }
+
+  @Test(.dependencies) func selectingADirectoryWithNoTaskMintsNothing() async {
+    let initial = mintedTasksOnly([])
+    #expect(initial.terminals.task(forDirectory: worktree.id) == nil)
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    await store.send(.repositories(.delegate(.selectedWorktreeChanged(worktree))))
+    await store.finish()
+
+    #expect(!recorded.mintedOrResumed)
+    #expect(!recorded.commands.value.contains(where: isBootstrap), "no shell tab is bootstrapped by a selection")
+    #expect(recorded.selectedLayouts == [worktree.id.layoutID], "where the directory's first tab would land")
+    #expect(recorded.watcher.value == [.setSelectedWorktreeID(worktree.id)])
+    #expect(store.state.terminals.layouts.isEmpty)
+    #expect(store.state.repositories.selectedWorktreeID == worktree.id)
+  }
+
+  @Test(.dependencies) func selectingADirectoryWithOneTaskShowsItEvenWithNoRecordedActiveTask() async {
+    let initial = mintedTasksOnly([(first, firstSurface)])
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    await store.send(.repositories(.delegate(.selectedWorktreeChanged(worktree))))
+    await store.finish()
+
+    #expect(recorded.selectedLayouts == [first], "not the own-key layout, which does not exist")
+    #expect(
+      recorded.commands.value.filter(isBootstrap) == [
+        .ensureInitialTab(first, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: false)
+      ])
+    #expect(!recorded.mintedOrResumed)
+    #expect(store.state.repositories.selectedWorktreeID == worktree.id)
+  }
+
+  @Test(.dependencies) func selectingADirectoryWithTwoTasksShowsTheMostRecentOne() async {
+    var initial = mintedTasksOnly([(first, firstSurface), (second, secondSurface)])
+    #expect(initial.terminals.task(forDirectory: worktree.id) == first, "never selected: the first by key")
+
+    initial.terminals.selectionOrder = [first, second]
+    #expect(initial.terminals.task(forDirectory: worktree.id) == second, "the one selected last this run")
+
+    initial.terminals.activeTasks[worktree.id] = first
+    #expect(initial.terminals.task(forDirectory: worktree.id) == first, "the recorded one while it is a task here")
+
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+    await store.send(.repositories(.delegate(.selectedWorktreeChanged(worktree))))
+    await store.finish()
+
+    #expect(recorded.selectedLayouts == [first])
+    #expect(!recorded.mintedOrResumed)
+  }
+
+  @Test(.dependencies) func removingTheActiveTaskLeavesTheDirectoryOnItsOtherTask() async {
+    var initial = mintedTasksOnly([(first, firstSurface), (second, secondSurface), (third, thirdSurface)])
+    initial.terminals.selectionOrder = [third, second, first]
+    initial.terminals.activeTasks[worktree.id] = first
+    let store = taskStore(initial, recorded: Recorded())
+
+    await store.send(.terminals(.detachLayout(worktreeID: first)))
+    await store.finish()
+
+    #expect(store.state.terminals.activeTasks[worktree.id] == nil)
+    #expect(store.state.terminals.task(forDirectory: worktree.id) == second)
+    #expect(store.state.layoutID(forDirectory: worktree.id) == second, "commands follow the task the row shows")
+  }
+
+  @Test func aTaskWithNoTabOrOnAnotherDirectoryIsNotTheDirectorysTask() {
+    var state = mintedTasksOnly([(first, firstSurface)])
+    // Recorded as active, but it holds no tab: showing it would bootstrap one.
+    state.terminals.layouts.append(LayoutFeature.State(id: second, layout: PaneLayout()))
+    state.terminals.directories[second] = TaskRecord.Directory(worktreeID: worktree.id)
+    state.terminals.activeTasks[worktree.id] = second
+    #expect(state.terminals.task(forDirectory: worktree.id) == first)
+
+    // A task elsewhere is never this directory's, whatever the entry says.
+    state.terminals.layouts.append(agentTask(third, surface: thirdSurface))
+    state.terminals.directories[third] = TaskRecord.Directory(worktreeID: otherWorktree.id)
+    state.terminals.activeTasks[worktree.id] = third
+    #expect(state.terminals.task(forDirectory: worktree.id) == first)
+    #expect(state.terminals.task(forDirectory: otherWorktree.id) == third)
+
+    // With no task to show, the seam still says where a first tab lands.
+    state.terminals.layouts.remove(id: first)
+    state.terminals.activeTasks[worktree.id] = nil
+    #expect(state.terminals.task(forDirectory: worktree.id) == nil)
+    #expect(state.layoutID(forDirectory: worktree.id) == worktree.id.layoutID)
+  }
+
+  @Test(.dependencies) func aTasklessDirectoryNeverSelectsAnotherDirectorysLayout() async {
+    var initial = mintedTasksOnly([])
+    // The directory's own key is in use by a task recorded on another directory.
+    initial.terminals.layouts.append(agentTask(worktree.id.layoutID, surface: firstSurface))
+    initial.terminals.directories[worktree.id.layoutID] = TaskRecord.Directory(worktreeID: otherWorktree.id)
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    await store.send(.repositories(.delegate(.selectedWorktreeChanged(worktree))))
+    await store.finish()
+
+    #expect(recorded.commands.value.contains(.setSelectedLayoutID(nil)))
+    #expect(recorded.selectedLayouts.isEmpty)
+    #expect(!recorded.commands.value.contains(where: isBootstrap))
+    #expect(!recorded.mintedOrResumed)
+  }
+
+  @Test(.dependencies) func newTaskHereMintsAnAgentTaskOnThatDirectory() async throws {
+    var initial = mintedTasksOnly([])
+    // A session row elsewhere is selected: the task still starts on the row's directory.
+    initial.repositories.repositories.append(
+      Repository(id: "/other", rootURL: otherWorktree.workingDirectory, name: "other", worktrees: [otherWorktree]))
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newTask(inDirectory: otherWorktree.id))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    let launch = try #require(launches(recorded).first)
+    #expect(launches(recorded).count == 1)
+    #expect(launch.layoutID == LayoutID(task: UUID(1)), "a fresh task, not the directory's own layout")
+    #expect(launch.directory == otherWorktree.id)
+    #expect(launch.input == "pi")
+    #expect(
+      store.state.pendingTaskLaunches == [PendingTaskLaunch(layoutID: launch.layoutID, directoryID: otherWorktree.id)],
+      "shown once its first tab exists")
+  }
+
+  @Test(.dependencies) func newTaskHereDoesNothingForADirectoryTheRosterDoesNotList() async {
+    let recorded = Recorded()
+    let store = mintingStore(mintedTasksOnly([]), recorded: recorded)
+
+    await store.send(.newTask(inDirectory: "/gone/checkout"))
+    await store.finish()
+
+    #expect(recorded.commands.value.isEmpty)
+    #expect(store.state.pendingSessionLaunch == nil)
+    #expect(store.state.pendingTaskLaunches.isEmpty)
+  }
 }

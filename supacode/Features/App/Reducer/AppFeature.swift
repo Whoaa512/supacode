@@ -347,6 +347,7 @@ struct AppFeature {
     case newTerminal
     case newSession
     case newSessionInDirectory
+    case newTask(inDirectory: Worktree.ID)
     case newSessionDirectorySelected(URL)
     case settleSessionAndAdvance
     case unsettleCurrentSession
@@ -660,12 +661,6 @@ struct AppFeature {
         state.repositories.$sidebar.withLock { sidebar in
           sidebar.focusedWorktreeID = lastFocusedWorktreeID
         }
-        // A freshly created worktree emits `selectedWorktreeChanged` before
-        // `worktreeCreated`, so this bootstrap can create the tab first; carry
-        // the same setup-script intent or the later, setup-aware call finds the
-        // tab already made and the manager refuses to re-arm a directory that has tabs.
-        let runSetupScriptIfNew =
-          state.repositories.sidebarItems[id: worktree.id]?.lifecycle == .pending
         // `shouldFocusTerminal` may already be armed before this delegate fires
         // (launch restore, or a sidebar selection that requested focus first),
         // so read it here and drive focus through the activation command: the
@@ -675,27 +670,40 @@ struct AppFeature {
         let wantsFocus = state.repositories.sidebarItems[id: worktree.id]?.shouldFocusTerminal == true
         // A named task is shown as is; otherwise the task still selected on
         // this directory (the terminal may not have echoed it into the
-        // directory's active task yet), else the directory's active one.
+        // directory's active task yet), else the directory's most recent one.
         let selectedTaskID = state.repositories.selectedTask.flatMap {
           $0.directoryID == worktree.id && Self.hasTask($0.id, state: state) ? $0.id : nil
         }
-        let layoutID = taskID ?? selectedTaskID ?? state.layoutID(forDirectory: worktree.id)
+        let directoryEffects = Effect<Action>.merge(
+          .run { _ in
+            await worktreeInfoWatcher.send(.setSelectedWorktreeID(worktree.id))
+          },
+          Self.loadWorktreeSettingsEffect(key: key, worktreeID: worktreeID)
+        )
+        guard let layoutID = taskID ?? selectedTaskID ?? state.terminals.task(forDirectory: worktree.id) else {
+          // A directory with no task shows the empty state: selecting it mints
+          // nothing. The terminal follows the layout the directory's first
+          // tab would land in, unless that id is another directory's task.
+          let landing = state.layoutID(forDirectory: worktree.id)
+          let isElsewhere = state.terminals.directories[landing].map { $0.worktreeID != worktree.id } ?? false
+          return .merge(
+            .run { _ in
+              await terminalClient.send(.setSelectedLayoutID(isElsewhere ? nil : landing))
+            },
+            directoryEffects
+          )
+        }
         return .merge(
           .run { _ in
             await terminalClient.send(.setSelectedLayoutID(layoutID))
           },
           .run { _ in
-            // A worktree selected for the first time (fresh install, empty
-            // migration) still needs its bootstrap tab; no-op when populated.
+            // The task holds its tabs already, so this only carries the focus.
             await terminalClient.send(
               .ensureInitialTab(
-                layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: runSetupScriptIfNew,
-                focusing: wantsFocus))
+                layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: wantsFocus))
           },
-          .run { _ in
-            await worktreeInfoWatcher.send(.setSelectedWorktreeID(worktree.id))
-          },
-          Self.loadWorktreeSettingsEffect(key: key, worktreeID: worktreeID)
+          directoryEffects
         )
 
       case .repositories(.delegate(.worktreeCreated(let worktree))):
@@ -1184,6 +1192,9 @@ struct AppFeature {
 
       case .newSession:
         return Self.handleNewSession(directory: nil, state: &state)
+
+      case .newTask(let directoryID):
+        return Self.handleNewTask(inDirectory: directoryID, state: &state)
 
       case .newSessionInDirectory:
         return .send(

@@ -11,6 +11,8 @@ struct WorktreeLayoutView: View {
   let runtime: ContentRuntime
   let forceAutoFocus: Bool
   var isLifecycleBusy = false
+  /// Offered by the empty state of a directory that has no task.
+  var newTaskHere: (() -> Void)?
   @State private var windowActivity = WindowActivityState.inactive
   @State private var windowActivityReader = WindowActivityReader()
   // Reading `\.colorScheme` invalidates this body when the window appearance
@@ -46,7 +48,8 @@ struct WorktreeLayoutView: View {
         // control that is not on screen.
         EmptyTerminalPaneView(
           message: "No terminals open",
-          hint: Text("Press \(Text("⌘T").bold()) to open a new terminal.")
+          hint: Text("Press \(Text("⌘T").bold()) to open a new terminal."),
+          newTaskHere: newTaskHere
         )
       }
     }
