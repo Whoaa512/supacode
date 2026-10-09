@@ -605,7 +605,8 @@ T4 and T5 (migrated tasks must already be reachable).
     the primary → `settleTask` only when no other member is live, otherwise
     nothing closes and the task stays active.
   - Manual settle → `settleTask`. Auto-settle evaluates the task: never
-    while any member is live; idle age = newest member activity. Reopen
+    while any member is live or any tab of the task is open (open question
+    6: it closes nothing); idle age = newest member activity. Reopen
     resumes the current primary. Settle-and-advance moves to the next live
     task.
 - Tests: A19; A37 table: primary `/new`, primary `/fork`, tangent
@@ -2302,3 +2303,69 @@ deviation.
   `supacodeTerminalTests/LayoutFeatureTests` + `LayoutsIncrementalWriterTests`
   + `WorktreeTerminalManagerAckTests` exit 2 with 3494 tests and only
   three of the five baseline failures; build-app 0. No full run.
+- T9 r5 (review fixes), 2026-10-09, `364ea2f2` + `82b473fa` + `8435f991`.
+  **Revised**: this overrides the T9 and r1-r4 entries where they differ.
+  In particular r4's "before the load the map is still an approximation"
+  no longer holds: there is no map and no approximation.
+  - Membership before the stored sessions load (P1, A37, D5). Exact now.
+    `replacedSessions`, `TaskMembership.recording` and the map half of
+    `storing`/`merged` are gone. `TerminalsFeature.State.storedSessions`
+    is `.pending` until hydration; while it is, every membership change
+    is queued in order (`pendingMembership`: the agents each
+    `membersChanged` was reconciled from, and every `sessionReplaced`,
+    also one that moves nothing in the run's list because only the store
+    names the replaced session). `layoutsHydrated` applies the queue to
+    each stored list through the same `reconciled` and `replacing` the
+    run uses (`TaskMembership.replaying`), so a task ends as if its
+    stored sessions had been there from the start, whichever agent
+    reported first. `membersChanged` carries the agents for that.
+    Decisions:
+    - Nothing is written from the run's list while pending
+      (`RecordChange.record(storedSessions: .pending)` leaves a stored
+      list alone and stores a new task with no session), so the list the
+      replay starts from is the one the last run left; the load then asks
+      for a write of every task whose sessions differ from the record.
+      Cost: a quit inside the launch window (before
+      `resolveLiveZmxSessions` returns) stores no session that first
+      appeared in it; the agent reports it again next launch.
+    - A task stored with no session keeps the run's list as it is: it was
+      minted this run (launch primary first), so there is nothing stored
+      to replay onto.
+    - An unreadable store (`hydrateLayouts` `.unreadable`) now sends
+      `.storedSessionsUnreadable`: the queue is dropped and writes only
+      add after whatever is stored (the T7 rule). In every such case the
+      writer either aborts (newer, lossy) or starts from an empty file
+      (undecodable), so nothing stored is reordered.
+    - Same class, destructive side: a named local quit of the run's first
+      member closed the task's tabs; before the load that member may be a
+      stored tangent, so while pending the quit only marks its session.
+      Other pre-load readers of the primary only mark or are user actions
+      on tasks that are not on screen until the load.
+  - Auto-settle and open tabs (P1, D6, A19, open question 6). A session
+    is not auto-settled while a task that lists it has any tab open
+    (`TaskIdleness.openTasks`, from `taskSnapshots`, which also lists a
+    stored task not attached yet). A task with no tab settles by mark as
+    before. Sessions in no task are unchanged.
+  Left for later: nothing new. The r4 follow-up (a member with no summary
+  holds its task) stands.
+  Only the live UI can confirm (cj), plus r2-r4's list: after a relaunch
+  with several agents resuming at once, each task's row keeps the title
+  it had; an idle task with a shell tab left stays in Active past the
+  idle limit and settles once that tab is closed.
+  Tests: `TerminalsFeatureTests` (the review's sequence with either agent
+  reporting first, hydrated twice; replacement of a store-only session;
+  tangent first with a waiting agent; minted task; unreadable store; what
+  the load writes; removed task), `LayoutsIncrementalWriterTests`
+  (pending writes leave stored sessions alone, in any number; the
+  sequence with a write after every step; exhaustive walk of four
+  replacements on two surfaces with the load and a write at any step,
+  compared with the same walk loaded first; `replaying`; loaded and
+  add-only orders), `WorktreeTerminalManagerAckTests` (sessions reach the
+  store only after the load, end to end), `AppFeatureSessionsTaskSettleTests`
+  (quit before the load), `RepositoriesFeatureAutoSettleTests` (open tab,
+  one or two sessions, then closed; another task's tab). Mutation-checked:
+  dropping the replay, the open-tab check and the pending quit guard each
+  fail their test. The old map was not re-run against the new sequence
+  tests (it is deleted); the writer tests for the map went with it.
+  Gate: check 0, full `make test` exit 2 with 4251 tests and only the 5
+  baseline failures, build-app 0.
