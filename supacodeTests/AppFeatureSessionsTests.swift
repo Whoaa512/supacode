@@ -4199,6 +4199,40 @@ struct AppFeatureSessionsTests {
     #expect(ownKeyLast.task(forDirectory: worktree.id) == ownKey)
   }
 
+  /// `first` lists a session and is the selected task, but its last tab closed.
+  private func selectedTaskWithNoTab(sibling: Bool) -> AppFeature.State {
+    var state = mintedTasksOnly(sibling ? [(second, secondSurface)] : [])
+    state.terminals.layouts.append(LayoutFeature.State(id: first, layout: PaneLayout()))
+    state.terminals.directories[first] = TaskRecord.Directory(worktreeID: worktree.id)
+    state.terminals.members[first] = [.session(piKey("closed"))]
+    state.terminals.activeTasks[worktree.id] = first
+    state.terminals.selectionOrder = sibling ? [second, first] : [first]
+    state.repositories.selectedTask = .init(id: first, directoryID: worktree.id)
+    return state
+  }
+
+  @Test(.dependencies, arguments: [true, false])
+  func selectingTheDirectoryOfASelectedTaskWithNoTabBootstrapsNothingInIt(sibling: Bool) async {
+    let recorded = Recorded()
+    let store = taskStore(selectedTaskWithNoTab(sibling: sibling), recorded: recorded)
+
+    await store.send(.repositories(.delegate(.selectedWorktreeChanged(worktree))))
+    await store.finish()
+
+    let bootstraps = recorded.commands.value.filter(isBootstrap)
+    #expect(!recorded.mintedOrResumed)
+    if sibling {
+      #expect(recorded.selectedLayouts == [second], "the task the detail view shows")
+      #expect(
+        bootstraps == [
+          .ensureInitialTab(second, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: false)
+        ])
+    } else {
+      #expect(bootstraps.isEmpty, "an empty task gets no shell tab from a selection")
+      #expect(recorded.selectedLayouts == [first], "the empty task stays where the directory's first tab lands")
+    }
+  }
+
   @Test func aTaskWithNoTabOrOnAnotherDirectoryIsNotTheDirectorysTask() {
     var state = mintedTasksOnly([(first, firstSurface)])
     // Recorded as active, but it holds no tab: showing it would bootstrap one.
@@ -4236,6 +4270,25 @@ struct AppFeatureSessionsTests {
     #expect(recorded.selectedLayouts.isEmpty)
     #expect(!recorded.commands.value.contains(where: isBootstrap))
     #expect(!recorded.mintedOrResumed)
+    // The detail view mounts nothing of the other directory's task either.
+    #expect(store.state.detailLayoutID(forDirectory: worktree.id) == nil)
+    #expect(store.state.detailLayoutID(forDirectory: otherWorktree.id) == worktree.id.layoutID)
+  }
+
+  @Test func theDetailViewMountsWhatADirectorySelectionSelects() {
+    // No task: the empty layout a first tab lands in, so the tab shows up.
+    var state = mintedTasksOnly([])
+    #expect(state.detailLayoutID(forDirectory: worktree.id) == worktree.id.layoutID)
+
+    state = mintedTasksOnly([(first, firstSurface), (second, secondSurface)])
+    state.terminals.selectionOrder = [first, second]
+    #expect(state.detailLayoutID(forDirectory: worktree.id) == second)
+
+    // A recorded entry naming another directory's task mounts nothing of it.
+    state = mintedTasksOnly([(first, firstSurface)])
+    state.terminals.directories[first] = TaskRecord.Directory(worktreeID: otherWorktree.id)
+    state.terminals.activeTasks[worktree.id] = first
+    #expect(state.detailLayoutID(forDirectory: worktree.id) == nil)
   }
 
   @Test(.dependencies) func newTaskHereMintsAnAgentTaskOnThatDirectory() async throws {

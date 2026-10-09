@@ -115,6 +115,16 @@ extension AppFeature {
     state.terminals.layouts[id: layoutID] != nil || storedTask(layoutID, state: state) != nil
   }
 
+  /// Whether a task holds a tab on this directory: by its layout once it
+  /// has one this run, else by its stored record.
+  static func taskHoldsTabs(_ layoutID: LayoutID, onDirectory directoryID: Worktree.ID, state: State) -> Bool {
+    guard state.terminals.layouts[id: layoutID] == nil else {
+      return state.terminals.isTask(layoutID, onDirectory: directoryID)
+    }
+    guard let stored = storedTask(layoutID, state: state) else { return false }
+    return stored.directory.worktreeID == directoryID && stored.layout.panes.contains { !$0.tabs.isEmpty }
+  }
+
   /// The stored tasks as read at launch, less the ones removed since: the
   /// file is never re-read, so it still lists a task this run deleted.
   static func storedTasks(state: State) -> [TaskRecord] {

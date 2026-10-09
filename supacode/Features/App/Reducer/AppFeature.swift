@@ -671,8 +671,12 @@ struct AppFeature {
         // A named task is shown as is; otherwise the task still selected on
         // this directory (the terminal may not have echoed it into the
         // directory's active task yet), else the directory's most recent one.
+        // Only while it holds a tab here: an emptied task that still lists a
+        // session keeps its row, and selecting its directory must not put a
+        // shell tab in it.
         let selectedTaskID = state.repositories.selectedTask.flatMap {
-          $0.directoryID == worktree.id && Self.hasTask($0.id, state: state) ? $0.id : nil
+          $0.directoryID == worktree.id && Self.taskHoldsTabs($0.id, onDirectory: worktree.id, state: state)
+            ? $0.id : nil
         }
         let directoryEffects = Effect<Action>.merge(
           .run { _ in
@@ -682,13 +686,13 @@ struct AppFeature {
         )
         guard let layoutID = taskID ?? selectedTaskID ?? state.terminals.task(forDirectory: worktree.id) else {
           // A directory with no task shows the empty state: selecting it mints
-          // nothing. The terminal follows the layout the directory's first
-          // tab would land in, unless that id is another directory's task.
-          let landing = state.layoutID(forDirectory: worktree.id)
-          let isElsewhere = state.terminals.directories[landing].map { $0.worktreeID != worktree.id } ?? false
+          // nothing. The terminal follows what the detail view mounts: the
+          // layout the directory's first tab would land in, or nothing when
+          // that id is another directory's task.
+          let landing = state.terminals.displayLayoutID(forDirectory: worktree.id)
           return .merge(
             .run { _ in
-              await terminalClient.send(.setSelectedLayoutID(isElsewhere ? nil : landing))
+              await terminalClient.send(.setSelectedLayoutID(landing))
             },
             directoryEffects
           )
@@ -4393,6 +4397,12 @@ extension AppFeature.State {
   /// The single app-layer seam for "which layout does this worktree mean".
   func layoutID(forDirectory worktreeID: Worktree.ID) -> LayoutID {
     terminals.layoutID(forDirectory: worktreeID)
+  }
+
+  /// The layout the detail view mounts for a selected directory, and the one
+  /// a directory selection sends the terminal to. Nil renders the empty state.
+  func detailLayoutID(forDirectory worktreeID: Worktree.ID) -> LayoutID? {
+    taskOnMissingDirectory ?? terminals.displayLayoutID(forDirectory: worktreeID)
   }
 
   /// The selected task when its directory is still in the roster but gone from

@@ -302,7 +302,7 @@ struct WorktreeDetailView: View {
           )
           store.send(.repositories(.requestDeleteSidebarItems([target])))
         }
-      } else if let selectedWorktree {
+      } else if let selectedWorktree, let layoutID = store.state.detailLayoutID(forDirectory: selectedWorktree.id) {
         let shouldFocusTerminal = repositories.shouldFocusTerminal(for: selectedWorktree.id)
         let pendingTerminalFocus: Worktree.ID? = shouldFocusTerminal ? selectedWorktree.id : nil
         // No `.id` on purpose: keeping the view stable across a worktree switch
@@ -311,7 +311,7 @@ struct WorktreeDetailView: View {
         WorktreeLayoutView(
           // A task picked on a directory that is gone from disk keeps its
           // tabs on screen; the toolbar already hides the directory chrome.
-          layoutID: store.state.taskOnMissingDirectory ?? store.state.layoutID(forDirectory: selectedWorktree.id),
+          layoutID: layoutID,
           manager: terminalManager,
           terminalsStore: store.scope(state: \.terminals, action: \.terminals),
           runtime: ContentRuntime.liveValue,
@@ -328,6 +328,15 @@ struct WorktreeDetailView: View {
           guard let target else { return }
           store.send(.repositories(.consumeTerminalFocus(target)))
         }
+      } else if let selectedWorktree {
+        // The only layout this directory resolves to is another directory's
+        // task: nothing of it is mounted here.
+        EmptyTerminalPaneView(
+          message: "No terminals open",
+          hint: Text("Start a task to open a terminal here."),
+          newTaskHere: selectedWorktree.isMissing
+            ? nil : { store.send(.newTask(inDirectory: selectedWorktree.id)) }
+        )
       } else if let orphanTaskID = repositories.orphanTaskID {
         // A task whose directory the roster no longer lists: its tabs are
         // shown, with none of the directory's chrome.
