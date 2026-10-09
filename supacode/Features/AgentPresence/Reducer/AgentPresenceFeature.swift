@@ -624,10 +624,10 @@ struct AgentPresenceFeature {
     var sessionRef: String?
   }
 
-  /// Build the staged-restore dict from the persisted v2 layouts file. No
+  /// Build the staged-restore dict from the persisted layouts file. No
   /// `kill(2)` here; liveness check is the caller's responsibility in `.run`.
-  nonisolated static func stageRestore(from file: LayoutsFile) -> [PresenceKey: StagedRestore] {
-    stageRestore(fromAgentRecords: file.worktrees.values.map { $0.layout.allAgentRecords() })
+  nonisolated static func stageRestore(from file: TaskLayoutsFile) -> [PresenceKey: StagedRestore] {
+    stageRestore(fromAgentRecords: file.tasks.values.map { $0.layout.allAgentRecords() })
   }
 
   /// Build the staged-restore dict from persisted layouts. No `kill(2)` here;

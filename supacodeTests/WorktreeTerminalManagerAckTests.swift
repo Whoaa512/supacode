@@ -235,9 +235,9 @@ struct WorktreeTerminalManagerAckTests {
   @Test(.dependencies) func removingADeletedWorktreesLayoutWorksWithoutAHost() async throws {
     // Layouts persist to UserDefaults now; signal each write so the async
     // incremental flush can be awaited without polling.
-    let (fileWrites, writeSignal) = AsyncStream<LayoutsFile>.makeStream()
+    let (fileWrites, writeSignal) = AsyncStream<TaskLayoutsFile>.makeStream()
     let defaults = LayoutsSignalingDefaults { data in
-      if let file = try? JSONDecoder().decode(LayoutsFile.self, from: data) {
+      if let file = try? JSONDecoder().decode(TaskLayoutsFile.self, from: data) {
         writeSignal.yield(file)
       }
     }
@@ -251,7 +251,8 @@ struct WorktreeTerminalManagerAckTests {
     // Hydrated but never selected: no host exists for this worktree.
     harness.store.send(
       .terminals(
-        .layoutsHydrated(LayoutsFile(worktrees: [harness.worktree.id.rawValue: record]))
+        .layoutsHydrated(
+          TaskLayoutsFile(oneTaskPerDirectory: LayoutsFile(worktrees: [harness.worktree.id.rawValue: record])))
       )
     )
     #expect(harness.store.withState { $0.terminals.layouts[id: harness.worktree.id.layoutID] } != nil)
@@ -264,7 +265,7 @@ struct WorktreeTerminalManagerAckTests {
     #expect(harness.store.withState { $0.terminals.layouts[id: harness.worktree.id.layoutID] } == nil)
     var writes = fileWrites.makeAsyncIterator()
     let written = await writes.next()
-    #expect(written?.worktrees.isEmpty == true)
+    #expect(written?.tasks.isEmpty == true)
   }
 
   @Test(.dependencies) func removingAWorktreeLayoutRetractsItsSurfacesFromPresence() async {
@@ -274,7 +275,9 @@ struct WorktreeTerminalManagerAckTests {
     // Subscribe before the command so the one-shot event isn't stranded.
     var iterator = harness.manager.eventStream().makeAsyncIterator()
     harness.store.send(
-      .terminals(.layoutsHydrated(LayoutsFile(worktrees: [harness.worktree.id.rawValue: record]))))
+      .terminals(
+        .layoutsHydrated(
+          TaskLayoutsFile(oneTaskPerDirectory: LayoutsFile(worktrees: [harness.worktree.id.rawValue: record])))))
 
     harness.manager.handleCommand(
       .removeLayouts(forDirectory: harness.worktree.id, remoteHost: nil))
@@ -299,10 +302,12 @@ struct WorktreeTerminalManagerAckTests {
     harness.store.send(
       .terminals(
         .layoutsHydrated(
-          LayoutsFile(
-            worktrees: [
-              harness.worktree.id.rawValue: LayoutRecord(layout: singleTabLayout(contentID: contentID))
-            ]
+          TaskLayoutsFile(
+            oneTaskPerDirectory: LayoutsFile(
+              worktrees: [
+                harness.worktree.id.rawValue: LayoutRecord(layout: singleTabLayout(contentID: contentID))
+              ]
+            )
           )
         )
       )

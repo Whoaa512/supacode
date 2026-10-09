@@ -30,7 +30,7 @@ struct RepositoriesFeatureSessionsTests {
     var state = RepositoriesFeature.State()
     state.$sessions = Shared(value: [:])
     state.$sidebar = Shared(value: SidebarState())
-    state.$persistedLayouts = SharedReader(value: LayoutsFile(worktrees: [:]))
+    state.$persistedLayouts = SharedReader(value: TaskLayoutsFile())
     return state
   }
 

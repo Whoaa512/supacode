@@ -22,7 +22,7 @@ struct RepositoriesFeatureAutoSettleTests {
     var state = RepositoriesFeature.State()
     state.$sessions = Shared(value: [:])
     state.$sidebar = Shared(value: SidebarState())
-    state.$persistedLayouts = SharedReader(value: LayoutsFile(worktrees: [:]))
+    state.$persistedLayouts = SharedReader(value: TaskLayoutsFile())
     state.sessionsStarted = true
     return state
   }
@@ -206,7 +206,7 @@ struct RepositoriesFeatureAutoSettleTests {
     var initial = RepositoriesFeature.State()
     initial.$sessions = Shared(value: [:])
     initial.$sidebar = Shared(value: SidebarState())
-    initial.$persistedLayouts = SharedReader(value: LayoutsFile(worktrees: [:]))
+    initial.$persistedLayouts = SharedReader(value: TaskLayoutsFile())
     initial.sessionsStarted = true
     let testStore = TestStore(initialState: initial) {
       RepositoriesFeature()

@@ -39,8 +39,10 @@ struct TerminalsFeature {
 
   @ObservableState
   struct State: Equatable {
-    /// Per-worktree pane and tab topology, hydrated from `layouts.json` v2.
+    /// Per-task pane and tab topology, hydrated from the persisted layouts.
     var layouts: IdentifiedArrayOf<LayoutFeature.State> = []
+    /// Each hydrated layout's directory, as its task record names it.
+    var directories: [LayoutID: TaskRecord.Directory] = [:]
     /// True when the persisted file was written by a newer schema; its records
     /// are served but must never be written back.
     var layoutsAreReadOnly = false
@@ -68,7 +70,7 @@ struct TerminalsFeature {
     /// The migrated layouts file finished loading. Consistent records become
     /// `LayoutFeature` states; inconsistent ones fall back to a fresh layout
     /// on first use.
-    case layoutsHydrated(LayoutsFile)
+    case layoutsHydrated(TaskLayoutsFile)
     /// Ensures a layout exists for a worktree and carries its display name for
     /// minted tab titles. Never replaces a live layout.
     case attachLayout(worktreeID: LayoutID, titlePrefix: String)
@@ -152,6 +154,7 @@ struct TerminalsFeature {
         // Bookkeeping is NOT pre-cleared: the reconcile below must still see
         // the armed entries to emit their timer cancellations.
         state.layouts.remove(id: worktreeID)
+        state.directories.removeValue(forKey: worktreeID)
         state.recentLayoutIDs.removeAll { $0 == worktreeID }
         return reconcileHibernation(&state)
 
@@ -170,13 +173,13 @@ struct TerminalsFeature {
         return reduceMemoryPressureWarning(&state)
 
       case .layoutsHydrated(let file):
-        state.layoutsAreReadOnly = file.schemaVersion > LayoutsFile.currentSchemaVersion
+        state.layoutsAreReadOnly = file.schemaVersion > TaskLayoutsFile.currentSchemaVersion
         // The runtime keys globally by content id and hibernation by tab id, so
         // seed from what is already hydrated and refuse any record that reuses an
         // id from another worktree (possible in pre-creation-gate layouts).
         var seenContentIDs = Set(state.layouts.flatMap { $0.layout.allContentIDs })
         var seenTabIDs = Set(state.layouts.flatMap { $0.layout.panes.flatMap(\.tabs.ids) })
-        for (key, record) in file.worktrees.sorted(by: { $0.key < $1.key }) {
+        for (key, record) in file.tasks.sorted(by: { $0.key < $1.key }) {
           guard record.layout.isConsistent else {
             Self.logger.error("Dropping inconsistent persisted layout for \(key)")
             continue
@@ -184,12 +187,12 @@ struct TerminalsFeature {
           let contentIDs = record.layout.allContentIDs
           let tabIDs = record.layout.panes.flatMap(\.tabs.ids)
           guard seenContentIDs.isDisjoint(with: contentIDs), seenTabIDs.isDisjoint(with: tabIDs) else {
-            Self.logger.error("Dropping persisted layout for \(key): an id collides with another worktree")
+            Self.logger.error("Dropping persisted layout for \(key): an id collides with another layout")
             continue
           }
-          let worktreeID = LayoutID(legacyWorktreeKey: key)
-          guard state.layouts[id: worktreeID] == nil else { continue }
-          state.layouts.append(LayoutFeature.State(id: worktreeID, layout: record.layout))
+          guard state.layouts[id: record.id] == nil else { continue }
+          state.layouts.append(LayoutFeature.State(id: record.id, layout: record.layout))
+          state.directories[record.id] = record.directory
           seenContentIDs.formUnion(contentIDs)
           seenTabIDs.formUnion(tabIDs)
         }

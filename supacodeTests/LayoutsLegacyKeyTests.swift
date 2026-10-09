@@ -28,7 +28,7 @@ struct LayoutsLegacyKeyTests {
   @Test func legacyV2BlobHydratesToExpectedIDs() throws {
     let file = try JSONDecoder().decode(LayoutsFile.self, from: Data(Self.blob.utf8))
     var state = TerminalsFeature.State()
-    _ = TerminalsFeature().reduce(into: &state, action: .layoutsHydrated(file))
+    _ = TerminalsFeature().reduce(into: &state, action: .layoutsHydrated(TaskLayoutsFile(oneTaskPerDirectory: file)))
 
     let expected = ["/tmp/repo/wt-a": "1", "/tmp/repo/wt-b": "2"]
     #expect(state.layouts.ids.map(\.persistenceKey).sorted() == expected.keys.sorted())

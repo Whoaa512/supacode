@@ -28,7 +28,7 @@ struct RepositoriesFeatureSessionsScaleTests {
     }
     state.$sessions = Shared(value: sidecar)
     state.$sidebar = Shared(value: SidebarState())
-    state.$persistedLayouts = SharedReader(value: LayoutsFile(worktrees: [:]))
+    state.$persistedLayouts = SharedReader(value: TaskLayoutsFile())
     state.sessionsStarted = true
     state.sessionsRestorationFinished = true
     state.sessionsRefreshSucceeded = true

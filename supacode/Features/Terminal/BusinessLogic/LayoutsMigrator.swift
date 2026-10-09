@@ -34,7 +34,8 @@ nonisolated struct LayoutRecord: Equatable, Codable, Sendable {
   }
 }
 
-/// The v2 layouts shape: a version stamp over per-worktree records.
+/// The v2 layouts shape: a version stamp over per-worktree records. Legacy:
+/// decoded only to be mapped into `TaskLayoutsFile`; never written by the app.
 nonisolated struct LayoutsFile: Equatable, Codable, Sendable {
   static let currentSchemaVersion = 2
 
@@ -80,92 +81,14 @@ nonisolated struct LayoutsFile: Equatable, Codable, Sendable {
 }
 
 nonisolated extension LayoutsFile {
-  /// What a launch-time read of the persisted layouts found. `.absent` is a fresh
-  /// start; `.unreadable` means bytes exist but could not be decoded, so a
-  /// caller must never treat the store as empty (the orphan reaper would
-  /// sweep every detached session).
-  enum DiskState {
-    case file(LayoutsFile)
-    case absent
-    case unreadable
-  }
-
-  /// UserDefaults key holding the encoded v2 `LayoutsFile`. Layouts are internal
-  /// state, not a user-editable file.
+  /// UserDefaults key holding the encoded layouts (v3 `TaskLayoutsFile`, or a
+  /// v2 `LayoutsFile` not upgraded yet). Layouts are internal state, not a
+  /// user-editable file.
   static let userDefaultsKey = "layoutsFile"
 
-  /// Reads and decodes the persisted layouts from UserDefaults. Before the store
-  /// is seeded, falls back to the legacy `layouts.json` so a present-but-unreadable
-  /// legacy file never reads as `.absent` (which would let the orphan reaper sweep
-  /// every detached session). The decode guards schema and lossiness.
-  static func readPersisted(from store: UserDefaults) -> DiskState {
-    guard let data = store.data(forKey: userDefaultsKey) else { return readFromDisk() }
-    return decodeDiskState(from: data)
-  }
-
-  /// Reads and decodes a legacy `layouts.json`. A still-v1 file (a deferred
-  /// migration) migrates in memory so readers see the real records while the
-  /// on-disk bytes survive for the next launch's migrator. Retained for the
-  /// migration path; live readers use `readPersisted(from:)`.
-  static func readFromDisk(url: URL = SupacodePaths.legacyLayoutsURL) -> DiskState {
-    @Dependency(\.settingsFileStorage) var storage
-    let data: Data
-    do {
-      data = try storage.load(url)
-    } catch {
-      guard LayoutsIncrementalWriter.isFileAbsent(error) else {
-        migrationLogger.error("layouts.json unreadable: \(error)")
-        return .unreadable
-      }
-      return .absent
-    }
-    return decodeDiskState(from: data)
-  }
-
-  /// Shared decode for both the file and UserDefaults readers: v2 with schema and
-  /// lossiness guards, falling back to an in-memory v1 migration.
-  private static func decodeDiskState(from data: Data) -> DiskState {
-    let decoder = JSONDecoder()
-    decoder.userInfo[.layoutDecodeLoss] = LayoutDecodeLoss()
-    if let file = try? decoder.decode(LayoutsFile.self, from: data) {
-      // A newer build's file decodes partially here (unknown content kinds drop
-      // to nothing), so a downgrade must not treat it as authoritative and reap.
-      guard file.schemaVersion <= LayoutsFile.currentSchemaVersion else {
-        migrationLogger.error(
-          "layouts.json schema v\(file.schemaVersion) is newer than v\(LayoutsFile.currentSchemaVersion); "
-            + "treating as unreadable.")
-        return .unreadable
-      }
-      // A tolerant decode that dropped entries or tabs leaves `allKnownSurfaceIDs`
-      // incomplete; the orphan reaper would then kill sessions the dropped
-      // records still own. Treat a partial read as unreadable, mirroring the
-      // writer's refusal to persist a lossy value.
-      guard file.undecodedEntryCount == 0 else {
-        migrationLogger.error(
-          "layouts.json dropped \(file.undecodedEntryCount) entrie(s); treating as unreadable."
-        )
-        return .unreadable
-      }
-      return .file(file)
-    }
-    guard
-      let raw = try? JSONDecoder().decode(
-        [String: FailableDecodable<TerminalLayoutSnapshot>].self, from: data
-      )
-    else {
-      migrationLogger.error("layouts.json is neither v2 nor v1; treating as unreadable.")
-      return .unreadable
-    }
-    let legacy = raw.compactMapValues(\.value)
-    // Any dropped v1 entry leaves its detached sessions unreferenced; an
-    // authoritative read would let the reaper sweep them, so a partial decode
-    // reads as unknown (never as empty), mirroring the v2 lossy path.
-    guard legacy.count == raw.count else {
-      migrationLogger.error("layouts.json v1 decode dropped an entry; treating as unreadable.")
-      return .unreadable
-    }
-    return .file(LayoutsMigrator.migrate(legacy))
-  }
+  /// Sibling key holding the last v2 blob verbatim, written once before the
+  /// first v3 write.
+  static let preTasksBackupKey = userDefaultsKey + ".pre-tasks.bak"
 
   /// Every session identity persisted anywhere in the file, including the
   /// write-once v1 origin, so the orphan reaper can never kill a session a
@@ -179,6 +102,134 @@ nonisolated extension LayoutsFile {
       }
     }
     return ids
+  }
+}
+
+nonisolated extension TaskRecord {
+  /// `createdAt` of a task mapped from a v2 record, which never stored one.
+  /// Fixed so the mapping is pure and a re-read equals the previous read.
+  static let legacyCreatedAt = Date(timeIntervalSinceReferenceDate: 0)
+}
+
+nonisolated extension TaskLayoutsFile {
+  /// A v2 file mapped 1:1: each directory's record becomes one task under its
+  /// legacy id, its origin moves to `origins`. No tab moves.
+  init(oneTaskPerDirectory file: LayoutsFile) {
+    self.init()
+    undecodedEntryCount = file.undecodedEntryCount
+    for (key, record) in file.worktrees {
+      tasks[key] = TaskRecord(
+        id: LayoutID(legacyWorktreeKey: key),
+        directory: LayoutsTaskSplitter.directory(forLegacyKey: key),
+        layout: record.layout,
+        createdAt: TaskRecord.legacyCreatedAt
+      )
+      if let origin = record.origin {
+        origins[key] = origin
+      }
+    }
+  }
+
+  /// What a launch-time read of the persisted layouts found. `.absent` is a fresh
+  /// start; `.unreadable` means bytes exist but could not be decoded, so a
+  /// caller must never treat the store as empty (the orphan reaper would
+  /// sweep every detached session).
+  enum DiskState {
+    case file(TaskLayoutsFile)
+    case absent
+    case unreadable
+  }
+
+  /// What a persisted blob holds. `.legacy` is a v2 (or v1) blob mapped in
+  /// memory: usable, but the bytes must be backed up before v3 replaces them.
+  enum PersistedBlob {
+    case tasks(TaskLayoutsFile)
+    case legacy(TaskLayoutsFile)
+    case newer(Int)
+    /// Decodes, but dropped an entry or a tab; never authoritative.
+    case lossy
+    case undecodable
+  }
+
+  private struct SchemaStamp: Decodable {
+    let schemaVersion: Int
+  }
+
+  /// Reads and decodes the persisted layouts from UserDefaults. Before the store
+  /// is seeded, falls back to the legacy `layouts.json` so a present-but-unreadable
+  /// legacy file never reads as `.absent` (which would let the orphan reaper sweep
+  /// every detached session). The decode guards schema and lossiness.
+  static func readPersisted(from store: UserDefaults) -> DiskState {
+    guard let data = store.data(forKey: LayoutsFile.userDefaultsKey) else { return readFromDisk() }
+    return diskState(from: data)
+  }
+
+  /// Reads and decodes a legacy `layouts.json` (v2, or a still-v1 file from a
+  /// deferred migration) mapped in memory, so readers see the real records
+  /// while the on-disk bytes survive.
+  static func readFromDisk(url: URL = SupacodePaths.legacyLayoutsURL) -> DiskState {
+    @Dependency(\.settingsFileStorage) var storage
+    let data: Data
+    do {
+      data = try storage.load(url)
+    } catch {
+      guard LayoutsIncrementalWriter.isFileAbsent(error) else {
+        migrationLogger.error("layouts.json unreadable: \(error)")
+        return .unreadable
+      }
+      return .absent
+    }
+    return diskState(from: data)
+  }
+
+  private static func diskState(from data: Data) -> DiskState {
+    switch classify(data) {
+    case .tasks(let file), .legacy(let file):
+      return .file(file)
+    case .newer(let version):
+      // A newer build's blob decodes partially here, so a downgrade must not
+      // treat it as authoritative and reap.
+      migrationLogger.error(
+        "Layouts schema v\(version) is newer than v\(currentSchemaVersion); treating as unreadable.")
+      return .unreadable
+    case .lossy:
+      // A tolerant decode that dropped entries or tabs leaves `allKnownSurfaceIDs`
+      // incomplete; the orphan reaper would then kill sessions the dropped
+      // records still own.
+      migrationLogger.error("Persisted layouts dropped entries on decode; treating as unreadable.")
+      return .unreadable
+    case .undecodable:
+      migrationLogger.error("Persisted layouts are neither v3, v2 nor v1; treating as unreadable.")
+      return .unreadable
+    }
+  }
+
+  /// Shared decode for every reader and the writer: v3, else v2 or v1 mapped
+  /// one task per directory.
+  static func classify(_ data: Data) -> PersistedBlob {
+    let decoder = JSONDecoder()
+    decoder.userInfo[.layoutDecodeLoss] = LayoutDecodeLoss()
+    if let stamp = try? JSONDecoder().decode(SchemaStamp.self, from: data),
+      stamp.schemaVersion >= currentSchemaVersion
+    {
+      guard stamp.schemaVersion == currentSchemaVersion else { return .newer(stamp.schemaVersion) }
+      guard let file = try? decoder.decode(TaskLayoutsFile.self, from: data) else { return .undecodable }
+      return file.undecodedEntryCount == 0 ? .tasks(file) : .lossy
+    }
+    if let file = try? decoder.decode(LayoutsFile.self, from: data) {
+      guard file.undecodedEntryCount == 0 else { return .lossy }
+      return .legacy(TaskLayoutsFile(oneTaskPerDirectory: file))
+    }
+    guard
+      let raw = try? JSONDecoder().decode(
+        [String: FailableDecodable<TerminalLayoutSnapshot>].self, from: data
+      )
+    else { return .undecodable }
+    let legacy = raw.compactMapValues(\.value)
+    // Any dropped v1 entry leaves its detached sessions unreferenced, so a
+    // partial decode is lossy, never empty.
+    guard legacy.count == raw.count else { return .lossy }
+    return .legacy(TaskLayoutsFile(oneTaskPerDirectory: LayoutsMigrator.migrate(legacy)))
   }
 }
 
@@ -451,6 +502,34 @@ nonisolated extension LayoutsMigrator {
     } catch {
       // The v1 file is untouched; the next launch retries.
       migrationLogger.error("Writing migrated layouts failed: \(error)")
+    }
+  }
+}
+
+nonisolated extension LayoutsMigrator {
+  /// Rewrites a persisted v2 layouts blob as v3 (one task per directory, no
+  /// split), once, before hydration. The v2 bytes are kept under
+  /// `preTasksBackupKey` first. A lossy, newer or undecodable blob is left
+  /// untouched and retried next launch; a v3 blob is a no-op.
+  static func migrateStoreToTasksIfNeeded(defaults: UserDefaults) {
+    let store = LayoutsUserDefaultsStore(defaults: defaults)
+    guard let data = store.read() else { return }
+    switch TaskLayoutsFile.classify(data) {
+    case .tasks:
+      return
+    case .newer, .lossy, .undecodable:
+      migrationLogger.error("Persisted layouts not cleanly readable; deferring the v3 upgrade.")
+      return
+    case .legacy(let file):
+      let encoder = JSONEncoder()
+      encoder.outputFormatting = [.sortedKeys]
+      guard let encoded = try? encoder.encode(file) else {
+        migrationLogger.error("Encoding v3 layouts failed; leaving v2 in place.")
+        return
+      }
+      store.backUpLegacyIfAbsent(data)
+      store.write(encoded)
+      migrationLogger.info("Upgraded persisted layouts to schema v\(TaskLayoutsFile.currentSchemaVersion).")
     }
   }
 }

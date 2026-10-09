@@ -179,7 +179,7 @@ enum SettingsRelocationMigrator {
     {
       names.append("sidebar layout")
     }
-    if !userDefaultsHoldsValid(LayoutsFile.self, forKey: LayoutsFile.userDefaultsKey, defaults),
+    if !userDefaultsHoldValidLayouts(defaults),
       presentButUnreadable(SupacodePaths.legacyLayoutsURL, fileSystem)
     {
       names.append("terminal layouts")
@@ -268,12 +268,12 @@ enum SettingsRelocationMigrator {
         problems.append("Your sidebar layout could not be read, so it was left untouched.")
       }
     }
-    // Layouts: normalize the final legacy `layouts.json` (v2) into UserDefaults,
+    // Layouts: normalize the final legacy `layouts.json` (v2) into UserDefaults as v3,
     // seeding only when the key holds no valid value.
-    if !userDefaultsHoldsValid(LayoutsFile.self, forKey: LayoutsFile.userDefaultsKey, defaults),
+    if !userDefaultsHoldValidLayouts(defaults),
       fileSystem.readData(SupacodePaths.legacyLayoutsURL) != nil
     {
-      if case .file(let file) = LayoutsFile.readFromDisk(url: SupacodePaths.legacyLayoutsURL),
+      if case .file(let file) = TaskLayoutsFile.readFromDisk(url: SupacodePaths.legacyLayoutsURL),
         let encoded = try? encoder.encode(file)
       {
         stashCorruptUserDefaults(forKey: LayoutsFile.userDefaultsKey, defaults)
@@ -396,6 +396,14 @@ enum SettingsRelocationMigrator {
   ) -> Bool {
     guard let data = defaults.data(forKey: key) else { return false }
     return (try? JSONDecoder().decode(T.self, from: data)) != nil
+  }
+
+  /// Any layouts blob the app can make sense of (v3, v2, v1, or a newer
+  /// schema) counts, so the legacy file never overwrites one.
+  private static func userDefaultsHoldValidLayouts(_ defaults: UserDefaults) -> Bool {
+    guard let data = defaults.data(forKey: LayoutsFile.userDefaultsKey) else { return false }
+    if case .undecodable = TaskLayoutsFile.classify(data) { return false }
+    return true
   }
 
   /// Preserves an existing-but-invalid UserDefaults value under a sibling recovery

@@ -89,6 +89,19 @@ struct AppFeatureTerminalGridTests {
     #expect(state.worktree(forLayout: state.layoutID(forDirectory: "/tmp/repo/unknown")) == nil)
   }
 
+  @Test(.dependencies) func hydratedLayoutReadsItsDirectoryFromTheTaskRecord() {
+    let worktree = makeWorktree()
+    var state = makeStore(worktree: worktree) { _ in }.state
+    // A task id says nothing about the directory; the record does.
+    let taskID = LayoutID(task: UUID())
+    state.terminals.directories[taskID] = TaskRecord.Directory(worktreeID: worktree.id)
+    #expect(state.worktree(forLayout: taskID)?.id == worktree.id)
+
+    let orphanID = LayoutID(task: UUID())
+    state.terminals.directories[orphanID] = TaskRecord.Directory(worktreeID: "/tmp/repo/unknown")
+    #expect(state.worktree(forLayout: orphanID) == nil)
+  }
+
   @Test(.dependencies) func initialTabOfALayoutOutsideTheRosterSettlesNothing() async {
     let worktree = makeWorktree()
     let store = makeStore(worktree: worktree) { _ in }

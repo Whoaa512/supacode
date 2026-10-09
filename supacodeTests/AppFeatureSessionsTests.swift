@@ -57,9 +57,10 @@ struct AppFeatureSessionsTests {
     var state = AppFeature.State(repositories: repositories, settings: SettingsFeature.State())
     if restored {
       state.repositories.$persistedLayouts = SharedReader(
-        value: LayoutsFile(worktrees: [
-          worktree.id.rawValue: LayoutRecord(layout: layout)
-        ]))
+        value: TaskLayoutsFile(
+          oneTaskPerDirectory: LayoutsFile(worktrees: [
+            worktree.id.rawValue: LayoutRecord(layout: layout)
+          ])))
     } else {
       state.terminals.layouts = [LayoutFeature.State(id: worktree.id.layoutID, layout: layout)]
     }
@@ -187,7 +188,7 @@ struct AppFeatureSessionsTests {
     var initial = state()
     initial.repositories.repositories = []
     initial.terminals.layouts = []
-    initial.repositories.$persistedLayouts = SharedReader(value: LayoutsFile(worktrees: [:]))
+    initial.repositories.$persistedLayouts = SharedReader(value: TaskLayoutsFile())
     let summary = SessionSummary(
       harness: .pi, sessionID: "old", createdAt: .distantPast, cwd: "/fixture",
       title: "Old", messageCount: 1, lastActivity: .distantPast)

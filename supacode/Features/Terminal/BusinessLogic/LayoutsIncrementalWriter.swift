@@ -17,23 +17,32 @@ nonisolated struct LayoutsUserDefaultsStore: @unchecked Sendable {
   /// diagnosis while the live store recovers to a fresh value.
   func stashCorrupt(_ data: Data) { defaults.set(data, forKey: LayoutsFile.userDefaultsKey + ".corrupt") }
 
+  /// Keeps the pre-v3 bytes before v3 replaces them. Write-once: a later
+  /// legacy blob never overwrites the first backup.
+  func backUpLegacyIfAbsent(_ data: Data) {
+    guard defaults.data(forKey: LayoutsFile.preTasksBackupKey) == nil else { return }
+    defaults.set(data, forKey: LayoutsFile.preTasksBackupKey)
+  }
+
   /// Forces a synchronous flush for the on-quit write, where the run loop is
   /// tearing down before UserDefaults' own periodic flush would run.
   func synchronize() { defaults.synchronize() }
 }
 
 /// Serialized off-main writer for incremental layout persistence. Every flush
-/// re-reads the layouts blob from UserDefaults, splices in only the per-worktree
+/// re-reads the layouts blob from UserDefaults, splices in only the per-task
 /// keys it carries, then writes the whole value back. Being an actor makes the
 /// read-modify-write a FIFO critical section: a positive record and a delete
 /// tombstone for the same key can't interleave, and concurrent keys from
 /// separate flushes both survive (last-writer-wins per key, not whole-file).
 actor LayoutsIncrementalWriter {
-  /// One per-worktree change to splice into the value. `.delete` is an explicit
+  /// One per-task change to splice into the value. `.delete` is an explicit
   /// tombstone: absence from a flush means "leave the key alone", so a pruned
-  /// worktree must be carried as `.delete`, never as omission.
+  /// layout must be carried as `.delete`, never as omission.
   enum RecordChange: Sendable {
-    case record(LayoutRecord)
+    /// Upsert: an existing task only takes the layout (its directory, sessions
+    /// and `createdAt` are kept); a new one is created from all three.
+    case record(layout: PaneLayout, directory: TaskRecord.Directory, createdAt: Date)
     case delete
   }
 
@@ -54,7 +63,7 @@ actor LayoutsIncrementalWriter {
 
   /// Re-reads the persisted value, applies `changes`, and writes the result.
   /// Keys not present in `changes` are preserved untouched.
-  func flush(records changes: [String: RecordChange]) {
+  func flush(records changes: [LayoutID: RecordChange]) {
     applyAndWriteRecords(changes, synchronize: false)
   }
 
@@ -63,32 +72,28 @@ actor LayoutsIncrementalWriter {
   /// serial executor so this terminal write is FIFO-ordered strictly after any
   /// flush already enqueued at quit, never overtaken and regressed by a late one.
   /// Forces a UserDefaults flush so the last write survives termination.
-  nonisolated func flushSync(records changes: [String: RecordChange]) {
+  nonisolated func flushSync(records changes: [LayoutID: RecordChange]) {
     executorQueue.sync { applyAndWriteRecords(changes, synchronize: true) }
   }
 
-  private nonisolated func applyAndWriteRecords(_ changes: [String: RecordChange], synchronize: Bool) {
+  private nonisolated func applyAndWriteRecords(_ changes: [LayoutID: RecordChange], synchronize: Bool) {
     guard !changes.isEmpty else { return }
     writeLock.lock()
     defer { writeLock.unlock() }
     guard var file = readPersisted() else { return }
-    // A newer schema is read-only for this build; never write into it.
-    guard file.schemaVersion <= LayoutsFile.currentSchemaVersion else {
-      Self.logger.warning("Skipping layout flush into newer schema v\(file.schemaVersion).")
-      return
-    }
     let original = file
-    for (key, change) in changes {
+    for (id, change) in changes {
+      let key = id.persistenceKey
       switch change {
-      case .record(let record):
-        // The migration origin is write-once; preserve it when the caller
-        // carries none.
-        file.worktrees[key] = LayoutRecord(
-          layout: record.layout,
-          origin: record.origin ?? file.worktrees[key]?.origin
-        )
+      case .record(let layout, let directory, let createdAt):
+        var task = file.tasks[key] ?? TaskRecord(id: id, directory: directory, createdAt: createdAt)
+        task.layout = layout
+        file.tasks[key] = task
       case .delete:
-        file.worktrees.removeValue(forKey: key)
+        file.tasks.removeValue(forKey: key)
+        // As in v2, where the origin lived on the record: removing a
+        // directory's layout releases its origin's sessions to the reaper.
+        file.origins.removeValue(forKey: key)
       }
     }
     guard file != original else { return }
@@ -96,28 +101,32 @@ actor LayoutsIncrementalWriter {
   }
 
   /// The persisted layouts; an empty stamped value when absent or after a
-  /// wholly-undecodable blob is stashed aside; `nil` (abort the flush) only on a
-  /// lossy-but-decodable value, so the caller never makes partial loss permanent.
-  /// A wholly-undecodable blob (genuine corruption, or a newer schema after a
-  /// downgrade) is stashed under a sibling key before starting fresh, so it is
-  /// preserved for recovery without wedging persistence forever.
-  private nonisolated func readPersisted() -> LayoutsFile? {
-    guard let data = store.read() else { return LayoutsFile(worktrees: [:]) }
-    let decoder = JSONDecoder()
-    decoder.userInfo[.layoutDecodeLoss] = LayoutDecodeLoss()
-    guard let file = try? decoder.decode(LayoutsFile.self, from: data) else {
-      Self.logger.error("Persisted layouts blob undecodable; stashing it aside and starting fresh.")
-      store.stashCorrupt(data)
-      return LayoutsFile(worktrees: [:])
-    }
-    guard file.undecodedEntryCount == 0 else {
+  /// wholly-undecodable blob is stashed aside; `nil` (abort the flush) on a
+  /// lossy-but-decodable value, so the caller never makes partial loss
+  /// permanent, and on a newer schema, which is read-only for this build.
+  /// A v2 blob is backed up before the caller's v3 write replaces it.
+  private nonisolated func readPersisted() -> TaskLayoutsFile? {
+    guard let data = store.read() else { return TaskLayoutsFile() }
+    switch TaskLayoutsFile.classify(data) {
+    case .tasks(let file):
+      return file
+    case .legacy(let file):
+      store.backUpLegacyIfAbsent(data)
+      return file
+    case .newer(let version):
+      Self.logger.warning("Skipping layout flush into newer schema v\(version).")
+      return nil
+    case .lossy:
       Self.logger.error("Aborting layout flush: persisted blob has unreadable entries.")
       return nil
+    case .undecodable:
+      Self.logger.error("Persisted layouts blob undecodable; stashing it aside and starting fresh.")
+      store.stashCorrupt(data)
+      return TaskLayoutsFile()
     }
-    return file
   }
 
-  private nonisolated func write(_ file: LayoutsFile, synchronize: Bool) {
+  private nonisolated func write(_ file: TaskLayoutsFile, synchronize: Bool) {
     do {
       let encoder = JSONEncoder()
       encoder.outputFormatting = [.sortedKeys]

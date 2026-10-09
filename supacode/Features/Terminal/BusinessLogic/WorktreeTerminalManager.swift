@@ -1721,19 +1721,29 @@ final class WorktreeTerminalManager {
     )
     // An empty layout clears the key rather than persisting an empty record,
     // matching the on-disk "no trace" semantics for emptiness.
-    let change: LayoutsIncrementalWriter.RecordChange =
-      record.layout.panes.isEmpty ? .delete : .record(record)
+    let change = recordChange(for: worktreeID, layout: record.layout)
     let writer = layoutsWriter
     layoutFlushGeneration += 1
     let generation = layoutFlushGeneration
     let task = Task { [weak self] in
-      await writer.flush(records: [worktreeID.persistenceKey: change])
+      await writer.flush(records: [worktreeID: change])
       // Generation-gated: an older task's completion must not erase a newer
       // registration, or a delete could stop awaiting the in-flight record.
       guard let self, self.layoutFlushTasks[worktreeID]?.generation == generation else { return }
       self.layoutFlushTasks[worktreeID] = nil
     }
     layoutFlushTasks[worktreeID] = (generation, task)
+  }
+
+  /// An empty layout clears the key; anything else upserts the task. The
+  /// directory only matters for a task not persisted yet: the host's, or for
+  /// a hostless layout the one its legacy key spells.
+  private func recordChange(for layoutID: LayoutID, layout: PaneLayout) -> LayoutsIncrementalWriter.RecordChange {
+    guard !layout.panes.isEmpty else { return .delete }
+    let directory =
+      hosts[layoutID].map { TaskRecord.Directory(worktreeID: $0.worktreeID, host: $0.context.host) }
+      ?? LayoutsTaskSplitter.directory(forLegacyKey: layoutID.persistenceKey)
+    return .record(layout: layout, directory: directory, createdAt: Date())
   }
 
   /// Removes `worktreeID` from disk immediately, bypassing the debounce and
@@ -1749,7 +1759,7 @@ final class WorktreeTerminalManager {
     let generation = layoutFlushGeneration
     let task = Task { [weak self] in
       await inflightFlush?.value
-      await writer.flush(records: [worktreeID.persistenceKey: .delete])
+      await writer.flush(records: [worktreeID: .delete])
       guard let self, self.layoutFlushTasks[worktreeID]?.generation == generation else { return }
       self.layoutFlushTasks[worktreeID] = nil
     }
@@ -2342,7 +2352,7 @@ final class WorktreeTerminalManager {
     agentsBySurface: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]]? = nil
   ) {
     guard appStore?.withState({ $0.terminals.layoutsAreReadOnly }) != true else { return }
-    var changes: [String: LayoutsIncrementalWriter.RecordChange] = [:]
+    var changes: [LayoutID: LayoutsIncrementalWriter.RecordChange] = [:]
     for (id, _) in hosts {
       guard let layoutState = layoutState(for: id) else { continue }
       let record = LayoutPersistence.record(
@@ -2350,7 +2360,7 @@ final class WorktreeTerminalManager {
         runtime: ContentRuntime.liveValue,
         agentsBySurface: agentsBySurface ?? [:]
       )
-      changes[id.persistenceKey] = record.layout.panes.isEmpty ? .delete : .record(record)
+      changes[id] = recordChange(for: id, layout: record.layout)
     }
     layoutsWriter.flushSync(records: changes)
   }

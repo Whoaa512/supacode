@@ -110,8 +110,8 @@ struct SettingsRelocationMigratorTests {
     #expect(seededSidebar.schemaVersion == 3)
     // UserDefaults layouts seeded from the legacy file.
     let seededLayouts = try JSONDecoder().decode(
-      LayoutsFile.self, from: try #require(defaults.data(forKey: LayoutsFile.userDefaultsKey)))
-    #expect(seededLayouts.schemaVersion == LayoutsFile.currentSchemaVersion)
+      TaskLayoutsFile.self, from: try #require(defaults.data(forKey: LayoutsFile.userDefaultsKey)))
+    #expect(seededLayouts.schemaVersion == TaskLayoutsFile.currentSchemaVersion)
 
     // Regular legacy files moved into `.backup`.
     let settingsBackup = SupacodePaths.backupDirectory.appending(

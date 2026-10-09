@@ -573,7 +573,7 @@ extension AppFeature {
       for worktree in repository.worktrees {
         let layout =
           state.terminals.layouts[id: state.layoutID(forDirectory: worktree.id)]?.layout
-          ?? state.repositories.persistedLayouts.worktrees[worktree.id.rawValue]?.layout
+          ?? state.persistedLayout(forDirectory: worktree.id)
         guard let layout else { continue }
         for pane in layout.panes {
           for tab in pane.tabs where tab.content.id.rawValue == surfaceID {
@@ -593,7 +593,7 @@ extension AppFeature {
       for worktree in repository.worktrees {
         let layout =
           state.terminals.layouts[id: state.layoutID(forDirectory: worktree.id)]?.layout
-          ?? state.repositories.persistedLayouts.worktrees[worktree.id.rawValue]?.layout
+          ?? state.persistedLayout(forDirectory: worktree.id)
         guard let layout else { continue }
         for pane in layout.panes {
           for tab in pane.tabs {
@@ -620,7 +620,7 @@ extension AppFeature {
       for worktree in repository.worktrees {
         guard
           let layout = state.terminals.layouts[id: state.layoutID(forDirectory: worktree.id)]?.layout
-            ?? state.repositories.persistedLayouts.worktrees[worktree.id.rawValue]?.layout
+            ?? state.persistedLayout(forDirectory: worktree.id)
         else { continue }
         for pane in layout.panes {
           for tab in pane.tabs {

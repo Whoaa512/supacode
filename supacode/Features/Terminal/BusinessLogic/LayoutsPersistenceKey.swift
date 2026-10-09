@@ -5,7 +5,7 @@ import SupacodeSettingsShared
 
 nonisolated struct LayoutsKeyID: Hashable, Sendable {}
 
-/// Load-only reader for the persisted v2 layouts. Absent and unreadable both
+/// Load-only reader for the persisted layouts. Absent and unreadable both
 /// fall back to the empty initial value, so readers never see empty state while
 /// real records are persisted.
 nonisolated struct LayoutsKey: SharedKey {
@@ -14,15 +14,15 @@ nonisolated struct LayoutsKey: SharedKey {
   var id: LayoutsKeyID { LayoutsKeyID() }
 
   func load(
-    context _: LoadContext<LayoutsFile>,
-    continuation: LoadContinuation<LayoutsFile>
+    context _: LoadContext<TaskLayoutsFile>,
+    continuation: LoadContinuation<TaskLayoutsFile>
   ) {
     // Absent and unreadable both serve the empty initial value here: this
     // reader only seeds sidebar badges. Destructive consumers (the orphan
-    // reaper) read `LayoutsFile.readPersisted(from:)` directly and skip on
+    // reaper) read `TaskLayoutsFile.readPersisted(from:)` directly and skip on
     // `.unreadable`.
     @Dependency(\.defaultAppStorage) var store
-    switch LayoutsFile.readPersisted(from: store) {
+    switch TaskLayoutsFile.readPersisted(from: store) {
     case .file(let file):
       continuation.resume(returning: file)
     case .absent, .unreadable:
@@ -31,14 +31,14 @@ nonisolated struct LayoutsKey: SharedKey {
   }
 
   func subscribe(
-    context _: LoadContext<LayoutsFile>,
-    subscriber _: SharedSubscriber<LayoutsFile>
+    context _: LoadContext<TaskLayoutsFile>,
+    subscriber _: SharedSubscriber<TaskLayoutsFile>
   ) -> SharedSubscription {
     SharedSubscription {}
   }
 
   func save(
-    _: LayoutsFile,
+    _: TaskLayoutsFile,
     context _: SaveContext,
     continuation: SaveContinuation
   ) {
@@ -49,6 +49,6 @@ nonisolated struct LayoutsKey: SharedKey {
 
 nonisolated extension SharedReaderKey where Self == LayoutsKey.Default {
   static var layouts: Self {
-    Self[LayoutsKey(), default: LayoutsFile(worktrees: [:])]
+    Self[LayoutsKey(), default: TaskLayoutsFile()]
   }
 }

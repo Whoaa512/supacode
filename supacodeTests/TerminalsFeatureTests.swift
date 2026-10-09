@@ -693,13 +693,31 @@ struct TerminalsFeatureTests {
     let good = Self.layout(paneID: paneID, tabID: TabID(), contentID: ContentID())
     // A tree leaf with no matching pane fails the consistency gate.
     let bad = PaneLayout(tree: SplitTree(view: PaneID()), panes: [], focusedPaneID: nil)
-    let file = LayoutsFile(worktrees: [
-      "/tmp/good": LayoutRecord(layout: good),
-      "/tmp/bad": LayoutRecord(layout: bad),
-    ])
+    let file = TaskLayoutsFile(
+      oneTaskPerDirectory: LayoutsFile(worktrees: [
+        "/tmp/good": LayoutRecord(layout: good),
+        "/tmp/bad": LayoutRecord(layout: bad),
+      ]))
     let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
     await store.send(.layoutsHydrated(file)) {
       $0.layouts = [LayoutFeature.State(id: LayoutID(legacyWorktreeKey: "/tmp/good"), layout: good)]
+      $0.directories = [LayoutID(legacyWorktreeKey: "/tmp/good"): TaskRecord.Directory(worktreeID: "/tmp/good")]
+    }
+  }
+
+  @Test func layoutsHydrationTakesTheDirectoryFromTheRecordNotTheKey() async {
+    let layout = Self.layout(paneID: PaneID(), tabID: TabID(), contentID: ContentID())
+    let taskID = LayoutID(task: UUID())
+    let directory = TaskRecord.Directory(worktreeID: "/tmp/repo")
+    let task = TaskRecord(id: taskID, directory: directory, layout: layout, createdAt: Date(timeIntervalSince1970: 1))
+    let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
+    await store.send(.layoutsHydrated(TaskLayoutsFile(tasks: [taskID.persistenceKey: task]))) {
+      $0.layouts = [LayoutFeature.State(id: taskID, layout: layout)]
+      $0.directories = [taskID: directory]
+    }
+    await store.send(.detachLayout(worktreeID: taskID)) {
+      $0.layouts = []
+      $0.directories = [:]
     }
   }
 
@@ -709,13 +727,15 @@ struct TerminalsFeatureTests {
     // The second worktree reuses the same content id (pre-gate data); it would
     // collide in the globally keyed runtime, so only the first key hydrates.
     let second = Self.layout(paneID: PaneID(), tabID: TabID(), contentID: sharedContentID)
-    let file = LayoutsFile(worktrees: [
-      "/tmp/a": LayoutRecord(layout: first),
-      "/tmp/b": LayoutRecord(layout: second),
-    ])
+    let file = TaskLayoutsFile(
+      oneTaskPerDirectory: LayoutsFile(worktrees: [
+        "/tmp/a": LayoutRecord(layout: first),
+        "/tmp/b": LayoutRecord(layout: second),
+      ]))
     let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
     await store.send(.layoutsHydrated(file)) {
       $0.layouts = [LayoutFeature.State(id: LayoutID(legacyWorktreeKey: "/tmp/a"), layout: first)]
+      $0.directories = [LayoutID(legacyWorktreeKey: "/tmp/a"): TaskRecord.Directory(worktreeID: "/tmp/a")]
     }
   }
 
@@ -728,19 +748,24 @@ struct TerminalsFeatureTests {
     ) {
       TerminalsFeature()
     }
-    await store.send(.layoutsHydrated(LayoutsFile(worktrees: ["/tmp/repo": LayoutRecord(layout: persisted)])))
+    await store.send(
+      .layoutsHydrated(
+        TaskLayoutsFile(oneTaskPerDirectory: LayoutsFile(worktrees: ["/tmp/repo": LayoutRecord(layout: persisted)]))))
   }
 
   @Test func newerSchemaServesRecordsButMarksThemReadOnly() async {
     let good = Self.layout(paneID: PaneID(), tabID: TabID(), contentID: ContentID())
-    let file = LayoutsFile(
-      schemaVersion: LayoutsFile.currentSchemaVersion + 1,
-      worktrees: ["/tmp/good": LayoutRecord(layout: good)]
+    let taskID = LayoutID(legacyWorktreeKey: "/tmp/good")
+    let directory = TaskRecord.Directory(worktreeID: "/tmp/good")
+    let file = TaskLayoutsFile(
+      schemaVersion: TaskLayoutsFile.currentSchemaVersion + 1,
+      tasks: ["/tmp/good": TaskRecord(id: taskID, directory: directory, layout: good, createdAt: .distantPast)]
     )
     let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
     await store.send(.layoutsHydrated(file)) {
       $0.layoutsAreReadOnly = true
-      $0.layouts = [LayoutFeature.State(id: LayoutID(legacyWorktreeKey: "/tmp/good"), layout: good)]
+      $0.layouts = [LayoutFeature.State(id: taskID, layout: good)]
+      $0.directories = [taskID: directory]
     }
   }
 }

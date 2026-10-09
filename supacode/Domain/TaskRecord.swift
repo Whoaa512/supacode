@@ -57,6 +57,9 @@ nonisolated struct TaskLayoutsFile: Equatable, Codable, Sendable {
     case schemaVersion
     case tasks
     case origins
+    /// Always written empty: lets a pre-v3 build decode the stamp, see a newer
+    /// schema and leave the blob alone instead of stashing it as corrupt.
+    case worktrees
   }
 
   init(
@@ -90,6 +93,7 @@ nonisolated struct TaskLayoutsFile: Equatable, Codable, Sendable {
     try container.encode(schemaVersion, forKey: .schemaVersion)
     try container.encode(tasks, forKey: .tasks)
     try container.encode(origins, forKey: .origins)
+    try container.encode([String: String](), forKey: .worktrees)
   }
 
   /// Every session identity persisted anywhere in the file, origins included,

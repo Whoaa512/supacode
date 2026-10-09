@@ -18,7 +18,10 @@ extension RepositoriesFeature {
     var rebuilt: IdentifiedArrayOf<SidebarItemFeature.State> = []
     // Seed `surfaceIDs` from persisted layout so the surface-to-row index is
     // populated before the lazy content host ever exists.
-    let layouts = state.persistedLayouts
+    var persistedSurfaces: [Worktree.ID: [UUID]] = [:]
+    for (_, task) in state.persistedLayouts.tasks.sorted(by: { $0.key < $1.key }) {
+      persistedSurfaces[task.directory.worktreeID, default: []] += task.layout.allContentIDs.map(\.rawValue)
+    }
     var seededSurfaces: Set<UUID> = []
 
     for repository in state.repositories {
@@ -52,13 +55,10 @@ extension RepositoriesFeature {
         // gate prevents stale UUIDs from being re-injected after the user
         // closes every tab (which emits an empty projection).
         if !item.hasTerminalProjection, item.surfaceIDs.isEmpty,
-          let record = layouts.worktrees[id.rawValue]
+          let ids = persistedSurfaces[id], !ids.isEmpty
         {
-          let ids = record.layout.allContentIDs.map(\.rawValue)
-          if !ids.isEmpty {
-            item.surfaceIDs = ids
-            seededSurfaces.formUnion(ids)
-          }
+          item.surfaceIDs = ids
+          seededSurfaces.formUnion(ids)
         }
         item.name = worktree.name
         item.branchName = worktree.name

@@ -69,7 +69,11 @@ struct WorktreeTerminalManagerPaneCycleTests {
     }
     manager.appStore = store
     store.send(
-      .terminals(.layoutsHydrated(LayoutsFile(worktrees: [worktree.id.rawValue: LayoutRecord(layout: layout)])))
+      .terminals(
+        .layoutsHydrated(
+          TaskLayoutsFile(
+            oneTaskPerDirectory: LayoutsFile(worktrees: [worktree.id.rawValue: LayoutRecord(layout: layout)]))
+        ))
     )
     return Harness(manager: manager, store: store, worktree: worktree, paneIDs: paneIDs)
   }

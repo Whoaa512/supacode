@@ -148,6 +148,9 @@ struct SupacodeApp: App {
     // always preserved in place, so a partial failure only defers cleanup and is
     // surfaced to the user below.
     let relocationOutcome = SettingsRelocationMigrator.run()
+    // After the relocation, which seeds the layouts blob this upgrades.
+    @Dependency(\.defaultAppStorage) var layoutsDefaults
+    LayoutsMigrator.migrateStoreToTasksIfNeeded(defaults: layoutsDefaults)
     @Shared(.settingsFile) var settingsFile
     let initialSettings = settingsFile.global
     let infoDictionary = Bundle.main.infoDictionary ?? [:]
@@ -224,14 +227,13 @@ struct SupacodeApp: App {
     return terminalManager
   }
 
-  /// Serves the persisted layouts to `TerminalsFeature`. A still-v1 file (a
-  /// deferred migration) is migrated in memory as a safety net; the writer
-  /// then drops flushes until the on-disk migration succeeds, so the v1 bytes
-  /// survive for the next launch.
+  /// Serves the persisted layouts to `TerminalsFeature`. A blob still on v2
+  /// (a deferred upgrade) is mapped in memory as a safety net; the writer
+  /// backs it up before its first v3 write.
   @MainActor
   fileprivate static func hydrateLayouts(into store: StoreOf<AppFeature>) {
     @Dependency(\.defaultAppStorage) var defaults
-    guard case .file(let file) = LayoutsFile.readPersisted(from: defaults) else { return }
+    guard case .file(let file) = TaskLayoutsFile.readPersisted(from: defaults) else { return }
     store.send(.terminals(.layoutsHydrated(file)))
   }
 

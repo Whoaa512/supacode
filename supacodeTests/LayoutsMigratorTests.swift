@@ -318,7 +318,7 @@ struct LayoutsMigratorTests {
       Issue.record("Expected .file for a clean v2 decode, got \(state).")
       return
     }
-    #expect(file.worktrees.count == 1)
+    #expect(file.tasks.count == 1)
     #expect(file.undecodedEntryCount == 0)
   }
 
@@ -326,7 +326,7 @@ struct LayoutsMigratorTests {
     // A future build's file decodes partially here; treating it as authoritative
     // would let the reaper kill sessions the newer schema still owns.
     let json = """
-      {"schemaVersion":3,"worktrees":{"good":{"layout":{"panes":[],"tree":{}}}}}
+      {"schemaVersion":4,"tasks":{},"origins":{},"worktrees":{}}
       """
     let state = Self.readState(seededWith: json)
     guard case .unreadable = state else {
@@ -406,7 +406,7 @@ struct LayoutsMigratorTests {
         save: { _, _ in }
       )
     } operation: {
-      LayoutsFile.readPersisted(from: defaults)
+      TaskLayoutsFile.readPersisted(from: defaults)
     }
     guard case .unreadable = state else {
       Issue.record("Expected .unreadable for an unreadable legacy fallback, got \(state).")
@@ -427,7 +427,7 @@ struct LayoutsMigratorTests {
         save: { _, _ in }
       )
     } operation: {
-      LayoutsFile.readPersisted(from: defaults)
+      TaskLayoutsFile.readPersisted(from: defaults)
     }
     guard case .absent = state else {
       Issue.record("Expected .absent for a fresh start, got \(state).")
@@ -436,7 +436,7 @@ struct LayoutsMigratorTests {
   }
 
   /// Reads `readFromDisk` against an in-memory file seeded with `json`.
-  nonisolated private static func readState(seededWith json: String) -> LayoutsFile.DiskState {
+  nonisolated private static func readState(seededWith json: String) -> TaskLayoutsFile.DiskState {
     let files = LockIsolated<[URL: Data]>([layoutsURL: Data(json.utf8)])
     return withDependencies {
       $0.settingsFileStorage = SettingsFileStorage(
@@ -447,7 +447,7 @@ struct LayoutsMigratorTests {
         save: { _, _ in }
       )
     } operation: {
-      LayoutsFile.readFromDisk(url: layoutsURL)
+      TaskLayoutsFile.readFromDisk(url: layoutsURL)
     }
   }
 
@@ -609,5 +609,228 @@ struct LayoutsMigratorTests {
       Issue.record("Expected .unreadable for a partial v1 decode.")
       return
     }
+  }
+
+  // MARK: - v2 -> v3 store upgrade (one task per directory, no split).
+
+  nonisolated private static func paneLayout(
+    _ contentID: UUID,
+    agents: [TerminalLayoutSnapshot.SurfaceAgentRecord]? = nil
+  ) -> PaneLayout {
+    let paneID = PaneID()
+    let tabID = TabID()
+    return PaneLayout(
+      tree: SplitTree(view: paneID),
+      panes: [
+        Pane(
+          id: paneID,
+          tabs: [
+            TabItem(
+              id: tabID,
+              title: "tab",
+              content: ContentSnapshot(
+                id: ContentID(rawValue: contentID),
+                state: .terminal(TerminalContentState(workingDirectory: "/tmp", agents: agents))
+              )
+            )
+          ],
+          selectedTabID: tabID
+        )
+      ],
+      focusedPaneID: paneID
+    )
+  }
+
+  /// Two directories; the second is remote and its origin owns a surface no
+  /// live tab references.
+  nonisolated private static func v2Fixture() -> (file: LayoutsFile, originOnly: UUID) {
+    let originOnly = UUID()
+    let origin = TerminalLayoutSnapshot(
+      tabs: [tab(id: originOnly, layout: leaf(originOnly))],
+      selectedTabIndex: 0
+    )
+    let file = LayoutsFile(worktrees: [
+      "/tmp/a": LayoutRecord(layout: paneLayout(UUID())),
+      "dev@box:2222/srv/b": LayoutRecord(layout: paneLayout(UUID()), origin: origin),
+    ])
+    return (file, originOnly)
+  }
+
+  @Test func v2StoreUpgradesToOneTaskPerDirectoryWithABackup() throws {
+    let defaults = UserDefaults.inMemory
+    let (legacy, originOnly) = Self.v2Fixture()
+    let v2Data = try JSONEncoder().encode(legacy)
+    defaults.set(v2Data, forKey: LayoutsFile.userDefaultsKey)
+
+    LayoutsMigrator.migrateStoreToTasksIfNeeded(defaults: defaults)
+
+    #expect(defaults.data(forKey: LayoutsFile.preTasksBackupKey) == v2Data)
+    let written = try #require(defaults.data(forKey: LayoutsFile.userDefaultsKey))
+    let file = try JSONDecoder().decode(TaskLayoutsFile.self, from: written)
+    #expect(file.schemaVersion == 3)
+    #expect(file.undecodedEntryCount == 0)
+    #expect(Set(file.tasks.keys) == Set(legacy.worktrees.keys))
+    for (key, record) in legacy.worktrees {
+      let task = try #require(file.tasks[key])
+      #expect(task.id == LayoutID(legacyWorktreeKey: key))
+      #expect(task.id.persistenceKey == key)
+      #expect(task.layout == record.layout)
+      #expect(task.sessions.isEmpty)
+      #expect(task.directory.worktreeID == WorktreeID(key))
+    }
+    #expect(file.tasks["/tmp/a"]?.directory.host == nil)
+    #expect(file.tasks["dev@box:2222/srv/b"]?.directory.host != nil)
+    #expect(file.origins.keys.sorted() == ["dev@box:2222/srv/b"])
+    // A10: the reaper's known set is unchanged, origin-only ids included.
+    #expect(file.allKnownSurfaceIDs == legacy.allKnownSurfaceIDs)
+    #expect(file.allKnownSurfaceIDs.contains(originOnly))
+    // Readers agree with what was written.
+    guard case .file(let read) = TaskLayoutsFile.readPersisted(from: defaults) else {
+      Issue.record("Expected the upgraded store to read as a file.")
+      return
+    }
+    #expect(read == file)
+  }
+
+  @Test func v2ReadInMemoryCoversTheSameSurfacesAndPresenceAsV2() throws {
+    // A10 for the deferred case: the store is still v2, readers map it.
+    let surfaceID = UUID()
+    let agents = [
+      TerminalLayoutSnapshot.SurfaceAgentRecord(
+        agent: "pi", pids: [42], activity: "idle", doneUnseen: nil, sessionRef: "abc", resumeCandidate: nil)
+    ]
+    let layout = Self.paneLayout(surfaceID, agents: agents)
+    var (legacy, _) = Self.v2Fixture()
+    legacy.worktrees["/tmp/agent"] = LayoutRecord(layout: layout)
+    let defaults = UserDefaults.inMemory
+    let v2Data = try JSONEncoder().encode(legacy)
+    defaults.set(v2Data, forKey: LayoutsFile.userDefaultsKey)
+
+    guard case .file(let file) = TaskLayoutsFile.readPersisted(from: defaults) else {
+      Issue.record("Expected a v2 store to read as a file.")
+      return
+    }
+    #expect(file.allKnownSurfaceIDs == legacy.allKnownSurfaceIDs)
+    // Presence restore still covers the one surface that carries an agent record.
+    let staged = AgentPresenceFeature.stageRestore(from: file)
+    #expect(staged.keys.map(\.surfaceID) == [surfaceID])
+    // Reading never writes.
+    #expect(defaults.data(forKey: LayoutsFile.userDefaultsKey) == v2Data)
+    #expect(defaults.data(forKey: LayoutsFile.preTasksBackupKey) == nil)
+  }
+
+  @Test func storeUpgradeIsANoOpTheSecondTime() throws {
+    let defaults = UserDefaults.inMemory
+    defaults.set(try JSONEncoder().encode(Self.v2Fixture().file), forKey: LayoutsFile.userDefaultsKey)
+
+    LayoutsMigrator.migrateStoreToTasksIfNeeded(defaults: defaults)
+    let first = defaults.data(forKey: LayoutsFile.userDefaultsKey)
+    let backup = defaults.data(forKey: LayoutsFile.preTasksBackupKey)
+    LayoutsMigrator.migrateStoreToTasksIfNeeded(defaults: defaults)
+
+    #expect(defaults.data(forKey: LayoutsFile.userDefaultsKey) == first)
+    #expect(defaults.data(forKey: LayoutsFile.preTasksBackupKey) == backup)
+  }
+
+  @Test func storeUpgradeNeverOverwritesAnExistingBackup() throws {
+    let defaults = UserDefaults.inMemory
+    let earlier = Data("earlier backup".utf8)
+    defaults.set(earlier, forKey: LayoutsFile.preTasksBackupKey)
+    defaults.set(try JSONEncoder().encode(Self.v2Fixture().file), forKey: LayoutsFile.userDefaultsKey)
+
+    LayoutsMigrator.migrateStoreToTasksIfNeeded(defaults: defaults)
+
+    #expect(defaults.data(forKey: LayoutsFile.preTasksBackupKey) == earlier)
+  }
+
+  @Test func lossyV2StoreDefersTheUpgradeAndIsLeftUntouched() {
+    let defaults = UserDefaults.inMemory
+    let lossy = Data(
+      """
+      {"schemaVersion":2,"worktrees":{
+        "good":{"layout":{"panes":[],"tree":{}}},
+        "bad":{"layout":"not an object"}}}
+      """.utf8)
+    defaults.set(lossy, forKey: LayoutsFile.userDefaultsKey)
+
+    LayoutsMigrator.migrateStoreToTasksIfNeeded(defaults: defaults)
+
+    #expect(defaults.data(forKey: LayoutsFile.userDefaultsKey) == lossy)
+    #expect(defaults.data(forKey: LayoutsFile.preTasksBackupKey) == nil)
+    guard case .unreadable = TaskLayoutsFile.readPersisted(from: defaults) else {
+      Issue.record("Expected a lossy v2 store to stay unreadable.")
+      return
+    }
+  }
+
+  @Test func newerSchemaStoreIsLeftUntouchedAndUnreadable() throws {
+    let defaults = UserDefaults.inMemory
+    let newer = try JSONEncoder().encode(
+      TaskLayoutsFile(schemaVersion: TaskLayoutsFile.currentSchemaVersion + 1))
+    defaults.set(newer, forKey: LayoutsFile.userDefaultsKey)
+
+    LayoutsMigrator.migrateStoreToTasksIfNeeded(defaults: defaults)
+
+    #expect(defaults.data(forKey: LayoutsFile.userDefaultsKey) == newer)
+    #expect(defaults.data(forKey: LayoutsFile.preTasksBackupKey) == nil)
+    guard case .unreadable = TaskLayoutsFile.readPersisted(from: defaults) else {
+      Issue.record("Expected a newer schema to read as unreadable.")
+      return
+    }
+  }
+
+  @Test func absentAndGarbageStoresAreLeftAlone() {
+    let empty = UserDefaults.inMemory
+    LayoutsMigrator.migrateStoreToTasksIfNeeded(defaults: empty)
+    #expect(empty.data(forKey: LayoutsFile.userDefaultsKey) == nil)
+
+    let garbage = UserDefaults.inMemory
+    let bytes = Data("not json".utf8)
+    garbage.set(bytes, forKey: LayoutsFile.userDefaultsKey)
+    LayoutsMigrator.migrateStoreToTasksIfNeeded(defaults: garbage)
+    #expect(garbage.data(forKey: LayoutsFile.userDefaultsKey) == bytes)
+    #expect(garbage.data(forKey: LayoutsFile.preTasksBackupKey) == nil)
+  }
+
+  @Test func lossyV3StoreReadsAsUnreadable() throws {
+    let task = TaskRecord(
+      id: LayoutID(task: UUID()),
+      directory: TaskRecord.Directory(worktreeID: "/tmp/a"),
+      layout: Self.paneLayout(UUID()),
+      createdAt: Date(timeIntervalSince1970: 1)
+    )
+    var envelope = try #require(
+      try JSONSerialization.jsonObject(
+        with: JSONEncoder().encode(TaskLayoutsFile(tasks: [task.id.persistenceKey: task]))) as? [String: Any]
+    )
+    var tasks = try #require(envelope["tasks"] as? [String: Any])
+    tasks["rotten"] = ["layout": "not an object"]
+    envelope["tasks"] = tasks
+    let defaults = UserDefaults.inMemory
+    defaults.set(try JSONSerialization.data(withJSONObject: envelope), forKey: LayoutsFile.userDefaultsKey)
+
+    guard case .unreadable = TaskLayoutsFile.readPersisted(from: defaults) else {
+      Issue.record("Expected a lossy v3 store to read as unreadable.")
+      return
+    }
+  }
+
+  @Test func v3StoreRoundTripsThroughTheReader() throws {
+    let task = TaskRecord(
+      id: LayoutID(task: UUID()),
+      directory: TaskRecord.Directory(worktreeID: "/tmp/a"),
+      layout: Self.paneLayout(UUID()),
+      sessions: [SessionKey(rawValue: "pi:abc")],
+      createdAt: Date(timeIntervalSince1970: 1)
+    )
+    let file = TaskLayoutsFile(tasks: [task.id.persistenceKey: task])
+    let defaults = UserDefaults.inMemory
+    defaults.set(try JSONEncoder().encode(file), forKey: LayoutsFile.userDefaultsKey)
+
+    guard case .file(let read) = TaskLayoutsFile.readPersisted(from: defaults) else {
+      Issue.record("Expected a clean v3 store to read as a file.")
+      return
+    }
+    #expect(read == file)
   }
 }

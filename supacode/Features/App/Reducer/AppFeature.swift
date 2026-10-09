@@ -471,7 +471,7 @@ struct AppFeature {
             // from embedded records. Races with `.task` under `.merge`; the
             // `repositoriesChanged` handler drains layout-seeded surfaces if restore wins.
             @Dependency(\.defaultAppStorage) var defaults
-            switch LayoutsFile.readPersisted(from: defaults) {
+            switch TaskLayoutsFile.readPersisted(from: defaults) {
             case .file(let layouts):
               let staged = AgentPresenceFeature.stageRestore(from: layouts)
               await terminalClient.reapOrphanSessions(layouts.allKnownSurfaceIDs)
@@ -4352,6 +4352,11 @@ extension AppFeature.State {
     LayoutID(legacyWorktreeKey: worktreeID.rawValue)
   }
 
+  /// The persisted layout of the task the seam resolves this directory to.
+  func persistedLayout(forDirectory worktreeID: Worktree.ID) -> PaneLayout? {
+    repositories.persistedLayouts.tasks[layoutID(forDirectory: worktreeID).persistenceKey]?.layout
+  }
+
   /// The directory a pending worktree-new ack is bound to, when that
   /// directory's layout is this one.
   func worktreeNewAckDirectory(forLayout layoutID: LayoutID) -> Worktree.ID? {
@@ -4363,9 +4368,16 @@ extension AppFeature.State {
     return nil
   }
 
-  /// The seam read backwards: the roster worktree whose layout this is. Scans
+  /// The seam read backwards: the roster worktree whose layout this is. A
+  /// hydrated layout names its directory in its task record; any other scans
   /// through `layoutID(forDirectory:)` so there is no second conversion.
   func worktree(forLayout layoutID: LayoutID) -> Worktree? {
+    if let directory = terminals.directories[layoutID] {
+      for repository in repositories.repositories {
+        if let worktree = repository.worktrees[id: directory.worktreeID] { return worktree }
+      }
+      return nil
+    }
     for repository in repositories.repositories {
       for worktree in repository.worktrees where self.layoutID(forDirectory: worktree.id) == layoutID {
         return worktree
