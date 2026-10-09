@@ -2274,13 +2274,18 @@ struct AppFeature {
       case .terminalEvent(.tabCreated(let layoutID)):
         // Resolve worktree-new acks once the new worktree's first tab exists,
         // returning the created worktree id to the CLI.
-        guard let worktreeID = state.worktree(forLayout: layoutID)?.id else { return .none }
-        let ackEffect = resolveCommandAcks(
-          ok: true, resourceID: Self.percentEncodedID(worktreeID.rawValue), state: &state
-        ) { match in
-          if case .worktreeNew(_, let boundID?) = match { return boundID == worktreeID }
-          return false
+        // The ack names its own directory, so it resolves whether or not the
+        // roster still lists that worktree; only the settle needs the roster.
+        var ackEffect: Effect<Action> = .none
+        if let boundID = state.worktreeNewAckDirectory(forLayout: layoutID) {
+          ackEffect = resolveCommandAcks(
+            ok: true, resourceID: Self.percentEncodedID(boundID.rawValue), state: &state
+          ) { match in
+            if case .worktreeNew(_, let ackWorktree?) = match { return ackWorktree == boundID }
+            return false
+          }
         }
+        guard let worktreeID = state.worktree(forLayout: layoutID)?.id else { return ackEffect }
         // A hosted tab is the worktree's readiness condition, so clear the
         // creation-progress state here regardless of the setup-script path
         // (empty script, skip, or hydrated layout never emit `.setupScriptConsumed`).
@@ -2306,11 +2311,12 @@ struct AppFeature {
         // The first tab could not be hosted: fail the worktree-new ack and
         // settle the creation-progress state so the worktree shows with no tabs
         // (a valid empty state to retry from).
-        guard let worktreeID = state.worktree(forLayout: layoutID)?.id else { return .none }
+        let layout = state.layoutID(forDirectory:)
         let ackEffect = resolveCommandAcks(ok: false, error: message, state: &state) { match in
-          if case .worktreeNew(_, let boundID?) = match { return boundID == worktreeID }
+          if case .worktreeNew(_, let ackWorktree?) = match { return layout(ackWorktree) == layoutID }
           return false
         }
+        guard let worktreeID = state.worktree(forLayout: layoutID)?.id else { return ackEffect }
         return .merge(ackEffect, .send(.repositories(.worktreeCreationSettled(worktreeID))))
 
       case .terminalEvent(.tabRemoved(let layoutID, let tabID)):
@@ -4344,6 +4350,17 @@ extension AppFeature.State {
   /// The single app-layer seam for "which layout does this worktree mean".
   func layoutID(forDirectory worktreeID: Worktree.ID) -> LayoutID {
     LayoutID(legacyWorktreeKey: worktreeID.rawValue)
+  }
+
+  /// The directory a pending worktree-new ack is bound to, when that
+  /// directory's layout is this one.
+  func worktreeNewAckDirectory(forLayout layoutID: LayoutID) -> Worktree.ID? {
+    for ack in pendingCommandAcks {
+      guard case .worktreeNew(_, let boundID?) = ack.match else { continue }
+      guard self.layoutID(forDirectory: boundID) == layoutID else { continue }
+      return boundID
+    }
+    return nil
   }
 
   /// The seam read backwards: the roster worktree whose layout this is. Scans

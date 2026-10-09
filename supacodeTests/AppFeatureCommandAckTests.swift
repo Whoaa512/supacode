@@ -315,6 +315,68 @@ struct AppFeatureCommandAckTests {
     #expect(store.state.repositories.sidebarItems[id: worktree.id]?.lifecycle == .idle)
   }
 
+  @Test(.dependencies) func tabCreatedResolvesWorktreeNewAckForDirectoryOutsideRoster() async {
+    // The ack is bound to its directory, not to roster membership: a worktree
+    // the roster does not list still answers the CLI instead of timing out.
+    let absent = WorktreeID("/tmp/repo/not-in-roster")
+    let (readFD, writeFD) = makePipe()
+    defer { close(readFD) }
+
+    var initial = AppFeature.State(
+      repositories: makeRepositoriesState(worktree: makeWorktree()),
+      settings: SettingsFeature.State()
+    )
+    initial.pendingCommandAcks[id: writeFD] = AppFeature.PendingCommandAck(
+      responseFD: writeFD, token: 1,
+      match: .worktreeNew(pendingID: WorktreeID("pending:cli-1"), worktreeID: absent))
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.terminalClient.send = { _ in }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.terminalEvent(.tabCreated(layoutID: absent.layoutID)))
+    await store.finish()
+
+    #expect(store.state.pendingCommandAcks.isEmpty)
+    let response = readPipeJSON(readFD)
+    #expect(response?["ok"] as? Bool == true)
+    let expectedID = absent.rawValue.addingPercentEncoding(
+      withAllowedCharacters: CharacterSet.urlPathAllowed.subtracting(.init(charactersIn: "/")))
+    #expect(response?["id"] as? String == expectedID)
+  }
+
+  @Test(.dependencies) func initialTabCreationFailedFailsWorktreeNewAckForDirectoryOutsideRoster() async {
+    // Same for the failure path: the CLI gets the creation error, not a
+    // watchdog timeout that would replace it.
+    let absent = WorktreeID("/tmp/repo/not-in-roster")
+    let (readFD, writeFD) = makePipe()
+    defer { close(readFD) }
+
+    var initial = AppFeature.State(
+      repositories: makeRepositoriesState(worktree: makeWorktree()),
+      settings: SettingsFeature.State()
+    )
+    initial.pendingCommandAcks[id: writeFD] = AppFeature.PendingCommandAck(
+      responseFD: writeFD, token: 1,
+      match: .worktreeNew(pendingID: WorktreeID("pending:cli-1"), worktreeID: absent))
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.terminalClient.send = { _ in }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.terminalEvent(.initialTabCreationFailed(layoutID: absent.layoutID, message: "boom")))
+    await store.finish()
+
+    #expect(store.state.pendingCommandAcks.isEmpty)
+    let response = readPipeJSON(readFD)
+    #expect(response?["ok"] as? Bool == false)
+    #expect(response?["error"] as? String == "boom")
+  }
+
   @Test(.dependencies) func cancellingCreationResolvesWorktreeNewAckEvenIfGitSucceeds() async {
     // A CLI worktree-new cancelled around the time git materializes it must
     // still drain its ack (via cliWorktreeAckCancelled), never ride the watchdog.
