@@ -2993,3 +2993,71 @@ deviation.
     stored sessions are still pending, the run's own list for that task is
     [tangent] alone until the read replays onto the stored order.
   Gate: check 0; `AppFeatureSessionsTests` exit 0 (154 tests); build-app 0.
+- S3, 2026-10-09, `a2640ca7`, `a4a7f661`. Shell-only tasks become agent
+  tasks (A27, D4). Brief: `plans/briefs/S3.md`. Tests only; no source
+  change: S1's `taskDraft` title order and stable `.task(LayoutID)` id
+  already make the switch, and every new test passed on the unchanged
+  source. The plan's "the T5 shell-only row is replaced by the task row" no
+  longer describes anything: it is one row throughout.
+  - Pinned, structure (`SessionsSidebarTaskRowsTests`, "Shell-only to
+    agent"): the walk shell-only → unreported agent → reported → listed →
+    indexed → agent ended on one row (directory name → "New session" → the
+    session's title; primary set as soon as the ref is reported, before the
+    membership lists it; no `.implicit`/`.provisional` row, no sub-rows);
+    the selection holds and the Active order changes exactly once, when the
+    row takes its session's date; an agent that ended before any turn
+    leaves the row under the directory name with its primary listed; a
+    later agent neither retitles nor replaces the primary; a session
+    already marked settled joining leaves the task Active while a tab is
+    open and the mark untouched; a closed one resumes its primary into the
+    task.
+  - Pinned, app (`AppFeatureSessionsTests`): the same switch end to end
+    (provisional member not stored, the first session stored once,
+    `primarySession`, `taskSessions`, selection and `selectedTaskID`
+    unchanged, the sibling task untouched, codec and relaunch).
+  - Pinned, destructive paths a shell-born task now reaches
+    (`AppFeatureSessionsTaskSettleTests`): its first agent's named Pi quit
+    closes every tab of the task, the plain shells included, and no other
+    task's; with confirmation on the alert is raised and no tab leaves the
+    layout while the session is still marked; an unreported agent's end
+    closes and marks nothing; a bare (Claude) end marks only. Kept, not
+    byte-for-byte the existing "bare" case: here the member arrives through
+    `session_start` on a sessionless task.
+  - Pinned, store (`WorktreeTerminalManagerAckTests`): a record on disk
+    with no session gains its first and second in order, is kept (empty
+    layout, host, no kills, not in `removedLayoutIDs`) when its last tab
+    closes, and hydrates in that order; a session listed in the reducer but
+    not yet flushed still keeps the task, and the next write carries it.
+  - Differences from the brief: S2 had landed (no helper renamed, title
+    order unchanged). Test 8b does not assert `recorded.closed` empty:
+    `markUserCloseIntent` is called at the close request, before the
+    confirmation (pre-existing, `AppFeature` `.closeAllTabsRequested`), so
+    the fixture records intent, not closes; the test asserts the alert and
+    that both tabs are still in the layout. The brief's "mutation" runs
+    (temporary source edits to see each test go red) were not done, to save
+    test runs.
+  - Decided (brief §8, kept as the agreed decisions give them): no special
+    case for a quit in a shell-born task; `createdAt` moves once at
+    indexing; a settled mark on a hand-resumed primary is not lifted; a
+    primary never indexed stays primary (row falls back to the directory
+    title, record kept after the last tab closes); no view change.
+  For cj to confirm (not blocking): a Pi quit in a task that began as
+  shells, including the migrated per-directory leftover-shell task, closes
+  the user's idle shells with it (behind the close-confirmation setting).
+  If unwanted, the smallest rule is in `settleReplacedOrEndedSession`:
+  close only when the task holds no tab but the quitting agent's, else mark
+  only; that narrows T9 for every task.
+  Left for later: S2/Z2: a shell-only row has an empty context menu and the
+  accessibility label "Live session". The index-absence follow-up (a member
+  with no summary) is untouched.
+  Only the live UI can confirm (cj): typing an agent command in a
+  shell-only task's tab turns the same row from directory name to "New
+  session" to the session's title with a status icon, no second row, the
+  highlight staying through the row's one re-sort; quitting that agent
+  closes every tab of the task behind the confirmation setting; the context
+  menu gains "Settle and Close Tabs" once the agent reports; relaunch with
+  the agent gone and the shell open keeps the session's title.
+  Gate: check 0; narrow suites (task rows, scale, `AppFeatureSessionsTests`,
+  task settle, manager ack) exit 2 with 281 tests and one failure of mine
+  (8b's assertion, corrected as above); full `make test` on the final tree
+  exit 2 with 4407 tests and only the 5 known failures; build-app 0.
