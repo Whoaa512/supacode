@@ -3540,6 +3540,39 @@ struct AppFeatureSessionsTests {
     #expect(store.state.terminals.members[first] == [.session(key)], "the other task keeps its member")
   }
 
+  @Test(.dependencies) func aRemovedTaskIsGoneEvenThoughTheLaunchTimeFileStillListsIt() async {
+    var initial = twoTasksOnOneDirectory()
+    // `first` was restored from the file, which is read once and never again.
+    initial.repositories.$persistedLayouts = SharedReader(
+      value: TaskLayoutsFile(tasks: [
+        first.persistenceKey: TaskRecord(
+          id: first, directory: TaskRecord.Directory(worktreeID: worktree.id),
+          layout: agentTask(first, surface: firstSurface).layout, sessions: [piKey("one")], createdAt: .distantPast)
+      ]))
+    initial.repositories.selectedTask = .init(id: first, directoryID: worktree.id)
+    initial.agentPresence.records = [:]
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    await store.send(.terminals(.detachLayout(worktreeID: first)))
+    await store.receive(\.repositories.selectedTaskRemoved)
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(store.state.repositories.selectedTask == nil)
+    #expect(!AppFeature.hasTask(first, state: store.state))
+    #expect(!AppFeature.taskEntries(state: store.state).contains { $0.layoutID == first })
+    #expect(!store.state.repositories.sessionItems.contains { $0.location?.layoutID == first })
+    #expect(AppFeature.task(listing: piKey("one"), onDirectory: worktree.id, state: store.state) == nil)
+    #expect(!recorded.mintedOrResumed)
+
+    // The same id attached again is a task again.
+    await store.send(
+      .terminals(
+        .attachLayout(worktreeID: first, directory: TaskRecord.Directory(worktreeID: worktree.id), titlePrefix: "w")))
+    #expect(AppFeature.hasTask(first, state: store.state))
+  }
+
   private func piKey(_ ref: String) -> SessionKey { SessionKey(harness: .pi, sessionID: ref) }
 
   /// One task holding two agent tabs, beside the fixture's own-key layout.

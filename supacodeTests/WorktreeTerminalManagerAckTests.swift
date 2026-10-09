@@ -37,6 +37,7 @@ struct WorktreeTerminalManagerAckTests {
   private func makeHarness(
     storage: SettingsFileStorage = .inMemory(),
     defaults: UserDefaults = .inMemory,
+    persistingOn clock: TestClock<Duration>? = nil,
     killSession: @escaping @Sendable (String) -> Void = { _ in },
     killRemoteSession: @escaping @Sendable (RemoteHost, String) -> Void = { _, _ in }
   ) -> Harness {
@@ -52,7 +53,8 @@ struct WorktreeTerminalManagerAckTests {
         listSessionsWithClients: { nil }
       )
     } operation: {
-      WorktreeTerminalManager(runtime: GhosttyRuntime())
+      clock.map { WorktreeTerminalManager(runtime: GhosttyRuntime(), clock: $0) }
+        ?? WorktreeTerminalManager(runtime: GhosttyRuntime())
     }
     let store = Store(
       initialState: AppFeature.State(
@@ -72,6 +74,8 @@ struct WorktreeTerminalManagerAckTests {
         InertTabContent(id: request.contentID, state: request.content)
       }
       $0[ContentSessionKiller.self] = ContentSessionKiller(kill: { _, _ in })
+      // The app's own wiring, so layout and membership changes reach the writer.
+      if clock != nil { $0[LayoutChangeObserver.self] = .persisting(through: manager) }
     }
     manager.appStore = store
     return Harness(manager: manager, store: store, worktree: worktree)
@@ -879,6 +883,86 @@ struct WorktreeTerminalManagerAckTests {
       }
       #expect(consumed == [first])
     }
+  }
+
+  /// The first matching write, with the save debounce driven until it lands.
+  /// Bounded well under the manager's 30 s scrollback tick.
+  private func flushed(
+    _ recorder: TeardownRecorder, on clock: TestClock<Duration>, where matches: (TaskLayoutsFile) -> Bool
+  ) async -> TaskLayoutsFile {
+    let debounce = Task { @MainActor in
+      for _ in 0..<20 where !Task.isCancelled {
+        await clock.advance(by: .seconds(1))
+      }
+    }
+    defer { debounce.cancel() }
+    return await recorder.nextWrite(where: matches)
+  }
+
+  private func closeTab(_ surfaceID: UUID, of layoutID: LayoutID, in harness: Harness) async {
+    await harness.store.send(
+      .terminals(.layouts(.element(id: layoutID, action: .closeTab(id: TabID(rawValue: surfaceID)))))
+    ).finish()
+  }
+
+  @Test(.dependencies) func aTaskWithNoSessionIsRemovedWhenItsLastTabCloses() async {
+    let recorder = TeardownRecorder()
+    let clock = TestClock()
+    let harness = makeHarness(
+      defaults: recorder.defaults, persistingOn: clock, killSession: recorder.killSession,
+      killRemoteSession: recorder.killRemoteSession)
+    let pump = CreationEvents(harness.manager)
+    let directory = makeWorktree(id: "/tmp/repo/wt-sessionless")
+    let task = LayoutID(task: UUID())
+    let sibling = LayoutID(task: UUID())
+    let surface = await openLayout(task, on: directory, in: harness, pump: pump)
+    let extraSurface = await openLayout(task, on: directory, in: harness, pump: pump)
+    let siblingSurface = await openLayout(sibling, on: directory, in: harness, pump: pump)
+    harness.manager.handleCommand(.setSelectedLayoutID(task))
+    let stored = await flushed(recorder, on: clock) {
+      $0.tasks[task.persistenceKey]?.layout.allContentIDs.count == 2 && $0.tasks[sibling.persistenceKey] != nil
+        && $0.activeTasks[directory.id.rawValue] == task.persistenceKey
+    }
+    #expect(stored.tasks[task.persistenceKey]?.sessions == [])
+
+    // One tab left: the task stays.
+    await closeTab(extraSurface, of: task, in: harness)
+    #expect(harness.manager.hostIfExists(for: task) != nil)
+
+    await closeTab(surface, of: task, in: harness)
+
+    let written = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey] == nil }
+    #expect(Array(written.tasks.keys) == [sibling.persistenceKey])
+    #expect(written.activeTasks.isEmpty)
+    #expect(harness.manager.hostIfExists(for: task) == nil)
+    #expect(harness.manager.hostIfExists(for: sibling) != nil)
+    harness.store.withState { state in
+      #expect(Array(state.terminals.layouts.ids) == [sibling])
+      #expect(state.terminals.directories[task] == nil)
+      #expect(state.terminals.activeTasks.isEmpty)
+      #expect(state.terminals.removedLayoutIDs == [task])
+      #expect(!AppFeature.hasTask(task, state: state))
+      #expect(state.terminals.layouts[id: sibling]?.layout.allContentIDs == [ContentID(rawValue: siblingSurface)])
+    }
+    // The directory stays on screen and shows what it resolves to now.
+    #expect(harness.manager.selectedLayoutID == TerminalsFeature.State.ownKeyLayoutID(forDirectory: directory.id))
+    #expect(recorder.localKills.value.isEmpty, "removing the task kills nothing")
+    #expect(recorder.remoteKills.value.isEmpty)
+  }
+
+  @Test(.dependencies) func aTaskStillBeingMadeIsNotMistakenForAnEmptiedOne() {
+    let recorder = TeardownRecorder()
+    let clock = TestClock()
+    let harness = makeHarness(defaults: recorder.defaults, persistingOn: clock)
+    let directory = makeWorktree(id: "/tmp/repo/wt-minting")
+    let task = LayoutID(task: UUID())
+    // The host and its empty layout exist before the first tab does.
+    _ = harness.manager.host(for: task, context: DirectoryContext(worktree: directory))
+
+    harness.manager.handleLayoutChanged(for: task)
+
+    #expect(harness.manager.hostIfExists(for: task) != nil)
+    #expect(harness.store.withState { $0.terminals.layouts[id: task] } != nil)
   }
 
   @Test(.dependencies) func anchoredCreateLandsInTheAnchorsPane() async {

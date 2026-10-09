@@ -1085,6 +1085,10 @@ final class WorktreeContentHost {
   /// contents release their bookkeeping (never-woken ones included, so their
   /// close still emits), closed blocking-script tabs release their tracking,
   /// and dormancy transitions fire the hibernate / wake handlers.
+  /// Whether the layout held a tab at the last sweep: an empty layout that
+  /// did has just lost its last one, and one that never did is still being made.
+  var heldContentAtLastSweep: Bool { !lastSweptContentIDs.isEmpty }
+
   func reconcileContentLifecycle() {
     guard let layout = layout() else { return }
     let current = Set(layout.allContentIDs.map(\.rawValue))

@@ -99,6 +99,9 @@ final class WorktreeTerminalManager {
   @ObservationIgnored private(set) var liveZmxSessionNames: Set<String>?
   private(set) var hasResolvedLiveZmxSessions: Bool
   @ObservationIgnored private var fullyPrunedRestoreIDs: Set<LayoutID> = []
+  /// Remote hosts of tasks removed when their last tab closed. The close's
+  /// session kill runs after the host is gone and still has to reach it.
+  @ObservationIgnored private var remoteHostsOfEmptiedTasks: [LayoutID: RemoteHost] = [:]
   /// Reads the freshest `agentsBySurface` at flush time so incremental captures
   /// embed live badge records instead of the empty default.
   var currentAgentsBySurface: (() -> [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]])?
@@ -874,6 +877,8 @@ final class WorktreeTerminalManager {
   /// content lifecycle, surface activity, the pane windows, and the sidebar
   /// projection. Called for every layout action, not only topology changes.
   func handleLayoutChanged(for worktreeID: LayoutID) {
+    let heldTabs = hosts[worktreeID]?.heldContentAtLastSweep == true
+    defer { if heldTabs { removeTaskIfEmptied(worktreeID) } }
     markLayoutDirty(worktreeID: worktreeID)
     hosts[worktreeID]?.reconcileContentLifecycle()
     pruneUserCloseIntentsAfterLayoutChange(worktreeID: worktreeID)
@@ -884,6 +889,41 @@ final class WorktreeTerminalManager {
     paneWindows.reconcile(worktreeID: worktreeID)
     emitProjection(for: worktreeID)
     emitHasAnyTerminalSurfaceIfNeeded()
+  }
+
+  /// A task whose last tab just closed and that lists no session is gone:
+  /// nothing is left to show or resume. One with sessions keeps its empty
+  /// layout, host and record, so its members can still be resumed. Nothing is
+  /// killed here: the closed tabs' sessions went with the tabs.
+  private func removeTaskIfEmptied(_ layoutID: LayoutID) {
+    guard let host = hosts[layoutID], let appStore else { return }
+    let isGone = appStore.withState { state in
+      state.terminals.layouts[id: layoutID]?.layout.panes.isEmpty == true
+        && !state.terminals.layoutsAreReadOnly
+        && state.terminals.members[layoutID]?.contains { $0.sessionKey != nil } != true
+        && state.repositories.persistedLayouts.tasks[layoutID.persistenceKey]?.sessions.isEmpty != false
+    }
+    guard isGone else { return }
+    // Written now, while the layout still exists to be read. The writer has
+    // the last word: it drops the record only if the stored one lists no
+    // session either.
+    layoutDirtyTasks[layoutID]?.cancel()
+    flushLayoutSnapshot(worktreeID: layoutID)
+    let directoryID = host.worktreeID
+    remoteHostsOfEmptiedTasks[layoutID] = host.context.host
+    paneWindows.closeAll(for: layoutID)
+    hosts.removeValue(forKey: layoutID)
+    host.tearDown()
+    sendTerminals(.detachLayout(worktreeID: layoutID))
+    emit(.worktreeStateTornDown(worktreeID: directoryID, layoutID: layoutID))
+    emitNotificationIndicatorCountIfNeeded()
+    emitHasAnyTerminalSurfaceIfNeeded()
+    // The directory is still on screen: show what it resolves to now.
+    if selectedLayoutID == layoutID {
+      handleManagementCommand(.setSelectedLayoutID(self.layoutID(forDirectory: directoryID)))
+    }
+    refreshFocusedSurfaceBackground()
+    terminalLogger.info("Removed task \(layoutID): its last tab closed and it lists no session")
   }
 
   /// Re-derives surface activity once more on the next tick: a structural
@@ -962,6 +1002,7 @@ final class WorktreeTerminalManager {
       localOnly
       ? nil
       : hosts[layoutID]?.context.host
+        ?? remoteHostsOfEmptiedTasks[layoutID]
         ?? appStore?.withState { $0.worktree(forLayout: layoutID)?.host }
     guard killLocal || remoteHost != nil else { return }
     analyticsClient.capture(
@@ -2724,5 +2765,24 @@ final class WorktreeTerminalManager {
     // hasAny can only flip when this worktree's surface set actually changed,
     // which `projectionChanged` already implies.
     emitHasAnyTerminalSurfaceIfNeeded()
+  }
+}
+
+extension LayoutChangeObserver {
+  /// The app's wiring: every layout, active-task and membership change ends
+  /// up in the manager, which owns persistence.
+  @MainActor
+  static func persisting(through manager: WorktreeTerminalManager) -> LayoutChangeObserver {
+    LayoutChangeObserver(
+      layoutChanged: { layoutID in
+        manager.handleLayoutChanged(for: layoutID)
+      },
+      activeTaskChanged: { directoryID, layoutID in
+        manager.handleActiveTaskChanged(directoryID: directoryID, layoutID: layoutID)
+      },
+      sessionsChanged: { layoutID in
+        manager.markLayoutDirty(worktreeID: layoutID)
+      }
+    )
   }
 }

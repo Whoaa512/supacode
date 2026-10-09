@@ -55,6 +55,10 @@ struct TerminalsFeature {
     /// Each task's agents, primary first. Stored sessions load at hydration;
     /// an agent that has not reported its session yet is held provisionally.
     var members: [LayoutID: [TaskMember]] = [:]
+    /// Tasks removed this run. The stored layouts are read once at launch and
+    /// still list them, so anything that falls back to a stored record skips
+    /// these or a removed task comes back as a dormant one.
+    var removedLayoutIDs: Set<LayoutID> = []
     /// Every layout selected this run, oldest first. A selection can precede
     /// both its directory (the host attaches later) and the stored entries
     /// (the file loads later), and still has to outrank them once known.
@@ -160,6 +164,7 @@ struct TerminalsFeature {
         if state.layouts[id: worktreeID] == nil {
           state.layouts.append(LayoutFeature.State(id: worktreeID, layout: PaneLayout()))
         }
+        state.removedLayoutIDs.remove(worktreeID)
         state.layouts[id: worktreeID]?.titlePrefix = titlePrefix
         guard state.directories[worktreeID] == nil else { return .none }
         state.directories[worktreeID] = directory
@@ -177,6 +182,7 @@ struct TerminalsFeature {
         // Bookkeeping is NOT pre-cleared: the reconcile below must still see
         // the armed entries to emit their timer cancellations.
         state.layouts.remove(id: worktreeID)
+        state.removedLayoutIDs.insert(worktreeID)
         state.directories.removeValue(forKey: worktreeID)
         state.members.removeValue(forKey: worktreeID)
         state.activeTasks = state.activeTasks.filter { $0.value != worktreeID }

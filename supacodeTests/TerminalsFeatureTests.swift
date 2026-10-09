@@ -440,6 +440,7 @@ struct TerminalsFeatureTests {
     }
     await harness.store.send(.detachLayout(worktreeID: harness.worktreeID)) {
       $0.layouts = []
+      $0.removedLayoutIDs = [harness.worktreeID]
       $0.hibernationArmedTabs = []
     }
     // Cancelled timers must never fire.
@@ -708,6 +709,7 @@ struct TerminalsFeatureTests {
     }
     await harness.store.send(.detachLayout(worktreeID: harness.worktreeID)) {
       $0.layouts = []
+      $0.removedLayoutIDs = [harness.worktreeID]
       $0.recentLayoutIDs = []
       $0.selectionOrder = []
     }
@@ -742,7 +744,15 @@ struct TerminalsFeatureTests {
     }
     await store.send(.detachLayout(worktreeID: taskID)) {
       $0.layouts = []
+      $0.removedLayoutIDs = [taskID]
       $0.directories = [:]
+    }
+    // Attached again under the same id, it is a task again.
+    await store.send(.attachLayout(worktreeID: taskID, directory: directory, titlePrefix: "repo")) {
+      $0.layouts = [LayoutFeature.State(id: taskID, layout: PaneLayout())]
+      $0.layouts[id: taskID]?.titlePrefix = "repo"
+      $0.removedLayoutIDs = []
+      $0.directories = [taskID: directory]
     }
   }
 

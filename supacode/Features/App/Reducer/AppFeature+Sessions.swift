@@ -72,9 +72,7 @@ extension AppFeature {
   /// still shown.
   static func directoryContext(forTask layoutID: LayoutID, directoryID: Worktree.ID, state: State) -> DirectoryContext {
     if let worktree = state.repositories.worktree(for: directoryID) { return DirectoryContext(worktree: worktree) }
-    let recorded =
-      state.terminals.directories[layoutID]
-      ?? state.repositories.persistedLayouts.tasks[layoutID.persistenceKey]?.directory
+    let recorded = state.terminals.directories[layoutID] ?? storedTask(layoutID, state: state)?.directory
     return DirectoryContext(orphan: recorded ?? TaskRecord.Directory(worktreeID: directoryID))
   }
 
@@ -107,8 +105,19 @@ extension AppFeature {
 
   /// Rows are rebuilt from tasks, so a selected task that no longer exists is dropped here.
   static func hasTask(_ layoutID: LayoutID, state: State) -> Bool {
-    state.terminals.layouts[id: layoutID] != nil
-      || state.repositories.persistedLayouts.tasks[layoutID.persistenceKey] != nil
+    state.terminals.layouts[id: layoutID] != nil || storedTask(layoutID, state: state) != nil
+  }
+
+  /// The stored tasks as read at launch, less the ones removed since: the
+  /// file is never re-read, so it still lists a task this run deleted.
+  static func storedTasks(state: State) -> [TaskRecord] {
+    let removed = state.terminals.removedLayoutIDs
+    return state.repositories.persistedLayouts.tasks.values.filter { !removed.contains($0.id) }
+  }
+
+  static func storedTask(_ layoutID: LayoutID, state: State) -> TaskRecord? {
+    guard !state.terminals.removedLayoutIDs.contains(layoutID) else { return nil }
+    return state.repositories.persistedLayouts.tasks[layoutID.persistenceKey]
   }
 
   /// The sidebar highlight follows the focused tab. It only moves when the
@@ -628,14 +637,13 @@ extension AppFeature {
   /// resumes in. A task elsewhere is not reused: its tabs start in its own
   /// directory, and the session has to resume in the one it ran in.
   static func task(listing key: SessionKey, onDirectory directoryID: Worktree.ID, state: State) -> LayoutID? {
-    let persisted = state.repositories.persistedLayouts.tasks
     var owners = state.terminals.members.filter { $0.value.contains(.session(key)) }.map(\.key)
-    owners += persisted.values
+    owners += storedTasks(state: state)
       .filter { $0.sessions.contains(key) && state.terminals.members[$0.id] == nil }.map(\.id)
     return
       owners
       .filter {
-        (state.terminals.directories[$0] ?? persisted[$0.persistenceKey]?.directory)?.worktreeID == directoryID
+        (state.terminals.directories[$0] ?? storedTask($0, state: state)?.directory)?.worktreeID == directoryID
       }
       .min { $0.persistenceKey < $1.persistenceKey }
   }
@@ -772,7 +780,7 @@ extension AppFeature {
           layoutID: live.id, layout: live.layout, directoryID: directoryID, directoryPath: path(directoryID),
           createdAt: persisted[live.id.persistenceKey]?.createdAt))
     }
-    let dormant = persisted.values
+    let dormant = storedTasks(state: state)
       .filter { state.terminals.layouts[id: $0.id] == nil }
       .sorted { $0.id.persistenceKey < $1.id.persistenceKey }
     for record in dormant {

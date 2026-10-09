@@ -264,17 +264,7 @@ struct SupacodeApp: App {
       values[SplitZoomPolicy.self] = SplitZoomPolicy(
         preservesZoomOnNavigation: { runtime.splitPreserveZoomOnNavigation() }
       )
-      values[LayoutChangeObserver.self] = LayoutChangeObserver(
-        layoutChanged: { worktreeID in
-          terminalManager.handleLayoutChanged(for: worktreeID)
-        },
-        activeTaskChanged: { directoryID, layoutID in
-          terminalManager.handleActiveTaskChanged(directoryID: directoryID, layoutID: layoutID)
-        },
-        sessionsChanged: { layoutID in
-          terminalManager.markLayoutDirty(worktreeID: layoutID)
-        }
-      )
+      values[LayoutChangeObserver.self] = .persisting(through: terminalManager)
       values.terminalClient = makeTerminalClient(terminalManager: terminalManager)
       values.worktreeInfoWatcher = WorktreeInfoWatcherClient(
         send: { command in
