@@ -1113,3 +1113,39 @@ deviation.
   `NotificationLocation.worktreeID` (carry a layout key, read as a
   directory). Gate: check 0, build-app 0, full `make test` 3985 with only
   the 5 baseline failures.
+- F1, 2026-10-08: `LayoutID` is a struct (private string, only
+  `init(legacyWorktreeKey:)` / `persistenceKey` / `description`). Production
+  constructions: the resolver and hydration only. Decisions, all keeping
+  today's behaviour and adding no stored state:
+  - Reverse lookups go through `AppFeature.State.worktree(forLayout:)`, which
+    scans the roster through `layoutID(forDirectory:)` (no second
+    conversion). Used by the content factory's directory lookup,
+    `wireSurface`, `killSession` (now `layoutID:`-typed, off the A2
+    allow-list), `terminalSessions`, the pane-window header, and the
+    layout-keyed events that feed directory actions (`tabCreated`,
+    `initialTabCreationFailed`, `setupScriptConsumed`,
+    `commandPaletteToggleRequested`). A layout whose directory is not in the
+    roster now skips that directory half (before: the action was sent with
+    an id no worktree matched). T3 replaces the scan with the task record.
+  - Ack matchers compare `layoutID(forDirectory: ackWorktree)` to the
+    event's layout id.
+  - Manager: worktree-facing events (`notificationReceived`,
+    `runStatusChanged`, `blockingScriptCompleted`,
+    `worktreeProjectionChanged`, `NotificationLocation`) carry the host's
+    `worktreeID`; `emitProjection`/`forceEmitProjection` are layout-keyed
+    inside; `markNotificationRead`/`dismissNotification`/shed replay find
+    hosts by directory. `worktreeStateTornDown` gained `layoutID:` (its
+    coalesce purge needs both keys). The hostless layout in
+    `removeLayouts(forDirectory:)` and the CLI `listTabs`/`listPanes`/
+    `listSurfaces` resolve through the seam via `appStore`.
+    `TerminalClient.markNotificationRead` is `Worktree.ID`-typed.
+  - `TerminalSession` and the grid `Tile` gained `layoutID`; their
+    `worktreeID` is optional (nil = directory not in the roster; focus/close
+    are no-ops there, as they already were). Preview and sort use the layout.
+  - Tests: `Worktree(.ID).layoutID` and a `LayoutID` string literal in
+    `WorktreeTestSupport`; 3 new cases (seam read-back, non-roster
+    `tabCreated`, non-roster tile).
+  Left for T2/T3: the `persistenceKey` path parse for a hostless layout's
+  display name; `ContentRequest.worktreeID` and manager `worktreeID:` labels
+  that carry a layout id (names only). Gate: check 0, build-app 0, full
+  `make test` 3988 with only the 5 baseline failures.
