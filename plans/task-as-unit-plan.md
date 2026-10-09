@@ -1232,3 +1232,13 @@ deviation.
   directory whose tasks all have minted ids keeps its origin until the
   directory is removed. Gate: check 0, build-app 0, full `make test` 4023
   with only the 5 baseline failures.
+  - Review fix r1, `ce81139d`: a present, non-null v2 `origin` that fails
+    to decode now counts as decode loss (it was dropped silently, so the
+    upgrade wrote v3 without it and its surface ids left the reaper's set).
+    The blob then classifies `.lossy`: upgrade and incremental writer leave
+    the v2 bytes and write no backup, readers return unreadable. Absent or
+    null origins stay valid. This supersedes the T1 remark that v2 drops a
+    rotten origin silently. Choice taken: such a store stays unrestored
+    until repaired, the non-destructive option and the same as v3's rule.
+    Gate: check 0, build-app 0, full `make test` 4026 with only the 5
+    baseline failures.
