@@ -2716,3 +2716,34 @@ deviation.
   `AppFeatureAgentTaskTests` exit 0 with 50 tests (`AppFeatureDeeplinkTests`
   and `AppFeatureRunScriptTests` also green with the fix), build-app 0, full
   `make test` exit 2 with 4333 tests and only the 5 known failures.
+- T11 r3 (review fixes), 2026-10-09, `ca0e6a2a`.
+  - P1, held (seen red: 4 tests). A `tab new` with input or a script run
+    that names no task and carries no id left nothing on the confirmation
+    dialog, so confirming resolved the bare directory again and ran in
+    whichever task it showed by then. The dialog now holds the layout the
+    command resolved to (`target`). On confirm an action with no id of its
+    own runs there while that layout is still a task of the directory
+    (`AppFeature.State.confirmedLayoutID`), else "Task not found",
+    `ok: false`. Actions carrying a tab, pane or surface id are unchanged:
+    the id's current owner decides. Decisions the plan did not make:
+    - Refuse, do not fall back, when the target is gone (non-destructive:
+      nothing is typed into a task the user did not approve).
+    - A target with no task record (a directory with no task yet, where the
+      first tab lands) stays valid only while the directory still resolves
+      to it. If a task appears on the directory meanwhile the command is
+      refused.
+  - Same class, checked: the bare `run` confirms through the same script
+    path (covered by the fix); archive/delete confirmations are
+    directory-scoped; agent prompt/send-keys/resume and the stop commands
+    raise no confirmation.
+  - Tests: bare `tab new` and bare `run --script`, each with the directory
+    switched to a sibling and with the original task removed while the
+    dialog waits, plus a directory with no task (dispatch, dialog, confirm).
+  - P3, unchanged, only the live UI can confirm: an old shell with no
+    `SUPACODE_TASK_ID` driving CLI and hooks, notification/`tab focus`
+    bringing up a hidden task, the reference-sheet rows, toolbar Stop
+    reaching a sibling task's script.
+  Gate: check 0, focused (`AppFeatureDeeplinkTaskTests`, `DeeplinkTests`,
+  `CommandAckTests`, `AgentTaskTests`, `RunScriptTests`) exit 0 with 286
+  tests, build-app 0, full `make test` exit 2 with 4338 tests and only the 5
+  known failures.
