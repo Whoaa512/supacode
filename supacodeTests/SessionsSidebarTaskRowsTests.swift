@@ -503,4 +503,87 @@ struct SessionsSidebarTaskRowsTests {
     #expect(rows[2][SessionQueryResponse.Key.status] == "needs-you")
     #expect(rows[2][SessionQueryResponse.Key.surfaceID] == surface(3).uuidString)
   }
+
+  private func entry(_ id: String, in rows: [[String: String]]) -> [String: String]? {
+    let matches = rows.filter { $0[SessionQueryResponse.Key.id] == id }
+    return matches.count == 1 ? matches[0] : nil
+  }
+
+  @Test(.dependencies) func aPrimaryAnswersForItselfNotForAMoreUrgentTangent() throws {
+    let rows = SessionQueryResponse.rows(repositories: twoTasksWithMembers())
+
+    let primary = try #require(entry("pi:a", in: rows))
+    #expect(primary[SessionQueryResponse.Key.status] == "idle")
+    #expect(primary[SessionQueryResponse.Key.surfaceID] == surface(1).uuidString)
+    #expect(primary[SessionQueryResponse.Key.live] == "1")
+  }
+
+  @Test(.dependencies) func aDormantPrimaryIsNotLiveBecauseItsTaskHasTabsOrATangent() throws {
+    var state = twoTasksWithMembers()
+    state.$sessions.withLock { $0[key("a")] = SessionSidecarEntry(settledAt: now, branches: ["old"]) }
+    state.sessionSnapshots.removeAll { $0.sessionKey == key("a") || $0.sessionKey == key("solo") }
+    state = rebuilt(state)
+    #expect(state.sessionItems[id: .task(taskA)]?.isLive == true)
+
+    let rows = SessionQueryResponse.rows(repositories: state)
+
+    let primary = try #require(entry("pi:a", in: rows))
+    #expect(primary[SessionQueryResponse.Key.live] == "")
+    #expect(primary[SessionQueryResponse.Key.status] == "")
+    #expect(primary[SessionQueryResponse.Key.surfaceID] == "")
+    #expect(primary[SessionQueryResponse.Key.lifecycle] == "settled", "the session's own mark, tabs or not")
+    #expect(primary[SessionQueryResponse.Key.branch] == "old")
+    let shellOnly = try #require(entry("pi:solo", in: rows))
+    #expect(shellOnly[SessionQueryResponse.Key.live] == "", "an open shell does not run the session")
+    #expect(shellOnly[SessionQueryResponse.Key.surfaceID] == "")
+  }
+
+  @Test(.dependencies) func aSessionAnswersWithTheDirectoryItRanInNotItsTasks() throws {
+    var state = twoTasksWithMembers()
+    state.sessionSummaries[0] = summary("a", created: 30, cwd: "/elsewhere/a")
+    state.sessionSummaries[1] = summary("b", created: 20, cwd: "/elsewhere/b")
+    state = rebuilt(state)
+    #expect(state.sessionItems[id: .task(taskA)]?.cwd == "/repo/main")
+
+    let rows = SessionQueryResponse.rows(repositories: state)
+
+    #expect(try #require(entry("pi:a", in: rows))[SessionQueryResponse.Key.cwd] == "/elsewhere/a")
+    #expect(try #require(entry("pi:b", in: rows))[SessionQueryResponse.Key.cwd] == "/elsewhere/b")
+    #expect(try #require(entry("pi:a", in: rows))[SessionQueryResponse.Key.title] == "Title a")
+  }
+
+  @Test(.dependencies) func twoTasksSharingAPrimaryBothListTheirOtherSessions() {
+    var state = twoTasksWithMembers()
+    state.taskSessions = [taskA: [key("a"), key("b")], taskB: [key("a"), key("c")]]
+    state = rebuilt(state)
+
+    let ids = SessionQueryResponse.rows(repositories: state).compactMap { $0[SessionQueryResponse.Key.id] }
+
+    #expect(ids.count == Set(ids).count, "each session once")
+    #expect(Set(ids) == ["pi:a", "pi:b", "pi:c", "pi:solo", "pi:free"])
+  }
+
+  @Test(.dependencies) func aReportedAgentItsTaskDoesNotListYetIsStillNamed() throws {
+    var state = twoTasksWithMembers()
+    state.sessionSnapshots.append(agent("late", in: taskA, on: 4, status: .working))
+    state = rebuilt(state)
+
+    let late = try #require(entry("pi:late", in: SessionQueryResponse.rows(repositories: state)))
+    #expect(late[SessionQueryResponse.Key.status] == "working")
+    #expect(late[SessionQueryResponse.Key.surfaceID] == surface(4).uuidString)
+  }
+
+  @Test(.dependencies) func anEndedUnindexedTaskIsStillNamedUntilTheNextScan() {
+    var state = state()
+    state.taskSessions = [taskA: [key("fresh")]]
+    state.sessionSnapshots = [agent("fresh", in: taskA, on: 1)]
+    state = rebuilt(state)
+    state.sessionSnapshots = []
+    state = rebuilt(state)
+    #expect(state.sessionItems[id: .task(taskA)] != nil)
+
+    let rows = SessionQueryResponse.rows(repositories: state)
+    #expect(rows.map { $0[SessionQueryResponse.Key.id] } == ["pi:fresh"])
+    #expect(rows.first?[SessionQueryResponse.Key.live] == "")
+  }
 }
