@@ -3363,7 +3363,7 @@ struct AppFeatureSessionsTests {
     #expect(launch.directory == onDisk.id)
     #expect(launch.input == "pi")
     #expect(store.state.alert == nil)
-    #expect(store.state.pendingTaskSelection == PendingTaskSelection(layoutID: launch.layoutID, directoryID: onDisk.id))
+    #expect(store.state.pendingTaskLaunches == [PendingTaskLaunch(layoutID: launch.layoutID, directoryID: onDisk.id)])
   }
 
   /// The shown task sits on `directory`; `elsewhere` is a registered directory too, so a launch there would be instant.
@@ -3482,7 +3482,7 @@ struct AppFeatureSessionsTests {
   @Test(.dependencies) func aLaunchedTaskIsShownOnlyOnceItHoldsATab() async {
     var initial = state()
     let minted = LayoutID(task: UUID(7))
-    initial.pendingTaskSelection = PendingTaskSelection(layoutID: minted, directoryID: worktree.id)
+    initial.pendingTaskLaunches = [PendingTaskLaunch(layoutID: minted, directoryID: worktree.id)]
     initial.terminals.layouts.append(LayoutFeature.State(id: minted, layout: PaneLayout()))
     initial.terminals.directories[minted] = TaskRecord.Directory(worktreeID: worktree.id)
     let recorded = Recorded()
@@ -3490,7 +3490,7 @@ struct AppFeatureSessionsTests {
 
     await store.send(.terminals(.hibernationPolicyChanged))
     await store.finish()
-    #expect(store.state.pendingTaskSelection != nil)
+    #expect(!store.state.pendingTaskLaunches.isEmpty)
     #expect(recorded.selectedLayouts.isEmpty, "an empty task is not selected: that would bootstrap a shell tab")
 
     let filled = agentTask(minted, surface: thirdSurface).layout
@@ -3499,7 +3499,7 @@ struct AppFeatureSessionsTests {
     await store.finish()
     await store.skipReceivedActions(strict: false)
 
-    #expect(store.state.pendingTaskSelection == nil)
+    #expect(store.state.pendingTaskLaunches.isEmpty)
     #expect(store.state.repositories.selectedTask?.id == minted)
     #expect(recorded.selectedLayouts == [minted])
     #expect(!recorded.mintedOrResumed)
@@ -3523,8 +3523,8 @@ struct AppFeatureSessionsTests {
     #expect(launch.directory == onDisk.id)
     #expect(launch.input == "pi --session history")
     #expect(
-      store.state.pendingTaskSelection
-        == PendingTaskSelection(layoutID: launch.layoutID, directoryID: onDisk.id, primary: key))
+      store.state.pendingTaskLaunches
+        == [PendingTaskLaunch(layoutID: launch.layoutID, directoryID: onDisk.id, primary: key)])
 
     // The task comes into being with its first tab, and lists the session then.
     await store.send(
@@ -3539,14 +3539,14 @@ struct AppFeatureSessionsTests {
     await store.skipReceivedActions(strict: false)
 
     #expect(store.state.terminals.members == [launch.layoutID: [.session(key)]])
-    #expect(store.state.pendingTaskSelection == nil)
+    #expect(store.state.pendingTaskLaunches.isEmpty)
   }
 
   @Test(.dependencies) func aResumedSessionLeadsTheMintedTaskEvenWhenItsAgentReportedAnotherFirst() async {
     var initial = state()
     let minted = LayoutID(task: UUID(7))
     let key = piKey("history")
-    initial.pendingTaskSelection = PendingTaskSelection(layoutID: minted, directoryID: worktree.id, primary: key)
+    initial.pendingTaskLaunches = [PendingTaskLaunch(layoutID: minted, directoryID: worktree.id, primary: key)]
     initial.terminals.layouts.append(agentTask(minted, surface: thirdSurface))
     initial.terminals.directories[minted] = TaskRecord.Directory(worktreeID: worktree.id)
     initial.agentPresence.records[.init(agent: .pi, surfaceID: thirdSurface)] = record(ref: "forked")
@@ -3574,12 +3574,48 @@ struct AppFeatureSessionsTests {
     #expect(store.state.terminals.members.isEmpty, "no member for a task that does not exist")
     #expect(store.state.repositories.selectedTask == nil)
 
-    // The next launch takes over; the failed one's session is listed nowhere.
+    // The next launch is the one shown; the failed one's session is listed nowhere.
     await store.send(.newSession)
     await store.receive(\.launchSessionCompleted)
     await store.finish()
-    #expect(store.state.pendingTaskSelection?.primary == nil)
+    #expect(store.state.pendingTaskLaunches.map(\.isShown) == [false, true])
     #expect(store.state.terminals.members.isEmpty)
+  }
+
+  /// A launch is free to start once the previous one's command is sent, which is before its tab exists.
+  @Test(.dependencies, arguments: [false, true])
+  func twoResumesLaunchedBeforeEitherTabAppearsEachLeadTheirOwnTask(latestTabFirst: Bool) async throws {
+    let directory = try temporaryDirectory(named: "mint-two-resumes")
+    var (initial, onDisk) = stateOnDisk(directory)
+    let keys = [piKey("one"), piKey("two")]
+    initial.repositories.sessionItems = [dormantRow(keys[0], cwd: directory), dormantRow(keys[1], cwd: directory)]
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    for key in keys {
+      await store.send(.repositories(.activateSession(.session(key))))
+      await store.receive(\.launchSessionCompleted)
+    }
+    await store.finish()
+    let minted = launches(recorded).map(\.layoutID)
+    try #require(minted.count == 2 && minted[0] != minted[1])
+    #expect(store.state.terminals.members.isEmpty)
+
+    let surfaces = [thirdSurface, fourthSurface]
+    for index in latestTabFirst ? [1, 0] : [0, 1] {
+      await store.send(
+        .terminals(
+          .attachLayout(
+            worktreeID: minted[index], directory: TaskRecord.Directory(worktreeID: onDisk.id), titlePrefix: "disk")))
+      let filled = agentTask(minted[index], surface: surfaces[index]).layout
+      await store.send(.terminals(.replaceRestoredLayout(worktreeID: minted[index], layout: filled)))
+      await store.finish()
+      await store.skipReceivedActions(strict: false)
+    }
+
+    #expect(store.state.terminals.members == [minted[0]: [.session(keys[0])], minted[1]: [.session(keys[1])]])
+    #expect(store.state.repositories.selectedTask?.id == minted[1], "the latest launch is the one shown")
+    #expect(store.state.pendingTaskLaunches.isEmpty)
   }
 
   @Test(.dependencies) func resumingASessionReusesTheTaskThatListsIt() async throws {
@@ -3601,7 +3637,7 @@ struct AppFeatureSessionsTests {
     await store.finish()
 
     #expect(launches(recorded).map(\.layoutID) == [first])
-    #expect(store.state.pendingTaskSelection == PendingTaskSelection(layoutID: first, directoryID: onDisk.id))
+    #expect(store.state.pendingTaskLaunches == [PendingTaskLaunch(layoutID: first, directoryID: onDisk.id)])
   }
 
   @Test(.dependencies) func resumingASessionListedByATaskOnAnotherDirectoryMintsATask() async throws {

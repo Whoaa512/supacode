@@ -13,14 +13,18 @@ struct PendingSessionLaunch: Equatable {
   var isNewSession: Bool = false
 }
 
-/// A task a launch just targeted, shown once it holds a tab. Selecting it
-/// earlier would bootstrap a plain shell tab into it.
-struct PendingTaskSelection: Equatable {
+/// A task a launch targeted whose first tab has not appeared yet. A launch
+/// is free to start as soon as the previous one's command is sent, so several
+/// can be waiting at once.
+struct PendingTaskLaunch: Equatable {
   let layoutID: LayoutID
   let directoryID: Worktree.ID
   /// The session a resume minted the task for: its primary, listed once the
   /// task exists. A launch whose tab never appears lists nothing.
   var primary: SessionKey?
+  /// Only the latest launch is shown when its tab appears. Selecting it
+  /// earlier would bootstrap a plain shell tab into it.
+  var isShown = true
 }
 
 struct PendingBranchMismatchResume: Equatable {
@@ -632,7 +636,12 @@ extension AppFeature {
     // reports. It is listed when the task's first tab exists, not here, so a
     // launch that never gets a tab leaves no member for a task that is not there.
     let primary = owner == nil && !pending.isNewSession ? pending.key : nil
-    state.pendingTaskSelection = PendingTaskSelection(layoutID: layoutID, directoryID: worktree.id, primary: primary)
+    // Earlier launches still waiting for their tab keep their primary; only
+    // this one, the latest, is shown.
+    state.pendingTaskLaunches.removeAll { $0.layoutID == layoutID }
+    for index in state.pendingTaskLaunches.indices { state.pendingTaskLaunches[index].isShown = false }
+    state.pendingTaskLaunches.append(
+      PendingTaskLaunch(layoutID: layoutID, directoryID: worktree.id, primary: primary))
     let command = pending.command
     let requestID = pending.requestID
     return .run { send in
@@ -683,17 +692,21 @@ extension AppFeature {
     return .send(.terminals(.membersChanged(members)))
   }
 
-  /// Shows the task a launch targeted as soon as it holds a tab, and lists
-  /// the session it was minted for ahead of whatever its agent reports.
+  /// Lists the session each launched task was minted for, ahead of whatever
+  /// its agent reports, as soon as the task holds a tab, and shows the task
+  /// when it is the latest launch.
   static func showLaunchedTaskIfReady(state: inout State, members: inout [LayoutID: [TaskMember]]) -> Effect<Action>? {
-    guard let pending = state.pendingTaskSelection,
-      state.terminals.layouts[id: pending.layoutID]?.layout.panes.contains(where: { !$0.tabs.isEmpty }) == true
-    else { return nil }
-    state.pendingTaskSelection = nil
-    if let primary = pending.primary.map(TaskMember.session) {
+    let ready = state.pendingTaskLaunches.filter { pending in
+      state.terminals.layouts[id: pending.layoutID]?.layout.panes.contains { !$0.tabs.isEmpty } == true
+    }
+    guard !ready.isEmpty else { return nil }
+    state.pendingTaskLaunches.removeAll { ready.contains($0) }
+    for pending in ready {
+      guard let primary = pending.primary.map(TaskMember.session) else { continue }
       members[pending.layoutID] = [primary] + (members[pending.layoutID] ?? []).filter { $0 != primary }
     }
-    return .send(.repositories(.selectTask(pending.layoutID, directory: pending.directoryID)))
+    guard let shown = ready.last(where: \.isShown) else { return nil }
+    return .send(.repositories(.selectTask(shown.layoutID, directory: shown.directoryID)))
   }
 
   // MARK: - Branch capture (FIFO queue, one in-flight at a time)

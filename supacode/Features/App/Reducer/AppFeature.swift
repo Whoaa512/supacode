@@ -198,8 +198,8 @@ struct AppFeature {
     /// One-at-a-time dormant session resume request waiting for folder
     /// registration or cwd validation to complete before launching.
     var pendingSessionLaunch: PendingSessionLaunch?
-    /// The task the last launch targeted, until its first tab exists.
-    var pendingTaskSelection: PendingTaskSelection?
+    /// The tasks launches targeted, oldest first, each until its first tab exists.
+    var pendingTaskLaunches: [PendingTaskLaunch] = []
     var lastFocusedSessionRowID: SessionRowID?
     var pendingBranchMismatchResume: PendingBranchMismatchResume?
     /// Tracks when each key last launched a tab; prevents re-launch within 10 s of dispatch.
