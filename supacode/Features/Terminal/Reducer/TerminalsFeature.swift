@@ -61,6 +61,11 @@ struct TerminalsFeature {
     /// not loaded. Entries are never retired; the writer skips any the
     /// current order contradicts.
     var replacedSessions: [LayoutID: [SessionKey: SessionKey]] = [:]
+    /// Set once the stored sessions are merged into `members`. From then on
+    /// `members` lists every stored session in the order to keep, so the
+    /// writer stores that order as it is and `replacedSessions` only matters
+    /// for what happened before.
+    var storedSessionsLoaded = false
     /// Tasks removed this run. The stored layouts are read once at launch and
     /// still list them, so anything that falls back to a stored record skips
     /// these or a removed task comes back as a dormant one.
@@ -219,7 +224,8 @@ struct TerminalsFeature {
           let members = TaskMembership.replacing(old, with: new, in: state.members[layoutID] ?? [])
         else { return .none }
         state.members[layoutID] = members
-        state.replacedSessions[layoutID, default: [:]][new] = old
+        state.replacedSessions[layoutID] = TaskMembership.recording(
+          old, replacedBy: new, in: state.replacedSessions[layoutID] ?? [:])
         return .run { _ in await layoutChangeObserver.sessionsChanged(layoutID) }
 
       case .selectedLayoutChanged(let layoutID):
@@ -252,7 +258,7 @@ struct TerminalsFeature {
           // Membership is the record's whether or not its layout is usable.
           let members = TaskMembership.merged(
             stored: record.sessions, runtime: state.members[record.id] ?? [],
-            replaced: state.replacedSessions[record.id] ?? [:])
+            replaced: state.replacedSessions[record.id] ?? [:], loaded: state.storedSessionsLoaded)
           if !members.isEmpty { state.members[record.id] = members }
           guard record.layout.isConsistent else {
             Self.logger.error("Dropping inconsistent persisted layout for \(key)")
@@ -270,6 +276,7 @@ struct TerminalsFeature {
           seenContentIDs.formUnion(contentIDs)
           seenTabIDs.formUnion(tabIDs)
         }
+        state.storedSessionsLoaded = true
         // A selection made this run is more recent than anything stored, and
         // hydration may be what first names its directory. Applied before the
         // stored entries so a directory gets one write, not a clear racing it.

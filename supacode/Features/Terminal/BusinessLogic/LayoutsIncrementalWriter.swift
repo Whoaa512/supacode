@@ -62,9 +62,11 @@ actor LayoutsIncrementalWriter {
     /// is created from all four. A task left with
     /// no tab and no session is removed like a `.delete`.
     /// `replaced` names, per new session, the one whose slot it took.
+    /// `sessionsLoaded` says the caller has merged the stored sessions into
+    /// its list, whose order is then stored as it is.
     case record(
       layout: PaneLayout, directory: TaskRecord.Directory, sessions: [SessionKey] = [],
-      replaced: [SessionKey: SessionKey] = [:], createdAt: Date)
+      replaced: [SessionKey: SessionKey] = [:], sessionsLoaded: Bool = false, createdAt: Date)
     case delete
     /// A delete keyed on a guess from the directory: a stored record that
     /// names another directory is that directory's task and stays.
@@ -159,14 +161,16 @@ actor LayoutsIncrementalWriter {
     for (id, change) in changes {
       let key = id.persistenceKey
       switch change {
-      case .record(let layout, let directory, let sessions, let replaced, let createdAt):
+      case .record(let layout, let directory, let sessions, let replaced, let sessionsLoaded, let createdAt):
         var task = file.tasks[key] ?? TaskRecord(id: id, directory: directory, createdAt: createdAt)
         task.layout = layout
         // The caller may not have loaded the stored sessions, so its list
         // only adds to them: stored order stands (the first is the primary)
         // and anything new goes after, except a session known to have
         // replaced a stored one, which takes (or moves up into) its slot.
-        task.sessions = TaskMembership.storing(sessions, replaced: replaced, into: task.sessions)
+        // A caller that has loaded them owns the order.
+        task.sessions = TaskMembership.storing(
+          sessions, replaced: replaced, into: task.sessions, loaded: sessionsLoaded)
         // Nothing open and nothing to resume: the task leaves no trace. One
         // with sessions stays, so its members are still there to resume.
         guard layout.panes.isEmpty, task.sessions.isEmpty else {

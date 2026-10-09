@@ -209,15 +209,37 @@ nonisolated enum TaskMembership {
     return result
   }
 
+  /// `replaced` with `new` now recorded as sitting ahead of `old`. Whatever
+  /// was recorded ahead of `new` stays where it is, so it is handed the
+  /// session `new` was ahead of: the link to a stored session is passed on,
+  /// never overwritten, and the map cannot loop.
+  static func recording(
+    _ old: SessionKey, replacedBy new: SessionKey, in replaced: [SessionKey: SessionKey]
+  ) -> [SessionKey: SessionKey] {
+    var result = replaced
+    let former = replaced[new]
+    // With nothing to hand on, the entries stay: `storing` reads the pair
+    // as `new` having moved back ahead of them.
+    if let former {
+      for (session, anchor) in replaced where anchor == new { result[session] = session == former ? nil : former }
+    }
+    result[new] = old
+    return result
+  }
+
   /// The stored order with the caller's replacements and unlisted sessions
   /// applied: a session that replaced a stored one goes into that one's slot,
   /// any other unlisted session after the rest. Nothing stored is dropped,
   /// and a stored session moves only up, only for a replacement the caller
   /// names, and only when the caller's own order agrees. The map outlives
   /// each replacement, so one the caller's order contradicts is stale.
+  ///
+  /// A caller that has loaded the stored list (`loaded`) lists everything in
+  /// it and has kept the order since, so its order is the answer as it is.
   static func storing(
-    _ sessions: [SessionKey], replaced: [SessionKey: SessionKey], into stored: [SessionKey]
+    _ sessions: [SessionKey], replaced: [SessionKey: SessionKey], into stored: [SessionKey], loaded: Bool = false
   ) -> [SessionKey] {
+    if loaded { return sessions + stored.filter { !sessions.contains($0) } }
     var result = stored
     var appended: [SessionKey] = []
     var placed: Set<SessionKey> = []
@@ -252,9 +274,10 @@ nonisolated enum TaskMembership {
   /// loaded. A replacement made before the load is placed the way the writer
   /// will store it, so the two orders agree.
   static func merged(
-    stored: [SessionKey], runtime: [TaskMember], replaced: [SessionKey: SessionKey] = [:]
+    stored: [SessionKey], runtime: [TaskMember], replaced: [SessionKey: SessionKey] = [:], loaded: Bool = false
   ) -> [TaskMember] {
-    let known = storing(runtime.compactMap(\.sessionKey), replaced: replaced, into: stored).map(TaskMember.session)
+    let known = storing(runtime.compactMap(\.sessionKey), replaced: replaced, into: stored, loaded: loaded)
+      .map(TaskMember.session)
     return known + runtime.filter { !known.contains($0) }
   }
 

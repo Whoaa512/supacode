@@ -1051,6 +1051,31 @@ struct WorktreeTerminalManagerAckTests {
     #expect(stored.tasks[task.persistenceKey]?.sessions == [new, old])
   }
 
+  /// With the stored sessions loaded, the record takes the reducer's order
+  /// whatever the replacements were: here the old primary is resumed over
+  /// its replacement, replaced again, and its first replacement resumed.
+  @Test(.dependencies) func aLoadedTasksSessionsAreStoredInTheReducersOrder() async {
+    let recorder = TeardownRecorder()
+    let clock = TestClock()
+    let harness = makeHarness(defaults: recorder.defaults, persistingOn: clock)
+    let pump = CreationEvents(harness.manager)
+    let task = LayoutID(task: UUID())
+    _ = await openLayout(task, on: makeWorktree(id: "/tmp/repo/wt-loaded"), in: harness, pump: pump)
+    let key = { SessionKey(harness: .pi, sessionID: $0) }
+    let (one, two, three) = (key("one"), key("two"), key("three"))
+    await harness.store.send(.terminals(.layoutsHydrated(TaskLayoutsFile()))).finish()
+    await harness.store.send(.terminals(.membersChanged([task: [.session(one), .session(two)]]))).finish()
+    _ = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey]?.sessions == [one, two] }
+
+    await harness.store.send(.terminals(.sessionReplaced(task, old: one, new: two))).finish()
+    await harness.store.send(.terminals(.sessionReplaced(task, old: two, new: one))).finish()
+    await harness.store.send(.terminals(.sessionReplaced(task, old: two, new: three))).finish()
+    await harness.store.send(.terminals(.sessionReplaced(task, old: one, new: two))).finish()
+
+    let stored = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey]?.sessions.count == 3 }
+    #expect(stored.tasks[task.persistenceKey]?.sessions == [two, one, three])
+  }
+
   @Test(.dependencies) func theQuitTimeSaveCarriesSessionsTheDebounceHasNotWrittenYet() async {
     let recorder = TeardownRecorder()
     let harness = makeHarness(defaults: recorder.defaults, persistingOn: TestClock())

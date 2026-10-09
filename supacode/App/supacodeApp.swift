@@ -233,8 +233,12 @@ struct SupacodeApp: App {
   @MainActor
   fileprivate static func hydrateLayouts(into store: StoreOf<AppFeature>) {
     @Dependency(\.defaultAppStorage) var defaults
-    guard case .file(let file) = TaskLayoutsFile.readPersisted(from: defaults) else { return }
-    store.send(.terminals(.layoutsHydrated(file)))
+    switch TaskLayoutsFile.readPersisted(from: defaults) {
+    case .file(let file): store.send(.terminals(.layoutsHydrated(file)))
+    // Nothing stored is loaded too: the run's order of a task's sessions is all there is.
+    case .absent: store.send(.terminals(.layoutsHydrated(TaskLayoutsFile())))
+    case .unreadable: return
+    }
   }
 
   @MainActor

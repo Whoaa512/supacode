@@ -1882,11 +1882,12 @@ final class WorktreeTerminalManager {
     let directory =
       hosts[layoutID].map { TaskRecord.Directory(worktreeID: $0.worktreeID, host: $0.context.host) }
       ?? LayoutsTaskSplitter.directory(forLegacyKey: layoutID.persistenceKey)
-    let (members, replaced) =
-      appStore?.withState { ($0.terminals.members[layoutID] ?? [], $0.terminals.replacedSessions[layoutID] ?? [:]) }
-      ?? ([], [:])
+    let terminals = appStore?.withState(\.terminals)
     return .record(
-      layout: layout, directory: directory, sessions: members.compactMap(\.sessionKey), replaced: replaced,
+      layout: layout, directory: directory,
+      sessions: (terminals?.members[layoutID] ?? []).compactMap(\.sessionKey),
+      replaced: terminals?.replacedSessions[layoutID] ?? [:],
+      sessionsLoaded: terminals?.storedSessionsLoaded ?? false,
       createdAt: Date())
   }
 
