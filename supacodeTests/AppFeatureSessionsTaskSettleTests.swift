@@ -321,6 +321,7 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(settledAt("a", in: store) == now)
     #expect(AppFeature.isTaskSettled(task, state: store.state))
     #expect(recorded.closed.value == [primarySurface, secondSurface], "every tab of the task, and no other")
+    #expect(surfaces(of: task, in: store).isEmpty, "the tabs are gone, not only marked for closing")
     #expect(store.state.terminals.members[task] == [.session(key("a"))], "still there to reopen")
   }
 
@@ -457,6 +458,7 @@ struct AppFeatureSessionsTaskSettleTests {
 
     #expect(settledAt("a", in: store) == now)
     #expect(recorded.closed.value == [primarySurface, secondSurface], "the shell beside it closes with the task")
+    #expect(surfaces(of: task, in: store).isEmpty, "the tabs are gone, not only marked for closing")
     #expect(store.state.terminals.members[task] == [.session(key("a"))], "still there to reopen")
     #expect(surfaces(of: otherTask, in: store) == [otherSurface])
     #expect(settledAt("other", in: store) == nil)
@@ -825,9 +827,11 @@ struct AppFeatureSessionsTaskSettleTests {
 
     await store.send(.settleSessionAndAdvance)
     await store.finish()
+    await store.skipReceivedActions(strict: false)
 
     #expect(recorded.closed.value == [primarySurface, secondSurface])
     #expect(store.state.repositories.sessions.isEmpty, "a shell-only task has nothing to mark")
+    #expect(surfaces(of: task, in: store).isEmpty, "the tabs are gone, not only marked for closing")
     #expect(Set(recorded.shown) == [otherTask])
   }
 
