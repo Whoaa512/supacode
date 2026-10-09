@@ -5043,4 +5043,105 @@ struct AppFeatureSessionsTests {
     #expect(!recorded.mintedOrResumed)
     #expect(store.state.pendingSessionLaunch == nil)
   }
+
+  private func tabChord(forward: Bool) -> AppFeature.Action {
+    forward ? .selectNextTerminalTab : .selectPreviousTerminalTab
+  }
+
+  /// `second` was just picked on a directory whose recorded task is `first`;
+  /// the terminal has not echoed it.
+  private func secondJustSelected() -> AppFeature.State {
+    var state = withRows(twoTasksOnOneDirectory())
+    state.repositories.selectedTask = SelectedTask(id: second, directoryID: worktree.id)
+    return state
+  }
+
+  @Test(.dependencies, arguments: [true, false])
+  func tabChordActsOnTheTaskJustSelected(forward: Bool) async {
+    let initial = secondJustSelected()
+    #expect(initial.layoutID(forDirectory: worktree.id) == first)
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    await store.send(tabChord(forward: forward))
+    await store.finish()
+
+    #expect(recorded.commands.value == [.selectRelativeTab(second, forward: forward)])
+  }
+
+  @Test(.dependencies, arguments: [true, false])
+  func tabChordReachesAnOrphanTask(forward: Bool) async {
+    var initial = withRows(withOrphans(state()))
+    initial.repositories.selection = nil
+    initial.repositories.selectedTask = SelectedTask(id: orphanShell, directoryID: goneDirectory.worktreeID)
+    #expect(initial.repositories.orphanTaskID == orphanShell)
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    await store.send(tabChord(forward: forward))
+    await store.finish()
+
+    #expect(recorded.commands.value == [.selectRelativeTab(orphanShell, forward: forward)])
+  }
+
+  @Test(.dependencies, arguments: [true, false])
+  func tabChordReachesATaskOnAMissingDirectory(forward: Bool) async {
+    var initial = secondJustSelected()
+    let missing = Worktree(
+      id: "/workspace", name: "workspace", detail: "",
+      workingDirectory: URL(fileURLWithPath: "/workspace"),
+      repositoryRootURL: URL(fileURLWithPath: "/workspace"), isMissing: true)
+    initial.repositories.repositories = [
+      Repository(id: "/workspace", rootURL: missing.workingDirectory, name: "workspace", worktrees: [missing])
+    ]
+    #expect(initial.taskOnMissingDirectory == second)
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    await store.send(tabChord(forward: forward))
+    await store.finish()
+
+    #expect(recorded.commands.value == [.selectRelativeTab(second, forward: forward)])
+  }
+
+  @Test(.dependencies, arguments: [true, false])
+  func tabChordWithNoTaskOnScreenSendsNothing(forward: Bool) async {
+    var initial = withRows(withOrphans(state()))
+    initial.repositories.selection = nil
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    await store.send(tabChord(forward: forward))
+    await store.send(.selectTerminalTabAtIndex(2))
+    await store.finish()
+
+    #expect(recorded.commands.value.isEmpty)
+  }
+
+  @Test(.dependencies) func tabIndexChordUsesTheSameTarget() async {
+    let recorded = Recorded()
+    let store = taskStore(secondJustSelected(), recorded: recorded)
+
+    await store.send(.selectTerminalTabAtIndex(2))
+    await store.finish()
+
+    #expect(recorded.commands.value == [.selectTabAtIndex(second, index: 2)])
+  }
+
+  @Test(.dependencies, arguments: [true, false])
+  func tabChordNeverChangesTheSelectedTask(forward: Bool) async {
+    var initial = secondJustSelected()
+    initial.repositories.sessionSelection = .task(second)
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    for _ in 0..<5 { await store.send(tabChord(forward: forward)) }
+    await store.finish()
+
+    #expect(store.state.repositories.selectedTask == initial.repositories.selectedTask)
+    #expect(store.state.repositories.sessionSelection == .task(second))
+    #expect(store.state.repositories.selectedWorktreeID == worktree.id)
+    #expect(recorded.selectedLayouts.isEmpty)
+    #expect(recorded.commands.value == Array(repeating: .selectRelativeTab(second, forward: forward), count: 5))
+  }
 }

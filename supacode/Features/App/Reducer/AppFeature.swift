@@ -1239,34 +1239,19 @@ struct AppFeature {
         // Works regardless of first responder (menu key-equivalent), so ⌘-number
         // switches tabs even when the sidebar holds focus. The index is clamped to
         // the last tab inside the terminal state.
-        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID),
-          !worktree.isMissing
-        else {
-          return .none
-        }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        guard let layoutID = state.tabChordLayoutID else { return .none }
         return .run { _ in
           await terminalClient.send(.selectTabAtIndex(layoutID, index: tabNumber))
         }
 
       case .selectNextTerminalTab:
-        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID),
-          !worktree.isMissing
-        else {
-          return .none
-        }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        guard let layoutID = state.tabChordLayoutID else { return .none }
         return .run { _ in
           await terminalClient.send(.selectRelativeTab(layoutID, forward: true))
         }
 
       case .selectPreviousTerminalTab:
-        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID),
-          !worktree.isMissing
-        else {
-          return .none
-        }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        guard let layoutID = state.tabChordLayoutID else { return .none }
         return .run { _ in
           await terminalClient.send(.selectRelativeTab(layoutID, forward: false))
         }
@@ -4599,6 +4584,18 @@ extension AppFeature.State {
         ? $0.id : nil
     }
     return picked ?? terminals.task(forDirectory: worktreeID)
+  }
+
+  /// The layout the tab-selection chords act on: the task on screen. A task
+  /// on a directory outside the roster or gone from disk is still on screen.
+  var tabChordLayoutID: LayoutID? {
+    if let orphan = repositories.orphanTaskID {
+      return AppFeature.hasTask(orphan, state: self) ? orphan : nil
+    }
+    if let shown = taskOnMissingDirectory { return shown }
+    guard let worktree = repositories.worktree(for: repositories.selectedWorktreeID), !worktree.isMissing
+    else { return nil }
+    return shownTask(forDirectory: worktree.id) ?? layoutID(forDirectory: worktree.id)
   }
 
   /// The layout the detail view mounts for a selected directory, and the one
