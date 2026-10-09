@@ -1242,3 +1242,53 @@ deviation.
     until repaired, the non-destructive option and the same as v3's rule.
     Gate: check 0, build-app 0, full `make test` 4026 with only the 5
     baseline failures.
+- T3, 2026-10-08, `a43677e0`: the runtime allows several layouts per
+  directory. Nothing mints a second task yet (T6/T7), so behaviour for
+  today's stores is unchanged. Decisions:
+  - Resolver: `TerminalsFeature.State.activeTasks: [Worktree.ID: LayoutID]`
+    and `layoutID(forDirectory:)` there; the `AppFeature` seam delegates to
+    it. A directory's own-key layout is stored as "no entry", so selecting a
+    one-task directory changes no state and writes nothing (a write per
+    worktree switch would re-encode the whole blob). Updated on
+    `selectedLayoutChanged`, on `attachLayout` when the selected layout's
+    host arrives after the selection, and after hydration (a selection made
+    before hydration wins over the stored entry); `detachLayout` drops the
+    entries naming that layout.
+  - Persisted as `TaskLayoutsFile.activeTasks` (directory → task key),
+    encoded only when non-empty so existing blobs keep their bytes, decoded
+    leniently (a selection hint owns no sessions, so it is never decode
+    loss). Written through `LayoutChangeObserver.activeTaskChanged` →
+    `LayoutsIncrementalWriter.flush(activeTask:forDirectory:)`; a task
+    `.delete` drops the entries naming it. Hydration serves an entry only
+    when its task hydrated and sits on that directory.
+  - `attachLayout` carries the host's directory, so `directories` now covers
+    layouts created this run (left by T2). A hydrated record's directory is
+    never replaced.
+  - Orphan rule, taken in `AppFeature` (`allowed` ∪ task directories that
+    match no sidebar row), manager `prune` API unchanged. Consequence: only
+    an archived directory's tasks are pruned. A worktree deleted in the app
+    still tears down through `removeLayouts(forDirectory:)`; one deleted
+    outside the app, or whose **repository is removed from the app**, now
+    keeps its tasks and sessions as orphans (before: prune killed them).
+    Chosen as the non-destructive reading of open question 5; they are not
+    listed anywhere until T4/T5.
+  - `removeLayouts(forDirectory:)` also finds never-opened tasks by their
+    recorded directory, not only the one the seam resolves to.
+  - Setup script: the pending flag moved from the host to the manager,
+    keyed by directory. It arms only while no layout of that directory holds
+    a tab (a brand-new host ignores its own layout, as before), so a second
+    task never reruns it. Host `runSetupScript:` init parameter and its four
+    setup methods are gone.
+  - `worktreeProjectionChanged` is one merged projection per directory
+    (`WorktreeRowProjection.merged`; a single task passes through
+    untouched), deduped per directory; `runStatusChanged` is running while
+    any task there is. `worktreeStateTornDown` unchanged (both ids since F1).
+  Left for later: A13's "listed in the sidebar" half is T4/T5. With no
+  entry the resolver returns the own-key id even when that layout does not
+  exist but other tasks do (an all-agent directory after T6), so selecting
+  the worktree row would bootstrap a new shell task: T5/T10 must select a
+  real task first. Ack matchers and the manager's CLI list queries still
+  compare against the directory's *current* active task (T11 resolves by
+  tab/surface id). The `persistenceKey` path parse for a hostless layout's
+  display name stays (T5/T7). Gate: check 0, build-app 0, full `make test`
+  4045 with only the 5 baseline failures.
