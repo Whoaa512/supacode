@@ -5,7 +5,7 @@ import SupacodeSettingsShared
 extension RepositoriesFeature {
   static func focusSessionNavigation(state: inout State, id: SessionRowID?) -> Effect<Action> {
     guard let id, let location = state.sessionItems[id: id]?.location else { return .none }
-    state.sessionSelection = id
+    state.selectSessionRow(id)
     return focusEffect(id: id, location: location)
   }
 
@@ -123,7 +123,9 @@ extension RepositoriesFeature {
         return .none
 
       case .taskSessionsChanged(let taskSessions):
+        guard state.taskSessions != taskSessions else { return .none }
         state.taskSessions = taskSessions
+        state.reconcileSessionItems(now: date.now)
         return .none
 
       case .selectTask(let layoutID, let directoryID):
@@ -149,22 +151,21 @@ extension RepositoriesFeature {
         return .none
 
       case .sessionSelectionChanged(let id):
-        state.sessionSelection = id.flatMap { state.sessionItems[id: $0] == nil ? nil : $0 }
+        state.selectSessionRow(id.flatMap { state.sessionItems[id: $0] == nil ? nil : $0 })
         return .none
 
       case .activateSession(let id), .sessionItems(.element(id: let id, action: .activate)):
         guard let row = state.sessionItems[id: id] else { return .none }
-        state.sessionSelection = id
+        state.selectSessionRow(id)
         if let location = row.location {
-          if case .session(let key) = id, row.lifecycle == .settled {
+          if case .implicit(let key) = id, row.lifecycle == .settled {
             state.applyUnsettle(key: key, summaries: state.sessionSummaries, now: date.now)
           }
           return Self.focusEffect(id: id, location: location)
         }
-        if case .session(let key) = id {
-          return .send(.delegate(.resumeSession(key)))
-        }
-        return .none
+        // A dormant task reopens on its primary; its tangents resume one by one.
+        guard let key = row.sessionKey else { return .none }
+        return .send(.delegate(.resumeSession(key)))
 
       case .settleSession(let key):
         state.applySettle(key: key, now: date.now)
@@ -174,6 +175,9 @@ extension RepositoriesFeature {
 
       case .settleSessionRequested(let key):
         return .send(.delegate(.settleAndCloseSession(key)))
+
+      case .settleTaskRequested(let layoutID):
+        return .send(.delegate(.settleTask(layoutID)))
 
       case .unsettleSession(let key):
         state.applyUnsettle(key: key, summaries: state.sessionSummaries, now: date.now)

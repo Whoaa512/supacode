@@ -120,6 +120,14 @@ struct AppFeatureSessionsTaskSettleTests {
     let written = LockIsolated<[LayoutID]>([])
     let focused = LockIsolated<[LayoutID]>([])
     let commands = LockIsolated<[TerminalClient.Command]>([])
+
+    /// Every task shown through its row, with whatever it had focused.
+    var shown: [LayoutID] {
+      commands.value.compactMap {
+        guard case .ensureInitialTab(let layoutID, _, _, _) = $0 else { return nil }
+        return layoutID
+      }
+    }
   }
 
   private func store(
@@ -196,7 +204,10 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(recorded.written.value.contains(task), "the new order is stored")
     #expect(store.state.terminals.members[otherTask] == [.session(key("other"))], "no other task changes")
     #expect(store.state.terminals.layouts.count == 2, "and none is minted")
-    #expect(store.state.repositories.sessionItems[id: .session(key("n"))]?.location?.layoutID == task)
+    let row = store.state.repositories.sessionItems[id: .task(task)]
+    #expect(row?.primary == key("n"), "the task's row follows its new primary")
+    #expect(row?.lifecycle == .active)
+    #expect(store.state.repositories.sessionItems[id: .implicit(key("a"))] == nil, "the replaced one has no row")
   }
 
   /// Presence takes a changed ref from any event, so the first event of the
@@ -446,11 +457,12 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(store.state.terminals.members[task] == [.session(key("a"))], "still the primary, and the only member")
     #expect(store.state.repositories.sessions.isEmpty, "nothing settles")
     #expect(recorded.closed.value.isEmpty)
-    let row = store.state.repositories.sessionItems[id: .session(key("a"))]
+    let row = store.state.repositories.sessionItems[id: .task(task)]
     #expect(row?.title == "Parent")
+    #expect(row?.primary == key("a"))
     #expect(row?.lifecycle == .active)
     #expect(row?.location?.surfaceID == primarySurface)
-    #expect(store.state.repositories.sessionItems[id: .session(key("child"))] == nil)
+    #expect(store.state.repositories.sessionItems[id: .implicit(key("child"))] == nil)
     #expect(store.state.endedSessions.isEmpty)
   }
 
@@ -471,7 +483,7 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(recorded.closed.value.isEmpty)
     #expect(store.state.branchCaptureQueue.isEmpty)
     #expect(!store.state.branchCaptureInFlight, "no branch is captured for it")
-    #expect(store.state.repositories.sessionItems[id: .session(key("child", .claude))] == nil)
+    #expect(store.state.repositories.sessionItems[id: .implicit(key("child", .claude))] == nil)
     #expect(store.state.endedSessions.isEmpty)
   }
 
@@ -683,24 +695,48 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(recorded.closed.value.isEmpty)
   }
 
+  @Test(.dependencies) func settlingATaskRowClosesTheTaskItNamesWhenItsPrimaryLeadsAnother() async {
+    confirmClose(.never)
+    let recorded = Recorded()
+    // Both tasks are led by "a"; by its key alone the settle would pick the first.
+    var initial = state(second: live("b", pid: 12))
+    initial.agentPresence.records[.init(agent: .pi, surfaceID: otherSurface)] = live("a", pid: 31)
+    initial.terminals.members[otherTask] = [.session(key("a"))]
+    initial = withRows(initial)
+    #expect(AppFeature.taskLed(by: key("a"), state: initial) == task)
+    let store = store(initial, recorded: recorded)
+
+    await store.send(.repositories(.settleTaskRequested(otherTask)))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(recorded.closed.value == [otherSurface])
+    #expect(surfaces(of: otherTask, in: store).isEmpty)
+    #expect(Set(surfaces(of: task, in: store)) == [primarySurface, secondSurface], "the other task is untouched")
+    #expect(settledAt("a", in: store) == now)
+    #expect(
+      store.state.repositories.sessionItems[id: .task(task)]?.lifecycle == .active,
+      "a task with tabs open is never shown settled")
+  }
+
   // MARK: - Settle and advance
 
   @Test(.dependencies) func settleAndAdvanceLeavesTheSettledTaskForTheNextLiveOne() async {
     confirmClose(.never)
     let recorded = Recorded()
-    // The primary's row is current; the next live row is its own task's tangent.
+    // The task's row is current; its tangent has no row to advance onto.
     var initial = state(second: live("b", pid: 12))
-    initial.repositories.sessionSelection = .session(key("a"))
+    initial.repositories.sessionSelection = .task(task)
     let store = store(initial, recorded: recorded)
     let live = store.state.repositories.sessionsSidebarStructure.liveIDs
-    #expect(live.count == 3)
+    #expect(Set(live) == [.task(task), .task(otherTask)])
 
     await store.send(.settleSessionAndAdvance)
     await store.finish()
 
     #expect(recorded.closed.value == [primarySurface, secondSurface])
     #expect(settledAt("a", in: store) == now)
-    #expect(recorded.focused.value == [otherTask], "not the tangent whose tab is closing")
+    #expect(Set(recorded.shown) == [otherTask], "not the tangent whose tab is closing")
   }
 
   @Test(.dependencies) func settleAndAdvanceOnAShellOnlyTaskClosesItAndMovesOn() async {
@@ -719,7 +755,7 @@ struct AppFeatureSessionsTaskSettleTests {
 
     #expect(recorded.closed.value == [primarySurface, secondSurface])
     #expect(store.state.repositories.sessions.isEmpty, "a shell-only task has nothing to mark")
-    #expect(recorded.focused.value == [otherTask])
+    #expect(Set(recorded.shown) == [otherTask])
   }
 
   // MARK: - Reopen (A19)
@@ -745,15 +781,21 @@ struct AppFeatureSessionsTaskSettleTests {
     initial.repositories.sessionSnapshots = []
     initial.repositories.taskSnapshots = []
     initial.repositories.$sessions.withLock { $0[key("a")] = SessionSidecarEntry(settledAt: .distantPast) }
-    initial.repositories.sessionItems = [
-      SessionSidebarItemFeature.State(
-        id: .session(key("a")), title: "Primary", cwd: path, createdAt: .distantPast, lifecycle: .settled),
-      SessionSidebarItemFeature.State(id: .session(key("b")), title: "Tangent", cwd: path, createdAt: .distantPast),
-    ]
+    initial.repositories.taskSessions = [task: [key("a"), key("b")]]
+    initial.repositories.sessionSummaries = [("a", "Primary"), ("b", "Tangent")].map {
+      SessionSummary(
+        harness: .pi, sessionID: $0.0, createdAt: .distantPast, cwd: path, title: $0.1, messageCount: 4,
+        lastActivity: .distantPast)
+    }
+    initial.repositories.reconcileSessionItems(now: .distantPast)
+    // One row, the task's, in Settled: neither session has a row of its own.
+    #expect(initial.repositories.sessionItems.map(\.id) == [.task(task)])
+    #expect(initial.repositories.sessionItems.first?.lifecycle == .settled)
+    #expect(initial.repositories.sessionItems.first?.title == "Primary")
     let recorded = Recorded()
     let store = store(initial, recorded: recorded)
 
-    await store.send(.repositories(.activateSession(.session(key("a")))))
+    await store.send(.repositories(.activateSession(.task(task))))
     await store.receive(\.launchSessionCompleted)
     await store.finish()
 

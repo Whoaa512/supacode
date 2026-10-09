@@ -58,7 +58,7 @@ struct RepositoriesFeatureAutoSettleTests {
     await store.send(.sessionsLiveKeysChanged([]))
     await store.send(.sessionsRefreshCompleted([row]))
     #expect(store.state.sessions[row.id]?.settledAt == now)
-    #expect(store.state.sessionItems[id: .session(row.id)]?.lifecycle == .settled)
+    #expect(store.state.sessionItems[id: .implicit(row.id)]?.lifecycle == .settled)
     await store.finish()
   }
 

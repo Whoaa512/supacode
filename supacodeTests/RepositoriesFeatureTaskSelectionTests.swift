@@ -177,7 +177,7 @@ struct RepositoriesFeatureTaskSelectionTests {
     #expect(sessionRowCount == 3)
     #expect(state.sessionItems.count == 4)
     for id in ["one", "two", "three"] {
-      let row = state.sessionItems[id: .session(SessionKey(harness: .pi, sessionID: id))]
+      let row = state.sessionItems[id: .implicit(SessionKey(harness: .pi, sessionID: id))]
       #expect(row != nil)
       #expect(row?.location == nil, "an indexed session in no task stays an implicit, dormant row")
     }

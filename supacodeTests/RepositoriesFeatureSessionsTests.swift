@@ -69,7 +69,7 @@ struct RepositoriesFeatureSessionsTests {
       .sessionsCacheLoaded([summary("old"), settled, summary("middle", created: 20)]))
     #expect(
       store.state.sessionsSidebarStructure.allIDs == [
-        .session(summary("middle").id), .session(summary("old").id), .session(settled.id),
+        .implicit(summary("middle").id), .implicit(summary("old").id), .implicit(settled.id),
       ])
     #expect(store.state.sessionsSidebarStructure.sections.map(\.id) == [.active, .settled])
     let structure = store.state.sessionsSidebarStructure
@@ -77,7 +77,7 @@ struct RepositoriesFeatureSessionsTests {
     var renamed = summary("middle", created: 20, title: "Renamed")
     renamed.lastActivity = .distantFuture
     await store.send(.sessionsRefreshCompleted([summary("old"), settled, renamed]))
-    #expect(store.state.sessionItems[id: .session(renamed.id)]?.title == "Renamed")
+    #expect(store.state.sessionItems[id: .implicit(renamed.id)]?.title == "Renamed")
     #expect(store.state.sessionsSidebarStructure == structure)
     #expect(store.state.sidebarStructure == worktrees)
     #expect(
@@ -86,7 +86,7 @@ struct RepositoriesFeatureSessionsTests {
       RepositoriesFeature.Action.sessionsRefreshCompleted([]).cacheInvalidations
         == .sessionsStructure)
     #expect(
-      RepositoriesFeature.Action.sessionItems(.element(id: .session(renamed.id), action: .activate))
+      RepositoriesFeature.Action.sessionItems(.element(id: .implicit(renamed.id), action: .activate))
         .cacheInvalidations.isEmpty)
     await store.finish()
   }
@@ -108,7 +108,7 @@ struct RepositoriesFeatureSessionsTests {
     await store.send(.sessionSnapshotsChanged([snapshot(surface, ref: "real")]))
     await store.receive(\.sessionsRefreshRequested)
     #expect(store.state.sessionItems.count == 1)
-    #expect(store.state.sessionSelection == .session(indexed.id))
+    #expect(store.state.sessionSelection == .implicit(indexed.id))
     #expect(store.state.sessionItems.first?.createdAt == indexed.createdAt)
     #expect(store.state.sessionItems.first?.title == indexed.title)
     #expect(store.state.sessionItems.first?.location?.surfaceID == surface)
@@ -198,12 +198,12 @@ struct RepositoriesFeatureSessionsTests {
     await store.send(.sessionsStarted)
     #expect(cacheCalls.value == 1)
     #expect(tab == SidebarTab.worktrees.rawValue)
-    #expect(store.state.sessionItems.first?.id == .session(cached.id))
+    #expect(store.state.sessionItems.first?.id == .implicit(cached.id))
     #expect(store.state.sessionsRefreshInFlight)
     gate.continuation.yield(())
     gate.continuation.finish()
     await store.receive(\.sessionsRefreshFailed)
-    #expect(store.state.sessionItems.first?.id == .session(cached.id))
+    #expect(store.state.sessionItems.first?.id == .implicit(cached.id))
     #expect(!store.state.sessionsRefreshInFlight)
     await store.send(.sessionsStopped)
     await store.finish()
@@ -319,12 +319,12 @@ struct RepositoriesFeatureSessionsTests {
       structureChanged.setValue(true)
     }
     withObservationTracking {
-      _ = model.sessionItems[id: .session(summary("b").id)]?.title
+      _ = model.sessionItems[id: .implicit(summary("b").id)]?.title
     } onChange: {
       siblingChanged.setValue(true)
     }
     withObservationTracking {
-      _ = model.sessionItems[id: .session(summary("a").id)]?.title
+      _ = model.sessionItems[id: .implicit(summary("a").id)]?.title
     } onChange: {
       ownChanged.setValue(true)
     }
@@ -383,9 +383,9 @@ struct RepositoriesFeatureSessionsTests {
     state.sessionSnapshots = [snapshot(UUID(), ref: "active")]
     state.reconcileSessionItems(now: .distantPast)
     state.applyCacheRecomputes(.sessionsStructure)
-    state.sessionSelection = .session(active.id)
-    #expect(state.sessionRowID(byOffset: 1, focusedRowID: nil) == .session(active.id))
-    #expect(state.sessionRowID(byOffset: -1, focusedRowID: nil) == .session(active.id))
+    state.sessionSelection = .implicit(active.id)
+    #expect(state.sessionRowID(byOffset: 1, focusedRowID: nil) == .implicit(active.id))
+    #expect(state.sessionRowID(byOffset: -1, focusedRowID: nil) == .implicit(active.id))
   }
 
   @Test func mergeSessionFolderDoesNotReplaceParentGitRepoOnWorktreeCwdMatch() {
@@ -475,16 +475,16 @@ struct RepositoriesFeatureSessionsTests {
     initial.reconcileSessionItems(now: .distantPast)
     initial.applyCacheRecomputes(.sessionsStructure)
     let structure = initial.sessionsSidebarStructure
-    #expect(structure.liveIDs == [.session(settled.id)])
-    #expect(structure.selection(byOffset: 1, from: .session(live.id)) == .session(dormant.id))
-    #expect(structure.selection(byOffset: 1, from: .session(dormant.id)) == .session(settled.id))
-    #expect(structure.selection(byOffset: 1, from: .session(settled.id)) == .session(live.id))
-    #expect(structure.selection(byOffset: -1, from: nil) == .session(settled.id))
+    #expect(structure.liveIDs == [.implicit(settled.id)])
+    #expect(structure.selection(byOffset: 1, from: .implicit(live.id)) == .implicit(dormant.id))
+    #expect(structure.selection(byOffset: 1, from: .implicit(dormant.id)) == .implicit(settled.id))
+    #expect(structure.selection(byOffset: 1, from: .implicit(settled.id)) == .implicit(live.id))
+    #expect(structure.selection(byOffset: -1, from: nil) == .implicit(settled.id))
     let store = TestStore(initialState: initial) { RepositoriesFeature() }
-    await store.send(.sessionSelectionChanged(.session(dormant.id))) {
-      $0.sessionSelection = .session(dormant.id)
+    await store.send(.sessionSelectionChanged(.implicit(dormant.id))) {
+      $0.sessionSelection = .implicit(dormant.id)
     }
-    await store.send(.activateSession(.session(dormant.id)))
+    await store.send(.activateSession(.implicit(dormant.id)))
     await store.receive(\.delegate.resumeSession)
     await store.finish()
   }
@@ -499,8 +499,8 @@ struct RepositoriesFeatureSessionsTests {
     ]
     state.reconcileSessionItems(now: .distantPast)
     state.applyCacheRecomputes(.sessionsStructure)
-    #expect(state.sessionRowID(atSlot: 0) == .session(summary("live1").id))
-    #expect(state.sessionRowID(atSlot: 1) == .session(summary("live2").id))
+    #expect(state.sessionRowID(atSlot: 0) == .implicit(summary("live1").id))
+    #expect(state.sessionRowID(atSlot: 1) == .implicit(summary("live2").id))
     #expect(state.sessionRowID(atSlot: 2) == nil)
   }
 
@@ -516,13 +516,13 @@ struct RepositoriesFeatureSessionsTests {
     ]
     state.reconcileSessionItems(now: .distantPast)
     state.applyCacheRecomputes(.sessionsStructure)
-    state.sessionSelection = .session(second.id)
-    #expect(state.sessionRowID(byOffset: 1, focusedRowID: nil) == .session(third.id))
-    #expect(state.sessionRowID(byOffset: -1, focusedRowID: nil) == .session(first.id))
-    state.sessionSelection = .session(third.id)
-    #expect(state.sessionRowID(byOffset: 1, focusedRowID: nil) == .session(first.id))
-    state.sessionSelection = .session(first.id)
-    #expect(state.sessionRowID(byOffset: -1, focusedRowID: nil) == .session(third.id))
+    state.sessionSelection = .implicit(second.id)
+    #expect(state.sessionRowID(byOffset: 1, focusedRowID: nil) == .implicit(third.id))
+    #expect(state.sessionRowID(byOffset: -1, focusedRowID: nil) == .implicit(first.id))
+    state.sessionSelection = .implicit(third.id)
+    #expect(state.sessionRowID(byOffset: 1, focusedRowID: nil) == .implicit(first.id))
+    state.sessionSelection = .implicit(first.id)
+    #expect(state.sessionRowID(byOffset: -1, focusedRowID: nil) == .implicit(third.id))
   }
 
   @Test(.dependencies) func sessionRowIDByOffsetWithNoSelectionEntersFromTravelDirection() {
@@ -534,8 +534,8 @@ struct RepositoriesFeatureSessionsTests {
     state.reconcileSessionItems(now: .distantPast)
     state.applyCacheRecomputes(.sessionsStructure)
     state.sessionSelection = nil
-    #expect(state.sessionRowID(byOffset: 1, focusedRowID: nil) == .session(summary("live1").id))
-    #expect(state.sessionRowID(byOffset: -1, focusedRowID: nil) == .session(summary("live2").id))
+    #expect(state.sessionRowID(byOffset: 1, focusedRowID: nil) == .implicit(summary("live1").id))
+    #expect(state.sessionRowID(byOffset: -1, focusedRowID: nil) == .implicit(summary("live2").id))
   }
 
   @Test(.dependencies) func sessionRowIDByOffsetWithFocusedRowIDUsesThat() {
@@ -548,10 +548,10 @@ struct RepositoriesFeatureSessionsTests {
     ]
     state.reconcileSessionItems(now: .distantPast)
     state.applyCacheRecomputes(.sessionsStructure)
-    state.sessionSelection = .session(first.id)
-    let focused = SessionRowID.session(second.id)
-    #expect(state.sessionRowID(byOffset: 1, focusedRowID: focused) == .session(first.id))
-    #expect(state.sessionRowID(byOffset: -1, focusedRowID: focused) == .session(first.id))
+    state.sessionSelection = .implicit(first.id)
+    let focused = SessionRowID.implicit(second.id)
+    #expect(state.sessionRowID(byOffset: 1, focusedRowID: focused) == .implicit(first.id))
+    #expect(state.sessionRowID(byOffset: -1, focusedRowID: focused) == .implicit(first.id))
   }
 
   @Test(.dependencies) func sessionRowIDByOffsetReturnsNilWhenEmpty() {
@@ -572,13 +572,13 @@ struct RepositoriesFeatureSessionsTests {
     ]
     initial.reconcileSessionItems(now: .distantPast)
     initial.applyCacheRecomputes(.sessionsStructure)
-    initial.sessionSelection = .session(live1.id)
+    initial.sessionSelection = .implicit(live1.id)
     @Shared(.sidebarTab) var tab
     $tab.withLock { $0 = SidebarTab.sessions.rawValue }
     let store = TestStore(initialState: initial) { RepositoriesFeature() }
     store.exhaustivity = .off
     await store.send(.selectNextWorktree) {
-      $0.sessionSelection = .session(live2.id)
+      $0.sessionSelection = .implicit(live2.id)
     }
     await store.receive(\.delegate.focusSession)
     await store.finish()
@@ -616,12 +616,12 @@ struct RepositoriesFeatureSessionsTests {
     let store = TestStore(initialState: initial) { RepositoriesFeature() }
     store.exhaustivity = .off
     await store.send(.selectWorktreeAtHotkeySlot(0)) {
-      $0.sessionSelection = .session(live.id)
+      $0.sessionSelection = .implicit(live.id)
     }
     await store.receive(\.delegate.focusSession)
     await store.finish()
-    #expect(initial.sessionsSidebarStructure.allIDs == [.session(live.id), .session(dormant.id)])
-    #expect(initial.sessionsSidebarStructure.liveIDs == [.session(live.id)])
+    #expect(initial.sessionsSidebarStructure.allIDs == [.implicit(live.id), .implicit(dormant.id)])
+    #expect(initial.sessionsSidebarStructure.liveIDs == [.implicit(live.id)])
   }
 
   // MARK: - Manual settle / unsettle
@@ -630,13 +630,13 @@ struct RepositoriesFeatureSessionsTests {
     let store = store()
     let key = SessionKey(harness: .pi, sessionID: "s1")
     await store.send(.sessionsRefreshCompleted([summary("s1", created: 10)])) { state in
-      #expect(state.sessionItems[id: .session(key)]?.lifecycle == .active)
+      #expect(state.sessionItems[id: .implicit(key)]?.lifecycle == .active)
     }
     await store.send(.settleSession(key)) { state in
       let entry = state.sessions[key]
       #expect(entry?.settledAt != nil)
       #expect(entry?.manualUnsettledAtActivity == nil)
-      #expect(state.sessionItems[id: .session(key)]?.lifecycle == .settled)
+      #expect(state.sessionItems[id: .implicit(key)]?.lifecycle == .settled)
       #expect(state.sessionsSidebarStructure.sections.first?.id == .settled)
     }
   }
@@ -651,7 +651,7 @@ struct RepositoriesFeatureSessionsTests {
       let entry = state.sessions[key]
       #expect(entry?.settledAt == nil)
       #expect(entry?.manualUnsettledAtActivity == lastActivity)
-      #expect(state.sessionItems[id: .session(key)]?.lifecycle == .active)
+      #expect(state.sessionItems[id: .implicit(key)]?.lifecycle == .active)
     }
   }
 
@@ -661,8 +661,8 @@ struct RepositoriesFeatureSessionsTests {
     let key2 = SessionKey(harness: .pi, sessionID: "s2")
     await store.send(.sessionsRefreshCompleted([summary("s1", created: 20), summary("s2", created: 10)]))
     await store.send(.settleSession(key1)) { state in
-      #expect(state.sessionItems[id: .session(key1)]?.lifecycle == .settled)
-      #expect(state.sessionItems[id: .session(key2)]?.lifecycle == .active)
+      #expect(state.sessionItems[id: .implicit(key1)]?.lifecycle == .settled)
+      #expect(state.sessionItems[id: .implicit(key2)]?.lifecycle == .active)
     }
   }
 
@@ -673,14 +673,14 @@ struct RepositoriesFeatureSessionsTests {
     let store = store()
     await store.send(.sessionsRefreshCompleted([summary(ref, created: 10)]))
     await store.send(.settleSession(key)) { state in
-      #expect(state.sessionItems[id: .session(key)]?.lifecycle == .settled)
+      #expect(state.sessionItems[id: .implicit(key)]?.lifecycle == .settled)
     }
     let snap = snapshot(surface, ref: ref)
     await store.send(.sessionSnapshotsChanged([snap])) { state in
-      #expect(state.sessionItems[id: .session(key)]?.isLive == true)
+      #expect(state.sessionItems[id: .implicit(key)]?.isLive == true)
     }
-    await store.send(.activateSession(.session(key))) { state in
-      #expect(state.sessionItems[id: .session(key)]?.lifecycle == .active)
+    await store.send(.activateSession(.implicit(key))) { state in
+      #expect(state.sessionItems[id: .implicit(key)]?.lifecycle == .active)
     }
   }
 
@@ -690,7 +690,7 @@ struct RepositoriesFeatureSessionsTests {
     await store.send(.sessionsRefreshCompleted([summary("s1", created: 10)]))
     await store.send(.settleSession(key))
     await store.send(.sessionsRefreshCompleted([summary("s1", created: 10)])) { state in
-      #expect(state.sessionItems[id: .session(key)]?.lifecycle == .settled)
+      #expect(state.sessionItems[id: .implicit(key)]?.lifecycle == .settled)
     }
   }
 
@@ -707,9 +707,9 @@ struct RepositoriesFeatureSessionsTests {
       let sections = state.sessionsSidebarStructure.sections
       #expect(sections.map(\.id) == [.active, .settled])
       let activeIDs = sections.first?.rowIDs ?? []
-      #expect(activeIDs == [.session(key1), .session(key3)])
+      #expect(activeIDs == [.implicit(key1), .implicit(key3)])
       let settledIDs = sections.last?.rowIDs ?? []
-      #expect(settledIDs == [.session(key2)])
+      #expect(settledIDs == [.implicit(key2)])
     }
   }
 

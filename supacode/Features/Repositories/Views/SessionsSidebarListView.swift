@@ -6,14 +6,17 @@ import SwiftUI
 @MainActor
 private struct SessionContextMenu: View {
   let store: StoreOf<SessionSidebarItemFeature>
-  let onSettle: () -> Void
-  let onUnsettle: () -> Void
+  let onSettle: (SessionKey) -> Void
+  let onUnsettle: (SessionKey) -> Void
 
   var body: some View {
-    if store.lifecycle == .active {
-      Button("Settle and Close Tab") { onSettle() }
-    } else {
-      Button("Unsettle") { onUnsettle() }
+    // A shell-only task has no session to settle.
+    if let key = store.sessionKey {
+      if store.lifecycle == .active {
+        Button(store.isTask ? "Settle and Close Tabs" : "Settle and Close Tab") { onSettle(key) }
+      } else {
+        Button("Unsettle") { onUnsettle(key) }
+      }
     }
   }
 }
@@ -83,13 +86,17 @@ struct SessionsSidebarListView: View {
         SessionSidebarRowView(store: rowStore, shortcutHint: shortcutHintByID[id])
           .tag(id)
           .contextMenu {
-            if case .session(let key) = id {
-              SessionContextMenu(
-                store: rowStore,
-                onSettle: { store.send(.settleSessionRequested(key)) },
-                onUnsettle: { store.send(.unsettleSession(key)) }
-              )
-            }
+            SessionContextMenu(
+              store: rowStore,
+              onSettle: { key in
+                if case .task(let layoutID) = id {
+                  store.send(.settleTaskRequested(layoutID))
+                } else {
+                  store.send(.settleSessionRequested(key))
+                }
+              },
+              onUnsettle: { store.send(.unsettleSession($0)) }
+            )
           }
       }
     }
@@ -155,7 +162,7 @@ private struct SessionSidebarRowView: View {
 
 extension SessionSidebarRowView {
   private var helpText: String {
-    if case .task = store.id { return "Show this task (Return when selected)" }
+    if store.isTask, store.isLive { return "Show this task (Return when selected)" }
     return store.isLive ? "Focus this session (Return when selected)" : "Dormant session — \(store.cwd)"
   }
 }

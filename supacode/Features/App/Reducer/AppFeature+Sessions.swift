@@ -59,19 +59,13 @@ extension AppFeature {
 
   static func focusedSessionRowID(state: State) -> SessionRowID? {
     guard let surfaceID = focusedSurfaceID(state: state) else { return nil }
-    let layoutID = state.terminals.selectedLayoutID
-    let taskRow = layoutID.flatMap { state.repositories.sessionItems[id: .task($0)]?.id }
-    if let id = state.repositories.sessionSnapshots.first(where: { $0.location.surfaceID == surfaceID })?.id {
-      // A session two tasks report has one row, and it leads to the other task.
-      if let taskRow, let location = state.repositories.sessionItems[id: id]?.location,
-        location.layoutID != layoutID
-      {
-        return taskRow
-      }
-      return id
+    // The row is the task's own; an agent no task row covers yet has its own.
+    if let layoutID = state.terminals.selectedLayoutID,
+      let taskRow = state.repositories.sessionItems[id: .task(layoutID)]?.id
+    {
+      return taskRow
     }
-    // No agent on the focused surface: the row is the task's own, when it has one.
-    return taskRow
+    return state.repositories.sessionSnapshots.first { $0.location.surfaceID == surfaceID }?.id
   }
 
   /// The directory facts for a task: the roster worktree's, else what the task
@@ -145,7 +139,7 @@ extension AppFeature {
     if let rowID, state.repositories.sessionItems[id: rowID] == nil { return }
     guard rowID != state.lastFocusedSessionRowID else { return }
     state.lastFocusedSessionRowID = rowID
-    if state.repositories.sessionSelection != rowID { state.repositories.sessionSelection = rowID }
+    state.repositories.selectSessionRow(rowID)
   }
 
   var sessionsLinkReducer: some Reducer<State, Action> {
@@ -229,6 +223,9 @@ extension AppFeature {
       case .repositories(.delegate(.settleAndCloseSession(let key))):
         return Self.settleAndCloseSession(key, state: state)
 
+      case .repositories(.delegate(.settleTask(let layoutID))):
+        return Self.settleTask(layoutID, state: state)
+
       case .repositories(.delegate(.resumeSession(let key))):
         return Self.handleResumeSession(key, state: &state)
 
@@ -243,8 +240,7 @@ extension AppFeature {
         let key = pending.key
         state.recentSessionLaunchDate[key] = date.now
         state.pendingSessionLaunch = nil
-        guard state.repositories.sessionItems[id: .session(key)]?.lifecycle == .settled
-        else { return .none }
+        guard state.repositories.sessions[key]?.settledAt != nil else { return .none }
         return .send(.repositories(.unsettleSession(key)))
 
       case .terminalEvent(.agentHookEventReceived(let event)):
@@ -424,10 +420,10 @@ extension AppFeature {
   }
 
   /// The task a session leads. A session two tasks lead resolves to the one
-  /// its row points at, else the lowest key.
+  /// it runs in, else the lowest key.
   static func taskLed(by key: SessionKey, state: State) -> LayoutID? {
     let led = state.terminals.members.filter { $0.value.first == .session(key) }.map(\.key)
-    if let shown = state.repositories.sessionItems[id: .session(key)]?.location?.layoutID, led.contains(shown) {
+    if let shown = state.repositories.sessionLocation(for: key)?.layoutID, led.contains(shown) {
       return shown
     }
     return led.min { $0.persistenceKey < $1.persistenceKey }
@@ -486,13 +482,13 @@ extension AppFeature {
     return URL(fileURLWithPath: item.cwd).standardizedFileURL
   }
 
-  /// A manual settle means "done with this". On a task's primary it settles
-  /// the task. On any other session it marks that session and closes its own
-  /// tab the way Cmd-W would: until rows are grouped by task, a tangent's row
-  /// must not take the rest of its task down with it.
+  /// A manual settle of a session by its key means "done with this". On a
+  /// task's primary it settles the task. On any other session it marks that
+  /// session and closes its own tab the way Cmd-W would: a tangent must not
+  /// take the rest of its task down with it.
   static func settleAndCloseSession(_ key: SessionKey, state: State) -> Effect<Action> {
     if let layoutID = taskLed(by: key, state: state) { return settleTask(layoutID, state: state) }
-    let closes = state.repositories.sessionSnapshots.filter { $0.id == .session(key) }.map {
+    let closes = state.repositories.sessionSnapshots.filter { $0.sessionKey == key }.map {
       Effect<Action>.send(
         .terminals(
           .layouts(
@@ -509,7 +505,7 @@ extension AppFeature {
     let settledTask: LayoutID?
     let settleEffect: Effect<Action>
     switch currentID {
-    case .session(let key):
+    case .implicit(let key):
       settledTask = taskLed(by: key, state: state)
       settleEffect = settleAndCloseSession(key, state: state)
     case .task(let layoutID):
@@ -527,7 +523,7 @@ extension AppFeature {
       settleEffect,
       RepositoriesFeature.focusEffect(id: target, location: location).map(Action.repositories),
     ]
-    if case .session(let targetKey) = target, targetItem.lifecycle == .settled {
+    if case .implicit(let targetKey) = target, targetItem.lifecycle == .settled {
       effects.append(.send(.repositories(.unsettleSession(targetKey))))
     }
     return .merge(effects)
@@ -557,7 +553,7 @@ extension AppFeature {
       return .none
     }
     let indexed = state.repositories.sessionSummaries.contains { $0.id == key }
-    let live = state.repositories.sessionItems[id: .session(key)]?.location != nil
+    let live = state.repositories.sessionLocation(for: key) != nil
     guard indexed || live else {
       state.alert = AlertState {
         TextState("Session not found. Run `supacode session list` to choose one.")
@@ -572,7 +568,7 @@ extension AppFeature {
 
   static func handleUnsettleCurrentSession(state: inout State) -> Effect<Action> {
     let currentID = focusedSessionRowID(state: state) ?? state.repositories.sessionSelection
-    guard let currentID, case .session(let key) = currentID else { return .none }
+    guard let currentID, let key = state.repositories.sessionItems[id: currentID]?.sessionKey else { return .none }
     return .send(.repositories(.unsettleSession(key)))
   }
 
@@ -583,8 +579,11 @@ extension AppFeature {
         from: currentID, items: state.repositories.sessionItems
       )
     else { return .none }
-    return RepositoriesFeature.focusSessionNavigation(state: &state.repositories, id: id)
-      .map(Action.repositories)
+    // The row leads to its most urgent agent: that surface, not whatever
+    // the task had focused.
+    guard let location = state.repositories.sessionItems[id: id]?.location else { return .none }
+    state.repositories.selectSessionRow(id)
+    return .send(.repositories(.delegate(.focusSession(location))))
   }
 
   static func handleNewSession(directory: URL?, state: inout State) -> Effect<Action> {
@@ -682,11 +681,11 @@ extension AppFeature {
     state: inout State
   ) -> PreparedSessionResume? {
     guard state.pendingSessionLaunch == nil, state.pendingBranchMismatchResume == nil else { return nil }
-    guard let item = state.repositories.sessionItems[id: .session(key)] else { return nil }
+    guard let cwd = state.repositories.sessionCwd(for: key) else { return nil }
     let rawParts = key.rawValue.split(separator: ":", maxSplits: 1).map(String.init)
     guard rawParts.count == 2, let harness = SkillAgent(rawValue: rawParts[0]) else { return nil }
     guard let command = AgentResumeCommand.command(agent: harness, sessionRef: rawParts[1]) else { return nil }
-    let standardCwd = URL(fileURLWithPath: item.cwd).standardizedFileURL
+    let standardCwd = URL(fileURLWithPath: cwd).standardizedFileURL
     let cwdPath = standardCwd.path(percentEncoded: false)
     var isDir: ObjCBool = false
     guard
@@ -694,7 +693,7 @@ extension AppFeature {
       isDir.boolValue,
       FileManager.default.isReadableFile(atPath: cwdPath)
     else {
-      repositoriesLogger.warning("Session resume: cwd not found or not readable: \(item.cwd)")
+      repositoriesLogger.warning("Session resume: cwd not found or not readable: \(cwd)")
       let name = standardCwd.lastPathComponent.isEmpty ? cwdPath : standardCwd.lastPathComponent
       state.alert = AlertState { TextState("Cannot resume: \"\(name)\" is not accessible.") }
       return nil
@@ -722,7 +721,7 @@ extension AppFeature {
     let key = pending.key
     let cwd = pending.cwd
     let command = pending.command
-    if let location = state.repositories.sessionItems[id: .session(key)]?.location {
+    if let location = state.repositories.sessionLocation(for: key) {
       state.pendingSessionLaunch = nil
       state.pendingBranchMismatchResume = nil
       state.alert = nil
@@ -807,7 +806,7 @@ extension AppFeature {
   ) -> Effect<Action> {
     guard state.pendingSessionLaunch == nil || state.pendingSessionLaunch?.requestID == reservedID
     else { return .none }
-    if let location = state.repositories.sessionItems[id: .session(prepared.key)]?.location {
+    if let location = state.repositories.sessionLocation(for: prepared.key) {
       state.pendingSessionLaunch = nil
       state.pendingBranchMismatchResume = nil
       state.alert = nil
@@ -1060,9 +1059,8 @@ extension AppFeature {
     return entries
   }
 
-  /// A candidate row for every task that holds tabs. The reconcile pass keeps
-  /// one only where no session row leads to the task: two tasks reporting one
-  /// session share a single session row, so "has a live agent" is not enough.
+  /// Every task that holds tabs: the reconcile pass gives each a row, and
+  /// groups the agents on its surfaces under it.
   static func taskSnapshots(tasks: [TaskEntry]) -> [TaskLiveSnapshot] {
     return tasks.compactMap { task in
       guard let tab = task.layout.panes.lazy.compactMap(\.tabs.first).first else { return nil }

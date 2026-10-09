@@ -20,7 +20,7 @@ struct SessionCLITests {
     repositories.$sessions = Shared(value: [key: SessionSidecarEntry(branches: ["feature/session"])])
     repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Title", cwd: "/tmp/project", createdAt: .distantPast,
+        id: .implicit(key), title: "Title", cwd: "/tmp/project", createdAt: .distantPast,
         lifecycle: .active,
         location: SessionLocation(
           layoutID: LayoutID(legacyWorktreeKey: "/tmp/project"), directoryID: WorktreeID("/tmp/project"),
@@ -82,14 +82,14 @@ struct SessionCLITests {
     state.repositories.$sessions = Shared(value: [:])
     state.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Known", cwd: directory.path, createdAt: .distantPast,
+        id: .implicit(key), title: "Known", cwd: directory.path, createdAt: .distantPast,
         location: live
           ? SessionLocation(
             layoutID: LayoutID(legacyWorktreeKey: directory.path), directoryID: WorktreeID(directory.path),
             tabID: TabID(),
             surfaceID: UUID()) : nil)
     ]
-    if let location = state.repositories.sessionItems[id: .session(key)]?.location {
+    if let location = state.repositories.sessionItems[id: .implicit(key)]?.location {
       state.repositories.sessionSnapshots = [
         SessionLiveSnapshot(harness: .pi, sessionRef: "known", cwd: directory.path, location: location)
       ]

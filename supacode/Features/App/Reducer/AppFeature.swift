@@ -616,7 +616,7 @@ struct AppFeature {
         if state.repositories.isSessionsSidebarTabActive,
           let focused = Self.focusedSessionRowID(state: state)
         {
-          state.repositories.sessionSelection = focused
+          state.repositories.selectSessionRow(focused)
         }
         return .none
 

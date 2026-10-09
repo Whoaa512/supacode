@@ -433,6 +433,7 @@ struct RepositoriesFeature {
     case settleSession(SessionKey)
     /// A manual settle from the sidebar: also closes the session's tabs.
     case settleSessionRequested(SessionKey)
+    case settleTaskRequested(LayoutID)
     case unsettleSession(SessionKey)
     case registerSessionFolder(URL)
     case sessionBranchCaptured(key: SessionKey, branch: String)
@@ -772,6 +773,7 @@ struct RepositoriesFeature {
     case focusTask(LayoutID, directory: Worktree.ID)
     case resumeSession(SessionKey)
     case settleAndCloseSession(SessionKey)
+    case settleTask(LayoutID)
     case newSessionDirectorySelected(URL)
     /// `layoutID` names the task to show; nil means the directory's active one.
     case selectedWorktreeChanged(Worktree?, layoutID: LayoutID? = nil)
@@ -5018,7 +5020,7 @@ struct RepositoriesFeature {
         .sessionsRefreshRequested, .sessionsRefreshDebounced, .sessionsRefreshCompleted,
         .sessionsRefreshFailed, .sessionSnapshotsChanged, .sessionSelectionChanged, .activateSession,
         .taskSnapshotsChanged, .taskSessionsChanged, .selectTask, .selectedTaskRemoved,
-        .settleSession, .settleSessionRequested, .unsettleSession, .sessionBranchCaptured:
+        .settleSession, .settleSessionRequested, .settleTaskRequested, .unsettleSession, .sessionBranchCaptured:
         return .none
 
       case .registerSessionFolder(let url):

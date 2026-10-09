@@ -10,8 +10,23 @@ struct SessionsSidebarStructure: Equatable, Sendable {
     var title: String { id == .active ? "Active" : "Settled" }
   }
 
+  /// One agent of the selected task. A member with no surface is dormant:
+  /// a closed tangent, or a session another replaced.
+  struct SubRow: Equatable, Identifiable, Sendable {
+    var id: TaskMember
+    var title: String
+    var status: SessionClassification.Status?
+    var location: SessionLocation?
+
+    var isDormant: Bool { location == nil }
+  }
+
   var sections: [Section] = []
   var liveIDs: [SessionRowID] = []
+  /// The selected task and its members, primary first. Empty for any other
+  /// selection and for a task of one agent, whose row already is that agent.
+  var subRowsTaskID: LayoutID?
+  var subRows: [SubRow] = []
   var allIDs: [SessionRowID] { sections.flatMap(\.rowIDs) }
 
   func selection(
@@ -77,6 +92,58 @@ extension RepositoriesFeature.State {
     return live[(index + offset + live.count) % live.count]
   }
 
+  /// Moves the row selection. The sub-rows are the selected task's, so they follow it.
+  mutating func selectSessionRow(_ id: SessionRowID?) {
+    if sessionSelection != id { sessionSelection = id }
+    let subRows = selectedTaskSubRows()
+    guard sessionsSidebarStructure.subRowsTaskID != subRows.taskID || sessionsSidebarStructure.subRows != subRows.rows
+    else { return }
+    sessionsSidebarStructure.subRowsTaskID = subRows.taskID
+    sessionsSidebarStructure.subRows = subRows.rows
+  }
+
+  /// The session's surface, when an agent runs it: its own row's, or the
+  /// surface of the task it is grouped under.
+  func sessionLocation(for key: SessionKey) -> SessionLocation? {
+    if let row = sessionItems[id: .implicit(key)] { return row.location }
+    return sessionSnapshots.first { $0.sessionKey == key }?.location
+  }
+
+  /// Where the session ran: the directory it resumes in.
+  func sessionCwd(for key: SessionKey) -> String? {
+    if let row = sessionItems[id: .implicit(key)] { return row.cwd }
+    return sessionSummaries.first { $0.id == key }?.cwd ?? sessionSnapshots.first { $0.sessionKey == key }?.cwd
+  }
+
+  /// A task's agents in member order: the sessions it lists, then any agent
+  /// on one of its surfaces the list has not caught up with.
+  private func members(of layoutID: LayoutID, agents: [SessionLiveSnapshot]) -> [TaskMember] {
+    var members = (taskSessions[layoutID] ?? []).map(TaskMember.session)
+    for agent in agents where !members.contains(agent.member) { members.append(agent.member) }
+    return members
+  }
+
+  private func selectedTaskSubRows() -> (taskID: LayoutID?, rows: [SessionsSidebarStructure.SubRow]) {
+    guard case .task(let layoutID) = sessionSelection else { return (nil, []) }
+    let agents = sessionSnapshots.filter { $0.location.layoutID == layoutID }
+    let members = members(of: layoutID, agents: agents)
+    guard members.count > 1 else { return (nil, []) }
+    let keys = members.compactMap(\.sessionKey)
+    var titles: [SessionKey: String] = [:]
+    for summary in sessionSummaries where titles[summary.id] == nil && keys.contains(summary.id) {
+      titles[summary.id] = summary.title
+    }
+    let rows = members.compactMap { member -> SessionsSidebarStructure.SubRow? in
+      let agent = agents.first { $0.member == member }
+      let title = member.sessionKey.flatMap { titles[$0] }
+      // One that is neither running nor on disk cannot be shown or resumed.
+      guard agent != nil || title != nil else { return nil }
+      return SessionsSidebarStructure.SubRow(
+        id: member, title: title ?? "New session", status: agent?.status, location: agent?.location)
+    }
+    return rows.count > 1 ? (layoutID, rows) : (nil, [])
+  }
+
   mutating func recomputeSessionsSidebarStructureIfChanged() {
     // Plain tuples: sorting the observable rows directly pays an observation
     // access per comparison, which dominates at a few thousand rows.
@@ -93,103 +160,240 @@ extension RepositoriesFeature.State {
       sections.append(SessionsSidebarStructure.Section(id: lifecycle, rowIDs: rows.map(\.id)))
       liveIDs.append(contentsOf: rows.filter(\.isLive).map(\.id))
     }
-    let structure = SessionsSidebarStructure(sections: sections, liveIDs: liveIDs)
+    let subRows = selectedTaskSubRows()
+    let structure = SessionsSidebarStructure(
+      sections: sections, liveIDs: liveIDs, subRowsTaskID: subRows.taskID, subRows: subRows.rows)
     if sessionsSidebarStructure != structure { sessionsSidebarStructure = structure }
   }
 
+  /// What a task row is built from: its tabs, the agents on them and the
+  /// indexed sessions it lists.
+  private struct TaskGroup {
+    var sessions: [SessionKey] = []
+    var tabs: TaskLiveSnapshot?
+    var agents: [SessionLiveSnapshot] = []
+    var indexed: [SessionKey: SessionSummary] = [:]
+  }
+
+  /// Which task a session belongs to, built once per pass: the tasks that
+  /// list it, and the known task whose surface it runs on. An agent on a
+  /// surface no known task holds keeps a row of its own.
+  private struct SessionGroups {
+    var tasks: [LayoutID: TaskGroup] = [:]
+    var tasksBySession: [SessionKey: [LayoutID]] = [:]
+    var ungrouped: [SessionLiveSnapshot] = []
+    /// The task each grouped agent's own row id was folded into.
+    var taskByAgentRow: [SessionRowID: LayoutID] = [:]
+
+    init(taskSessions: [LayoutID: [SessionKey]], tabs: [TaskLiveSnapshot], agents: [SessionLiveSnapshot]) {
+      for (layoutID, keys) in taskSessions {
+        tasks[layoutID, default: TaskGroup()].sessions = keys
+        for key in keys { tasksBySession[key, default: []].append(layoutID) }
+      }
+      for task in tabs where tasks[task.location.layoutID]?.tabs == nil {
+        tasks[task.location.layoutID, default: TaskGroup()].tabs = task
+      }
+      for agent in agents.sorted(by: { $0.location.surfaceID.uuidString < $1.location.surfaceID.uuidString }) {
+        let layoutID = agent.location.layoutID
+        guard tasks[layoutID] != nil else {
+          ungrouped.append(agent)
+          continue
+        }
+        tasks[layoutID]?.agents.append(agent)
+        if taskByAgentRow[agent.id] == nil { taskByAgentRow[agent.id] = layoutID }
+        guard let key = agent.sessionKey, tasksBySession[key]?.contains(layoutID) != true else { continue }
+        tasksBySession[key, default: []].append(layoutID)
+      }
+    }
+  }
+
+  private struct RowDrafts {
+    var drafts: [SessionRowDraft] = []
+    var indexByID: [SessionRowID: Int] = [:]
+
+    mutating func append(_ draft: SessionRowDraft) {
+      indexByID[draft.id] = drafts.count
+      drafts.append(draft)
+    }
+  }
+
+  /// One sidecar read and one branch lookup per directory: a pass runs on
+  /// the main thread for every agent status flip, over the whole index.
+  private struct SidecarFacts {
+    let sidecar: SessionSidecar
+    var currentBranchByCwd: [String: String?] = [:]
+
+    func lifecycle(for key: SessionKey) -> SessionClassification.Lifecycle {
+      sidecar[key]?.settledAt == nil ? .active : .settled
+    }
+  }
+
+  private func branchAnnotation(for key: SessionKey, cwd: String, facts: inout SidecarFacts) -> String? {
+    guard let lastBranch = facts.sidecar[key]?.branches.last, !lastBranch.isEmpty else { return nil }
+    let current: String?
+    if let cached = facts.currentBranchByCwd[cwd] {
+      current = cached
+    } else {
+      current = currentBranch(forSessionCwd: cwd)
+      facts.currentBranchByCwd[cwd] = current
+    }
+    return current == lastBranch ? nil : lastBranch
+  }
+
+  /// One row per task and one per indexed session no task lists.
+  ///
   /// `droppingUnindexedEnded` is set once a scan has finished: a session that
   /// ended and still has no file on disk never had a turn and cannot be
   /// resumed, so its placeholder row goes away instead of lingering.
   mutating func reconcileSessionItems(now: Date, droppingUnindexedEnded: Bool = false) {
-    // One sidecar read and one branch lookup per directory: this runs on the
-    // main thread for every agent status flip, over the whole index.
-    let sidecar = sessions
-    var currentBranchByCwd: [String: String?] = [:]
-    func branchAnnotation(for key: SessionKey, cwd: String) -> String? {
-      guard let lastBranch = sidecar[key]?.branches.last, !lastBranch.isEmpty else { return nil }
-      let current: String?
-      if let cached = currentBranchByCwd[cwd] {
-        current = cached
-      } else {
-        current = currentBranch(forSessionCwd: cwd)
-        currentBranchByCwd[cwd] = current
-      }
-      return current == lastBranch ? nil : lastBranch
-    }
-    func lifecycle(for key: SessionKey) -> SessionClassification.Lifecycle {
-      sidecar[key]?.settledAt == nil ? .active : .settled
-    }
+    var facts = SidecarFacts(sidecar: sessions)
+    var groups = SessionGroups(taskSessions: taskSessions, tabs: taskSnapshots, agents: sessionSnapshots)
+    var rows = RowDrafts()
+    rows.drafts.reserveCapacity(sessionSummaries.count + sessionSnapshots.count + groups.tasks.count)
+    appendImplicitDrafts(to: &rows, groups: &groups, facts: &facts, keepingPlaceholders: !droppingUnindexedEnded)
+    let movedSelection = appendUngroupedAgentDrafts(to: &rows, agents: groups.ungrouped, facts: &facts, now: now)
+    appendTaskDrafts(to: &rows, groups: groups, facts: &facts, now: now, keepingPlaceholders: !droppingUnindexedEnded)
 
-    var drafts: [SessionRowDraft] = []
-    var indexByID: [SessionRowID: Int] = [:]
-    drafts.reserveCapacity(sessionSummaries.count + sessionSnapshots.count + taskSnapshots.count)
-    func append(_ draft: SessionRowDraft) {
-      indexByID[draft.id] = drafts.count
-      drafts.append(draft)
-    }
-    for summary in sessionSummaries where indexByID[.session(summary.id)] == nil {
-      append(
-        SessionRowDraft(
-          id: .session(summary.id), title: summary.title, cwd: summary.cwd, createdAt: summary.createdAt,
-          lifecycle: lifecycle(for: summary.id),
-          branchAnnotation: branchAnnotation(for: summary.id, cwd: summary.cwd)))
-    }
-    // A session that ended before the index caught up keeps its row.
-    for row in sessionItems where row.isSynthetic && !droppingUnindexedEnded {
-      guard case .session = row.id, indexByID[row.id] == nil else { continue }
-      append(
-        SessionRowDraft(
-          id: row.id, title: row.title, cwd: row.cwd, createdAt: row.createdAt, lifecycle: row.lifecycle,
-          branchAnnotation: row.branchAnnotation, isSynthetic: true))
-    }
-    for snapshot in sessionSnapshots.sorted(by: {
-      $0.location.surfaceID.uuidString < $1.location.surfaceID.uuidString
-    }) {
-      let id = snapshot.id
-      let provisionalID = SessionRowID.provisional(snapshot.harness, snapshot.location.surfaceID)
-      if indexByID[id] == nil {
-        append(
-          SessionRowDraft(
-            id: id, title: "New session", cwd: snapshot.cwd,
-            createdAt: sessionItems[id: id]?.createdAt ?? sessionItems[id: provisionalID]?.createdAt ?? now,
-            isSynthetic: true))
-      }
-      guard let index = indexByID[id] else { continue }
-      if case .session(let key) = id {
-        drafts[index].lifecycle = lifecycle(for: key)
-        drafts[index].branchAnnotation = branchAnnotation(for: key, cwd: snapshot.cwd)
-      }
-      drafts[index].status = snapshot.status
-      drafts[index].allowsAttentionNavigation = snapshot.allowsAttentionNavigation
-      if drafts[index].location == nil || snapshot.location == sessionItems[id: id]?.location {
-        drafts[index].location = snapshot.location
-      }
-      if sessionSelection == provisionalID, id != provisionalID { sessionSelection = id }
-    }
-    // A task gets its own row only when no session row leads to it.
-    let reached = Set(drafts.compactMap(\.location?.layoutID))
-    for task in taskSnapshots where indexByID[task.id] == nil && !reached.contains(task.location.layoutID) {
-      append(
-        SessionRowDraft(
-          id: task.id, title: task.title, cwd: task.cwd,
-          createdAt: task.createdAt ?? sessionItems[id: task.id]?.createdAt ?? now, location: task.location))
-    }
-
-    if sessionItems.count != drafts.count || sessionItems.contains(where: { indexByID[$0.id] == nil }) {
+    let indexByID = rows.indexByID
+    if sessionItems.count != rows.drafts.count || sessionItems.contains(where: { indexByID[$0.id] == nil }) {
       sessionItems.removeAll { indexByID[$0.id] == nil }
     }
     // Reads only: every write through `sessionItems` costs a pass over the
     // whole collection, so unchanged rows must not be touched.
-    for draft in drafts {
+    for draft in rows.drafts {
       guard let existing = sessionItems[id: draft.id] else {
         sessionItems.append(SessionSidebarItemFeature.State(draft))
         continue
       }
       if !existing.matches(draft) { sessionItems[id: draft.id]?.apply(draft) }
     }
-    if let selection = sessionSelection, sessionItems[id: selection] == nil {
-      sessionSelection = nil
+    if let movedSelection { sessionSelection = movedSelection }
+    guard let selection = sessionSelection, sessionItems[id: selection] == nil else { return }
+    // A selected row that was folded into its task leaves the task selected.
+    var owner = groups.taskByAgentRow[selection]
+    if owner == nil, case .implicit(let key) = selection {
+      owner = groups.tasksBySession[key]?.min { $0.persistenceKey < $1.persistenceKey }
     }
+    sessionSelection = owner.flatMap { sessionItems[id: .task($0)]?.id }
+  }
+
+  /// A row for every indexed session no task lists; one a task does list
+  /// is handed to that task instead.
+  private func appendImplicitDrafts(
+    to rows: inout RowDrafts, groups: inout SessionGroups, facts: inout SidecarFacts, keepingPlaceholders: Bool
+  ) {
+    for summary in sessionSummaries {
+      if let owners = groups.tasksBySession[summary.id] {
+        for layoutID in owners where groups.tasks[layoutID]?.indexed[summary.id] == nil {
+          groups.tasks[layoutID]?.indexed[summary.id] = summary
+        }
+        continue
+      }
+      guard rows.indexByID[.implicit(summary.id)] == nil else { continue }
+      rows.append(
+        SessionRowDraft(
+          id: .implicit(summary.id), title: summary.title, cwd: summary.cwd, createdAt: summary.createdAt,
+          lifecycle: facts.lifecycle(for: summary.id),
+          branchAnnotation: branchAnnotation(for: summary.id, cwd: summary.cwd, facts: &facts)))
+    }
+    guard keepingPlaceholders else { return }
+    // A session that ended before the index caught up keeps its row.
+    for row in sessionItems where row.isSynthetic {
+      guard case .implicit(let key) = row.id, rows.indexByID[row.id] == nil, groups.tasksBySession[key] == nil
+      else { continue }
+      rows.append(
+        SessionRowDraft(
+          id: row.id, title: row.title, cwd: row.cwd, createdAt: row.createdAt, lifecycle: row.lifecycle,
+          branchAnnotation: row.branchAnnotation, isSynthetic: true))
+    }
+  }
+
+  /// Agents on a surface no known task holds, each on its own row. Returns
+  /// the row a selected unreported agent became once it reported.
+  private func appendUngroupedAgentDrafts(
+    to rows: inout RowDrafts, agents: [SessionLiveSnapshot], facts: inout SidecarFacts, now: Date
+  ) -> SessionRowID? {
+    var movedSelection: SessionRowID?
+    for snapshot in agents {
+      let id = snapshot.id
+      let provisionalID = SessionRowID.provisional(snapshot.harness, snapshot.location.surfaceID)
+      if rows.indexByID[id] == nil {
+        rows.append(
+          SessionRowDraft(
+            id: id, title: "New session", cwd: snapshot.cwd,
+            createdAt: sessionItems[id: id]?.createdAt ?? sessionItems[id: provisionalID]?.createdAt ?? now,
+            isSynthetic: true))
+      }
+      guard let index = rows.indexByID[id] else { continue }
+      if case .implicit(let key) = id {
+        rows.drafts[index].lifecycle = facts.lifecycle(for: key)
+        rows.drafts[index].branchAnnotation = branchAnnotation(for: key, cwd: snapshot.cwd, facts: &facts)
+      }
+      rows.drafts[index].status = snapshot.status
+      rows.drafts[index].allowsAttentionNavigation = snapshot.allowsAttentionNavigation
+      if rows.drafts[index].location == nil || snapshot.location == sessionItems[id: id]?.location {
+        rows.drafts[index].location = snapshot.location
+      }
+      if sessionSelection == provisionalID, id != provisionalID { movedSelection = id }
+    }
+    return movedSelection
+  }
+
+  private func appendTaskDrafts(
+    to rows: inout RowDrafts, groups: SessionGroups, facts: inout SidecarFacts, now: Date, keepingPlaceholders: Bool
+  ) {
+    // Key order, so the rows come out the same whatever order the tasks were listed in.
+    for layoutID in groups.tasks.keys.sorted(by: { $0.persistenceKey < $1.persistenceKey }) {
+      guard let group = groups.tasks[layoutID] else { continue }
+      let existing = sessionItems[id: .task(layoutID)]
+      guard var row = taskDraft(layoutID, group: group, existing: existing, now: now) else { continue }
+      // A task with no tab, no agent and no session on disk has nothing to show or resume.
+      let isPlaceholder = existing?.isSynthetic == true && keepingPlaceholders
+      guard row.location != nil || !group.indexed.isEmpty || isPlaceholder else { continue }
+      if let primary = row.primary {
+        // Settled is the primary's mark, but never for a task with a tab
+        // open: its tabs would sit in the collapsed section.
+        row.lifecycle = facts.lifecycle(for: primary) == .settled && row.location == nil ? .settled : .active
+        let cwd = group.agents.first { $0.sessionKey == primary }?.cwd ?? group.indexed[primary]?.cwd
+        row.branchAnnotation = cwd.flatMap { branchAnnotation(for: primary, cwd: $0, facts: &facts) }
+      }
+      rows.append(row)
+    }
+  }
+
+  /// A task's row, less the two fields read from the sidecar. Nil for a
+  /// task that is neither open nor lists anything.
+  private func taskDraft(
+    _ layoutID: LayoutID, group: TaskGroup, existing: SessionSidebarItemFeature.State?, now: Date
+  ) -> SessionRowDraft? {
+    let members = members(of: layoutID, agents: group.agents)
+    guard group.tabs != nil || !members.isEmpty else { return nil }
+    let keys = members.compactMap(\.sessionKey)
+    let primary = members.first?.sessionKey
+    // The row speaks for its most urgent agent, and leads to that agent.
+    // Among equals the one the row already leads to stays, so it does not hop.
+    let leading = group.agents.min {
+      let lhs = ($0.status.urgency, $0.allowsAttentionNavigation ? 0 : 1, $0.location == existing?.location ? 0 : 1)
+      let rhs = ($1.status.urgency, $1.allowsAttentionNavigation ? 0 : 1, $1.location == existing?.location ? 0 : 1)
+      return lhs < rhs
+    }
+    // The primary titles the task. One that is running but not on disk yet
+    // is a new session; one that never got there leaves the title to the
+    // first member that did. Failing those, an open task is its directory.
+    var title = primary.flatMap { group.indexed[$0]?.title }
+    if title == nil, members.first.map({ member in group.agents.contains { $0.member == member } }) == true {
+      title = "New session"
+    }
+    title = title ?? keys.lazy.compactMap { group.indexed[$0]?.title }.first ?? group.tabs?.title
+    let indexedCwd = primary.flatMap { group.indexed[$0]?.cwd } ?? keys.lazy.compactMap { group.indexed[$0]?.cwd }.first
+    // As old as its oldest session, so a replacement or a tangent does not move the row.
+    let createdAt = group.indexed.values.map(\.createdAt).min() ?? group.tabs?.createdAt ?? existing?.createdAt ?? now
+    return SessionRowDraft(
+      id: .task(layoutID), title: title ?? existing?.title ?? "New session",
+      cwd: group.tabs?.cwd ?? group.agents.first?.cwd ?? indexedCwd ?? existing?.cwd ?? "",
+      createdAt: createdAt, location: leading?.location ?? group.tabs?.location, status: leading?.status,
+      allowsAttentionNavigation: leading?.allowsAttentionNavigation ?? true,
+      isSynthetic: !members.isEmpty && group.indexed.isEmpty, primary: primary)
   }
 
   private func currentBranch(forSessionCwd cwd: String) -> String? {
@@ -229,7 +433,7 @@ extension RepositoriesFeature.State {
     }
     for snapshot in sessionSnapshots {
       switch snapshot.id {
-      case .session(let key): liveKeys.insert(key)
+      case .implicit(let key): liveKeys.insert(key)
       case .task: break
       case .provisional:
         provisionalCwds.insert(standardized(snapshot.cwd))

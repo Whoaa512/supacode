@@ -26,10 +26,10 @@ struct SessionsSidebarObservationTests {
     let second = SessionKey(harness: .pi, sessionID: "second")
     state.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(first), title: "First", cwd: "/first",
+        id: .implicit(first), title: "First", cwd: "/first",
         createdAt: Date(timeIntervalSince1970: 2), status: .idle),
       SessionSidebarItemFeature.State(
-        id: .session(second), title: "Second", cwd: "/second",
+        id: .implicit(second), title: "Second", cwd: "/second",
         createdAt: Date(timeIntervalSince1970: 1), status: .idle),
     ]
     state.recomputeSessionsSidebarStructureIfChanged()
@@ -39,12 +39,12 @@ struct SessionsSidebarObservationTests {
     var structureInvalidated = false
 
     withObservationTracking {
-      _ = state.sessionItems[id: .session(first)]?.status
+      _ = state.sessionItems[id: .implicit(first)]?.status
     } onChange: {
       firstInvalidated = true
     }
     withObservationTracking {
-      _ = state.sessionItems[id: .session(second)]?.status
+      _ = state.sessionItems[id: .implicit(second)]?.status
     } onChange: {
       secondInvalidated = true
     }
@@ -54,7 +54,7 @@ struct SessionsSidebarObservationTests {
       structureInvalidated = true
     }
 
-    state.sessionItems[id: .session(first)]?.status = .needsYou
+    state.sessionItems[id: .implicit(first)]?.status = .needsYou
 
     #expect(firstInvalidated)
     #expect(!secondInvalidated)
@@ -85,12 +85,12 @@ struct SessionsSidebarObservationTests {
     var secondInvalidated = false
     var structureInvalidated = false
     withObservationTracking {
-      _ = store.state.sessionItems[id: .session(SessionKey(harness: .pi, sessionID: "first"))]?.status
+      _ = store.state.sessionItems[id: .implicit(SessionKey(harness: .pi, sessionID: "first"))]?.status
     } onChange: {
       firstInvalidated = true
     }
     withObservationTracking {
-      _ = store.state.sessionItems[id: .session(SessionKey(harness: .pi, sessionID: "second"))]?.status
+      _ = store.state.sessionItems[id: .implicit(SessionKey(harness: .pi, sessionID: "second"))]?.status
     } onChange: {
       secondInvalidated = true
     }
@@ -116,7 +116,7 @@ struct SessionsSidebarObservationTests {
     let key = SessionKey(harness: .pi, sessionID: "first")
     state.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "First", cwd: "/first",
+        id: .implicit(key), title: "First", cwd: "/first",
         createdAt: Date(timeIntervalSince1970: 1), lifecycle: .active, status: .idle)
     ]
     state.recomputeSessionsSidebarStructureIfChanged()
@@ -128,7 +128,7 @@ struct SessionsSidebarObservationTests {
       structureInvalidated = true
     }
 
-    state.sessionItems[id: .session(key)]?.lifecycle = .settled
+    state.sessionItems[id: .implicit(key)]?.lifecycle = .settled
     state.recomputeSessionsSidebarStructureIfChanged()
 
     #expect(structureInvalidated)

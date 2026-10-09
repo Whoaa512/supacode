@@ -83,7 +83,7 @@ struct AppFeatureSessionsTests {
   @Test(.dependencies) func liveClickFocusesExactSurfaceIDAndWorktree() async {
     let focused = LockIsolated<[SessionLocation]>([])
     var initial = state()
-    let key = SessionRowID.session(SessionKey(harness: .pi, sessionID: "real"))
+    let key = SessionRowID.implicit(SessionKey(harness: .pi, sessionID: "real"))
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
         id: key, title: "Agent", cwd: "/workspace", createdAt: .distantPast, location: location)
@@ -116,7 +116,7 @@ struct AppFeatureSessionsTests {
     initial.agentPresence.bySurface[surface] = [.pi]
     initial.repositories.sessionSnapshots = AppFeature.sessionSnapshots(state: initial)
     initial.repositories.reconcileSessionItems(now: .distantPast)
-    let key = SessionRowID.session(SessionKey(harness: .pi, sessionID: "real"))
+    let key = SessionRowID.implicit(SessionKey(harness: .pi, sessionID: "real"))
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
@@ -286,11 +286,14 @@ struct AppFeatureSessionsTests {
     initial.agentPresence.records[key] = record(ref: nil)
     initial.agentPresence.bySurface[surface] = [.pi]
     initial.repositories.sessionSnapshots = AppFeature.sessionSnapshots(state: initial)
+    initial.repositories.taskSnapshots = AppFeature.taskSnapshots(tasks: AppFeature.taskEntries(state: initial))
     initial.repositories.reconcileSessionItems(now: .distantPast)
+    #expect(initial.repositories.sessionItems.map(\.id) == [.task(worktree.id.layoutID)])
+    #expect(initial.repositories.sessionItems.first?.title == "New session")
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
-      $0.date.now = .distantPast
+      $0.date.now = Date(timeIntervalSince1970: 500)
       $0.continuousClock = clock
       $0.uuid = .incrementing
       $0.terminalClient.saveLayoutsWithAgents = { _ in }
@@ -303,12 +306,13 @@ struct AppFeatureSessionsTests {
     await store.receive(\.agentPresence)
     await store.receive(\.repositories.sessionSnapshotsChanged)
     await store.receive(\.repositories.sessionsRefreshRequested)
-    #expect(store.state.repositories.sessionItems.count == 1)
-    let rowID = store.state.repositories.sessionItems.first?.id
-    #expect(rowID == .session(SessionKey(harness: .pi, sessionID: "real")))
-    #expect(store.state.repositories.sessionItems.first?.createdAt == .distantPast)
     await clock.advance(by: .seconds(1))
     await store.finish()
+    await store.skipReceivedActions(strict: false)
+    // The task's row stays the same row: the session only becomes its primary.
+    #expect(store.state.repositories.sessionItems.map(\.id) == [.task(worktree.id.layoutID)])
+    #expect(store.state.repositories.sessionItems.first?.primary == SessionKey(harness: .pi, sessionID: "real"))
+    #expect(store.state.repositories.sessionItems.first?.createdAt == .distantPast)
   }
 
   // MARK: - Dormant resume with real temp directory fixtures
@@ -319,7 +323,7 @@ struct AppFeatureSessionsTests {
     let key = SessionKey(harness: .pi, sessionID: "abc123")
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Dormant", cwd: "/tmp/supacode-test-nonexistent-\(UUID())",
+        id: .implicit(key), title: "Dormant", cwd: "/tmp/supacode-test-nonexistent-\(UUID())",
         createdAt: .distantPast, location: nil)
     ]
     let store = TestStore(initialState: initial) {
@@ -331,7 +335,7 @@ struct AppFeatureSessionsTests {
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
     }
     store.exhaustivity = .off
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.repositories.delegate.resumeSession)
     await store.finish()
     #expect(sent.value.isEmpty)
@@ -361,7 +365,7 @@ struct AppFeatureSessionsTests {
     let key = SessionKey(harness: .pi, sessionID: "piSess1")
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Dormant",
+        id: .implicit(key), title: "Dormant",
         cwd: standardTmp.path(percentEncoded: false),
         createdAt: .distantPast, location: nil)
     ]
@@ -374,7 +378,7 @@ struct AppFeatureSessionsTests {
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
     }
     store.exhaustivity = .off
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.repositories.delegate.resumeSession)
     await store.receive(\.launchSessionCompleted)
     await store.finish()
@@ -409,7 +413,7 @@ struct AppFeatureSessionsTests {
     let key = SessionKey(harness: .pi, sessionID: "mismatch")
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Dormant", cwd: tmpDir.path, createdAt: .distantPast)
+        id: .implicit(key), title: "Dormant", cwd: tmpDir.path, createdAt: .distantPast)
     ]
     initial.repositories.$sessions.withLock { $0[key] = SessionSidecarEntry(branches: ["old-branch"]) }
     let store = TestStore(initialState: initial) {
@@ -421,7 +425,7 @@ struct AppFeatureSessionsTests {
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
     }
     store.exhaustivity = .off
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.repositories.delegate.resumeSession)
     await store.receive(\.resumeBranchProbeCompleted) {
       $0.pendingBranchMismatchResume = PendingBranchMismatchResume(
@@ -458,7 +462,7 @@ struct AppFeatureSessionsTests {
     var initial = state()
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Controlled", cwd: directory.path, createdAt: .distantPast)
+        id: .implicit(key), title: "Controlled", cwd: directory.path, createdAt: .distantPast)
     ]
     // Index-backed, so the row survives the reconcile a roster change now runs for task rows.
     initial.repositories.sessionSummaries = [
@@ -525,7 +529,7 @@ struct AppFeatureSessionsTests {
     let key = SessionKey(harness: .pi, sessionID: "known")
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Dormant", cwd: tmpDir.path, createdAt: .distantPast)
+        id: .implicit(key), title: "Dormant", cwd: tmpDir.path, createdAt: .distantPast)
     ]
     initial.repositories.$sessions.withLock { $0[key] = SessionSidecarEntry(branches: ["main", "feature"]) }
     let store = TestStore(initialState: initial) {
@@ -537,7 +541,7 @@ struct AppFeatureSessionsTests {
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
     }
     store.exhaustivity = .off
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.repositories.delegate.resumeSession)
     await store.receive(\.resumeBranchProbeCompleted) {
       $0.pendingSessionLaunch = PendingSessionLaunch(
@@ -579,7 +583,7 @@ struct AppFeatureSessionsTests {
     initial.repositories.sessionSnapshots = AppFeature.sessionSnapshots(state: initial)
     initial.repositories.reconcileSessionItems(now: .distantPast)
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
-    initial.repositories.sessionSelection = .session(key1)
+    initial.repositories.sessionSelection = .implicit(key1)
     let sent = LockIsolated<[TerminalClient.Command]>([])
     initial.terminals.selectedLayoutID = worktree.id.layoutID
     initial.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].selectedTabID = self.tab
@@ -596,7 +600,7 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
     await store.send(.repositories(.selectNextWorktree)) {
-      $0.repositories.sessionSelection = .session(key2)
+      $0.repositories.sessionSelection = .implicit(key2)
     }
     await store.finish()
     #expect(
@@ -604,7 +608,7 @@ struct AppFeatureSessionsTests {
         if case .createTabWithInput = $0 { return true }
         return false
       })
-    #expect(focused.value == [initial.repositories.sessionItems[id: .session(key2)]!.location!])
+    #expect(focused.value == [initial.repositories.sessionItems[id: .implicit(key2)]!.location!])
   }
 
   @Test(.dependencies) func selectPreviousWorktreeOnSessionsWrapsLiveRows() async {
@@ -635,7 +639,7 @@ struct AppFeatureSessionsTests {
     initial.repositories.sessionSnapshots = AppFeature.sessionSnapshots(state: initial)
     initial.repositories.reconcileSessionItems(now: .distantPast)
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
-    initial.repositories.sessionSelection = .session(key1)
+    initial.repositories.sessionSelection = .implicit(key1)
     let sent = LockIsolated<[TerminalClient.Command]>([])
     initial.terminals.selectedLayoutID = worktree.id.layoutID
     initial.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].selectedTabID = self.tab
@@ -652,7 +656,7 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
     await store.send(.repositories(.selectPreviousWorktree)) {
-      $0.repositories.sessionSelection = .session(key2)
+      $0.repositories.sessionSelection = .implicit(key2)
     }
     await store.finish()
     #expect(
@@ -660,7 +664,7 @@ struct AppFeatureSessionsTests {
         if case .createTabWithInput = $0 { return true }
         return false
       })
-    #expect(focused.value == [initial.repositories.sessionItems[id: .session(key2)]!.location!])
+    #expect(focused.value == [initial.repositories.sessionItems[id: .implicit(key2)]!.location!])
   }
 
   @Test(.dependencies) func selectWorktreeAtHotkeySlotOnSessionsJumpsToNthLive() async {
@@ -707,7 +711,7 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
     await store.send(.repositories(.selectWorktreeAtHotkeySlot(1))) {
-      $0.repositories.sessionSelection = .session(key2)
+      $0.repositories.sessionSelection = .implicit(key2)
     }
     await store.finish()
     #expect(
@@ -715,7 +719,7 @@ struct AppFeatureSessionsTests {
         if case .createTabWithInput = $0 { return true }
         return false
       })
-    #expect(focused.value == [initial.repositories.sessionItems[id: .session(key2)]!.location!])
+    #expect(focused.value == [initial.repositories.sessionItems[id: .implicit(key2)]!.location!])
   }
 
   @Test(.dependencies) func focusedSurfaceResolvesToSessionRowID() {
@@ -730,7 +734,7 @@ struct AppFeatureSessionsTests {
     state.repositories.sessionSnapshots = [snapshot]
     state.repositories.reconcileSessionItems(now: .distantPast)
     let resolved = AppFeature.focusedSessionRowID(state: state)
-    #expect(resolved == .session(key))
+    #expect(resolved == .implicit(key))
   }
 
   @Test(.dependencies) func sidebarSelectionFollowsFocusedTabOnlyWhenFocusMoves() {
@@ -745,7 +749,7 @@ struct AppFeatureSessionsTests {
     #expect(state.repositories.sessionSelection == nil, "row not reconciled yet; retried later")
     state.repositories.reconcileSessionItems(now: .distantPast)
     AppFeature.syncSessionSelectionToFocus(state: &state)
-    #expect(state.repositories.sessionSelection == .session(key))
+    #expect(state.repositories.sessionSelection == .implicit(key))
 
     state.repositories.sessionSelection = nil
     AppFeature.syncSessionSelectionToFocus(state: &state)
@@ -756,7 +760,7 @@ struct AppFeatureSessionsTests {
     #expect(state.repositories.sessionSelection == nil)
     state.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].selectedTabID = tab
     AppFeature.syncSessionSelectionToFocus(state: &state)
-    #expect(state.repositories.sessionSelection == .session(key))
+    #expect(state.repositories.sessionSelection == .implicit(key))
   }
 
   @Test(.dependencies) func focusedSurfaceWithNoPresenceReturnsNil() {
@@ -794,7 +798,7 @@ struct AppFeatureSessionsTests {
     initial.repositories.sessionSnapshots = AppFeature.sessionSnapshots(state: initial)
     initial.repositories.reconcileSessionItems(now: .distantPast)
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
-    initial.repositories.sessionSelection = .session(key1)
+    initial.repositories.sessionSelection = .implicit(key1)
     let sent = LockIsolated<[TerminalClient.Command]>([])
     initial.terminals.selectedLayoutID = worktree.id.layoutID
     let store = TestStore(initialState: initial) {
@@ -810,7 +814,7 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
     await store.send(.repositories(.selectNextWorktree)) {
-      $0.repositories.sessionSelection = .session(key1)
+      $0.repositories.sessionSelection = .implicit(key1)
     }
     await store.finish()
     #expect(
@@ -818,7 +822,7 @@ struct AppFeatureSessionsTests {
         if case .createTabWithInput = $0 { return true }
         return false
       })
-    #expect(focused.value == [initial.repositories.sessionItems[id: .session(key1)]!.location!])
+    #expect(focused.value == [initial.repositories.sessionItems[id: .implicit(key1)]!.location!])
   }
 
   @Test(.dependencies) func selectTerminalTabAtIndexUnchangedWhenSessionsActive() async {
@@ -865,7 +869,7 @@ struct AppFeatureSessionsTests {
     let key = SessionKey(harness: .pi, sessionID: "piSess2")
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Dormant",
+        id: .implicit(key), title: "Dormant",
         cwd: tmpPath, createdAt: .distantPast, location: nil)
     ]
     let store = TestStore(initialState: initial) {
@@ -878,7 +882,7 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.repositories.delegate.resumeSession)
     await store.receive(\.launchSessionCompleted)
     await store.finish()
@@ -905,7 +909,7 @@ struct AppFeatureSessionsTests {
     let key = SessionKey(harness: .pi, sessionID: "piSess3")
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Dormant",
+        id: .implicit(key), title: "Dormant",
         cwd: standardTmp.path(percentEncoded: false),
         createdAt: .distantPast, location: nil)
     ]
@@ -919,7 +923,7 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.repositories.delegate.resumeSession)
     #expect(store.state.pendingSessionLaunch != nil)
 
@@ -1006,7 +1010,7 @@ struct AppFeatureSessionsTests {
       command: "pi --session piNodup", requestID: reqID, launched: true)
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Dormant", cwd: tmpPath,
+        id: .implicit(key), title: "Dormant", cwd: tmpPath,
         createdAt: .distantPast, location: nil)
     ]
     let store = TestStore(initialState: initial) {
@@ -1019,7 +1023,7 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.repositories.delegate.resumeSession)
     await store.finish()
 
@@ -1237,18 +1241,18 @@ struct AppFeatureSessionsTests {
     initial.repositories.sessionsStarted = true
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Session 1", cwd: "/workspace",
+        id: .implicit(key), title: "Session 1", cwd: "/workspace",
         createdAt: Date(timeIntervalSince1970: 20),
         location: location
       ),
       SessionSidebarItemFeature.State(
-        id: .session(key2), title: "Session 2", cwd: "/workspace",
+        id: .implicit(key2), title: "Session 2", cwd: "/workspace",
         createdAt: Date(timeIntervalSince1970: 10),
         location: location2
       ),
     ]
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
-    initial.repositories.sessionSelection = .session(key)
+    initial.repositories.sessionSelection = .implicit(key)
     initial.agentPresence.records[
       AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     ] = AgentPresenceFeature.PresenceRecord(pids: [], sessionRef: "real")
@@ -1309,18 +1313,18 @@ struct AppFeatureSessionsTests {
     initial.repositories.sessionsStarted = true
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Session 1", cwd: "/workspace",
+        id: .implicit(key), title: "Session 1", cwd: "/workspace",
         createdAt: Date(timeIntervalSince1970: 20),
         location: location
       ),
       SessionSidebarItemFeature.State(
-        id: .session(key2), title: "Session 2", cwd: "/workspace",
+        id: .implicit(key2), title: "Session 2", cwd: "/workspace",
         createdAt: Date(timeIntervalSince1970: 10),
         lifecycle: .settled, location: location2
       ),
     ]
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
-    initial.repositories.sessionSelection = .session(key)
+    initial.repositories.sessionSelection = .implicit(key)
     initial.agentPresence.records[
       AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     ] = AgentPresenceFeature.PresenceRecord(pids: [], sessionRef: "real")
@@ -1346,13 +1350,13 @@ struct AppFeatureSessionsTests {
     initial.repositories.sessionsStarted = true
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Session", cwd: "/workspace",
+        id: .implicit(key), title: "Session", cwd: "/workspace",
         createdAt: Date(timeIntervalSince1970: 10),
         location: location
       )
     ]
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
-    initial.repositories.sessionSelection = .session(key)
+    initial.repositories.sessionSelection = .implicit(key)
     initial.agentPresence.records[
       AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     ] = AgentPresenceFeature.PresenceRecord(pids: [], sessionRef: "real")
@@ -1375,14 +1379,14 @@ struct AppFeatureSessionsTests {
     initial.repositories.sessionsStarted = true
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Session", cwd: "/workspace",
+        id: .implicit(key), title: "Session", cwd: "/workspace",
         createdAt: Date(timeIntervalSince1970: 10),
         lifecycle: .settled, location: location
       )
     ]
     initial.repositories.$sessions = Shared(value: [key: SessionSidecarEntry(settledAt: Date())])
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
-    initial.repositories.sessionSelection = .session(key)
+    initial.repositories.sessionSelection = .implicit(key)
     initial.agentPresence.records[
       AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     ] = AgentPresenceFeature.PresenceRecord(pids: [], sessionRef: "real")
@@ -1407,7 +1411,7 @@ struct AppFeatureSessionsTests {
     ] = record(ref: "real")
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Session", cwd: "/workspace",
+        id: .implicit(key), title: "Session", cwd: "/workspace",
         createdAt: .distantPast, location: location
       )
     ]
@@ -1441,11 +1445,11 @@ struct AppFeatureSessionsTests {
     ] = record(ref: "two")
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(first), title: "One", cwd: "/workspace",
+        id: .implicit(first), title: "One", cwd: "/workspace",
         createdAt: .distantPast, location: location
       ),
       SessionSidebarItemFeature.State(
-        id: .session(second), title: "Two", cwd: "/workspace",
+        id: .implicit(second), title: "Two", cwd: "/workspace",
         createdAt: .distantPast,
         location: SessionLocation(
           layoutID: worktree.id.layoutID, directoryID: worktree.id, tabID: TabID(rawValue: shell), surfaceID: shell)
@@ -1816,17 +1820,17 @@ struct AppFeatureSessionsTests {
       surfaceID: surfaceDone)
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(idle), title: "Idle", cwd: "/workspace",
+        id: .implicit(idle), title: "Idle", cwd: "/workspace",
         createdAt: Date(timeIntervalSince1970: 30), location: location, status: .idle),
       SessionSidebarItemFeature.State(
-        id: .session(needs), title: "Needs", cwd: "/workspace",
+        id: .implicit(needs), title: "Needs", cwd: "/workspace",
         createdAt: Date(timeIntervalSince1970: 20), location: needsLocation, status: .needsYou),
       SessionSidebarItemFeature.State(
-        id: .session(done), title: "Done", cwd: "/workspace",
+        id: .implicit(done), title: "Done", cwd: "/workspace",
         createdAt: Date(timeIntervalSince1970: 10), location: doneLocation, status: .doneUnseen),
     ]
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
-    initial.repositories.sessionSelection = .session(needs)
+    initial.repositories.sessionSelection = .implicit(needs)
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
@@ -1835,12 +1839,12 @@ struct AppFeatureSessionsTests {
     store.exhaustivity = .off
 
     await store.send(.nextSessionNeedsMe) { appState in
-      appState.repositories.sessionSelection = .session(done)
+      appState.repositories.sessionSelection = .implicit(done)
     }
     await store.receive(\.repositories.delegate.focusSession)
 
     await store.send(.nextSessionNeedsMe) { appState in
-      appState.repositories.sessionSelection = .session(needs)
+      appState.repositories.sessionSelection = .implicit(needs)
     }
     await store.receive(\.repositories.delegate.focusSession)
   }
@@ -1873,20 +1877,20 @@ struct AppFeatureSessionsTests {
       surfaceID: UUID(uuidString: "00000000-0000-0000-0000-0000000000B4")!)
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(first), title: "First", cwd: "/workspace",
+        id: .implicit(first), title: "First", cwd: "/workspace",
         createdAt: Date(timeIntervalSince1970: 40), location: firstLocation, status: .needsYou),
       SessionSidebarItemFeature.State(
-        id: .session(idle), title: "Idle", cwd: "/workspace",
+        id: .implicit(idle), title: "Idle", cwd: "/workspace",
         createdAt: Date(timeIntervalSince1970: 30), location: idleLocation, status: .idle),
       SessionSidebarItemFeature.State(
-        id: .session(next), title: "Next", cwd: "/workspace",
+        id: .implicit(next), title: "Next", cwd: "/workspace",
         createdAt: Date(timeIntervalSince1970: 20), location: nextLocation, status: .doneUnseen),
       SessionSidebarItemFeature.State(
-        id: .session(working), title: "Working", cwd: "/workspace",
+        id: .implicit(working), title: "Working", cwd: "/workspace",
         createdAt: Date(timeIntervalSince1970: 10), location: workingLocation, status: .working),
     ]
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
-    initial.repositories.sessionSelection = .session(idle)
+    initial.repositories.sessionSelection = .implicit(idle)
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
@@ -1895,15 +1899,15 @@ struct AppFeatureSessionsTests {
     store.exhaustivity = .off
 
     await store.send(.nextSessionNeedsMe) { appState in
-      appState.repositories.sessionSelection = .session(next)
+      appState.repositories.sessionSelection = .implicit(next)
     }
     await store.receive(\.repositories.delegate.focusSession)
 
-    await store.send(.repositories(.sessionSelectionChanged(.session(working)))) { appState in
-      appState.repositories.sessionSelection = .session(working)
+    await store.send(.repositories(.sessionSelectionChanged(.implicit(working)))) { appState in
+      appState.repositories.sessionSelection = .implicit(working)
     }
     await store.send(.nextSessionNeedsMe) { appState in
-      appState.repositories.sessionSelection = .session(first)
+      appState.repositories.sessionSelection = .implicit(first)
     }
     await store.receive(\.repositories.delegate.focusSession)
   }
@@ -1935,14 +1939,14 @@ struct AppFeatureSessionsTests {
     let dormant = SessionKey(harness: .pi, sessionID: "dormant")
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(busy), title: "Busy", cwd: "/workspace",
+        id: .implicit(busy), title: "Busy", cwd: "/workspace",
         createdAt: Date(timeIntervalSince1970: 20), location: location, status: .working),
       SessionSidebarItemFeature.State(
-        id: .session(dormant), title: "Dormant", cwd: "/workspace",
+        id: .implicit(dormant), title: "Dormant", cwd: "/workspace",
         createdAt: Date(timeIntervalSince1970: 10), status: .needsYou),
     ]
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
-    initial.repositories.sessionSelection = .session(busy)
+    initial.repositories.sessionSelection = .implicit(busy)
     let store = TestStore(initialState: initial) { AppFeature() }
     store.exhaustivity = .off
 
@@ -1984,7 +1988,7 @@ struct AppFeatureSessionsTests {
       Repository(id: RepositoryID(tmpDir.path), rootURL: tmpDir, name: "cooldown-block", worktrees: [worktree]))
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Block", cwd: tmpDir.path, createdAt: .distantPast)
+        id: .implicit(key), title: "Block", cwd: tmpDir.path, createdAt: .distantPast)
     ]
     let launchTime = Date(timeIntervalSince1970: 1_000)
     initial.recentSessionLaunchDate[key] = launchTime
@@ -1996,7 +2000,7 @@ struct AppFeatureSessionsTests {
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
     }
     store.exhaustivity = .off
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.repositories.delegate.resumeSession)
     await store.finish()
     #expect(sent.value.isEmpty, "should not launch within 10 s cooldown")
@@ -2015,7 +2019,7 @@ struct AppFeatureSessionsTests {
       Repository(id: RepositoryID(tmpDir.path), rootURL: tmpDir, name: "cooldown-allow", worktrees: [worktree]))
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Allow", cwd: tmpDir.path, createdAt: .distantPast)
+        id: .implicit(key), title: "Allow", cwd: tmpDir.path, createdAt: .distantPast)
     ]
     let launchTime = Date(timeIntervalSince1970: 1_000)
     initial.recentSessionLaunchDate[key] = launchTime
@@ -2030,7 +2034,7 @@ struct AppFeatureSessionsTests {
       }
     }
     store.exhaustivity = .off
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.repositories.delegate.resumeSession)
     await store.receive(\.launchSessionCompleted)
     await store.finish()
@@ -2042,7 +2046,7 @@ struct AppFeatureSessionsTests {
     var initial = state()
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Missing", cwd: "/nonexistent/dir/absent", createdAt: .distantPast)
+        id: .implicit(key), title: "Missing", cwd: "/nonexistent/dir/absent", createdAt: .distantPast)
     ]
     let store = TestStore(initialState: initial) {
       AppFeature()
@@ -2050,7 +2054,7 @@ struct AppFeatureSessionsTests {
       $0.date.now = .distantPast
     }
     store.exhaustivity = .off
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.repositories.delegate.resumeSession) { appState in
       #expect(appState.alert != nil)
       #expect(appState.pendingSessionLaunch == nil)
@@ -2074,7 +2078,7 @@ struct AppFeatureSessionsTests {
         worktrees: [worktree]))
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
+        id: .implicit(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
         createdAt: .distantPast)
     ]
     let surfaceID = UUID()
@@ -2092,7 +2096,7 @@ struct AppFeatureSessionsTests {
       $0.uuid = .incrementing
     }
     store.exhaustivity = .off
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.repositories.delegate.resumeSession)
     await store.receive(\.resumeBranchProbeCompleted) { appState in
       #expect(appState.pendingBranchMismatchResume?.isProvisionalConflict == true)
@@ -2110,7 +2114,7 @@ struct AppFeatureSessionsTests {
     var initial = state()
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
+        id: .implicit(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
         createdAt: .distantPast)
     ]
     let surfaceID = UUID()
@@ -2132,7 +2136,7 @@ struct AppFeatureSessionsTests {
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
     }
     store.exhaustivity = .off
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.repositories.delegate.resumeSession)
     await store.receive(\.resumeBranchProbeCompleted)
     await store.send(.alert(.presented(.cancelBranchMismatchResume))) { appState in
@@ -2150,7 +2154,7 @@ struct AppFeatureSessionsTests {
     var initial = state()
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
+        id: .implicit(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
         createdAt: .distantPast)
     ]
     initial.repositories.$sessions.withLock { $0[key] = SessionSidecarEntry(branches: ["old-branch"]) }
@@ -2172,7 +2176,7 @@ struct AppFeatureSessionsTests {
       $0[GitClientDependency.self].branchName = { _ in "new-branch" }
     }
     store.exhaustivity = .off
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.repositories.delegate.resumeSession)
     await store.receive(\.resumeBranchProbeCompleted) { appState in
       #expect(appState.pendingBranchMismatchResume?.isProvisionalConflict == true)
@@ -2199,7 +2203,7 @@ struct AppFeatureSessionsTests {
         worktrees: [worktree]))
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
+        id: .implicit(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
         createdAt: .distantPast)
     ]
     let surfaceID = UUID()
@@ -2219,7 +2223,7 @@ struct AppFeatureSessionsTests {
       $0.uuid = .incrementing
     }
     store.exhaustivity = .off
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.repositories.delegate.resumeSession)
     await store.receive(\.resumeBranchProbeCompleted) { appState in
       #expect(appState.pendingBranchMismatchResume?.isProvisionalConflict == true)
@@ -2241,7 +2245,7 @@ struct AppFeatureSessionsTests {
     var initial = state()
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
+        id: .implicit(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
         createdAt: .distantPast)
     ]
     initial.repositories.$sessions.withLock { $0[key] = SessionSidecarEntry(branches: ["main"]) }
@@ -2255,7 +2259,7 @@ struct AppFeatureSessionsTests {
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
     }
     store.exhaustivity = .off
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.repositories.delegate.resumeSession)
     await store.receive(\.resumeBranchProbeCompleted) { appState in
       #expect(appState.alert != nil)
@@ -2281,7 +2285,7 @@ struct AppFeatureSessionsTests {
         worktrees: [worktreeA]))
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
+        id: .implicit(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
         createdAt: .distantPast)
     ]
     let branches = AsyncStream<String?>.makeStream()
@@ -2305,7 +2309,7 @@ struct AppFeatureSessionsTests {
       }
     }
     store.exhaustivity = .off
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.repositories.delegate.resumeSession)
     #expect(store.state.pendingSessionLaunch?.probing == true)
     let surfaceID = UUID()
@@ -2316,7 +2320,7 @@ struct AppFeatureSessionsTests {
         layoutID: worktreeA.id.layoutID, directoryID: worktreeA.id, tabID: TabID(), surfaceID: surfaceID)
     )
     await store.send(.repositories(.sessionSnapshotsChanged([snapshot])))
-    #expect(store.state.repositories.sessionItems[id: .session(key)]?.location != nil)
+    #expect(store.state.repositories.sessionItems[id: .implicit(key)]?.location != nil)
     branches.continuation.yield("main")
     await store.receive(\.resumeBranchProbeCompleted) { appState in
       #expect(appState.pendingSessionLaunch == nil)
@@ -2348,7 +2352,7 @@ struct AppFeatureSessionsTests {
         worktrees: [worktreeB]))
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
+        id: .implicit(key), title: "Dormant", cwd: tmpDir.path(percentEncoded: false),
         createdAt: .distantPast)
     ]
     initial.repositories.$sessions.withLock { $0[key] = SessionSidecarEntry(branches: ["old-branch"]) }
@@ -2369,7 +2373,7 @@ struct AppFeatureSessionsTests {
       }
     }
     store.exhaustivity = .off
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.repositories.delegate.resumeSession)
     await store.receive(\.resumeBranchProbeCompleted) { appState in
       #expect(appState.alert != nil)
@@ -2678,13 +2682,13 @@ struct AppFeatureSessionsTests {
     let resumeDirectory = resumesWhereItRan ? directoryB : directoryA
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(key), title: "Tangent", cwd: resumeDirectory.path, createdAt: .distantPast)
+        id: .implicit(key), title: "Tangent", cwd: resumeDirectory.path, createdAt: .distantPast)
     ]
     initial.repositories.$sessions.withLock { $0[key] = SessionSidecarEntry(branches: ["b-branch"]) }
     let probes = LockIsolated<[String]>([])
     let store = captureStore(initial, probes: probes, elsewhere: directoryB.path(percentEncoded: false))
 
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.resumeBranchProbeCompleted)
     await store.finish()
 
@@ -2853,8 +2857,9 @@ struct AppFeatureSessionsTests {
       return false
     }
 
-    #expect(Set(taskRowIDs) == [.task(worktree.id.layoutID), .task(third), .task(fourth)])
+    #expect(Set(taskRowIDs) == Set(allSixLayouts.map(SessionRowID.task)), "every row is a task's")
     #expect(tasks.map(\.title) == ["workspace", "workspace", "other"])
+    #expect(tasks.allSatisfy { $0.status == nil && $0.primary == nil })
     #expect(tasks.map(\.cwd) == ["/workspace", "/workspace", "/other"])
     #expect(tasks.map(\.location?.directoryID) == [worktree.id, worktree.id, otherWorktree.id])
     #expect(tasks.map(\.createdAt) == [.distantPast, .distantPast, Date(timeIntervalSince1970: 7)])
@@ -2862,8 +2867,7 @@ struct AppFeatureSessionsTests {
     #expect(tasks[2].location?.surfaceID == fourthSurface)
   }
 
-  /// Two tasks reporting one session identity share a single session row,
-  /// which leads to only one of them: the other still needs a row of its own.
+  /// Two tasks reporting one session identity: each is its own row.
   private func twoTasksReportingTheSameSession() -> AppFeature.State {
     var state = sixTasksOnTwoDirectories()
     state.agentPresence.records[.init(agent: .pi, surfaceID: fifthSurface)] = record(ref: "one")
@@ -2873,13 +2877,12 @@ struct AppFeatureSessionsTests {
   @Test(.dependencies) func tasksSharingASessionIdentityAreBothTheTargetOfARow() {
     let state = withRows(twoTasksReportingTheSameSession())
     let rows = state.repositories.sessionItems
-    let shared = rows[id: .session(SessionKey(harness: .pi, sessionID: "one"))]?.location?.layoutID
 
     #expect(Set(rows.compactMap(\.location?.layoutID)) == allSixLayouts)
     #expect(rows.count == 6, "one row per task: no task is listed twice")
-    #expect(shared == first || shared == fifth)
-    #expect(rows[id: .task(shared == first ? fifth : first)] != nil)
-    #expect(rows[id: .task(shared == first ? first : fifth)] == nil)
+    #expect(rows[id: .implicit(SessionKey(harness: .pi, sessionID: "one"))] == nil)
+    #expect(rows[id: .task(first)]?.location?.surfaceID == firstSurface)
+    #expect(rows[id: .task(fifth)]?.location?.surfaceID == fifthSurface)
   }
 
   @Test(.dependencies, arguments: [1, -1])
@@ -2904,16 +2907,13 @@ struct AppFeatureSessionsTests {
     #expect(store.state.pendingSessionLaunch == nil)
   }
 
-  @Test(.dependencies) func focusInTheTaskASharedSessionRowDoesNotLeadToHighlightsItsTaskRow() {
+  @Test(.dependencies) func focusInEitherTaskSharingASessionHighlightsItsOwnRow() {
     var state = withRows(twoTasksReportingTheSameSession())
-    let sessionRow = SessionRowID.session(SessionKey(harness: .pi, sessionID: "one"))
-    let reached = state.repositories.sessionItems[id: sessionRow]?.location?.layoutID
-    let other = reached == first ? fifth : first
 
-    state.terminals.selectedLayoutID = other
-    #expect(AppFeature.focusedSessionRowID(state: state) == .task(other))
-    state.terminals.selectedLayoutID = reached
-    #expect(AppFeature.focusedSessionRowID(state: state) == sessionRow)
+    state.terminals.selectedLayoutID = fifth
+    #expect(AppFeature.focusedSessionRowID(state: state) == .task(fifth))
+    state.terminals.selectedLayoutID = first
+    #expect(AppFeature.focusedSessionRowID(state: state) == .task(first))
   }
 
   @Test func emptyTaskGetsNoRow() {
@@ -2943,9 +2943,11 @@ struct AppFeatureSessionsTests {
 
     #expect(Set(rows.compactMap(\.location?.layoutID)) == allSixLayouts)
     #expect(rows.count == 6, "one row per task: no task is listed twice")
-    #expect(rows[id: .session(SessionKey(harness: .pi, sessionID: "one"))]?.location?.layoutID == first)
-    #expect(rows[id: .session(SessionKey(harness: .pi, sessionID: "two"))]?.location?.layoutID == second)
-    #expect(rows[id: .session(SessionKey(harness: .pi, sessionID: "five"))]?.location?.layoutID == fifth)
+    #expect(Set(rows.ids) == Set(allSixLayouts.map(SessionRowID.task)), "each layout id is a row's target")
+    #expect(allSixLayouts.allSatisfy { rows[id: .task($0)]?.location?.layoutID == $0 })
+    #expect(rows[id: .task(first)]?.primary == SessionKey(harness: .pi, sessionID: "one"))
+    #expect(rows[id: .task(second)]?.primary == SessionKey(harness: .pi, sessionID: "two"))
+    #expect(rows[id: .task(fifth)]?.primary == SessionKey(harness: .pi, sessionID: "five"))
     #expect(Set(state.repositories.sessionsSidebarStructure.liveIDs) == Set(rows.ids))
   }
 
@@ -2993,7 +2995,7 @@ struct AppFeatureSessionsTests {
     #expect(!recorded.mintedOrResumed)
   }
 
-  @Test(.dependencies) func activatingASessionRowShowsItsOwnTaskNotTheDirectorysActiveOne() async {
+  @Test(.dependencies) func activatingATaskRowShowsItsOwnTaskNotTheDirectorysActiveOne() async {
     var initial = withRows(twoTasksOnOneDirectory())
     let key = RepositorySettingsKey(rootURL: worktree.repositoryRootURL, host: worktree.host)
     let scripts = LoadedRepositoryScripts(source: key.id, scripts: [])
@@ -3001,7 +3003,7 @@ struct AppFeatureSessionsTests {
     #expect(initial.layoutID(forDirectory: worktree.id) == first)
     let recorded = Recorded()
     let store = taskStore(initial, recorded: recorded)
-    let row = SessionRowID.session(SessionKey(harness: .pi, sessionID: "two"))
+    let row = SessionRowID.task(second)
 
     await store.send(.repositories(.activateSession(row)))
     await store.receive(\.repositories.selectTask) {
@@ -3015,12 +3017,10 @@ struct AppFeatureSessionsTests {
     await store.skipReceivedActions(strict: false)
 
     #expect(recorded.selectedLayouts == [second])
+    #expect(recorded.focused.value.isEmpty, "the task keeps the focus it had")
     #expect(
-      recorded.focused.value == [
-        SessionLocation(
-          layoutID: second, directoryID: worktree.id, tabID: TabID(rawValue: secondSurface),
-          surfaceID: secondSurface)
-      ])
+      recorded.commands.value.contains(
+        .ensureInitialTab(second, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: true)))
     // The directory half reruns with the directory it already had, which the
     // watcher ignores; it is never pointed at another one.
     #expect(recorded.watcher.value.allSatisfy { $0 == .setSelectedWorktreeID(self.worktree.id) })
@@ -3034,7 +3034,7 @@ struct AppFeatureSessionsTests {
     let recorded = Recorded()
     let store = taskStore(initial, recorded: recorded)
 
-    await store.send(.repositories(.activateSession(.session(SessionKey(harness: .pi, sessionID: "five")))))
+    await store.send(.repositories(.activateSession(.task(fifth))))
     await store.receive(\.repositories.selectTask) {
       #expect($0.repositories.selectedTaskID == self.fifth)
     }
@@ -3114,22 +3114,22 @@ struct AppFeatureSessionsTests {
     #expect(!recorded.mintedOrResumed)
   }
 
-  @Test(.dependencies) func activatingAnOrphanSessionRowFocusesItsSurface() async {
+  @Test(.dependencies) func activatingAnOrphanAgentTaskRowShowsIt() async {
     let recorded = Recorded()
-    let store = taskStore(withRows(withOrphans(state())), recorded: recorded)
+    let initial = withRows(withOrphans(state()))
+    #expect(initial.repositories.sessionItems[id: .task(orphanAgent)]?.status == .idle)
+    let store = taskStore(initial, recorded: recorded)
 
-    await store.send(.repositories(.activateSession(.session(SessionKey(harness: .pi, sessionID: "orphan")))))
+    await store.send(.repositories(.activateSession(.task(orphanAgent))))
     await store.finish()
     await store.skipReceivedActions(strict: false)
 
     #expect(store.state.repositories.selectedTaskID == orphanAgent)
     #expect(recorded.selectedLayouts == [orphanAgent])
     #expect(
-      recorded.focused.value == [
-        SessionLocation(
-          layoutID: orphanAgent, directoryID: goneDirectory.worktreeID,
-          tabID: TabID(rawValue: orphanAgentSurface), surfaceID: orphanAgentSurface)
-      ])
+      recorded.commands.value.contains(
+        .ensureInitialTab(
+          orphanAgent, DirectoryContext(orphan: goneDirectory), runSetupScriptIfNew: false, focusing: true)))
     #expect(!recorded.mintedOrResumed)
   }
 
@@ -3340,7 +3340,7 @@ struct AppFeatureSessionsTests {
   @Test(.dependencies, arguments: [true, false])
   func activatingATaskOnAMissingDirectoryShowsTheTaskNotThePlaceholder(live: Bool) async {
     let task = live ? fifth : fourth
-    let rowID: SessionRowID = live ? .session(SessionKey(harness: .pi, sessionID: "five")) : .task(fourth)
+    let rowID = SessionRowID.task(task)
     let recorded = Recorded()
     let store = taskStore(withRows(otherDirectoryMissing()), recorded: recorded)
     #expect(store.state.repositories.worktree(for: otherWorktree.id)?.isMissing == true)
@@ -3459,7 +3459,7 @@ struct AppFeatureSessionsTests {
     #expect(AppFeature.focusedSessionRowID(state: state) == .task(third))
 
     state.terminals.selectedLayoutID = first
-    #expect(AppFeature.focusedSessionRowID(state: state) == .session(SessionKey(harness: .pi, sessionID: "one")))
+    #expect(AppFeature.focusedSessionRowID(state: state) == .task(first))
   }
 
   @Test(.dependencies) func taskRowsFollowTerminalChanges() async {
@@ -3614,7 +3614,7 @@ struct AppFeatureSessionsTests {
 
   private func dormantRow(_ key: SessionKey, cwd: URL) -> SessionSidebarItemFeature.State {
     SessionSidebarItemFeature.State(
-      id: .session(key), title: "Dormant", cwd: cwd.path(percentEncoded: false), createdAt: .distantPast,
+      id: .implicit(key), title: "Dormant", cwd: cwd.path(percentEncoded: false), createdAt: .distantPast,
       location: nil)
   }
 
@@ -3678,13 +3678,13 @@ struct AppFeatureSessionsTests {
     let tangentPath = tangentCwd.path(percentEncoded: false)
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
-        id: .session(piKey("tangent")), title: "Tangent", cwd: tangentPath, createdAt: .distantPast,
+        id: .implicit(piKey("tangent")), title: "Tangent", cwd: tangentPath, createdAt: .distantPast,
         location: location)
     ]
     initial.repositories.sessionSnapshots = [
       SessionLiveSnapshot(harness: .pi, sessionRef: "tangent", cwd: tangentPath, location: location)
     ]
-    #expect(AppFeature.focusedSessionRowID(state: initial) == .session(piKey("tangent")))
+    #expect(AppFeature.focusedSessionRowID(state: initial) == .implicit(piKey("tangent")))
     let recorded = Recorded()
     let store = mintingStore(initial, recorded: recorded)
 
@@ -3702,7 +3702,7 @@ struct AppFeatureSessionsTests {
     var (initial, onDisk) = shownTaskOnDisk(directory, elsewhere: historyCwd)
     // A dormant row of another directory is highlighted while the task stays on screen.
     initial.repositories.sessionItems = [dormantRow(piKey("history"), cwd: historyCwd)]
-    initial.repositories.sessionSelection = .session(piKey("history"))
+    initial.repositories.sessionSelection = .implicit(piKey("history"))
     let recorded = Recorded()
     let store = mintingStore(initial, recorded: recorded)
 
@@ -3722,7 +3722,7 @@ struct AppFeatureSessionsTests {
     initial.terminals.selectedLayoutID = nil
     initial.repositories.selectedTask = nil
     initial.repositories.sessionItems = [dormantRow(piKey("history"), cwd: historyCwd)]
-    initial.repositories.sessionSelection = .session(piKey("history"))
+    initial.repositories.sessionSelection = .implicit(piKey("history"))
     let recorded = Recorded()
     let store = mintingStore(initial, recorded: recorded)
 
@@ -3800,7 +3800,7 @@ struct AppFeatureSessionsTests {
     let recorded = Recorded()
     let store = mintingStore(initial, recorded: recorded)
 
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.launchSessionCompleted)
     await store.finish()
 
@@ -3852,7 +3852,7 @@ struct AppFeatureSessionsTests {
     let recorded = Recorded()
     let store = mintingStore(initial, recorded: recorded)
 
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.launchSessionCompleted)
     await store.finish()
     await store.skipReceivedActions(strict: false)
@@ -3880,7 +3880,7 @@ struct AppFeatureSessionsTests {
     let store = mintingStore(initial, recorded: recorded)
 
     for key in keys {
-      await store.send(.repositories(.activateSession(.session(key))))
+      await store.send(.repositories(.activateSession(.implicit(key))))
       await store.receive(\.launchSessionCompleted)
     }
     await store.finish()
@@ -3916,7 +3916,7 @@ struct AppFeatureSessionsTests {
     initial.repositories.selectedTask = .init(id: first, directoryID: remoteID)
     // A local directory is highlighted in history and selected in the roster; neither is the task's.
     initial.repositories.sessionItems = [dormantRow(piKey("history"), cwd: historyCwd)]
-    initial.repositories.sessionSelection = .session(piKey("history"))
+    initial.repositories.sessionSelection = .implicit(piKey("history"))
     let recorded = Recorded()
     let store = mintingStore(initial, recorded: recorded)
 
@@ -3950,7 +3950,7 @@ struct AppFeatureSessionsTests {
     let recorded = Recorded()
     let store = mintingStore(initial, recorded: recorded)
 
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.launchSessionCompleted)
     await store.finish()
 
@@ -3968,7 +3968,7 @@ struct AppFeatureSessionsTests {
     let recorded = Recorded()
     let store = mintingStore(initial, recorded: recorded)
 
-    await store.send(.repositories(.activateSession(.session(key))))
+    await store.send(.repositories(.activateSession(.implicit(key))))
     await store.receive(\.launchSessionCompleted)
     await store.finish()
 
@@ -4055,12 +4055,17 @@ struct AppFeatureSessionsTests {
     #expect(written == [first, second], "each task's stored sessions are written once")
   }
 
-  @Test(.dependencies) func twoAgentsInOneTaskAreBothMembersAndBothRows() async throws {
+  @Test(.dependencies) func twoAgentsInOneTaskAreBothMembersOfOneRow() async throws {
     let (state, _) = await observingMembers(oneTaskWithTwoAgents(firstRef: "one", secondRef: "two"))
 
     #expect(state.terminals.members == [first: [.session(piKey("one")), .session(piKey("two"))]])
     let rows = state.repositories.sessionItems.filter { $0.location?.layoutID == first }
-    #expect(Set(rows.map(\.id)) == [.session(piKey("one")), .session(piKey("two"))])
+    #expect(rows.map(\.id) == [.task(first)])
+    #expect(rows.first?.primary == piKey("one"))
+    // Both stay visible: as the sub-rows of their task, once it is selected.
+    var selected = state.repositories
+    selected.selectSessionRow(.task(first))
+    #expect(selected.sessionsSidebarStructure.subRows.map(\.id) == [.session(piKey("one")), .session(piKey("two"))])
 
     // Membership survives the stored form and a relaunch.
     let stored = TaskLayoutsFile(tasks: [
@@ -4076,6 +4081,27 @@ struct AppFeatureSessionsTests {
     relaunched.exhaustivity = .off
     await relaunched.send(.layoutsHydrated(decoded))
     #expect(relaunched.state.members == [first: [.session(piKey("one")), .session(piKey("two"))]])
+  }
+
+  @Test(.dependencies) func nextSessionNeedsMeOnATaskRowFocusesTheAgentThatNeedsYou() async {
+    var initial = oneTaskWithTwoAgents(firstRef: "one", secondRef: "two")
+    initial.agentPresence.records[.init(agent: .pi, surfaceID: secondSurface)]?.activity = .awaitingInput
+    initial = withRows(initial)
+    #expect(initial.repositories.sessionItems[id: .task(first)]?.status == .needsYou)
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    await store.send(.nextSessionNeedsMe)
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(store.state.repositories.sessionSelection == .task(first))
+    #expect(
+      recorded.focused.value == [
+        SessionLocation(
+          layoutID: first, directoryID: worktree.id, tabID: TabID(rawValue: secondSurface), surfaceID: secondSurface)
+      ], "the tangent's own surface, not whatever the task had focused")
+    #expect(!recorded.mintedOrResumed)
   }
 
   @Test(.dependencies) func anAgentAlreadyListedWritesNothing() async {
@@ -4105,7 +4131,12 @@ struct AppFeatureSessionsTests {
 
     #expect(state.terminals.members[first] == [.session(piKey("two")), .session(piKey("one"))])
     let rows = state.repositories.sessionItems.filter { $0.location?.layoutID == first }
-    #expect(rows.count == 2, "no second row for the upgraded member")
+    #expect(rows.map(\.id) == [.task(first)], "one row for the task")
+    var selected = state.repositories
+    selected.selectSessionRow(.task(first))
+    #expect(
+      selected.sessionsSidebarStructure.subRows.map(\.id) == [.session(piKey("two")), .session(piKey("one"))],
+      "no second sub-row for the upgraded member")
   }
 
   @Test(.dependencies) func aProvisionalMemberWhoseAgentLeftIsDroppedAndASessionIsKept() async {

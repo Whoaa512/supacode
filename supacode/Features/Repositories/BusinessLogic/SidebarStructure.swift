@@ -442,7 +442,8 @@ extension RepositoriesFeature.Action {
   /// "post-reduce skips the recompute" path.
   var cacheInvalidations: CacheInvalidations {
     switch self {
-    case .sessionsCacheLoaded, .sessionsRefreshCompleted, .sessionSnapshotsChanged, .taskSnapshotsChanged:
+    case .sessionsCacheLoaded, .sessionsRefreshCompleted, .sessionSnapshotsChanged, .taskSnapshotsChanged,
+      .taskSessionsChanged:
       return .sessionsStructure
     case .settleSession, .unsettleSession:
       return .sessionsStructure
@@ -450,8 +451,8 @@ extension RepositoriesFeature.Action {
       .sessionsCoarseClockFired, .sessionsStopped,
       .sessionItems, .sessionsStarted, .sessionsSidebarShown, .sessionsRefreshRequested,
       .sessionsRefreshDebounced, .sessionsRefreshFailed, .sessionSelectionChanged, .activateSession,
-      .registerSessionFolder, .sessionBranchCaptured, .settleSessionRequested, .selectedTaskRemoved,
-      .taskSessionsChanged:
+      .registerSessionFolder, .sessionBranchCaptured, .settleSessionRequested, .settleTaskRequested,
+      .selectedTaskRemoved:
       return []
     case .sidebarItems(.element(id: _, action: let inner)):
       return inner.cacheInvalidations
