@@ -391,6 +391,129 @@ struct WorktreeTerminalManagerAckTests {
     #expect(tornDown == [first, second])
   }
 
+  // MARK: - Several tasks on one directory.
+
+  @Test(.dependencies) func twoTasksOnOneDirectoryBothSurviveAPruneThatKeepsIt() async {
+    let harness = makeHarness()
+    let pump = CreationEvents(harness.manager)
+    let directory = makeWorktree(id: "/tmp/repo/wt-directory")
+    let first = LayoutID(task: UUID())
+    let second = LayoutID(task: UUID())
+    _ = await openLayout(first, on: directory, in: harness, pump: pump)
+    _ = await openLayout(second, on: directory, in: harness, pump: pump)
+
+    harness.manager.handleCommand(.prune(keepingDirectories: [directory.id], protectingRepositoryIDs: []))
+
+    #expect(harness.manager.hostIfExists(for: first) != nil)
+    #expect(harness.manager.hostIfExists(for: second) != nil)
+    #expect(harness.store.withState { Set($0.terminals.layouts.ids) } == [first, second])
+  }
+
+  @Test(.dependencies) func archivingADirectoryPrunesEveryTaskOnItAndNoOther() async {
+    let harness = makeHarness()
+    let pump = CreationEvents(harness.manager)
+    let archived = makeWorktree(id: "/tmp/repo/wt-archived")
+    let other = makeWorktree(id: "/tmp/repo/wt-other")
+    let first = LayoutID(task: UUID())
+    let second = LayoutID(task: UUID())
+    let kept = LayoutID(task: UUID())
+    _ = await openLayout(first, on: archived, in: harness, pump: pump)
+    _ = await openLayout(second, on: archived, in: harness, pump: pump)
+    _ = await openLayout(kept, on: other, in: harness, pump: pump)
+
+    // An archived directory drops out of the kept set.
+    harness.manager.handleCommand(.prune(keepingDirectories: [other.id], protectingRepositoryIDs: []))
+
+    #expect(harness.manager.hostIfExists(for: first) == nil)
+    #expect(harness.manager.hostIfExists(for: second) == nil)
+    #expect(harness.manager.hostIfExists(for: kept) != nil)
+    #expect(harness.store.withState { Array($0.terminals.layouts.ids) } == [kept])
+  }
+
+  @Test(.dependencies) func removingADirectoryTearsDownItsNeverOpenedTasksToo() {
+    let harness = makeHarness()
+    let directory = TaskRecord.Directory(worktreeID: "/tmp/repo/wt-directory")
+    let other = TaskRecord.Directory(worktreeID: "/tmp/repo/wt-other")
+    let first = LayoutID(task: UUID())
+    let second = LayoutID(task: UUID())
+    let kept = LayoutID(task: UUID())
+    let created = Date(timeIntervalSince1970: 1)
+    let tasks = [
+      TaskRecord(id: first, directory: directory, layout: singleTabLayout(contentID: UUID()), createdAt: created),
+      TaskRecord(id: second, directory: directory, layout: singleTabLayout(contentID: UUID()), createdAt: created),
+      TaskRecord(id: kept, directory: other, layout: singleTabLayout(contentID: UUID()), createdAt: created),
+    ]
+    // Hydrated, never selected: none of the three has a host.
+    harness.store.send(
+      .terminals(
+        .layoutsHydrated(
+          TaskLayoutsFile(tasks: Dictionary(uniqueKeysWithValues: tasks.map { ($0.id.persistenceKey, $0) })))))
+
+    harness.manager.handleCommand(.removeLayouts(forDirectory: directory.worktreeID, remoteHost: nil))
+
+    #expect(harness.store.withState { Array($0.terminals.layouts.ids) } == [kept])
+    #expect(harness.store.withState { $0.terminals.directories } == [kept: other])
+  }
+
+  @Test(.dependencies) func theDirectoryRowProjectionCoversEveryTaskOnIt() async {
+    let harness = makeHarness()
+    let pump = CreationEvents(harness.manager)
+    let directory = makeWorktree(id: "/tmp/repo/wt-directory")
+    let other = makeWorktree(id: "/tmp/repo/wt-other")
+    let first = LayoutID(task: UUID())
+    let second = LayoutID(task: UUID())
+    let firstSurface = await openLayout(first, on: directory, in: harness, pump: pump)
+    let secondSurface = await openLayout(second, on: directory, in: harness, pump: pump)
+    let otherSurface = await openLayout(LayoutID(task: UUID()), on: other, in: harness, pump: pump)
+    // A new subscriber is seeded with one projection per directory.
+    var iterator = harness.manager.eventStream().makeAsyncIterator()
+    // One task changing must not replace what the other contributes.
+    harness.manager.handleLayoutChanged(for: second)
+
+    var projected: [Worktree.ID: [Set<UUID>]] = [:]
+    while projected.count < 2, let event = await iterator.next() {
+      guard case .worktreeProjectionChanged(let worktreeID, let projection) = event else { continue }
+      projected[worktreeID, default: []].append(Set(projection.surfaceIDs))
+    }
+    #expect(projected == [directory.id: [[firstSurface, secondSurface]], other.id: [[otherSurface]]])
+  }
+
+  @Test(.dependencies) func setupScriptRunsOncePerDirectoryNotOncePerTask() async throws {
+    let localStorage = RepositoryLocalSettingsTestStorage()
+    let directory = makeWorktree(id: "/tmp/repo/wt-directory")
+    var settings = RepositorySettings.default
+    settings.setupScript = "echo setup"
+    try localStorage.save(
+      JSONEncoder().encode(settings), at: SupacodePaths.repositorySettingsURL(for: directory.repositoryRootURL))
+
+    await withDependencies {
+      $0.settingsFileStorage = SettingsTestStorage().storage
+      $0.settingsFileURL = URL(fileURLWithPath: "/tmp/supacode-settings-\(UUID().uuidString).json")
+      $0.repositoryLocalSettingsStorage = localStorage.storage
+    } operation: {
+      let harness = makeHarness()
+      var iterator = harness.manager.eventStream().makeAsyncIterator()
+      let first = LayoutID(task: UUID())
+      let second = LayoutID(task: UUID())
+      let lastSurface = UUID()
+      harness.manager.handleCommand(
+        .createTab(first, DirectoryContext(worktree: directory), runSetupScriptIfNew: true, id: UUID(), focusing: false)
+      )
+      // A second task on the same, still-new directory asks for it again.
+      harness.manager.handleCommand(
+        .createTab(
+          second, DirectoryContext(worktree: directory), runSetupScriptIfNew: true, id: lastSurface,
+          focusing: false))
+
+      var consumed: [LayoutID] = []
+      while let event = await iterator.next() {
+        if case .setupScriptConsumed(let layoutID) = event { consumed.append(layoutID) }
+        if case .surfaceCreated(_, lastSurface) = event { break }
+      }
+      #expect(consumed == [first])
+    }
+  }
+
   @Test(.dependencies) func anchoredCreateLandsInTheAnchorsPane() async {
     let harness = makeHarness()
     let pump = CreationEvents(harness.manager)

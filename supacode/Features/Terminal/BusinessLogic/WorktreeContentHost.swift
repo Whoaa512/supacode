@@ -40,7 +40,6 @@ final class WorktreeContentHost {
   @ObservationIgnored var onBlockingScriptCompleted: ((BlockingScriptKind, Int?, TabID?) -> Void)?
   @ObservationIgnored var onRunningScriptsChanged: (() -> Void)?
   @ObservationIgnored var onCommandPaletteToggle: (() -> Void)?
-  @ObservationIgnored var onSetupScriptConsumed: (() -> Void)?
   @ObservationIgnored var onUserClosedSurfaces: ((Set<UUID>) -> Void)?
   @ObservationIgnored var onSurfacesClosed: ((Set<UUID>) -> Void)?
   @ObservationIgnored var onSurfacesHibernated: ((Set<UUID>) -> Void)?
@@ -104,20 +103,17 @@ final class WorktreeContentHost {
       }
     }
   }
-  @ObservationIgnored private var pendingSetupScript: Bool
 
   private static let logger = SupaLogger("WorktreeContentHost")
 
   init(
     context: DirectoryContext,
     runtime: ContentRuntime,
-    clock: any Clock<Duration>,
-    runSetupScript: Bool
+    clock: any Clock<Duration>
   ) {
     self.context = context
     self.runtime = runtime
     self.clock = clock
-    self.pendingSetupScript = runSetupScript
     dormantSessionWatchers.onOSCSequence = { [weak self] surfaceID, sequence in
       self?.handleDormantOSCSequence(surfaceID: surfaceID, sequence: sequence)
     }
@@ -865,30 +861,6 @@ final class WorktreeContentHost {
     guard let surface = liveSurface(surfaceID) else { return false }
     surface.imagePasteAgents = agents
     return true
-  }
-
-  // MARK: - Setup script.
-
-  func needsSetupScript() -> Bool {
-    pendingSetupScript
-  }
-
-  /// Re-arm only when the layout is empty, idempotent when already pending.
-  func enableSetupScriptIfNeeded() {
-    guard !pendingSetupScript, layout()?.panes.isEmpty != false else { return }
-    pendingSetupScript = true
-  }
-
-  /// Consumes the pending setup flag; the caller runs the script.
-  func consumeSetupScript() -> Bool {
-    guard pendingSetupScript else { return false }
-    pendingSetupScript = false
-    onSetupScriptConsumed?()
-    return true
-  }
-
-  func markSetupScriptSkipped() {
-    pendingSetupScript = false
   }
 
   // MARK: - Blocking scripts.

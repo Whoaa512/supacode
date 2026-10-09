@@ -768,4 +768,138 @@ struct TerminalsFeatureTests {
       $0.directories = [taskID: directory]
     }
   }
+
+  // MARK: - Directory resolution.
+
+  /// A task with no tabs, so selecting it has no content to wake.
+  private static func task(_ id: LayoutID, on directory: Worktree.ID) -> TaskRecord {
+    TaskRecord(
+      id: id,
+      directory: TaskRecord.Directory(worktreeID: directory),
+      createdAt: Date(timeIntervalSince1970: 1)
+    )
+  }
+
+  private static func file(_ tasks: [TaskRecord], activeTasks: [String: String] = [:]) -> TaskLayoutsFile {
+    var file = TaskLayoutsFile(tasks: Dictionary(uniqueKeysWithValues: tasks.map { ($0.id.persistenceKey, $0) }))
+    file.activeTasks = activeTasks
+    return file
+  }
+
+  /// A store that records every active-task change the reducer reports.
+  private func makeResolverStore() -> (store: TestStoreOf<TerminalsFeature>, reported: LockIsolated<[String]>) {
+    let reported = LockIsolated<[String]>([])
+    let store = TestStore(initialState: TerminalsFeature.State()) {
+      TerminalsFeature()
+    } withDependencies: {
+      $0[LayoutChangeObserver.self] = LayoutChangeObserver(
+        layoutChanged: { _ in },
+        activeTaskChanged: { directoryID, layoutID in
+          reported.withValue { $0.append("\(directoryID)=\(layoutID?.description ?? "nil")") }
+        }
+      )
+    }
+    store.exhaustivity = .off
+    return (store, reported)
+  }
+
+  @Test(.dependencies) func aDirectoryResolvesToItsOwnKeyUntilAnotherTaskIsSelected() async {
+    let directory: Worktree.ID = "/tmp/repo"
+    let ownKey = LayoutID(legacyWorktreeKey: "/tmp/repo")
+    let minted = LayoutID(task: UUID())
+    let (store, reported) = makeResolverStore()
+    await store.send(.layoutsHydrated(Self.file([Self.task(ownKey, on: directory), Self.task(minted, on: directory)])))
+    #expect(store.state.layoutID(forDirectory: directory) == ownKey)
+
+    // Selecting the own-key task stores and writes nothing.
+    await store.send(.selectedLayoutChanged(ownKey))
+    await store.finish()
+    #expect(store.state.activeTasks.isEmpty)
+    #expect(reported.value.isEmpty)
+
+    await store.send(.selectedLayoutChanged(minted))
+    await store.finish()
+    #expect(store.state.layoutID(forDirectory: directory) == minted)
+    #expect(reported.value == ["/tmp/repo=\(minted)"])
+
+    // Re-selecting it reports nothing new.
+    await store.send(.selectedLayoutChanged(nil))
+    await store.send(.selectedLayoutChanged(minted))
+    await store.finish()
+    #expect(reported.value == ["/tmp/repo=\(minted)"])
+
+    await store.send(.selectedLayoutChanged(ownKey))
+    await store.finish()
+    #expect(store.state.layoutID(forDirectory: directory) == ownKey)
+    #expect(store.state.activeTasks.isEmpty)
+    #expect(reported.value == ["/tmp/repo=\(minted)", "/tmp/repo=nil"])
+  }
+
+  @Test(.dependencies) func selectingATaskLeavesOtherDirectoriesResolutionAlone() async {
+    let first = LayoutID(task: UUID())
+    let second = LayoutID(task: UUID())
+    let file = Self.file([Self.task(first, on: "/tmp/a"), Self.task(second, on: "/tmp/b")])
+    let (store, _) = makeResolverStore()
+    await store.send(.layoutsHydrated(file))
+    await store.send(.selectedLayoutChanged(first))
+    await store.send(.selectedLayoutChanged(second))
+    #expect(store.state.activeTasks == ["/tmp/a": first, "/tmp/b": second])
+  }
+
+  @Test(.dependencies) func detachingTheActiveTaskFallsBackToTheDirectorysOwnKey() async {
+    let directory: Worktree.ID = "/tmp/repo"
+    let minted = LayoutID(task: UUID())
+    let file = Self.file([Self.task(minted, on: directory)])
+    let (store, _) = makeResolverStore()
+    await store.send(.layoutsHydrated(file))
+    await store.send(.selectedLayoutChanged(minted))
+    #expect(store.state.layoutID(forDirectory: directory) == minted)
+
+    await store.send(.detachLayout(worktreeID: minted))
+    #expect(store.state.activeTasks.isEmpty)
+    #expect(store.state.layoutID(forDirectory: directory) == LayoutID(legacyWorktreeKey: "/tmp/repo"))
+  }
+
+  @Test(.dependencies) func hydrationRestoresTheActiveTaskOfEachDirectory() async {
+    let minted = LayoutID(task: UUID())
+    let elsewhere = LayoutID(task: UUID())
+    let file = Self.file(
+      [Self.task(minted, on: "/tmp/repo"), Self.task(elsewhere, on: "/tmp/elsewhere")],
+      activeTasks: [
+        "/tmp/repo": minted.persistenceKey,
+        // Neither a task that is gone nor one on another directory is served.
+        "/tmp/gone": "no-such-task",
+        "/tmp/wrong": elsewhere.persistenceKey,
+      ])
+    let (store, reported) = makeResolverStore()
+    await store.send(.layoutsHydrated(file))
+    await store.finish()
+    #expect(store.state.activeTasks == ["/tmp/repo": minted])
+    #expect(reported.value.isEmpty)
+  }
+
+  @Test(.dependencies) func aLayoutAttachedAfterItsSelectionBecomesItsDirectorysActiveTask() async {
+    let minted = LayoutID(task: UUID())
+    let directory = TaskRecord.Directory(worktreeID: "/tmp/repo")
+    let (store, reported) = makeResolverStore()
+    // The selection lands first; the host that names the directory follows.
+    await store.send(.selectedLayoutChanged(minted))
+    #expect(store.state.activeTasks.isEmpty)
+    await store.send(.attachLayout(worktreeID: minted, directory: directory, titlePrefix: "repo"))
+    await store.finish()
+    #expect(store.state.directories == [minted: directory])
+    #expect(store.state.layoutID(forDirectory: "/tmp/repo") == minted)
+    #expect(reported.value == ["/tmp/repo=\(minted)"])
+  }
+
+  @Test(.dependencies) func attachNeverReplacesAHydratedTasksDirectory() async {
+    let minted = LayoutID(task: UUID())
+    let file = Self.file([Self.task(minted, on: "/tmp/recorded")])
+    let (store, _) = makeResolverStore()
+    await store.send(.layoutsHydrated(file))
+    await store.send(
+      .attachLayout(
+        worktreeID: minted, directory: TaskRecord.Directory(worktreeID: "/tmp/other"), titlePrefix: "other"))
+    #expect(store.state.directories[minted]?.worktreeID == "/tmp/recorded")
+  }
 }

@@ -6,6 +6,9 @@ import SupacodeSettingsShared
 /// projection, dormant watchers); the integration layer injects the live hook.
 nonisolated struct LayoutChangeObserver: Sendable {
   var layoutChanged: @MainActor @Sendable (LayoutID) -> Void
+  /// A directory now resolves to another task; `nil` means the task stored
+  /// under the directory's own key.
+  var activeTaskChanged: @MainActor @Sendable (Worktree.ID, LayoutID?) -> Void = { _, _ in }
 }
 
 extension LayoutChangeObserver: DependencyKey {
@@ -41,8 +44,12 @@ struct TerminalsFeature {
   struct State: Equatable {
     /// Per-task pane and tab topology, hydrated from the persisted layouts.
     var layouts: IdentifiedArrayOf<LayoutFeature.State> = []
-    /// Each hydrated layout's directory, as its task record names it.
+    /// Each layout's directory: a hydrated one's as its task record names
+    /// it, any other's as its host was created with.
     var directories: [LayoutID: TaskRecord.Directory] = [:]
+    /// Each directory's most recently selected task. A directory with no
+    /// entry resolves to the layout stored under its own key.
+    var activeTasks: [Worktree.ID: LayoutID] = [:]
     /// True when the persisted file was written by a newer schema; its records
     /// are served but must never be written back.
     var layoutsAreReadOnly = false
@@ -73,7 +80,7 @@ struct TerminalsFeature {
     case layoutsHydrated(TaskLayoutsFile)
     /// Ensures a layout exists for a worktree and carries its display name for
     /// minted tab titles. Never replaces a live layout.
-    case attachLayout(worktreeID: LayoutID, titlePrefix: String)
+    case attachLayout(worktreeID: LayoutID, directory: TaskRecord.Directory, titlePrefix: String)
     /// Replaces a not-yet-hosted launch restore after bare-shell pruning.
     case replaceRestoredLayout(worktreeID: LayoutID, layout: PaneLayout)
     /// Drops a pruned worktree's layout and bookkeeping.
@@ -138,12 +145,16 @@ struct TerminalsFeature {
         }
         .cancellable(id: CancelID.memoryPressure, cancelInFlight: true)
 
-      case .attachLayout(let worktreeID, let titlePrefix):
+      case .attachLayout(let worktreeID, let directory, let titlePrefix):
         if state.layouts[id: worktreeID] == nil {
           state.layouts.append(LayoutFeature.State(id: worktreeID, layout: PaneLayout()))
         }
         state.layouts[id: worktreeID]?.titlePrefix = titlePrefix
-        return .none
+        guard state.directories[worktreeID] == nil else { return .none }
+        state.directories[worktreeID] = directory
+        // The selection can land before the host that names the directory.
+        guard state.selectedLayoutID == worktreeID else { return .none }
+        return recordActiveTask(worktreeID, in: &state)
 
       case .replaceRestoredLayout(let worktreeID, let layout):
         guard state.layouts[id: worktreeID] != nil else { return .none }
@@ -155,13 +166,15 @@ struct TerminalsFeature {
         // the armed entries to emit their timer cancellations.
         state.layouts.remove(id: worktreeID)
         state.directories.removeValue(forKey: worktreeID)
+        state.activeTasks = state.activeTasks.filter { $0.value != worktreeID }
         state.recentLayoutIDs.removeAll { $0 == worktreeID }
         return reconcileHibernation(&state)
 
       case .selectedLayoutChanged(let layoutID):
         state.selectedLayoutID = layoutID
         Self.recordSelection(layoutID, in: &state.recentLayoutIDs)
-        return reconcileHibernation(&state)
+        let activeTask = layoutID.map { recordActiveTask($0, in: &state) } ?? .none
+        return .merge(reconcileHibernation(&state), activeTask)
 
       case .hibernationPolicyChanged:
         return reconcileHibernation(&state)
@@ -196,14 +209,58 @@ struct TerminalsFeature {
           seenContentIDs.formUnion(contentIDs)
           seenTabIDs.formUnion(tabIDs)
         }
-        // Hydration can land after the first selection; re-diff so the
-        // restored hidden tabs arm and the visible selection wakes.
-        return reconcileHibernation(&state)
+        for (directory, key) in file.activeTasks {
+          let directoryID = Worktree.ID(directory)
+          guard let id = file.tasks[key]?.id, state.directories[id]?.worktreeID == directoryID,
+            state.activeTasks[directoryID] == nil
+          else { continue }
+          state.activeTasks[directoryID] = id
+        }
+        // Hydration can land after the first selection, which is more recent
+        // than anything stored; re-diff so the restored hidden tabs arm and
+        // the visible selection wakes.
+        let activeTask = state.selectedLayoutID.map { recordActiveTask($0, in: &state) } ?? .none
+        return .merge(reconcileHibernation(&state), activeTask)
       }
     }
     .forEach(\.layouts, action: \.layouts) {
       LayoutFeature()
     }
+  }
+}
+
+// MARK: - Directory resolution.
+
+extension TerminalsFeature.State {
+  /// The layout a directory resolves to: its most recently selected task, or
+  /// the layout stored under the directory's own key when none was recorded.
+  func layoutID(forDirectory directoryID: Worktree.ID) -> LayoutID {
+    activeTasks[directoryID] ?? Self.ownKeyLayoutID(forDirectory: directoryID)
+  }
+
+  /// The layout stored under the directory's own key: the one task every
+  /// directory had before tasks, and where a first tab still lands.
+  static func ownKeyLayoutID(forDirectory directoryID: Worktree.ID) -> LayoutID {
+    LayoutID(legacyWorktreeKey: directoryID.rawValue)
+  }
+
+  /// Every layout on a directory, in key order.
+  func layoutIDs(onDirectory directoryID: Worktree.ID) -> [LayoutID] {
+    directories.filter { $0.value.worktreeID == directoryID }.map(\.key)
+      .sorted { $0.persistenceKey < $1.persistenceKey }
+  }
+}
+
+extension TerminalsFeature {
+  /// Makes `layoutID` the task its directory resolves to. Storing nothing for
+  /// the directory's own-key layout keeps a one-task directory out of the map,
+  /// so selecting it never writes.
+  private func recordActiveTask(_ layoutID: LayoutID, in state: inout State) -> Effect<Action> {
+    guard let directoryID = state.directories[layoutID]?.worktreeID else { return .none }
+    let active: LayoutID? = layoutID == State.ownKeyLayoutID(forDirectory: directoryID) ? nil : layoutID
+    guard state.activeTasks[directoryID] != active else { return .none }
+    state.activeTasks[directoryID] = active
+    return .run { _ in await layoutChangeObserver.activeTaskChanged(directoryID, active) }
   }
 }
 

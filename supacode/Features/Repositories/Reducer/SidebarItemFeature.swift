@@ -332,6 +332,25 @@ struct WorktreeRowProjection: Equatable, Sendable {
   var runningScripts: IdentifiedArrayOf<SidebarItemFeature.State.RunningScript> = []
   /// True when every tab in the worktree is hibernated. Drives the sidebar sleep marker.
   var allTabsDormant: Bool = false
+
+  /// One row's view of several tasks on its directory; `nil` for none. A
+  /// single projection passes through untouched.
+  static func merged(_ projections: [WorktreeRowProjection]) -> WorktreeRowProjection? {
+    guard projections.count > 1 else { return projections.first }
+    let notifications = projections.flatMap(\.notifications).sorted { $0.createdAt > $1.createdAt }
+    let withTabs = projections.filter { !$0.surfaceIDs.isEmpty }
+    return WorktreeRowProjection(
+      surfaceIDs: projections.flatMap(\.surfaceIDs),
+      isProgressBusy: projections.contains(where: \.isProgressBusy),
+      hasUnseenNotifications: projections.contains(where: \.hasUnseenNotifications),
+      notifications: IdentifiedArray(notifications, uniquingIDsWith: { first, _ in first }),
+      unseenSurfaces: projections.flatMap(\.unseenSurfaces).sorted { $0.id.uuidString < $1.id.uuidString },
+      runningScripts: IdentifiedArray(
+        projections.flatMap(\.runningScripts).sorted { $0.id.uuidString < $1.id.uuidString },
+        uniquingIDsWith: { first, _ in first }),
+      allTabsDormant: !withTabs.isEmpty && withTabs.allSatisfy(\.allTabsDormant)
+    )
+  }
 }
 
 /// A surface with outstanding unread notifications. `count` counts unread

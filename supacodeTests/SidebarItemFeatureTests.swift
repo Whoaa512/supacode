@@ -558,4 +558,45 @@ struct SidebarItemFeatureTests {
       allTabsDormant: allTabsDormant
     )
   }
+
+  // MARK: - Several tasks on one directory.
+
+  @Test func oneTasksProjectionPassesThroughUntouched() {
+    let projection = WorktreeRowProjection(
+      surfaceIDs: [UUID()], isProgressBusy: true, hasUnseenNotifications: false, notifications: [],
+      allTabsDormant: true)
+    #expect(WorktreeRowProjection.merged([projection]) == projection)
+    #expect(WorktreeRowProjection.merged([]) == nil)
+  }
+
+  @Test func aDirectoryRowMergesEveryTasksProjection() throws {
+    let older = WorktreeTerminalNotification(
+      surfaceID: UUID(), title: "older", body: "", createdAt: Date(timeIntervalSince1970: 1), isRead: true)
+    let newer = WorktreeTerminalNotification(
+      surfaceID: UUID(), title: "newer", body: "", createdAt: Date(timeIntervalSince1970: 2), isRead: false)
+    let script = SidebarItemFeature.State.RunningScript(id: UUID(), tint: .purple)
+    let firstSurface = UUID()
+    let secondSurface = UUID()
+    let first = WorktreeRowProjection(
+      surfaceIDs: [firstSurface], isProgressBusy: false, hasUnseenNotifications: false,
+      notifications: [older], runningScripts: [script], allTabsDormant: true)
+    let second = WorktreeRowProjection(
+      surfaceIDs: [secondSurface], isProgressBusy: true, hasUnseenNotifications: true,
+      notifications: [newer], unseenSurfaces: [WorktreeUnseenSurface(id: secondSurface, count: 2)],
+      runningScripts: [script], allTabsDormant: false)
+
+    let merged = try #require(WorktreeRowProjection.merged([first, second]))
+
+    #expect(merged.surfaceIDs == [firstSurface, secondSurface])
+    #expect(merged.isProgressBusy)
+    #expect(merged.hasUnseenNotifications)
+    #expect(merged.notifications.map(\.title) == ["newer", "older"])
+    #expect(merged.unseenSurfaces == [WorktreeUnseenSurface(id: secondSurface, count: 2)])
+    #expect(merged.runningScripts == [script])
+    // Asleep only when every task that has tabs is.
+    #expect(!merged.allTabsDormant)
+    let empty = WorktreeRowProjection(
+      surfaceIDs: [], isProgressBusy: false, hasUnseenNotifications: false, notifications: [])
+    #expect(WorktreeRowProjection.merged([first, empty])?.allTabsDormant == true)
+  }
 }

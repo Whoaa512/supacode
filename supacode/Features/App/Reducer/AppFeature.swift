@@ -649,7 +649,7 @@ struct AppFeature {
         // A freshly created worktree emits `selectedWorktreeChanged` before
         // `worktreeCreated`, so this bootstrap can create the tab first; carry
         // the same setup-script intent or the later, setup-aware call finds the
-        // tab already made and `enableSetupScriptIfNeeded` refuses to re-arm it.
+        // tab already made and the manager refuses to re-arm a directory that has tabs.
         let runSetupScriptIfNew =
           state.repositories.sidebarItems[id: worktree.id]?.lifecycle == .pending
         // `shouldFocusTerminal` may already be armed before this delegate fires
@@ -695,6 +695,11 @@ struct AppFeature {
       case .repositories(.delegate(.repositoriesChanged(let repositories))):
         RepositoriesFeature.syncSidebar(&state.repositories)
         let archivedIDs = state.repositories.archivedWorktreeIDSet
+        // Directories, not layouts: every task on a kept directory stays. A
+        // task whose directory is no known worktree (deleted outside the app,
+        // its repository removed or not loaded) is never pruned; only an
+        // archived directory's tasks are.
+        let knownDirectories = Set(state.repositories.sidebarItems.ids)
         let allowed = Set(
           state.repositories.sidebarItems
             .filter { item in
@@ -702,6 +707,7 @@ struct AppFeature {
             }
             .map(\.id)
         )
+        .union(state.terminals.directories.values.map(\.worktreeID).filter { !knownDirectories.contains($0) })
         let recencyIDs = CommandPaletteFeature.recencyRetentionIDs(
           from: repositories,
           scripts: state.allScripts
@@ -4349,7 +4355,7 @@ struct AppFeature {
 extension AppFeature.State {
   /// The single app-layer seam for "which layout does this worktree mean".
   func layoutID(forDirectory worktreeID: Worktree.ID) -> LayoutID {
-    LayoutID(legacyWorktreeKey: worktreeID.rawValue)
+    terminals.layoutID(forDirectory: worktreeID)
   }
 
   /// The persisted layout of the task the seam resolves this directory to.

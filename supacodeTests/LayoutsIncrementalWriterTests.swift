@@ -237,6 +237,56 @@ struct LayoutsIncrementalWriterTests {
     #expect(readFile(defaults)?.tasks.isEmpty == true)
   }
 
+  @Test func activeTaskIsStoredPerDirectoryAndClearedByNil() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let minted = LayoutID(task: UUID())
+    await writer.flush(records: [minted: record("/w1"), "/w1": record("/w1")])
+
+    await writer.flush(activeTask: minted, forDirectory: "/w1")
+    #expect(readFile(defaults)?.activeTasks == ["/w1": minted.persistenceKey])
+    // Records are untouched by a selection write.
+    #expect(readFile(defaults)?.tasks.count == 2)
+
+    await writer.flush(activeTask: nil, forDirectory: "/w1")
+    #expect(readFile(defaults)?.activeTasks.isEmpty == true)
+  }
+
+  @Test func deletingATaskDropsTheDirectoryEntryThatNamesIt() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let minted = LayoutID(task: UUID())
+    let other = LayoutID(task: UUID())
+    await writer.flush(records: [minted: record("/w1"), other: record("/w2")])
+    await writer.flush(activeTask: minted, forDirectory: "/w1")
+    await writer.flush(activeTask: other, forDirectory: "/w2")
+
+    await writer.flush(records: [minted: .delete])
+
+    #expect(readFile(defaults)?.activeTasks == ["/w2": other.persistenceKey])
+  }
+
+  @Test func activeTaskFlushSkipsNewerSchema() async throws {
+    let defaults = makeDefaults()
+    let newer = try JSONEncoder().encode(
+      TaskLayoutsFile(schemaVersion: TaskLayoutsFile.currentSchemaVersion + 1))
+    defaults.set(newer, forKey: LayoutsFile.userDefaultsKey)
+
+    await makeWriter(defaults).flush(activeTask: LayoutID(task: UUID()), forDirectory: "/w1")
+
+    #expect(defaults.data(forKey: LayoutsFile.userDefaultsKey) == newer)
+  }
+
+  @Test func aFileWithoutActiveTasksEncodesAsBefore() throws {
+    // No directory has a recorded task until a second one exists, so today's
+    // stores keep their exact bytes.
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    let json = try #require(String(data: encoder.encode(TaskLayoutsFile()), encoding: .utf8))
+    #expect(!json.contains("activeTasks"))
+    #expect(try JSONDecoder().decode(TaskLayoutsFile.self, from: Data(json.utf8)).activeTasks.isEmpty)
+  }
+
   @Test func recordFlushSkipsNewerSchema() async throws {
     let defaults = makeDefaults()
     let newer = try JSONEncoder().encode(

@@ -559,8 +559,7 @@ struct ZmxDormantWatcherRegistryTests {
     let host = WorktreeContentHost(
       context: DirectoryContext(worktree: makeWorktree()),
       runtime: runtime,
-      clock: ContinuousClock(),
-      runSetupScript: false
+      clock: ContinuousClock()
     )
     host.layout = { layout }
     return host

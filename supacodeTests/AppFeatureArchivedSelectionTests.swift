@@ -127,6 +127,78 @@ struct AppFeatureArchivedSelectionTests {
     )
   }
 
+  @Test(.dependencies) func repositoriesChangedKeepsOrphanTasksAndFeedsTheWatcherOncePerWorktree() async {
+    let rootURL = URL(fileURLWithPath: "/tmp/repo")
+    let activeWorktree = Worktree(
+      id: "/tmp/repo/wt-active",
+      name: "wt-active",
+      detail: "",
+      workingDirectory: URL(fileURLWithPath: "/tmp/repo/wt-active"),
+      repositoryRootURL: rootURL
+    )
+    let archivedWorktree = Worktree(
+      id: "/tmp/repo/wt-archived",
+      name: "wt-archived",
+      detail: "",
+      workingDirectory: URL(fileURLWithPath: "/tmp/repo/wt-archived"),
+      repositoryRootURL: rootURL
+    )
+    let repository = Repository(
+      id: RepositoryID(rootURL.path(percentEncoded: false)),
+      rootURL: rootURL,
+      name: "repo",
+      worktrees: IdentifiedArray(uniqueElements: [activeWorktree, archivedWorktree])
+    )
+    var repositoriesState = RepositoriesFeature.State(reconciledRepositories: [repository])
+    repositoriesState.$sidebar.withLock { sidebar in
+      sidebar.insert(
+        worktree: archivedWorktree.id,
+        in: repository.id,
+        bucket: .archived,
+        item: .init(archivedAt: Date(timeIntervalSince1970: 1_000_000))
+      )
+    }
+    var appState = AppFeature.State(
+      repositories: repositoriesState,
+      settings: SettingsFeature.State()
+    )
+    let watcherInputWithoutTasks = appState.repositories.worktreesForInfoWatcher()
+    // Two tasks share the active worktree, one sits on the archived one, and
+    // one names a directory no worktree matches.
+    let orphanDirectory: Worktree.ID = "/tmp/gone"
+    appState.terminals.directories = [
+      LayoutID(task: UUID()): TaskRecord.Directory(worktreeID: activeWorktree.id),
+      LayoutID(task: UUID()): TaskRecord.Directory(worktreeID: activeWorktree.id),
+      LayoutID(task: UUID()): TaskRecord.Directory(worktreeID: archivedWorktree.id),
+      LayoutID(task: UUID()): TaskRecord.Directory(worktreeID: orphanDirectory),
+    ]
+    let sentCommands = LockIsolated<[TerminalClient.Command]>([])
+    let watcherCommands = LockIsolated<[WorktreeInfoWatcherClient.Command]>([])
+    let store = TestStore(initialState: appState) {
+      AppFeature()
+    } withDependencies: {
+      $0.terminalClient.send = { command in
+        sentCommands.withValue { $0.append(command) }
+      }
+      $0.worktreeInfoWatcher.send = { command in
+        watcherCommands.withValue { $0.append(command) }
+      }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.repositories(.delegate(.repositoriesChanged([repository]))))
+    await store.finish()
+
+    // The archived directory alone is pruned: the orphan is always kept.
+    #expect(
+      sentCommands.value == [
+        .prune(keepingDirectories: [activeWorktree.id, orphanDirectory], protectingRepositoryIDs: [])
+      ]
+    )
+    #expect(watcherCommands.value == [.setWorktrees(watcherInputWithoutTasks)])
+    #expect(watcherInputWithoutTasks.filter { $0.id == activeWorktree.id }.count == 1)
+  }
+
   @Test(.dependencies) func repositoriesChangedProtectsFailedRepositoriesDuringTerminalPrune() async {
     var repositoriesState = RepositoriesFeature.State()
     let failedRepositoryID = RepositoryID("/tmp/repo")

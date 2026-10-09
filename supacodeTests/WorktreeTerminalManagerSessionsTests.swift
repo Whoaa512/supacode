@@ -56,8 +56,7 @@ struct WorktreeTerminalManagerSessionsTests {
     let host = WorktreeContentHost(
       context: DirectoryContext(worktree: worktree),
       runtime: ContentRuntime(),
-      clock: ImmediateClock(),
-      runSetupScript: false
+      clock: ImmediateClock()
     )
     let accepted = UUID()
     let cancelled = UUID()
@@ -83,7 +82,7 @@ struct WorktreeTerminalManagerSessionsTests {
     )
     let host = WorktreeContentHost(
       context: DirectoryContext(worktree: worktree), runtime: ContentRuntime(),
-      clock: ImmediateClock(), runSetupScript: false
+      clock: ImmediateClock()
     )
     let surfaceID = UUID()
     var userClosed: [Set<UUID>] = []
@@ -103,7 +102,7 @@ struct WorktreeTerminalManagerSessionsTests {
     )
     let host = WorktreeContentHost(
       context: DirectoryContext(worktree: worktree), runtime: ContentRuntime(),
-      clock: ImmediateClock(), runSetupScript: false
+      clock: ImmediateClock()
     )
     let surfaceID = UUID()
     var userClosed: [Set<UUID>] = []
@@ -127,7 +126,7 @@ struct WorktreeTerminalManagerSessionsTests {
     )
     let host = WorktreeContentHost(
       context: DirectoryContext(worktree: worktree), runtime: ContentRuntime(),
-      clock: ImmediateClock(), runSetupScript: false
+      clock: ImmediateClock()
     )
     let surfaceID = UUID()
     var userClosed: [Set<UUID>] = []
@@ -148,7 +147,7 @@ struct WorktreeTerminalManagerSessionsTests {
     let contentRuntime = ContentRuntime()
     let host = WorktreeContentHost(
       context: DirectoryContext(worktree: worktree), runtime: contentRuntime,
-      clock: ImmediateClock(), runSetupScript: false
+      clock: ImmediateClock()
     )
     var capturedActions: [LayoutFeature.Action] = []
     host.sendLayoutAction = { capturedActions.append($0) }
@@ -189,7 +188,7 @@ struct WorktreeTerminalManagerSessionsTests {
     let contentRuntime = ContentRuntime()
     let host = WorktreeContentHost(
       context: DirectoryContext(worktree: worktree), runtime: contentRuntime,
-      clock: ImmediateClock(), runSetupScript: false
+      clock: ImmediateClock()
     )
     host.sendLayoutAction = { _ in }
     host.onSurfacesClosed = { _ in }

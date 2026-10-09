@@ -40,7 +40,10 @@ final class WorktreeTerminalManager {
   private var lastEmittedHasAnyTerminalSurface: Bool?
   /// Per-worktree dedup of `worktreeProjectionChanged`; identical projections
   /// (common on hook storms) are dropped before they hit the AsyncStream.
-  private var lastEmittedProjections: [LayoutID: WorktreeRowProjection] = [:]
+  private var lastEmittedProjections: [Worktree.ID: WorktreeRowProjection] = [:]
+  /// Directories whose setup script has yet to run. Per directory, not per
+  /// layout, so a second task on a directory never runs it again.
+  private var pendingSetupScriptDirectories: Set<Worktree.ID> = []
   private var eventContinuation: AsyncStream<TerminalClient.Event>.Continuation?
   private var pendingEvents: [TerminalClient.Event] = []
   /// Latest-wins events deduped by identity: drops a value equal to the
@@ -50,7 +53,7 @@ final class WorktreeTerminalManager {
   private var lastEmittedCoalescable: [CoalesceKey: TerminalClient.Event] = [:]
   /// Worktrees whose projection was shed under backpressure, awaiting next-tick
   /// redelivery. Coalesced so a shed storm replays each id at most once per tick.
-  private var pendingShedProjectionReplays: Set<LayoutID> = []
+  private var pendingShedProjectionReplays: Set<Worktree.ID> = []
   /// True while a replay drain is emitting, so a replay that itself sheds can't
   /// schedule another and spin the buffer.
   private var isDrainingShedProjectionReplays = false
@@ -706,7 +709,7 @@ final class WorktreeTerminalManager {
     // Seed each worktree's projection so rows attached after the stream start
     // pick up the current snapshot (otherwise they'd stay default until the
     // next mutation).
-    for id in hosts.keys { emitProjection(for: id) }
+    for directoryID in Set(hosts.values.map(\.worktreeID)) { emitProjection(forDirectory: directoryID) }
     return stream
   }
 
@@ -758,20 +761,27 @@ final class WorktreeTerminalManager {
     }
     // Unconditional: attach is idempotent and a hydrated layout still needs
     // its minted-title prefix stamped.
-    sendTerminals(.attachLayout(worktreeID: layoutID, titlePrefix: context.name))
+    sendTerminals(
+      .attachLayout(
+        worktreeID: layoutID,
+        directory: TaskRecord.Directory(worktreeID: context.worktreeID, host: context.host),
+        titlePrefix: context.name))
     if let existing = hosts[layoutID] {
       if runSetupScriptIfNew() {
-        existing.enableSetupScriptIfNeeded()
+        armSetupScriptIfNeeded(forDirectory: existing.worktreeID, ignoring: nil)
       }
       return existing
     }
     let host = WorktreeContentHost(
       context: context,
       runtime: ContentRuntime.liveValue,
-      clock: clock,
-      runSetupScript: runSetupScriptIfNew()
+      clock: clock
     )
     let directoryID = context.worktreeID
+    if runSetupScriptIfNew() {
+      // A new host arms whatever its own layout holds, as it always has.
+      armSetupScriptIfNeeded(forDirectory: directoryID, ignoring: layoutID)
+    }
     host.socketPath = socketServer?.socketPath
     host.notificationsEnabled = notificationsEnabled
     host.layout = { [weak self] in self?.layoutState(for: layoutID)?.layout }
@@ -831,8 +841,8 @@ final class WorktreeTerminalManager {
     host.onFocusedSurfaceColorChanged = { [weak self] in
       self?.refreshFocusedSurfaceBackground()
     }
-    host.onRunStatusChanged = { [weak self] status in
-      self?.emit(.runStatusChanged(worktreeID: directoryID, status: status))
+    host.onRunStatusChanged = { [weak self] _ in
+      self?.emitRunStatus(forDirectory: directoryID)
       self?.emitProjection(for: layoutID)
     }
     host.onBlockingScriptCompleted = { [weak self] kind, exitCode, tabId in
@@ -845,9 +855,6 @@ final class WorktreeTerminalManager {
     }
     host.onCommandPaletteToggle = { [weak self] in
       self?.emit(.commandPaletteToggleRequested(layoutID: layoutID, worktreeID: directoryID))
-    }
-    host.onSetupScriptConsumed = { [weak self] in
-      self?.emit(.setupScriptConsumed(layoutID: layoutID))
     }
     hosts[layoutID] = host
     // Seed the lifecycle baseline from the hydrated layout, or the first
@@ -1046,7 +1053,7 @@ final class WorktreeTerminalManager {
       emitTabCreationFailure(for: layoutID, context: context, attemptedID: mintedID, isInitialTab: isInitialTab)
       return
     }
-    let setupInput = consumeSetupScriptInput(for: layoutID, context: context, host: host)
+    let setupInput = consumeSetupScriptInput(for: layoutID, context: context)
     // Route the user command through the terminator too; #786 joined it raw, so it sat unterminated at the prompt.
     let combinedInput = BlockingScriptRunner.combinedInitialInput(setupInput: setupInput, command: initialInput)
     let launch: LaunchOverride? = combinedInput.map { LaunchOverride(initialInput: $0) }
@@ -1185,19 +1192,24 @@ final class WorktreeTerminalManager {
     return maxIndex + 1
   }
 
-  /// Resolves and consumes the pending setup script, if any.
-  private func consumeSetupScriptInput(for layoutID: LayoutID, context: DirectoryContext, host: WorktreeContentHost)
-    -> String?
-  {
-    guard host.needsSetupScript() else { return nil }
+  /// Arms the directory's setup script while none of its layouts holds a tab,
+  /// so only the directory's first task ever runs it. Idempotent when armed.
+  private func armSetupScriptIfNeeded(forDirectory directoryID: Worktree.ID, ignoring ignored: LayoutID?) {
+    let hasTabs = layoutIDs(onDirectory: directoryID).contains { layoutID in
+      layoutID != ignored && layoutState(for: layoutID)?.layout.panes.isEmpty == false
+    }
+    guard !hasTabs else { return }
+    pendingSetupScriptDirectories.insert(directoryID)
+  }
+
+  /// Resolves and consumes the directory's pending setup script, if any.
+  private func consumeSetupScriptInput(for layoutID: LayoutID, context: DirectoryContext) -> String? {
+    guard pendingSetupScriptDirectories.remove(context.worktreeID) != nil else { return nil }
     @SharedReader(.repositorySettings(context.repositoryRootURL, host: context.host))
     var settings = RepositorySettings.default
     let script = settings.setupScript
-    guard !script.isEmpty else {
-      host.markSetupScriptSkipped()
-      return nil
-    }
-    guard host.consumeSetupScript() else { return nil }
+    guard !script.isEmpty else { return nil }
+    emit(.setupScriptConsumed(layoutID: layoutID))
     return BlockingScriptRunner.makeCommandInput(script: script)
   }
 
@@ -1573,19 +1585,32 @@ final class WorktreeTerminalManager {
   /// never selected has none). Roster prune cannot do this, since a hostless
   /// layout could also belong to a repository that merely failed to load.
   func removeLayouts(forDirectory directoryID: Worktree.ID, remoteHost: RemoteHost?) {
-    var layoutIDs = layoutIDs(hostedOn: directoryID)
-    // A hostless layout carries no directory, so it is found through the
-    // seam; a host under that id has already answered.
-    if let resolved = layoutID(forDirectory: directoryID), hosts[resolved] == nil {
+    var layoutIDs = layoutIDs(onDirectory: directoryID)
+    // A hostless layout that names no directory is found through the seam; a
+    // host under that id has already answered.
+    if let resolved = layoutID(forDirectory: directoryID), hosts[resolved] == nil, !layoutIDs.contains(resolved) {
       layoutIDs.append(resolved)
     }
     for layoutID in layoutIDs {
       removeLayout(layoutID, directoryID: directoryID, remoteHost: remoteHost)
     }
+    pendingSetupScriptDirectories.remove(directoryID)
   }
 
   private func layoutIDs(hostedOn directoryID: Worktree.ID) -> [LayoutID] {
     hosts.filter { $0.value.worktreeID == directoryID }.map(\.key)
+      .sorted { $0.persistenceKey < $1.persistenceKey }
+  }
+
+  /// Every task on a directory: the hosted ones, and the hydrated ones whose
+  /// record names it (a task the user never opened has no host).
+  private func layoutIDs(onDirectory directoryID: Worktree.ID) -> [LayoutID] {
+    var layoutIDs = layoutIDs(hostedOn: directoryID)
+    let recorded = appStore?.withState { $0.terminals.layoutIDs(onDirectory: directoryID) } ?? []
+    for layoutID in recorded where hosts[layoutID] == nil {
+      layoutIDs.append(layoutID)
+    }
+    return layoutIDs
   }
 
   private func removeLayout(_ layoutID: LayoutID, directoryID: Worktree.ID, remoteHost: RemoteHost?) {
@@ -1670,6 +1695,7 @@ final class WorktreeTerminalManager {
       terminalLogger.info("Pruned \(removed.count) terminal host(s)")
     }
     hosts = hosts.filter { shouldKeep($0.value) }
+    pendingSetupScriptDirectories.subtract(removed.map(\.1.worktreeID))
     cancelPendingIdleHooks(forSurfaceIDs: prunedSurfaceIDs)
     for (id, host) in removed { invalidateCaches(forPrunedLayout: id, directoryID: host.worktreeID) }
     emitNotificationIndicatorCountIfNeeded()
@@ -1733,6 +1759,14 @@ final class WorktreeTerminalManager {
       self.layoutFlushTasks[worktreeID] = nil
     }
     layoutFlushTasks[worktreeID] = (generation, task)
+  }
+
+  /// Persists which task a directory resolves to, so a relaunch reopens the
+  /// one last selected. Queued behind any record flush already in flight.
+  func handleActiveTaskChanged(directoryID: Worktree.ID, layoutID: LayoutID?) {
+    guard appStore?.withState({ $0.terminals.layoutsAreReadOnly }) != true else { return }
+    let writer = layoutsWriter
+    Task { await writer.flush(activeTask: layoutID, forDirectory: directoryID) }
   }
 
   /// An empty layout clears the key; anything else upserts the task. The
@@ -2496,7 +2530,7 @@ final class WorktreeTerminalManager {
     // buffer would loop and evict live events every tick (#573).
     guard !isDrainingShedProjectionReplays else { return }
     let wasIdle = pendingShedProjectionReplays.isEmpty
-    pendingShedProjectionReplays.formUnion(layoutIDs(hostedOn: worktreeID))
+    pendingShedProjectionReplays.insert(worktreeID)
     guard wasIdle else { return }
     Task { @MainActor [weak self] in self?.drainShedProjectionReplays() }
   }
@@ -2507,7 +2541,7 @@ final class WorktreeTerminalManager {
     isDrainingShedProjectionReplays = true
     defer { isDrainingShedProjectionReplays = false }
     for id in ids {
-      emitProjection(for: id)
+      emitProjection(forDirectory: id)
     }
   }
 
@@ -2518,9 +2552,7 @@ final class WorktreeTerminalManager {
     lastEmittedCoalescable.removeValue(forKey: key)
     switch shed {
     case .worktreeProjectionChanged(let worktreeID, _):
-      for layoutID in layoutIDs(hostedOn: worktreeID) {
-        lastEmittedProjections.removeValue(forKey: layoutID)
-      }
+      lastEmittedProjections.removeValue(forKey: worktreeID)
     case .notificationIndicatorChanged:
       lastNotificationIndicatorCount = nil
     case .terminalHasAnySurfaceChanged(let hasAny):
@@ -2570,11 +2602,17 @@ final class WorktreeTerminalManager {
   /// Clears the worktree-keyed lastEmittedProjections during prune; emit's purge has
   /// already cleared the coalesce keys, which this re-clears as a guard against drift.
   private func invalidateCaches(forPrunedLayout id: LayoutID, directoryID: Worktree.ID) {
-    lastEmittedProjections.removeValue(forKey: id)
-    pendingShedProjectionReplays.remove(id)
+    lastEmittedProjections.removeValue(forKey: directoryID)
+    pendingShedProjectionReplays.remove(directoryID)
     for key in Self.invalidatedCoalesceKeys(by: .worktreeStateTornDown(worktreeID: directoryID, layoutID: id)) {
       lastEmittedCoalescable.removeValue(forKey: key)
     }
+  }
+
+  /// A directory is running while any of its tasks is.
+  private func emitRunStatus(forDirectory directoryID: Worktree.ID) {
+    let isRunning = hosts.values.contains { $0.worktreeID == directoryID && $0.runStatus == .running }
+    emit(.runStatusChanged(worktreeID: directoryID, status: isRunning ? .running : .idle))
   }
 
   private func emitNotificationIndicatorCountIfNeeded() {
@@ -2617,7 +2655,7 @@ final class WorktreeTerminalManager {
   /// when the projection value is unchanged (#573).
   private func forceEmitProjection(for id: LayoutID) {
     guard let host = hosts[id] else { return }
-    lastEmittedProjections.removeValue(forKey: id)
+    lastEmittedProjections.removeValue(forKey: host.worktreeID)
     lastEmittedCoalescable.removeValue(forKey: .worktreeProjection(host.worktreeID))
     emitProjection(for: id)
   }
@@ -2628,12 +2666,19 @@ final class WorktreeTerminalManager {
   /// Skipped while no subscriber is attached so projections never accumulate in
   /// `pendingEvents` (the row reads its initial snapshot from the next live emit).
   private func emitProjection(for layoutID: LayoutID) {
-    guard eventContinuation != nil else { return }
     guard let host = hosts[layoutID] else { return }
-    let projection = host.currentProjection()
-    guard lastEmittedProjections[layoutID] != projection else { return }
-    lastEmittedProjections[layoutID] = projection
-    emit(.worktreeProjectionChanged(host.worktreeID, projection))
+    emitProjection(forDirectory: host.worktreeID)
+  }
+
+  /// The worktree row shows its directory, so its projection covers every
+  /// task there: one task changing must not blank what another contributes.
+  private func emitProjection(forDirectory directoryID: Worktree.ID) {
+    guard eventContinuation != nil else { return }
+    let projections = layoutIDs(hostedOn: directoryID).compactMap { hosts[$0]?.currentProjection() }
+    guard let projection = WorktreeRowProjection.merged(projections) else { return }
+    guard lastEmittedProjections[directoryID] != projection else { return }
+    lastEmittedProjections[directoryID] = projection
+    emit(.worktreeProjectionChanged(directoryID, projection))
     // hasAny can only flip when this worktree's surface set actually changed,
     // which `projectionChanged` already implies.
     emitHasAnyTerminalSurfaceIfNeeded()

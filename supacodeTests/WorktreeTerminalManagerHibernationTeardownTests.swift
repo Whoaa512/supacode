@@ -27,8 +27,7 @@ struct HibernationTeardownTests {
     let host = WorktreeContentHost(
       context: DirectoryContext(worktree: worktree),
       runtime: contentRuntime,
-      clock: TestClock(),
-      runSetupScript: false
+      clock: TestClock()
     )
     var hibernated: Set<UUID>?
     var dormancyChanged = false

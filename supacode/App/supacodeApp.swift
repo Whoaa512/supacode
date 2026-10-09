@@ -267,6 +267,9 @@ struct SupacodeApp: App {
       values[LayoutChangeObserver.self] = LayoutChangeObserver(
         layoutChanged: { worktreeID in
           terminalManager.handleLayoutChanged(for: worktreeID)
+        },
+        activeTaskChanged: { directoryID, layoutID in
+          terminalManager.handleActiveTaskChanged(directoryID: directoryID, layoutID: layoutID)
         }
       )
       values.terminalClient = makeTerminalClient(terminalManager: terminalManager)

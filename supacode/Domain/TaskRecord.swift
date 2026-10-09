@@ -49,6 +49,9 @@ nonisolated struct TaskLayoutsFile: Equatable, Codable, Sendable {
   var tasks: [String: TaskRecord]
   /// Keyed by directory (the v2 worktree key). Never read by the app.
   var origins: [String: TerminalLayoutSnapshot]
+  /// A directory's most recently selected task, directory → task key. A
+  /// directory with no entry resolves to the task stored under its own key.
+  var activeTasks: [String: String] = [:]
   /// Entries or tabs a tolerant decode dropped; never encoded. A non-zero
   /// count marks the value as lossy, so readers and writers must reject it.
   var undecodedEntryCount = 0
@@ -57,6 +60,7 @@ nonisolated struct TaskLayoutsFile: Equatable, Codable, Sendable {
     case schemaVersion
     case tasks
     case origins
+    case activeTasks
     /// Always written empty: lets a pre-v3 build decode the stamp, see a newer
     /// schema and leave the blob alone instead of stashing it as corrupt.
     case worktrees
@@ -83,6 +87,8 @@ nonisolated struct TaskLayoutsFile: Equatable, Codable, Sendable {
       try container.decodeIfPresent(
         [String: FailableDecodable<TerminalLayoutSnapshot>].self, forKey: .origins) ?? [:]
     origins = rawOrigins.compactMapValues(\.value)
+    // A selection hint, never an owner of sessions: an unreadable one is not a loss.
+    activeTasks = (try? container.decodeIfPresent([String: String].self, forKey: .activeTasks)) ?? [:]
     let droppedContent = (decoder.userInfo[.layoutDecodeLoss] as? LayoutDecodeLoss)?.droppedCount ?? 0
     undecodedEntryCount =
       (rawTasks.count - tasks.count) + (rawOrigins.count - origins.count) + droppedContent
@@ -93,6 +99,9 @@ nonisolated struct TaskLayoutsFile: Equatable, Codable, Sendable {
     try container.encode(schemaVersion, forKey: .schemaVersion)
     try container.encode(tasks, forKey: .tasks)
     try container.encode(origins, forKey: .origins)
+    if !activeTasks.isEmpty {
+      try container.encode(activeTasks, forKey: .activeTasks)
+    }
     try container.encode([String: String](), forKey: .worktrees)
   }
 

@@ -89,6 +89,18 @@ struct AppFeatureTerminalGridTests {
     #expect(state.worktree(forLayout: state.layoutID(forDirectory: "/tmp/repo/unknown")) == nil)
   }
 
+  @Test(.dependencies) func layoutSeamResolvesToTheDirectorysMostRecentlySelectedTask() {
+    let worktree = makeWorktree()
+    var state = makeStore(worktree: worktree) { _ in }.state
+    let taskID = LayoutID(task: UUID())
+    state.terminals.directories[taskID] = TaskRecord.Directory(worktreeID: worktree.id)
+    #expect(state.layoutID(forDirectory: worktree.id) == worktree.id.layoutID)
+
+    state.terminals.activeTasks[worktree.id] = taskID
+    #expect(state.layoutID(forDirectory: worktree.id) == taskID)
+    #expect(state.worktree(forLayout: taskID)?.id == worktree.id)
+  }
+
   @Test(.dependencies) func hydratedLayoutReadsItsDirectoryFromTheTaskRecord() {
     let worktree = makeWorktree()
     var state = makeStore(worktree: worktree) { _ in }.state

@@ -76,12 +76,30 @@ actor LayoutsIncrementalWriter {
     executorQueue.sync { applyAndWriteRecords(changes, synchronize: true) }
   }
 
+  /// Records which task a directory resolves to; `nil` clears the entry, so
+  /// the directory falls back to the task stored under its own key.
+  func flush(activeTask layoutID: LayoutID?, forDirectory directoryID: Worktree.ID) {
+    update(synchronize: false) { file in
+      file.activeTasks[directoryID.rawValue] = layoutID?.persistenceKey
+    }
+  }
+
   private nonisolated func applyAndWriteRecords(_ changes: [LayoutID: RecordChange], synchronize: Bool) {
     guard !changes.isEmpty else { return }
+    update(synchronize: synchronize) { file in Self.apply(changes, to: &file) }
+  }
+
+  private nonisolated func update(synchronize: Bool, _ mutate: (inout TaskLayoutsFile) -> Void) {
     writeLock.lock()
     defer { writeLock.unlock() }
     guard var file = readPersisted() else { return }
     let original = file
+    mutate(&file)
+    guard file != original else { return }
+    write(file, synchronize: synchronize)
+  }
+
+  private nonisolated static func apply(_ changes: [LayoutID: RecordChange], to file: inout TaskLayoutsFile) {
     for (id, change) in changes {
       let key = id.persistenceKey
       switch change {
@@ -94,10 +112,9 @@ actor LayoutsIncrementalWriter {
         // As in v2, where the origin lived on the record: removing a
         // directory's layout releases its origin's sessions to the reaper.
         file.origins.removeValue(forKey: key)
+        file.activeTasks = file.activeTasks.filter { $0.value != key }
       }
     }
-    guard file != original else { return }
-    write(file, synchronize: synchronize)
   }
 
   /// The persisted layouts; an empty stamped value when absent or after a
