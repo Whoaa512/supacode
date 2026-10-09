@@ -192,8 +192,9 @@ extension RepositoriesFeature.State {
   mutating func autoSettleSessions(now: Date, idleDays: Int) {
     guard sessionsRestorationFinished, sessionsRefreshSucceeded, !sessionsHasUnresolvedLivePresence
     else { return }
-    // A provisional agent may be any session in its directory, so it only
-    // blocks auto-settle there, not globally.
+    // A provisional agent may be any session in its task directory or in the
+    // directory its tab was recorded running in, so it only blocks auto-settle
+    // in those, not globally.
     var liveKeys = sessionsLiveKeys
     var provisionalCwds: Set<String> = []
     var standardizedByCwd: [String: String] = [:]
@@ -206,7 +207,9 @@ extension RepositoriesFeature.State {
     for snapshot in sessionSnapshots {
       switch snapshot.id {
       case .session(let key): liveKeys.insert(key)
-      case .provisional: provisionalCwds.insert(standardized(snapshot.cwd))
+      case .provisional:
+        provisionalCwds.insert(standardized(snapshot.cwd))
+        if let surfaceCwd = snapshot.surfaceCwd { provisionalCwds.insert(standardized(surfaceCwd)) }
       }
     }
     let sidecar = sessions

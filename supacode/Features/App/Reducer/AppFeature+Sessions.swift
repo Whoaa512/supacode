@@ -653,6 +653,7 @@ extension AppFeature {
       guard let entry = index[key.surfaceID] else { return nil }
       return SessionLiveSnapshot(
         harness: key.agent, sessionRef: record.sessionRef, cwd: entry.directoryPath,
+        surfaceCwd: entry.cwd == entry.directoryPath ? nil : entry.cwd,
         location: SessionLocation(
           layoutID: entry.layoutID, directoryID: entry.directoryID, tabID: entry.tabID, surfaceID: key.surfaceID),
         status: sessionStatus(for: record),

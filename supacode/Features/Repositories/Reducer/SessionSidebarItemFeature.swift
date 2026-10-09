@@ -25,6 +25,8 @@ nonisolated struct SessionLiveSnapshot: Equatable, Sendable {
   var harness: SkillAgent
   var sessionRef: String?
   var cwd: String
+  /// Where the surface's tab was recorded running, when that is not `cwd`. Auto-settle only.
+  var surfaceCwd: String?
   var location: SessionLocation
   var status: SessionClassification.Status = .idle
   var allowsAttentionNavigation = true

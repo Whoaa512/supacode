@@ -2563,4 +2563,82 @@ struct AppFeatureSessionsTests {
     #expect(!AppFeature.hasUnresolvedLivePresence(state: state, index: index))
     #expect(AppFeature.sessionSnapshots(state: state, index: index).map(\.location.layoutID) == [orphan])
   }
+
+  // MARK: - A provisional agent protects the directory its tab runs in
+
+  private func oldSummary(_ id: String, cwd: String) -> SessionSummary {
+    SessionSummary(
+      harness: .pi, sessionID: id, createdAt: .distantPast, cwd: cwd,
+      title: id, messageCount: 1, lastActivity: .distantPast)
+  }
+
+  /// Restores one provisional agent on `surface`, refreshes, and returns the sidecar.
+  private func sidecarAfterProvisionalRestore(
+    _ initial: AppFeature.State, surface: UUID, summaries: [SessionSummary]
+  ) async -> [SessionKey: SessionSidecarEntry] {
+    var initial = initial
+    initial.repositories.sessionSummaries = summaries
+    initial.repositories.sessionsRefreshSucceeded = true
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = Date(timeIntervalSince1970: 1_000_000)
+      $0.continuousClock = TestClock()
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+    }
+    store.exhaustivity = .off
+    await store.send(
+      .agentPresence(
+        .restoreFromSnapshotChecked(
+          records: [
+            .init(agent: .pi, surfaceID: surface): AgentPresenceFeature.RestoredRecord(
+              alivePids: [123], activity: .idle, sessionRef: nil)
+          ], resumeCandidates: [:])))
+    await store.receive(\.repositories.sessionsRestorationCompleted)
+    #expect(!store.state.repositories.sessionsHasUnresolvedLivePresence)
+    await store.send(.repositories(.sessionsRefreshCompleted(summaries)))
+    await store.finish()
+    return store.state.repositories.sessions
+  }
+
+  @Test(.dependencies) func provisionalInNonActiveTaskProtectsItsTabCwdFromAutoSettle() async {
+    var initial = state()
+    initial.terminals.layouts.append(agentTask(first, surface: firstSurface))
+    initial.terminals.layouts.append(agentTask(second, surface: secondSurface, cwd: "/elsewhere"))
+    let directory = TaskRecord.Directory(worktreeID: worktree.id)
+    initial.terminals.directories = [worktree.id.layoutID: directory, first: directory, second: directory]
+    initial.terminals.activeTasks[worktree.id] = first
+    let inTabCwd = oldSummary("in-tab-cwd", cwd: "/elsewhere")
+    let inTaskDirectory = oldSummary("in-task-directory", cwd: "/workspace")
+    let unrelated = oldSummary("unrelated", cwd: "/third")
+
+    let sidecar = await sidecarAfterProvisionalRestore(
+      initial, surface: secondSurface, summaries: [inTabCwd, inTaskDirectory, unrelated])
+
+    #expect(sidecar[inTabCwd.id] == nil, "the provisional agent may be this session")
+    #expect(sidecar[inTaskDirectory.id] == nil)
+    #expect(sidecar[unrelated.id]?.settledAt != nil, "settlement ran and is only blocked per directory")
+  }
+
+  @Test(.dependencies) func provisionalInPersistedOrphanTaskProtectsItsTabCwdFromAutoSettle() async {
+    let orphan = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A5")!)
+    let orphanSurface = UUID(uuidString: "00000000-0000-0000-0000-0000000000B5")!
+    var initial = state()
+    initial.repositories.$persistedLayouts = SharedReader(
+      value: TaskLayoutsFile(tasks: [
+        orphan.persistenceKey: TaskRecord(
+          id: orphan, directory: TaskRecord.Directory(worktreeID: "/gone/checkout"),
+          layout: agentTask(orphan, surface: orphanSurface, cwd: "/elsewhere").layout, createdAt: .distantPast)
+      ]))
+    let inTabCwd = oldSummary("in-tab-cwd", cwd: "/elsewhere")
+    let inTaskDirectory = oldSummary("in-task-directory", cwd: "/gone/checkout")
+    let unrelated = oldSummary("unrelated", cwd: "/third")
+
+    let sidecar = await sidecarAfterProvisionalRestore(
+      initial, surface: orphanSurface, summaries: [inTabCwd, inTaskDirectory, unrelated])
+
+    #expect(sidecar[inTabCwd.id] == nil, "the provisional agent may be this session")
+    #expect(sidecar[inTaskDirectory.id] == nil)
+    #expect(sidecar[unrelated.id]?.settledAt != nil, "settlement ran and is only blocked per directory")
+  }
 }
