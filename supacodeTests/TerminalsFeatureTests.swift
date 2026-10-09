@@ -1007,4 +1007,59 @@ struct TerminalsFeatureTests {
         worktreeID: minted, directory: TaskRecord.Directory(worktreeID: "/tmp/other"), titlePrefix: "other"))
     #expect(store.state.directories[minted]?.worktreeID == "/tmp/recorded")
   }
+
+  // MARK: - Task membership
+
+  @Test(.dependencies) func hydrationLoadsATasksSessionsEvenWithNoTabLeft() async {
+    let minted = LayoutID(task: UUID())
+    let stored = SessionKey(harness: .pi, sessionID: "stored")
+    let early = SessionKey(harness: .pi, sessionID: "early")
+    var record = Self.task(minted, on: "/tmp/repo")
+    record.sessions = [stored]
+    var initial = TerminalsFeature.State()
+    // An agent reported before the file loaded.
+    initial.members[minted] = [.session(early), .session(stored)]
+    let store = TestStore(initialState: initial) { TerminalsFeature() }
+    store.exhaustivity = .off
+
+    await store.send(.layoutsHydrated(Self.file([record])))
+
+    #expect(store.state.members == [minted: [.session(stored), .session(early)]])
+    #expect(store.state.layouts[id: minted]?.layout.panes.isEmpty == true)
+  }
+
+  @Test(.dependencies) func detachingATaskForgetsItsMembers() async {
+    let minted = LayoutID(task: UUID())
+    let kept = LayoutID(task: UUID())
+    let key = SessionKey(harness: .pi, sessionID: "one")
+    var initial = TerminalsFeature.State()
+    initial.layouts = [LayoutFeature.State(id: minted, layout: PaneLayout())]
+    initial.members = [minted: [.session(key)], kept: [.session(key)]]
+    let store = TestStore(initialState: initial) { TerminalsFeature() }
+    store.exhaustivity = .off
+
+    await store.send(.detachLayout(worktreeID: minted))
+
+    #expect(store.state.members == [kept: [.session(key)]])
+  }
+
+  @Test(.dependencies) func onlyAChangeInStoredSessionsIsReported() async {
+    let minted = LayoutID(task: UUID())
+    let surface = UUID()
+    let reported = LockIsolated<[LayoutID]>([])
+    let store = TestStore(initialState: TerminalsFeature.State()) {
+      TerminalsFeature()
+    } withDependencies: {
+      $0[LayoutChangeObserver.self].sessionsChanged = { id in reported.withValue { $0.append(id) } }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.membersChanged([minted: [.provisional(harness: .pi, surfaceID: surface)]]))
+    await store.finish()
+    #expect(reported.value.isEmpty)
+
+    await store.send(.membersChanged([minted: [.session(SessionKey(harness: .pi, sessionID: "one"))]]))
+    await store.finish()
+    #expect(reported.value == [minted])
+  }
 }

@@ -133,3 +133,73 @@ nonisolated struct TaskLayoutsFile: Equatable, Codable, Sendable {
     return ids
   }
 }
+
+/// One agent of a task, in member order (the first is the primary). Only
+/// `.session` is stored; a provisional member is an agent that has not
+/// reported its session yet and holds its place until it does.
+nonisolated enum TaskMember: Hashable, Sendable {
+  case session(SessionKey)
+  case provisional(harness: SkillAgent, surfaceID: UUID)
+
+  var sessionKey: SessionKey? {
+    guard case .session(let key) = self else { return nil }
+    return key
+  }
+}
+
+/// An agent presence reports on a surface, with the task that owns the surface.
+nonisolated struct TaskAgent: Equatable, Sendable {
+  var layoutID: LayoutID
+  var harness: SkillAgent
+  var surfaceID: UUID
+  var sessionRef: String?
+}
+
+nonisolated enum TaskMembership {
+  /// Adds every reporting agent to the task that owns its surface. A session
+  /// is appended once and never removed here; a provisional member takes the
+  /// session's identity in place when it arrives, and goes when its agent does.
+  static func reconciled(_ members: [LayoutID: [TaskMember]], agents: [TaskAgent]) -> [LayoutID: [TaskMember]] {
+    var result = members
+    let ordered = agents.sorted {
+      ($0.surfaceID.uuidString, $0.harness.rawValue) < ($1.surfaceID.uuidString, $1.harness.rawValue)
+    }
+    var waiting: Set<Waiting> = []
+    for agent in ordered {
+      var list = result[agent.layoutID] ?? []
+      let provisional = TaskMember.provisional(harness: agent.harness, surfaceID: agent.surfaceID)
+      let slot = list.firstIndex(of: provisional)
+      // An unusable ref is no identity: the agent keeps waiting.
+      let key = agent.sessionRef.map { SessionKey(harness: agent.harness, sessionID: $0) }
+      if let key, key.isValid {
+        if list.contains(.session(key)) {
+          if let slot { list.remove(at: slot) }
+        } else if let slot {
+          list[slot] = .session(key)
+        } else {
+          list.append(.session(key))
+        }
+      } else {
+        waiting.insert(Waiting(layoutID: agent.layoutID, member: provisional))
+        if slot == nil { list.append(provisional) }
+      }
+      result[agent.layoutID] = list
+    }
+    for (layoutID, list) in result {
+      let kept = list.filter { $0.sessionKey != nil || waiting.contains(Waiting(layoutID: layoutID, member: $0)) }
+      result[layoutID] = kept.isEmpty ? nil : kept
+    }
+    return result
+  }
+
+  /// Stored sessions first, then whatever this run added before they loaded.
+  static func merged(stored: [SessionKey], runtime: [TaskMember]) -> [TaskMember] {
+    let known = stored.map(TaskMember.session)
+    return known + runtime.filter { !known.contains($0) }
+  }
+
+  private struct Waiting: Hashable {
+    var layoutID: LayoutID
+    var member: TaskMember
+  }
+}

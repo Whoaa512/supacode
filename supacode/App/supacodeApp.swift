@@ -270,6 +270,9 @@ struct SupacodeApp: App {
         },
         activeTaskChanged: { directoryID, layoutID in
           terminalManager.handleActiveTaskChanged(directoryID: directoryID, layoutID: layoutID)
+        },
+        sessionsChanged: { layoutID in
+          terminalManager.markLayoutDirty(worktreeID: layoutID)
         }
       )
       values.terminalClient = makeTerminalClient(terminalManager: terminalManager)

@@ -9,6 +9,8 @@ nonisolated struct LayoutChangeObserver: Sendable {
   /// A directory now resolves to another task; `nil` means the task stored
   /// under the directory's own key.
   var activeTaskChanged: @MainActor @Sendable (Worktree.ID, LayoutID?) -> Void = { _, _ in }
+  /// A task's stored sessions changed; its tabs did not.
+  var sessionsChanged: @MainActor @Sendable (LayoutID) -> Void = { _ in }
 }
 
 extension LayoutChangeObserver: DependencyKey {
@@ -50,6 +52,9 @@ struct TerminalsFeature {
     /// Each directory's most recently selected task. A directory with no
     /// entry resolves to the layout stored under its own key.
     var activeTasks: [Worktree.ID: LayoutID] = [:]
+    /// Each task's agents, primary first. Stored sessions load at hydration;
+    /// an agent that has not reported its session yet is held provisionally.
+    var members: [LayoutID: [TaskMember]] = [:]
     /// Every layout selected this run, oldest first. A selection can precede
     /// both its directory (the host attaches later) and the stored entries
     /// (the file loads later), and still has to outrank them once known.
@@ -89,6 +94,8 @@ struct TerminalsFeature {
     case replaceRestoredLayout(worktreeID: LayoutID, layout: PaneLayout)
     /// Drops a pruned worktree's layout and bookkeeping.
     case detachLayout(worktreeID: LayoutID)
+    /// The agents presence reports changed which sessions belong to which task.
+    case membersChanged([LayoutID: [TaskMember]])
     /// Worktree selection moved; visibility-driven hibernation re-diffs and
     /// the newly visible selection wakes.
     case selectedLayoutChanged(LayoutID?)
@@ -171,10 +178,25 @@ struct TerminalsFeature {
         // the armed entries to emit their timer cancellations.
         state.layouts.remove(id: worktreeID)
         state.directories.removeValue(forKey: worktreeID)
+        state.members.removeValue(forKey: worktreeID)
         state.activeTasks = state.activeTasks.filter { $0.value != worktreeID }
         state.recentLayoutIDs.removeAll { $0 == worktreeID }
         state.selectionOrder.removeAll { $0 == worktreeID }
         return reconcileHibernation(&state)
+
+      case .membersChanged(let members):
+        // Only a change in stored sessions is worth a write; a provisional
+        // member coming or going is runtime only.
+        let changed = Set(state.members.keys).union(members.keys).filter {
+          state.members[$0]?.compactMap(\.sessionKey) ?? [] != members[$0]?.compactMap(\.sessionKey) ?? []
+        }
+        state.members = members
+        guard !changed.isEmpty else { return .none }
+        return .run { [changed] _ in
+          for layoutID in changed.sorted(by: { $0.persistenceKey < $1.persistenceKey }) {
+            await layoutChangeObserver.sessionsChanged(layoutID)
+          }
+        }
 
       case .selectedLayoutChanged(let layoutID):
         state.selectedLayoutID = layoutID
@@ -203,6 +225,9 @@ struct TerminalsFeature {
         var seenContentIDs = Set(state.layouts.flatMap { $0.layout.allContentIDs })
         var seenTabIDs = Set(state.layouts.flatMap { $0.layout.panes.flatMap(\.tabs.ids) })
         for (key, record) in file.tasks.sorted(by: { $0.key < $1.key }) {
+          // Membership is the record's whether or not its layout is usable.
+          let members = TaskMembership.merged(stored: record.sessions, runtime: state.members[record.id] ?? [])
+          if !members.isEmpty { state.members[record.id] = members }
           guard record.layout.isConsistent else {
             Self.logger.error("Dropping inconsistent persisted layout for \(key)")
             continue
