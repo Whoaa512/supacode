@@ -981,6 +981,20 @@ final class WorktreeTerminalManager {
     host.pruneStaleUserCloseIntents(retaining: Set(pane.tabs.map(\.content.id.rawValue)))
   }
 
+  enum SessionKillLimit {
+    case nothing
+    case localOnly
+  }
+
+  /// Narrows what the next close of this content may kill. A close the user
+  /// did not ask for must not take a session someone may still want.
+  func limitSessionKill(of surfaceID: UUID, to limit: SessionKillLimit) {
+    switch limit {
+    case .nothing: sessionsToSpare.insert(surfaceID)
+    case .localOnly: sessionsToKillLocalOnly.insert(surfaceID)
+    }
+  }
+
   /// Consumes a spare decision for an unexpected-close content; the session
   /// killer skips the zmx kill when this returns true.
   func consumeSpareSession(for contentID: ContentID) -> Bool {
@@ -1042,7 +1056,7 @@ final class WorktreeTerminalManager {
       let session = probe?.first { $0.name == sessionID }
       guard let probe else {
         // Failed probe: never destroy on no signal; close but spare the session.
-        self.sessionsToSpare.insert(surfaceID)
+        self.limitSessionKill(of: surfaceID, to: .nothing)
         host.removeUserCloseIntent(for: surfaceID)
         self.sendLayout(worktreeID, .closeTab(id: tabID))
         return
@@ -1051,7 +1065,7 @@ final class WorktreeTerminalManager {
       guard let session else {
         // Session already dead; the close's kill is local cleanup. The end
         // was not user-initiated, so a remote host-side session survives.
-        self.sessionsToKillLocalOnly.insert(surfaceID)
+        self.limitSessionKill(of: surfaceID, to: .localOnly)
         host.removeUserCloseIntent(for: surfaceID)
         self.sendLayout(worktreeID, .closeTab(id: tabID))
         return
@@ -1073,7 +1087,7 @@ final class WorktreeTerminalManager {
         return
       }
       // Another client attached (or unknown count): close without killing.
-      self.sessionsToSpare.insert(surfaceID)
+      self.limitSessionKill(of: surfaceID, to: .nothing)
       host.removeUserCloseIntent(for: surfaceID)
       self.sendLayout(worktreeID, .closeTab(id: tabID))
     }

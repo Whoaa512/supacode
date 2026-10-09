@@ -39,7 +39,8 @@ struct WorktreeTerminalManagerAckTests {
     defaults: UserDefaults = .inMemory,
     persistingOn clock: TestClock<Duration>? = nil,
     killSession: @escaping @Sendable (String) -> Void = { _ in },
-    killRemoteSession: @escaping @Sendable (RemoteHost, String) -> Void = { _, _ in }
+    killRemoteSession: @escaping @Sendable (RemoteHost, String) -> Void = { _, _ in },
+    killingClosedTabsSessions: Bool = false
   ) -> Harness {
     let worktree = makeWorktree()
     let manager = withDependencies {
@@ -47,7 +48,7 @@ struct WorktreeTerminalManagerAckTests {
       $0.defaultAppStorage = defaults
       $0.zmxClient = ZmxClient(
         executableURL: { nil },
-        isBundled: { false },
+        isBundled: { killingClosedTabsSessions },
         killSession: { session in killSession(session) },
         killRemoteSession: { host, session in killRemoteSession(host, session) },
         listSessionsWithClients: { nil }
@@ -73,7 +74,11 @@ struct WorktreeTerminalManagerAckTests {
       $0[LayoutContentFactory.self] = LayoutContentFactory { request in
         InertTabContent(id: request.contentID, state: request.content)
       }
-      $0[ContentSessionKiller.self] = ContentSessionKiller(kill: { _, _ in })
+      // The app's own wiring when asked for, so a close's kill runs for real.
+      $0[ContentSessionKiller.self] = ContentSessionKiller(kill: { contentID, layoutID in
+        guard killingClosedTabsSessions else { return }
+        await manager.killSession(for: contentID, layoutID: layoutID)
+      })
       // The app's own wiring, so layout and membership changes reach the writer.
       if clock != nil { $0[LayoutChangeObserver.self] = .persisting(through: manager) }
     }
@@ -989,6 +994,69 @@ struct WorktreeTerminalManagerAckTests {
     #expect(harness.manager.selectedLayoutID == TerminalsFeature.State.ownKeyLayoutID(forDirectory: directory.id))
     #expect(recorder.localKills.value.isEmpty, "removing the task kills nothing")
     #expect(recorder.remoteKills.value.isEmpty)
+  }
+
+  /// A sessionless task on a remote host is removed when its last tab closes,
+  /// and that close's kill runs after the task's host is gone. Returns the
+  /// closed tab's session once the task's removal is verified.
+  private func closeLastTabOfARemoteSessionlessTask(
+    recorder: TeardownRecorder, limitingKillTo limit: WorktreeTerminalManager.SessionKillLimit? = nil
+  ) async -> String {
+    let clock = TestClock()
+    let harness = makeHarness(
+      defaults: recorder.defaults, persistingOn: clock, killSession: recorder.killSession,
+      killRemoteSession: recorder.killRemoteSession, killingClosedTabsSessions: true)
+    let pump = CreationEvents(harness.manager)
+    let directory = RepositoriesFeature.remoteMainWorktree(
+      host: RemoteHost(alias: "build-box"), remotePath: "/srv/repo")
+    let task = LayoutID(task: UUID())
+    let sibling = LayoutID(task: UUID())
+    let surface = await openLayout(task, on: directory, in: harness, pump: pump)
+    _ = await openLayout(sibling, on: directory, in: harness, pump: pump)
+    _ = await flushed(recorder, on: clock) {
+      $0.tasks[task.persistenceKey] != nil && $0.tasks[sibling.persistenceKey] != nil
+    }
+    // The directory is in no roster here: only the manager knows its host.
+    #expect(harness.store.withState { $0.worktree(forLayout: task) } == nil)
+    if let limit { harness.manager.limitSessionKill(of: surface, to: limit) }
+
+    // Returns once the close's kill has run.
+    await closeTab(surface, of: task, in: harness)
+
+    let written = await flushed(recorder, on: clock) { $0.tasks[task.persistenceKey] == nil }
+    #expect(Array(written.tasks.keys) == [sibling.persistenceKey])
+    #expect(harness.manager.hostIfExists(for: task) == nil)
+    #expect(harness.manager.hostIfExists(for: sibling) != nil)
+    #expect(harness.store.withState { Array($0.terminals.layouts.ids) } == [sibling])
+    return ZmxSessionID.make(surfaceID: surface)
+  }
+
+  @Test(.dependencies) func closingARemoteSessionlessTasksLastTabStillKillsItsHostSession() async {
+    let recorder = TeardownRecorder()
+
+    let session = await closeLastTabOfARemoteSessionlessTask(recorder: recorder)
+
+    // The closed tab's own session on both sides, and no sibling's.
+    #expect(recorder.remoteKills.value == [TeardownRecorder.RemoteKill(alias: "build-box", session: session)])
+    #expect(recorder.localKills.value == [session])
+  }
+
+  @Test(.dependencies) func aRemoteSessionlessTasksLastTabEndingOnItsOwnSparesTheHostSession() async {
+    let recorder = TeardownRecorder()
+
+    let session = await closeLastTabOfARemoteSessionlessTask(recorder: recorder, limitingKillTo: .localOnly)
+
+    #expect(recorder.remoteKills.value.isEmpty)
+    #expect(recorder.localKills.value == [session])
+  }
+
+  @Test(.dependencies) func aSparedLastTabOfARemoteSessionlessTaskKillsNothing() async {
+    let recorder = TeardownRecorder()
+
+    _ = await closeLastTabOfARemoteSessionlessTask(recorder: recorder, limitingKillTo: .nothing)
+
+    #expect(recorder.remoteKills.value.isEmpty)
+    #expect(recorder.localKills.value.isEmpty)
   }
 
   @Test(.dependencies) func aTaskStillBeingMadeIsNotMistakenForAnEmptiedOne() {
