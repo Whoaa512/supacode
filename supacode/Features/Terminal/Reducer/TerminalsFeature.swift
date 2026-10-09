@@ -432,6 +432,12 @@ extension TerminalsFeature.State {
     return directories[task]?.worktreeID == directoryID ? task : nil
   }
 
+  /// The task whose layout holds a content. A scan: for spawn, wake and
+  /// unexpected close, never for rendering.
+  func layoutID(holdingContent id: ContentID) -> LayoutID? {
+    layouts.first { $0.layout.tab(containingContent: id) != nil }?.id
+  }
+
   /// Whether a layout holds a tab and sits on this directory.
   func isTask(_ layoutID: LayoutID, onDirectory directoryID: Worktree.ID) -> Bool {
     guard holdsTabs(layoutID) else { return false }

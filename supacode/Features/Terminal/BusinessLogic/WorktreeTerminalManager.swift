@@ -1051,13 +1051,43 @@ final class WorktreeTerminalManager {
     sendLayout(worktreeID, .runtime(.titleCommitted(id: contentID, title: title)))
   }
 
+  /// The task whose layout holds a content now. A tab can move between
+  /// tasks, so anything that acts on a content later asks here instead of
+  /// remembering the task it was created in.
+  func owningLayoutID(of contentID: ContentID) -> LayoutID? {
+    appStore?.withState { $0.terminals.layoutID(holdingContent: contentID) }
+  }
+
+  /// Points a live surface's callbacks at `layoutID`'s host. Run when a
+  /// surface is built, and again when its tab moves to another task.
+  func wireSurface(_ view: GhosttySurfaceView, contentID: ContentID, layoutID: LayoutID) {
+    let existing = hosts[layoutID]
+    let created =
+      existing == nil
+      ? appStore?.withState { $0.worktree(forLayout: layoutID) }
+        .map { host(for: layoutID, context: DirectoryContext(worktree: $0)) }
+      : nil
+    guard let host = existing ?? created else { return }
+    LayoutSurfaceConduit(
+      host: host,
+      runtime: ContentRuntime.liveValue,
+      handleUnexpectedZmxClose: { [weak self] view, processAlive in
+        guard !processAlive else { return }
+        self?.handleUnexpectedZmxClose(view, worktreeID: layoutID)
+      }
+    ).wire(view, contentID: contentID)
+  }
+
   /// An unexpected zmx exit: probe the session, then spare, kill, or reattach.
-  func handleUnexpectedZmxClose(_ view: GhosttySurfaceView, worktreeID: LayoutID) {
+  func handleUnexpectedZmxClose(_ view: GhosttySurfaceView, worktreeID wiredLayoutID: LayoutID) {
     let surfaceID = view.id
     suppressHarnessEnd(for: [surfaceID])
     Task { @MainActor [weak self] in
       let probe = await self?.zmxClient.listSessionsWithClients()
-      guard let self, let host = self.hosts[worktreeID], host.liveSurface(surfaceID) === view else { return }
+      guard let self else { return }
+      // The tab may have moved to another task while the probe ran.
+      let worktreeID = self.owningLayoutID(of: ContentID(rawValue: surfaceID)) ?? wiredLayoutID
+      guard let host = self.hosts[worktreeID], host.liveSurface(surfaceID) === view else { return }
       guard let tabID = host.tabID(containing: surfaceID) else { return }
       let sessionID = ZmxSessionID.make(surfaceID: surfaceID)
       let session = probe?.first { $0.name == sessionID }

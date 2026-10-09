@@ -297,6 +297,10 @@ nonisolated enum TerminalSurfaceRecipe {
 struct TerminalContentBuilder {
   var runtime: GhosttyRuntime
   var directory: (LayoutID) -> DirectoryContext?
+  /// The task that holds a content now. A tab can move between tasks, so a
+  /// surface built later (a wake) belongs to the current holder, not to the
+  /// task the content was created in. Nil before the tab is in any layout.
+  var owner: (ContentID) -> LayoutID?
   var socketPath: () -> String?
   var zmxExecutablePath: () -> String?
   /// Live renderer lookup for window-inherit config; the integration layer
@@ -337,12 +341,13 @@ struct TerminalContentBuilder {
     let content = TerminalContent(
       id: request.contentID,
       makeSurface: { geometry, currentState, phase in
+        var effective = request
+        effective.worktreeID = owner(request.contentID) ?? request.worktreeID
         // Re-resolve so a wake long after creation sees the current worktree;
         // the captured value only covers one that vanished mid-flight.
-        let directory = lookUpDirectory(request.worktreeID) ?? capturedDirectory
+        let directory = lookUpDirectory(effective.worktreeID) ?? capturedDirectory
         // One-shot inheritance: a re-wake must not re-read the source's
         // current cwd/font or its split context.
-        var effective = request
         var seedState = currentState
         if phase == .rewake {
           effective.origin = .restored

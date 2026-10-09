@@ -424,6 +424,7 @@ struct SupacodeApp: App {
       directory: { [weak terminalManager] id in
         terminalManager?.appStore?.withState { $0.worktree(forLayout: id) }.map(DirectoryContext.init)
       },
+      owner: { [weak terminalManager] id in terminalManager?.owningLayoutID(of: id) },
       socketPath: { [weak terminalManager] in
         terminalManager?.socketServer?.socketPath
       },
@@ -435,20 +436,7 @@ struct SupacodeApp: App {
         ContentRuntime.liveValue.content(for: id)?.renderer as? GhosttySurfaceView
       },
       wireSurface: { [weak terminalManager] view, request in
-        guard let terminalManager,
-          let worktree = terminalManager.appStore?.withState({
-            $0.worktree(forLayout: request.worktreeID)
-          })
-        else { return }
-        let host = terminalManager.host(for: request.worktreeID, context: DirectoryContext(worktree: worktree))
-        LayoutSurfaceConduit(
-          host: host,
-          runtime: ContentRuntime.liveValue,
-          handleUnexpectedZmxClose: { [weak terminalManager] view, processAlive in
-            guard !processAlive else { return }
-            terminalManager?.handleUnexpectedZmxClose(view, worktreeID: request.worktreeID)
-          }
-        ).wire(view, contentID: request.contentID)
+        terminalManager?.wireSurface(view, contentID: request.contentID, layoutID: request.worktreeID)
       },
       environmentExtras: { [weak terminalManager] request in
         terminalManager?.hostIfExists(for: request.worktreeID)?

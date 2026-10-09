@@ -1,5 +1,7 @@
+import Clocks
 import Foundation
 import GhosttyKit
+import SupacodeSettingsShared
 import Testing
 
 @testable import supacode
@@ -192,5 +194,83 @@ struct TerminalSurfaceRecipeTests {
     #expect(plan.environment["SUPACODE_SURFACE_ID"] == request.contentID.rawValue.uuidString)
     // The re-attach targets the zmx session derived from the content identity.
     #expect(plan.commandWrapper.contains(ZmxSessionID.make(surfaceID: request.contentID.rawValue)))
+  }
+
+  // MARK: - A content's owner is looked up, never remembered.
+
+  /// What a builder hands its collaborators for each surface it builds.
+  @MainActor
+  private final class BuildLog {
+    var owner: LayoutID?
+    var wired: [ContentRequest] = []
+    var extras: [ContentRequest] = []
+    var directories: [LayoutID] = []
+  }
+
+  private static func makeBuilder(_ log: BuildLog) -> TerminalContentBuilder {
+    // Inert teardown: nothing is detached and the child counts as exited.
+    let queue = SurfaceTeardownQueue(
+      detachClients: { _ in }, clock: ImmediateClock(),
+      analytics: AnalyticsClient(capture: { _, _ in }, identify: { _ in }), hasProcessExited: { _ in true })
+    return TerminalContentBuilder(
+      runtime: GhosttyRuntime(surfaceTeardownQueue: queue),
+      directory: { id in
+        log.directories.append(id)
+        return DirectoryContext(worktree: makeWorktree())
+      },
+      owner: { _ in log.owner },
+      socketPath: { nil },
+      zmxExecutablePath: { nil },
+      sourceSurface: { _ in nil },
+      wireSurface: { _, request in log.wired.append(request) },
+      environmentExtras: { request in
+        log.extras.append(request)
+        return [:]
+      },
+      initialScrollbackPath: { _ in nil }
+    )
+  }
+
+  private static func request(in layoutID: LayoutID) -> ContentRequest {
+    ContentRequest(
+      worktreeID: layoutID, tabID: TabID(), contentID: ContentID(),
+      content: .terminal(TerminalContentState(workingDirectory: nil)), origin: .tab)
+  }
+
+  @Test func rewakeUsesTheCurrentOwner() {
+    let created = LayoutID(task: UUID())
+    let movedTo = LayoutID(task: UUID())
+    let log = BuildLog()
+    let content = Self.makeBuilder(log).factory().make(Self.request(in: created))
+    content.startSession(at: .fallback)
+    #expect(log.wired.map(\.worktreeID) == [created])
+
+    // The tab moved to another task while hibernated.
+    content.hibernate()
+    log.owner = movedTo
+    log.directories = []
+    content.startSession(at: .fallback)
+
+    #expect(log.wired.map(\.worktreeID) == [created, movedTo])
+    #expect(log.extras.map(\.worktreeID) == [created, movedTo])
+    #expect(log.directories == [movedTo], "the wake resolves the holder's directory")
+    let plan = TerminalSurfaceRecipe.plan(
+      for: log.wired[1],
+      seed: TerminalSurfaceRecipe.PlanSeed(
+        terminalState: TerminalContentState(workingDirectory: nil),
+        directory: DirectoryContext(worktree: Self.makeWorktree()), socketPath: nil, zmxExecutablePath: nil))
+    #expect(plan.environment["SUPACODE_TASK_ID"] == movedTo.externalID)
+  }
+
+  @Test func firstSpawnKeepsTheRequestOwner() {
+    let created = LayoutID(task: UUID())
+    let log = BuildLog()
+    let content = Self.makeBuilder(log).factory().make(Self.request(in: created))
+
+    // Provisioning runs before the tab is in any layout: nothing holds it.
+    content.startSession(at: .fallback)
+
+    #expect(log.wired.map(\.worktreeID) == [created])
+    #expect(log.directories.allSatisfy { $0 == created })
   }
 }
