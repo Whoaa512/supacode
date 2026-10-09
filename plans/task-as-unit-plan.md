@@ -2194,3 +2194,51 @@ deviation.
   Gate: check 0; `supacodeFeatureTests` + `supacodeTests` +
   `supacodeTerminalTests/LayoutFeatureTests` exit 2 with 3406 tests and
   only three of the five baseline failures; build-app 0. No full run.
+- T9 r3 (review fixes), 2026-10-09, `6a541e25` + `14c22bfa` + `2248deb9`.
+  **Revised**: this overrides the T9, r1 and r2 entries where they differ.
+  - Quit beside another process on the same surface (P0). A presence
+    record can track several pids of one harness. A named local quit of the
+    primary now closes tabs only when the record tracks no other pid.
+    Decision (differs from the review's "settle nothing"): the ended
+    session is still marked, nothing closes. A pid stays on the record
+    after its late end is rejected until the liveness sweep, so a sibling
+    pid is "not known dead", not "running"; settling nothing would leave
+    such a quit unmarked for good
+    (`newProcessIdentityRejectsLateEndThenAcceptsCurrentEnd` covers that
+    case and would fail). The mark closes and kills nothing, and a later
+    busy from the survivor unsettles or replaces as usual. Other callers of
+    `settleTask` are user-initiated (settle, settle-and-advance) and go
+    through the close confirmation; `userClosedSurfaces` only marks.
+  - Two replacements of one session (P1). `TaskMembership.storing` put
+    each replacement directly ahead of the replaced session, reversing two
+    that shared it (stored `[A,B]`, run `[B,C,A]` came out `[C,B,A]`). A
+    session is now placed ahead of whatever this pass already placed at
+    its slot, so the run's order holds; chains, stale entries and partial
+    lists behave as before. Hydration (`merged`) uses the same function.
+    A wrong order written by an earlier build is not repaired: stored
+    sessions still move only for a named replacement.
+  - Auto-settle is one decision per task (P1). Decisions: the
+    short-session rule reads the sum of the members' message counts (a
+    task is as long as all its sessions), and a member the user unsettled
+    whose hold still stands on its own activity holds every member (before,
+    a sibling's newer activity lifted the hold and the session re-settled
+    on the next pass). Members of a task that is not running and not held
+    are all classified on the same activity and count, so they settle
+    together or not at all.
+  Only the live UI can confirm (cj), unchanged from r2: a workflow leaves
+  the parent row alone; `/new` and `/resume` change title and row as
+  described; the single "Close N Tabs?" alert in the main window with a
+  pane detached, Cancel leaving the row Active, and the re-ask after a
+  late tab.
+  Tests: `AppFeatureSessionsTaskSettleTests` (two pids on the primary's
+  surface), `LayoutsIncrementalWriterTests` (shared replaced session, at
+  once and written between, repeated flushes; chains and bystanders),
+  `TerminalsFeatureTests` (hydration, twice),
+  `RepositoriesFeatureAutoSettleTests` (short primary with a substantive
+  tangent, either order; summed counts; held primary or tangent). All
+  seen failing before their fixes. A failed write is not simulated: it
+  leaves the stored list as it was, which is the at-once case.
+  Gate: check 0; `supacodeFeatureTests` + `supacodeTests` +
+  `supacodeTerminalTests/LayoutFeatureTests` + `LayoutsIncrementalWriterTests`
+  exit 2 with 3449 tests and only three of the five baseline failures;
+  build-app 0. No full run.
