@@ -873,13 +873,15 @@ final class WorktreeContentHost {
     !blockingScripts.isEmpty
   }
 
+  func runningScriptDefinitions() -> [ScriptDefinition] {
+    blockingScripts.values.compactMap { kind -> ScriptDefinition? in
+      guard case .script(let definition) = kind else { return nil }
+      return definition
+    }
+  }
+
   func runningScriptDefinitionIDs() -> Set<UUID> {
-    Set(
-      blockingScripts.values.compactMap { kind -> UUID? in
-        guard case .script(let definition) = kind else { return nil }
-        return definition.id
-      }
-    )
+    Set(runningScriptDefinitions().map(\.id))
   }
 
   func isScriptRunning(definitionID: UUID) -> Bool {

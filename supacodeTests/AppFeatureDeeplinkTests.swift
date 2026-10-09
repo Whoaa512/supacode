@@ -674,6 +674,7 @@ struct AppFeatureDeeplinkTests {
     ) {
       AppFeature()
     } withDependencies: {
+      $0.terminalClient.runningScripts = { _ in [definition] }
       $0.terminalClient.send = { command in sent.withValue { $0.append(command) } }
     }
     store.exhaustivity = .off
@@ -684,6 +685,7 @@ struct AppFeatureDeeplinkTests {
       )
     )
     await store.finish()
+    #expect(store.state.alert == nil)
     let stoppedUnfocused = sent.value.contains {
       if case .stopScript(_, _, let definitionID, let focusing) = $0 {
         return definitionID == definition.id && focusing == false
@@ -1187,6 +1189,7 @@ struct AppFeatureDeeplinkTests {
     ) {
       AppFeature()
     } withDependencies: {
+      $0.terminalClient.runningScripts = { _ in [definition] }
       $0.terminalClient.send = { command in
         sent.withValue { $0.append(command) }
       }
@@ -1195,6 +1198,7 @@ struct AppFeatureDeeplinkTests {
 
     await store.send(.deeplink(.worktree(id: worktree.id, action: .stopScript(scriptID: definition.id))))
     await store.finish()
+    #expect(store.state.alert == nil)
 
     #expect(store.state.deeplinkInputConfirmation == nil)
     let hasStop = sent.value.contains(where: {
@@ -1264,6 +1268,7 @@ struct AppFeatureDeeplinkTests {
     ) {
       AppFeature()
     } withDependencies: {
+      $0.terminalClient.runningScripts = { _ in [globalScript] }
       $0.terminalClient.send = { command in
         sent.withValue { $0.append(command) }
       }
@@ -1272,6 +1277,7 @@ struct AppFeatureDeeplinkTests {
 
     await store.send(.deeplink(.worktree(id: worktree.id, action: .stopScript(scriptID: globalScript.id))))
     await store.finish()
+    #expect(store.state.alert == nil)
 
     let hasStop = sent.value.contains(where: {
       if case .stopScript(_, _, let definitionID, _) = $0 { return definitionID == globalScript.id }

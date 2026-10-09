@@ -77,9 +77,19 @@ struct AppFeatureDeeplinkTaskTests {
   /// lists them: a target closed while a confirmation waited.
   private func makeStore(
     _ initial: AppFeature.State? = nil,
-    gone: LockIsolated<Set<LayoutID>> = LockIsolated([])
+    gone: LockIsolated<Set<LayoutID>> = LockIsolated([]),
+    running: [LayoutID: [ScriptDefinition]] = [:]
   ) -> (store: TestStoreOf<AppFeature>, sent: LockIsolated<[TerminalClient.Command]>) {
-    let initial = initial ?? state()
+    var initial = initial ?? state()
+    // The row mirrors what runs anywhere on its directory, as the terminal's
+    // merged projection would have told it.
+    initial.repositories.reconcileSidebarForTesting()
+    for (directoryID, layoutIDs) in [worktree.id: [shown.id, other.id], sibling.id: [elsewhere.id]] {
+      for definition in layoutIDs.flatMap({ running[$0] ?? [] }) {
+        initial.repositories.sidebarItems[id: directoryID]?.runningScripts[id: definition.id] =
+          .init(id: definition.id, tint: definition.resolvedTintColor)
+      }
+    }
     let sent = LockIsolated<[TerminalClient.Command]>([])
     // Answered from the fixture layouts, per layout, so a command validated
     // against the wrong task fails the way it would in the app.
@@ -98,6 +108,7 @@ struct AppFeatureDeeplinkTaskTests {
         layouts[layoutID]?.tab(containingContent: ContentID(rawValue: surfaceID)) != nil
       }
       $0.terminalClient.tabCanRename = { _, _ in true }
+      $0.terminalClient.runningScripts = { running[$0] ?? [] }
       $0.terminalClient.idExistsAnywhere = { _ in false }
       // A surface close fans out to the agent-presence persist effect.
       $0.continuousClock = ImmediateClock()
@@ -128,6 +139,41 @@ struct AppFeatureDeeplinkTaskTests {
           .presented(.delegate(.confirm(worktreeID: worktree.id, action: action, alwaysAllow: false)))))
     }
     await store.finish()
+  }
+
+  private let runScript = ScriptDefinition(kind: .run, name: "Run", command: "npm start")
+  private let testScript = ScriptDefinition(kind: .test, name: "Test", command: "npm test")
+
+  /// Both scripts configured on the repository for the length of `body`.
+  private func withScripts(_ body: () async -> Void) async {
+    @Shared(.repositorySettings(worktree.repositoryRootURL)) var persisted = .default
+    $persisted.withLock { $0.scripts = [runScript, testScript] }
+    await body()
+    $persisted.withLock { $0.scripts = [] }
+  }
+
+  /// Every script start and stop a run of commands asked for, with its layout.
+  private func scriptCommands(_ commands: [TerminalClient.Command]) -> [String] {
+    commands.compactMap {
+      switch $0 {
+      case .runBlockingScript(let layoutID, _, .script(let definition), _, _):
+        "run \(layoutID.externalID) \(definition.id)"
+      case .stopScript(let layoutID, _, let definitionID, _): "stop \(layoutID.externalID) \(definitionID)"
+      case .stopRunScript(let layoutID, _, _): "stop-run \(layoutID.externalID)"
+      default: nil
+      }
+    }
+  }
+
+  private func socketResponse(_ fileDescriptor: Int32) -> [String: Any]? {
+    var data = Data()
+    var buffer = [UInt8](repeating: 0, count: 4096)
+    while true {
+      let count = buffer.withUnsafeMutableBufferPointer { Darwin.read(fileDescriptor, $0.baseAddress!, $0.count) }
+      guard count > 0 else { break }
+      data.append(contentsOf: buffer.prefix(count))
+    }
+    return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
   }
 
   private func pipe() -> (read: Int32, write: Int32) {
@@ -379,6 +425,105 @@ struct AppFeatureDeeplinkTaskTests {
     await store.send(.deeplink(.worktree(id: worktree.id, action: .stop, background: true, task: other.id)))
     await store.finish()
     #expect(targets(sent.value) == [other.id])
+  }
+
+  // MARK: - Stopping a script that runs in one of the directory's tasks.
+
+  @Test(.dependencies) func stoppingAScriptInATaskThatDoesNotRunItFailsAndLeavesTheOtherTaskAlone() async {
+    await withScripts {
+      // The script runs in the shown task; the command names the other one.
+      let (readFD, writeFD) = pipe()
+      defer { close(readFD) }
+      let (store, sent) = makeStore(running: [shown.id: [testScript]])
+      await store.send(
+        .deeplink(
+          .worktree(
+            id: worktree.id, action: .stopScript(scriptID: testScript.id), background: true, task: other.id),
+          source: .socket, responseFD: writeFD, timeoutSeconds: 0))
+      await store.finish()
+      let response = socketResponse(readFD)
+      #expect(response?["ok"] as? Bool == false)
+      #expect((response?["error"] as? String)?.isEmpty == false)
+      #expect(sent.value.isEmpty)
+    }
+  }
+
+  @Test(.dependencies) func stoppingAScriptInTheTaskThatRunsItStopsItThereOnly() async {
+    await withScripts {
+      let (readFD, writeFD) = pipe()
+      defer { close(readFD) }
+      let (store, sent) = makeStore(running: [other.id: [testScript], shown.id: [runScript]])
+      await store.send(
+        .deeplink(
+          .worktree(
+            id: worktree.id, action: .stopScript(scriptID: testScript.id), background: true, task: other.id),
+          source: .socket, responseFD: writeFD, timeoutSeconds: 0))
+      await store.finish()
+      #expect(socketResponse(readFD)?["ok"] as? Bool == true)
+      #expect(scriptCommands(sent.value) == ["stop \(other.id.externalID) \(testScript.id)"])
+    }
+  }
+
+  /// A script runs once on a directory, so a stop that names no task means
+  /// that one run, whichever task the directory shows.
+  @Test(.dependencies) func aBareScriptStopFindsTheTaskThatRunsIt() async {
+    await withScripts {
+      for initial in [state(), selectedBeforeTheEcho()] {
+        for runner in [shown.id, other.id] {
+          let (store, sent) = makeStore(initial, running: [runner: [testScript]])
+          await store.send(
+            .deeplink(
+              .worktree(id: worktree.id, action: .stopScript(scriptID: testScript.id), background: true)))
+          await store.finish()
+          #expect(scriptCommands(sent.value) == ["stop \(runner.externalID) \(testScript.id)"])
+          #expect(store.state.alert == nil)
+        }
+      }
+    }
+  }
+
+  @Test(.dependencies) func aScriptStopFailsWhenNoTaskOnTheDirectoryRunsIt() async {
+    await withScripts {
+      // Running on the sibling directory only.
+      let (store, sent) = makeStore(running: [elsewhere.id: [testScript]])
+      await store.send(
+        .deeplink(.worktree(id: worktree.id, action: .stopScript(scriptID: testScript.id), background: true)))
+      await store.finish()
+      #expect(sent.value.isEmpty)
+      #expect(store.state.alert != nil)
+    }
+  }
+
+  @Test(.dependencies) func aBareRunStopFindsEveryTaskRunningARunScript() async {
+    await withScripts {
+      let (store, sent) = makeStore(running: [other.id: [runScript], shown.id: [testScript]])
+      await store.send(.deeplink(.worktree(id: worktree.id, action: .stop, background: true)))
+      await store.finish()
+      #expect(scriptCommands(sent.value) == ["stop-run \(other.id.externalID)"])
+    }
+  }
+
+  @Test(.dependencies) func aNamedRunStopStaysInThatTask() async {
+    await withScripts {
+      let (store, sent) = makeStore(running: [other.id: [runScript]])
+      await store.send(.deeplink(.worktree(id: worktree.id, action: .stop, background: true, task: shown.id)))
+      await store.finish()
+      #expect(scriptCommands(sent.value) == ["stop-run \(shown.id.externalID)"])
+    }
+  }
+
+  /// The toolbar lists what runs anywhere on the directory, so its stop has
+  /// to reach the task that runs it, not only the one shown.
+  @Test(.dependencies) func theToolbarStopsReachTheTaskThatRunsTheScript() async {
+    await withScripts {
+      let (store, sent) = makeStore(running: [other.id: [runScript, testScript]])
+      await store.send(.stopScript(testScript))
+      await store.send(.stopRunScripts)
+      await store.finish()
+      #expect(
+        scriptCommands(sent.value)
+          == ["stop \(other.id.externalID) \(testScript.id)", "stop-run \(other.id.externalID)"])
+    }
   }
 
   // MARK: - Surface close.

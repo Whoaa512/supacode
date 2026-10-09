@@ -49,6 +49,10 @@ struct TerminalClient {
   /// The directory a live surface's shell last reported. `nil` when the
   /// surface is gone, dormant, or has reported none.
   var surfaceWorkingDirectory: @MainActor @Sendable (LayoutID, UUID) -> String? = { _, _ in nil }
+  /// The user scripts running in one task right now. The row's
+  /// `runningScripts` mirror covers the whole directory, so a stop has to ask
+  /// here which of the directory's tasks holds the script.
+  var runningScripts: @MainActor @Sendable (LayoutID) -> [ScriptDefinition] = { _ in [] }
   /// Close every tracked surface and kill its zmx session in parallel.
   /// Awaited from the quit path so teardown completes before process exit.
   var terminateAllSessions: @MainActor @Sendable () async -> Void

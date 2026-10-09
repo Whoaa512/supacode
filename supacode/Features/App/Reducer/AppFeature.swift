@@ -1508,7 +1508,14 @@ struct AppFeature {
         guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) else {
           return .none
         }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        // The toolbar lists what runs anywhere on the directory, so the stop
+        // goes to the task that runs it; a miss falls to the shown task, whose
+        // no-match stop re-emits the projection the stale row came from.
+        let shown = state.layoutID(forDirectory: worktree.id)
+        let runners = layoutIDs(onDirectory: worktree.id, preferring: shown, state: state) {
+          $0.id == definition.id
+        }
+        let layoutID = runners.first ?? shown
         return .run { _ in
           await terminalClient.send(
             .stopScript(layoutID, DirectoryContext(worktree: worktree), definitionID: definition.id))
@@ -1518,9 +1525,13 @@ struct AppFeature {
         guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) else {
           return .none
         }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        let shown = state.layoutID(forDirectory: worktree.id)
+        let runners = layoutIDs(onDirectory: worktree.id, preferring: shown, state: state) { $0.kind == .run }
+        let layoutIDs = runners.isEmpty ? [shown] : runners
         return .run { _ in
-          await terminalClient.send(.stopRunScript(layoutID, DirectoryContext(worktree: worktree)))
+          for layoutID in layoutIDs {
+            await terminalClient.send(.stopRunScript(layoutID, DirectoryContext(worktree: worktree)))
+          }
         }
 
       case .closeTab:
@@ -3125,8 +3136,23 @@ struct AppFeature {
         background: background
       )
     case .stop:
-      return sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) { seamLayoutID, worktree in
-        .stopRunScript(seamLayoutID, DirectoryContext(worktree: worktree), focusing: !background)
+      guard let worktree = state.repositories.worktree(for: worktreeID) else {
+        state.alert = worktreeNotFoundAlert()
+        return .none
+      }
+      // A named task is stopped as named. A bare stop means the directory's
+      // run scripts, which may sit in a task other than the one it shows.
+      let runners =
+        task == nil
+        ? layoutIDs(onDirectory: worktreeID, preferring: layoutID, state: state) { $0.kind == .run } : []
+      let targets = runners.isEmpty ? [layoutID] : runners
+      let terminalClient = terminalClient
+      return .run { _ in
+        for target in targets {
+          await terminalClient.send(
+            .stopRunScript(
+              target, DirectoryContext(worktree: worktree), focusing: !background && target == layoutID))
+        }
       }
     case .runScript(let scriptID):
       return runScriptDeeplinkEffect(
@@ -3142,7 +3168,8 @@ struct AppFeature {
       )
     case .stopScript(let scriptID):
       return stopScriptDeeplinkEffect(
-        worktreeID: worktreeID, layoutID: layoutID, scriptID: scriptID, state: &state, background: background)
+        worktreeID: worktreeID, layoutID: layoutID, scriptID: scriptID, state: &state, background: background,
+        task: task)
     case .archive:
       return deeplinkArchiveWorktreeEffect(
         worktreeID: worktreeID,
@@ -3590,7 +3617,8 @@ struct AppFeature {
     layoutID: LayoutID,
     scriptID: UUID,
     state: inout State,
-    background: Bool = false
+    background: Bool = false,
+    task: LayoutID? = nil
   ) -> Effect<Action> {
     // Read scripts from storage so cross-worktree deeplinks are selection-agnostic.
     guard let worktree = state.repositories.worktree(for: worktreeID) else {
@@ -3604,19 +3632,48 @@ struct AppFeature {
       )
       return .none
     }
-    let runningScripts = state.repositories.sidebarItems[id: worktreeID]?.runningScripts ?? []
-    guard runningScripts[id: scriptID] != nil else {
+    // Asked of the terminal per task: the row's mirror says only that the
+    // script runs somewhere on the directory, and a stop sent to a task that
+    // does not run it is a silent no-op the caller would read as success.
+    let runners = layoutIDs(onDirectory: worktreeID, preferring: layoutID, state: state) { $0.id == scriptID }
+    // A named task is stopped as named; a bare stop means the directory's one run.
+    let target = task == nil ? runners.first : runners.first { $0 == layoutID }
+    let terminalClient = terminalClient
+    guard let target else {
       state.alert = scriptAlert(
         title: "Script not running",
-        message: "\"\(definition.displayName)\" is not currently running in this worktree."
+        message: runners.isEmpty
+          ? "\"\(definition.displayName)\" is not currently running in this worktree."
+          : "\"\(definition.displayName)\" is not running in that task."
       )
-      return .none
+      // No task runs it yet the row says one does: the stop's no-match path
+      // re-emits the projection so the stale row reconciles (#573).
+      guard runners.isEmpty, state.repositories.sidebarItems[id: worktreeID]?.runningScripts[id: scriptID] != nil
+      else { return .none }
+      return .run { _ in
+        await terminalClient.send(
+          .stopScript(layoutID, DirectoryContext(worktree: worktree), definitionID: scriptID, focusing: false))
+      }
     }
-    let terminalClient = terminalClient
     return .run { _ in
       await terminalClient.send(
-        .stopScript(layoutID, DirectoryContext(worktree: worktree), definitionID: scriptID, focusing: !background))
+        .stopScript(
+          target, DirectoryContext(worktree: worktree), definitionID: scriptID,
+          focusing: !background && target == layoutID))
     }
+  }
+
+  /// The tasks on a directory running a script that `matches`, `preferred`
+  /// first. Scripts are tracked per task by the terminal; the row only mirrors
+  /// their union.
+  private func layoutIDs(
+    onDirectory worktreeID: Worktree.ID,
+    preferring preferred: LayoutID,
+    state: State,
+    runningScript matches: (ScriptDefinition) -> Bool
+  ) -> [LayoutID] {
+    let candidates = [preferred] + state.terminals.layoutIDs(onDirectory: worktreeID).filter { $0 != preferred }
+    return candidates.filter { terminalClient.runningScripts($0).contains(where: matches) }
   }
 
   private func pruneScriptRecencyEffect(state: State) -> Effect<Action> {

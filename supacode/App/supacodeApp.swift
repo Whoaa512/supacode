@@ -394,6 +394,9 @@ struct SupacodeApp: App {
       surfaceWorkingDirectory: { layoutID, surfaceID in
         terminalManager.hostIfExists(for: layoutID)?.liveSurface(surfaceID)?.bridge.state.pwd
       },
+      runningScripts: { layoutID in
+        terminalManager.hostIfExists(for: layoutID)?.runningScriptDefinitions() ?? []
+      },
       terminateAllSessions: {
         await terminalManager.terminateAllSessions()
       },
