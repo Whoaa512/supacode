@@ -2747,3 +2747,91 @@ deviation.
   `CommandAckTests`, `AgentTaskTests`, `RunScriptTests`) exit 0 with 286
   tests, build-app 0, full `make test` exit 2 with 4338 tests and only the 5
   known failures.
+- S1, 2026-10-09, `ba775d7d`. The Sessions sidebar lists tasks: a row is
+  `.task(LayoutID)`, `.implicit(SessionKey)` (an indexed session no task
+  lists) or `.provisional` (an unreported agent on a surface no known task
+  holds). Decisions the plan did not make:
+  - Grouping rule. A session belongs to every task that lists it
+    (`taskSessions`) and, while it runs, to the known task that holds its
+    surface (a task is known when it lists a session or holds a tab). So an
+    agent joins its task's row at once, reported or not, without waiting for
+    membership; `.implicit`/`.provisional` rows for a live agent only exist
+    when nothing names its layout (the A26 fixture; in the app every agent
+    sits on a tab of a task). A session two tasks list is grouped under
+    both. The map is `[SessionKey: [LayoutID]]`, built once per pass.
+  - Row facts. Title: the primary's; "New session" while a running primary
+    is not on disk; else the first indexed member's; else the directory
+    name (so S3's switch falls out, same row id). `createdAt`: the oldest
+    indexed member's, so `/new` or a tangent does not move the row. Status,
+    `allowsAttentionNavigation` and `location`: the most urgent agent's
+    (needs you > working > done unseen > idle; then one that can be jumped
+    to; then the one the row already led to, so it does not hop); with no
+    agent, the T5 first-tab anchor. `primary` is on the row; `sessionKey`
+    is the session a row settles by.
+  - Settled, shown. A task row is in Settled when its primary is marked
+    **and** it has no tab and no agent. This covers T9's "left for S1"
+    item (`userClosedSurfaces` marks the primary while other tabs stay
+    open): the mark stands, the task stays in Active until its tabs are
+    gone, in line with open question 6 (a task with a tab open is not
+    settled by anything but the user's task settle).
+  - A row needs something to show: a task with no tab, no agent and no
+    member on disk has none (its placeholder row lives until the next scan,
+    as a session's did). Same for sub-rows and `session list`: a member
+    neither running nor indexed is left out. That hides the trailing refs
+    T7 stored for sub-agents and `/new` before T9 (T9's third S1 item);
+    they stay in the record.
+  - Sub-rows: `SessionsSidebarStructure.subRows` + `subRowsTaskID`, for the
+    selected row's task only (`sessionSelection`, the sidebar highlight,
+    which follows focus), in member order, then unlisted agents by
+    surface. Empty for a task of one agent. Recomputed with the structure
+    and by `selectSessionRow`, which every selection write now goes
+    through (the two `AppFeature` writes included).
+  - Activation. Live task row: `focusTask` (its own focus, T5). Dormant
+    task row: resume the primary, into the task (D6). Jump-to-attention
+    selects the task row and focuses the row's location, i.e. the most
+    urgent agent's own surface, so it did not regress to "whatever the
+    task had focused"; K2 still owns a needy tangent masked by a more
+    urgent member that cannot be jumped to.
+  - Settle from a task row names the task (`settleTaskRequested` →
+    `settleTask`), not its primary's key: a session can lead two tasks and
+    `taskLed(by:)` would pick by where it runs. Key-based settle stays for
+    `.implicit` rows, the CLI and the chord's implicit case. A shell-only
+    task row still offers no settle (T9's second S1 item, unchanged).
+  - No per-session row is read any more for a session's surface or
+    directory: `sessionLocation(for:)`/`sessionCwd(for:)` answer from the
+    row when the session has one, else from the snapshots/index (resume,
+    deeplink, `taskLed`).
+  - `supacode session list` still names every session: a task row answers
+    for its primary, its other indexed-or-running sessions follow it.
+  - `taskSessionsChanged` now reconciles and invalidates the structure.
+  - View (S2's file) touched only as far as the new ids need: context menu
+    by `sessionKey`, "Settle and Close Tabs" for a task, help text.
+  Left for later:
+  - S2: render `subRows`; sub-row activation (live → `focusSession`,
+    dormant → `resumeSession`, which reuses the task when it sits on the
+    session's directory; T7's "member whose task sits elsewhere mints a
+    task" stands for T8/S); per-sub-row settle (T9 r1's
+    `settleAndCloseSession` double-alert note applies there).
+  - K1: the chord already steps one task per press (rows are tasks). K2 as
+    above.
+  - A task whose only indexed member is a tangent keeps a row titled by
+    that tangent once its tabs close, and settles by its (unindexed)
+    primary's mark.
+  Only the live UI can confirm (cj): a task with two agents is one row
+  showing the more urgent status; the highlight stays on the task while
+  tabs switch; a `/new` keeps the row in place with the new title; history
+  rows are unchanged; Settled shows a closed task once, not per session.
+  Tests: new `SessionsSidebarTaskRowsTests` (grouping, A24 table both
+  orders, A23 structure half, settled rule, selection folding, write-free
+  and order-stable reconcile with tasks, activation, task settle, session
+  list); `AppFeatureSessionsTests` task-row block re-pointed at task rows
+  (A36: six tasks, shared identity, cycling, slots) plus attention on a
+  tangent; `AppFeatureSessionsTaskSettleTests` (settle names its task when
+  the primary leads two; reopen from the task row). A26:
+  `RepositoriesFeatureSessionsScaleTests` unmodified and green. Tests that
+  only named a row id were renamed `.session` → `.implicit`; those that
+  asserted one row per agent of a task now assert the task row.
+  Gate: check 0; `supacodeTests` + `supacodeFeatureTests` exit 2 with 3426
+  tests and only three of the five baseline failures (ack flake,
+  settings-changed, bracket chords); build-app 0. No full run (not the
+  phase's last slice).
