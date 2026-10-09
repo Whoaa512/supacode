@@ -1292,3 +1292,17 @@ deviation.
   tab/surface id). The `persistenceKey` path parse for a hostless layout's
   display name stays (T5/T7). Gate: check 0, build-app 0, full `make test`
   4045 with only the 5 baseline failures.
+- T3 review fix, 2026-10-08: archive pruning now reaches never-opened
+  (hostless) tasks, closing the A12 gap R8 left. Decision: `.prune` gained
+  `archivedDirectories` (sidebar rows that are archived and not running a
+  delete script); the manager removes a hostless task only when its recorded
+  directory is in that set and not in the kept set, using the record's
+  remote host. Not inferred from "absent from the kept set": that set is
+  computed in the reducer and applied later, so a task hydrated in between,
+  or one on a not-yet-loaded repository, would have lost its sessions. A
+  hostless task with no recorded directory is never pruned.
+  `protectingRepositoryIDs` is not consulted for hostless tasks (a record
+  carries no repository id); protected repositories have no rows, so they
+  are never in `archivedDirectories`. Gate: check 0, build-app 0,
+  `supacodeTerminalTests` + `supacodeFeatureTests` 1382 tests with only 4
+  baseline failures.
