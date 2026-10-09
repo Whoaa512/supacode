@@ -1586,3 +1586,54 @@ deviation.
     first-responder handoff itself is still not verified in the live UI.
   Gate: check 0, `supacodeFeatureTests` + `supacodeTerminalTests` +
   `supacodeTests` with only baseline failures, build-app 0.
+- T6, 2026-10-09, `a6ea2c0d` + `2ec24480`: the split is wired into
+  `LayoutsMigrator.migrateStoreToTasksIfNeeded` (launch, before hydration).
+  Decisions:
+  - Marker: `TaskLayoutsFile.tasksSplit`, encoded only when true. A blob
+    without it (v2, or v3 written by T2–T5 builds) decodes as unsplit. A
+    store created fresh (`TaskLayoutsFile()`, the writer's value for an
+    absent or stashed-corrupt blob) is born split: nothing in it predates
+    task ownership, and splitting a post-T7 multi-tab task would be wrong.
+  - The splitter's core now takes the v3 shape
+    (`split(_: TaskLayoutsFile, …)`); the v2 overload maps one task per
+    directory first. Leftover tabs keep their record (id, directory,
+    sessions); a mapped v2 record's `legacyCreatedAt` becomes `now`.
+  - Active task: a directory follows the task that took its focused tab
+    when that tab was an agent; a directory left with no own-key task
+    follows its first agent task. Entries naming a task that no longer
+    exists are dropped. Closes the T3/T5 "all-agent directory resolves to a
+    layout that does not exist" note for migrated stores.
+  - Integrity, checked on the value that would be written after reading it
+    back through `classify`: same tab items (multiset, content included),
+    same origins, same `allKnownSurfaceIDs`, same agent-record surfaces,
+    every task under its own key, every active-task entry resolvable. Any
+    failure writes nothing for an unsplit v3 store; a v2 blob still gets the
+    T2 one-task-per-directory upgrade. Retried next launch.
+  - Backup: the replaced bytes go to `layoutsFile.pre-task-split.bak`,
+    write-once, before the split is written (`pre-tasks.bak` usually already
+    holds older v2 bytes and is write-once, so it cannot serve). A v2 blob
+    is written to both. A refused backup writes nothing.
+  - Rerun safety beyond the marker: a minted task holding exactly one agent
+    tab is left as is, so a split store rewritten without the marker by a
+    T2–T5 build keeps its task ids and sessions. Not covered: on such a
+    downgrade round trip after T7, a minted task with several tabs would be
+    split again (tabs and sessions are never lost, they move).
+  - `SettingsRelocationMigrator` needed no change: it seeds an unsplit v3
+    value from `layouts.json` and the store migration, which runs right
+    after it, splits that.
+  - Tests: new `LayoutsTaskSplitMigrationTests` (Terminal bundle; v2 and
+    unsplit-v3 end to end, backup order, idempotence, lost marker, abort
+    paths, integrity cases) and
+    `AppFeatureSessionsTests/everyMigratedTaskHasARowAndIsInTheCycle`.
+  Left for later: the resolver still returns the own-key id for a directory
+  with no entry without checking that layout exists or sits on that
+  directory (T10; no app path stores such a record, and the split writes an
+  entry wherever it removes the own-key task). The incremental writer still
+  upgrades a v2 blob unsplit if it runs before the launch migration could
+  (deferred backup); the next launch splits it. **A34 UI checkpoint is
+  cj's, before T7**: copy the real `layoutsFile` default aside, launch,
+  confirm every agent and shell reattached and is reachable by click and by
+  the cycling chord. Gate: check 0, `supacodeTerminalTests` +
+  `AppFeatureSessionsTests` 511 tests with only the 2 baseline Ghostty
+  failures, build-app 0, full `make test` 4125 with only the 5 baseline
+  failures.
