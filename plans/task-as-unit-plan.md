@@ -1435,3 +1435,72 @@ deviation.
   pwd here. Gate: check 0, `AppFeatureSessionsTests` 71 pass,
   `supacodeFeatureTests` 1004 and `supacodeTests` 2187 with only the 3
   baseline failures, build-app 0.
+- T5, 2026-10-08, `5c0793d1`: a row selects its own task, a task with no
+  live agent has a row, and the existing shortcuts walk both. Decisions:
+  - `selectedTaskID` is computed, not stored: `RepositoriesFeature.State`
+    holds `selectedTask { id, directoryID }` (the directory is kept with the
+    selection because this feature has no task table) and `selectedTaskID`
+    answers only while `selection` still sits on that directory.
+    `.selectTask` always moves `selection` to the task's directory, so the
+    planned `tasks[selectedTaskID]?.directory ?? selection?.worktreeID` is
+    just `selection?.worktreeID` and `selectedWorktreeID` is unchanged (A18
+    by construction). A removed or deselected directory therefore drops the
+    task with no extra write on the many selection paths; `AppFeature` sends
+    `.selectedTaskRemoved` when the task itself is gone (no live layout and
+    no record: a selection hint, nothing is torn down on it).
+  - Row rule: a `.task(LayoutID)` row for every task that holds at least one
+    tab and has no live agent in it. Deviation from "no sessions": decided by
+    the agents present, not by `TaskRecord.sessions`. Membership is not
+    recorded until T7, so today every record has no sessions and the plan's
+    wording would give each agent task a second row; and after T6 a task
+    whose agent died keeps its tab but would have no live row. An empty task
+    gets no row (activating it would bootstrap a tab, i.e. mint). Rows come
+    from `AppFeature.taskSnapshots` over the same task walk as T4's index
+    (`taskEntries`, shared) and reach the sidebar as `.taskSnapshotsChanged`.
+    `createdAt` is the record's; a task not stored yet keeps the date it was
+    first seen. Legacy records carry `legacyCreatedAt`, so their rows sort
+    last in Active.
+  - A task row's location anchors on the task's first tab so the row does not
+    change (and reconcile does not rerun) on every tab switch. Activation
+    ignores the anchor: `.focusTask` selects the task and sends
+    `ensureInitialTab(focusing: true)`, which only focuses what the task had
+    focused because the row exists only for a task with tabs. Session rows
+    keep `focusSurface`, now with `location.layoutID`.
+  - All four session focus sites (row, next/previous and slots,
+    settle-and-advance, resume of an already live session) go through
+    `AppFeature.focusSession`/`focusTask`. `.focusTerminalSurface` stays for
+    the grid, settings and deeplinks, still directory-resolved (T11).
+  - `selectedWorktreeChanged(worktree, layoutID:)`: one handler, both halves
+    on every send, as the revised R7 says. A17 is therefore met as "nothing
+    on the directory side changes": the watcher is re-sent the id it already
+    has (its manager returns early on an equal id), the repository's scripts
+    are kept, and settings are re-read for the same key. It is not "no
+    send". The test asserts the layout command, that the watcher is never
+    given another id and that the scripts survive.
+  - The focused surface maps to its task row when no agent is on it, so the
+    sidebar highlight and Cmd-N's directory follow a shell-only task.
+  - Tests: `RepositoriesFeatureTaskSelectionTests` (new) and a T5 block in
+    `AppFeatureSessionsTests`, including A36 over six tasks on two
+    directories (own-key, agent, shell-only, never-opened record), cycling
+    from every row in both directions. Two existing tests gained a clock,
+    and one an index-backed row, because a roster or terminal change now
+    reconciles task rows.
+  Left for later:
+  - Orphan tasks (T6 gate, else T7/T10): an orphan has a row and is in the
+    cycle, but activating it is a no-op. `DirectoryContext` and the detail
+    view both need a roster `Worktree`, and the plan does not say how a task
+    on an unknown directory is shown. A36's "activating the row shows that
+    layout" does not hold for orphans yet. Needs a decision before T6 if its
+    fixture gains one.
+  - Resolver (T6/T10), both from T3: a directory with no `activeTasks` entry
+    still resolves to its own-key id even when that layout does not exist or
+    is recorded on another directory. Not changed here: the fallback would
+    have to scan every task on each call from view code. T6 can write an
+    `activeTasks` entry for every directory it leaves without an own-key
+    task; T10 owns worktree-row selection.
+  - T7: a re-sent `selectedWorktreeChanged` with no `layoutID` (roster reload
+    with a changed path) resolves through the seam, which follows the
+    selected task only after the terminal echoes the selection.
+  Gate: check 0, `supacodeFeatureTests` + `supacodeTests` 3216 tests with
+  only 3 baseline failures (ack flake, settings-changed, bracket chords),
+  build-app 0.
