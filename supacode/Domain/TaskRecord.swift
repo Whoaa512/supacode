@@ -94,10 +94,16 @@ nonisolated struct TaskLayoutsFile: Equatable, Codable, Sendable {
     origins = rawOrigins.compactMapValues(\.value)
     // A selection hint, never an owner of sessions: an unreadable one is not a loss.
     activeTasks = (try? container.decodeIfPresent([String: String].self, forKey: .activeTasks)) ?? [:]
-    tasksSplit = (try? container.decodeIfPresent(Bool.self, forKey: .tasksSplit)) ?? false
+    // The marker authorises the one-time regrouping, so only an absent one
+    // means "not split". An unreadable one is counted as a loss rather than
+    // thrown: a thrown decode reads as corrupt and the writer would stash the
+    // whole store and start fresh.
+    let marker = container.contains(.tasksSplit) ? try? container.decode(Bool.self, forKey: .tasksSplit) : false
+    tasksSplit = marker ?? false
     let droppedContent = (decoder.userInfo[.layoutDecodeLoss] as? LayoutDecodeLoss)?.droppedCount ?? 0
     undecodedEntryCount =
       (rawTasks.count - tasks.count) + (rawOrigins.count - origins.count) + droppedContent
+      + (marker == nil ? 1 : 0)
   }
 
   func encode(to encoder: any Encoder) throws {

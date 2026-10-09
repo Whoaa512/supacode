@@ -378,6 +378,28 @@ struct LayoutsTaskSplitMigrationTests {
     #expect(defaults.writtenKeys == [LayoutsFile.userDefaultsKey])
   }
 
+  /// The marker authorises the regrouping, so one that cannot be read is a
+  /// loss, never "not split yet".
+  @Test(arguments: ["\"true\"", "1", "null", "{}"])
+  func unreadableSplitMarkerLeavesTheStoreUntouched(marker: String) throws {
+    let encoded = try JSONEncoder().encode(TaskLayoutsFile(oneTaskPerDirectory: try Self.v2Fixture()))
+    var root = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    root["tasksSplit"] = try JSONSerialization.jsonObject(with: Data(marker.utf8), options: [.fragmentsAllowed])
+    let malformed = try JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])
+    let defaults = RecordingUserDefaults()
+    defaults.set(malformed, forKey: LayoutsFile.userDefaultsKey)
+
+    Self.migrate(defaults)
+
+    #expect(defaults.data(forKey: LayoutsFile.userDefaultsKey) == malformed)
+    #expect(defaults.writtenKeys == [LayoutsFile.userDefaultsKey], "no backup, no rewrite")
+    // Lossy, not undecodable: the writer stashes an undecodable blob and starts fresh.
+    guard case .lossy = TaskLayoutsFile.classify(malformed) else {
+      Issue.record("a malformed marker must classify as lossy")
+      return
+    }
+  }
+
   // MARK: - Integrity check
 
   @Test func integrityCheckNamesEachKindOfLoss() throws {
