@@ -55,3 +55,21 @@ still arbitrary.
 and must be documented so). Likely shape: the
 task segment / `--task` on agent routes, narrowing the surface set to that
 task's before the kind lookup.
+
+## Assumptions confirmed by cj (2026-10-09)
+
+These were assumptions in the plan's open questions; cj confirmed each, so
+they are decisions now and need no further change.
+
+- Q6: auto-settle never closes a tab; a task with any open tab is not
+  auto-settled.
+- Q4: a shell-only task is deleted when its last tab closes.
+- Q21/Q7: the primary quitting while a tangent is live leaves the task
+  active with a dormant primary; the tangent is not promoted.
+- Q19: `/new` or `/fork` stays in the same task and takes the replaced
+  session's slot.
+- Q8: detaching the primary is refused.
+- Q5: tasks of a removed repository or deleted directory are kept as
+  orphans until settled by hand.
+- The real-data migration checkpoint (A34) is deferred to one test at the
+  end, by cj's choice.
