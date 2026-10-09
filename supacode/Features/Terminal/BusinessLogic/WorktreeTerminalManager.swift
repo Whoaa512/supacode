@@ -601,9 +601,14 @@ final class WorktreeTerminalManager {
   private func handleManagementCommand(_ command: TerminalClient.Command) {
     switch command {
     case .prune(let ids, let protectedRepositoryIDs, let archivedDirectories):
+      // The command was computed in an effect, before it got here: an
+      // archive reversed in between must not cost the directory its tasks.
+      // Only what is still archived now goes, and with no store to ask,
+      // nothing does.
+      let stillArchived = appStore?.withState { $0.archivedDirectories } ?? []
       prune(
         keepingDirectories: ids, protectingRepositoryIDs: protectedRepositoryIDs,
-        archivedDirectories: archivedDirectories)
+        archivedDirectories: archivedDirectories.intersection(stillArchived))
     case .removeLayouts(let directoryID, let remoteHost):
       removeLayouts(forDirectory: directoryID, remoteHost: remoteHost)
     case .setNotificationsEnabled(let enabled):

@@ -711,22 +711,13 @@ struct AppFeature {
 
       case .repositories(.delegate(.repositoriesChanged(let repositories))):
         RepositoriesFeature.syncSidebar(&state.repositories)
-        let archivedIDs = state.repositories.archivedWorktreeIDSet
         // Directories, not layouts: every task on a kept directory stays. A
         // task whose directory is no known worktree (deleted outside the app,
         // its repository removed or not loaded) is never pruned; only an
         // archived directory's tasks are.
         let knownDirectories = Set(state.repositories.sidebarItems.ids)
-        let keptRows = Set(
-          state.repositories.sidebarItems
-            .filter { item in
-              !archivedIDs.contains(item.id) || item.lifecycle == .deletingScript
-            }
-            .map(\.id)
-        )
-        // Named positively so a never-opened task is pruned only for a row
-        // known to be archived, never for one that merely is not listed yet.
-        let archivedDirectories = knownDirectories.subtracting(keptRows)
+        let archivedDirectories = state.archivedDirectories
+        let keptRows = knownDirectories.subtracting(archivedDirectories)
         let allowed = keptRows.union(
           state.terminals.directories.values.map(\.worktreeID).filter { !knownDirectories.contains($0) })
         let recencyIDs = CommandPaletteFeature.recencyRetentionIDs(
@@ -4389,6 +4380,19 @@ extension AppFeature.State {
       repositories.worktree(for: repositories.selectedWorktreeID)?.isMissing == true
     else { return nil }
     return taskID
+  }
+
+  /// Directories whose row is archived right now (and not mid delete-script):
+  /// the only ones whose tasks a roster prune may tear down. Named positively,
+  /// so a never-opened task is pruned only for a row known to be archived,
+  /// never for one that merely is not listed yet.
+  var archivedDirectories: Set<Worktree.ID> {
+    let archivedIDs = repositories.archivedWorktreeIDSet
+    guard !archivedIDs.isEmpty else { return [] }
+    return Set(
+      repositories.sidebarItems
+        .filter { archivedIDs.contains($0.id) && $0.lifecycle != .deletingScript }
+        .map(\.id))
   }
 
   /// The persisted layout of the task the seam resolves this directory to.
