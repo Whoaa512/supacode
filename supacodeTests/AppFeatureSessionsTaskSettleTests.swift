@@ -327,6 +327,26 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(store.state.agentPresence.records[.init(agent: .pi, surfaceID: primarySurface)] == nil)
   }
 
+  /// A surface's record can track several processes of one harness. The one
+  /// that quits must not take the others' tab with it.
+  @Test(.dependencies) func thePrimaryQuittingBesideAnotherProcessOnItsOwnSurfaceClosesNothing() async {
+    confirmClose(.never)
+    let recorded = Recorded()
+    var initial = state()
+    let presenceKey = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: primarySurface)
+    initial.agentPresence.records[presenceKey]?.pids = [11, 12]
+    initial.agentPresence.records[presenceKey]?.currentSessionPID = 12
+    let store = store(initial, recorded: recorded)
+
+    await send("session_end", on: primarySurface, ref: "a", pid: 12, reason: "quit", to: store)
+
+    #expect(recorded.closed.value.isEmpty, "pid 11 still runs on the tab")
+    #expect(surfaces(of: task, in: store) == [primarySurface, secondSurface])
+    #expect(store.state.agentPresence.records[presenceKey]?.pids == [11])
+    #expect(settledAt("a", in: store) == now, "the session that quit is over; only the mark says so")
+    #expect(store.state.repositories.sessions.count == 1)
+  }
+
   @Test(.dependencies) func aTangentQuittingSettlesNothing() async {
     let recorded = Recorded()
     let store = store(state(second: live("b", pid: 12)), recorded: recorded)

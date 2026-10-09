@@ -341,7 +341,10 @@ extension AppFeature {
     guard members.first == .session(key), !othersAreRunning else { return .none }
     // Tabs close only for a quit the harness named, from a local process. A
     // bare or remote end cannot be told from an agent that is still there.
-    guard isQuit, event.pid != nil else { return .send(.repositories(.settleSession(key))) }
+    // Nor may they close while the record tracks another process: the ending
+    // one leaves it, and any other may be an agent still running on this tab.
+    let hasSiblingProcess = record.pids.contains { $0 != event.pid }
+    guard isQuit, event.pid != nil, !hasSiblingProcess else { return .send(.repositories(.settleSession(key))) }
     // The session is over whatever the close confirmation says.
     return .merge(.send(.repositories(.settleSession(key))), settleTask(layoutID, state: state))
   }
