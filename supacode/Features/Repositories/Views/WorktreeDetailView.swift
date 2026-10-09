@@ -292,7 +292,7 @@ struct WorktreeDetailView: View {
         ) {
           store.send(.repositories(.requestRemoveFailedRepository(failedRepositoryID)))
         }
-      } else if let selectedWorktree, selectedWorktree.isMissing {
+      } else if let selectedWorktree, selectedWorktree.isMissing, store.state.taskOnMissingDirectory == nil {
         MissingWorktreeDetailView(worktree: selectedWorktree) {
           guard let repositoryID = repositories.sidebarItems[id: selectedWorktree.id]?.repositoryID
           else { return }
@@ -309,7 +309,9 @@ struct WorktreeDetailView: View {
         // lets the live surface reparent its cached wrapper instead of tearing
         // the hosting chain down and rebuilding it at zero size.
         WorktreeLayoutView(
-          layoutID: store.state.layoutID(forDirectory: selectedWorktree.id),
+          // A task picked on a directory that is gone from disk keeps its
+          // tabs on screen; the toolbar already hides the directory chrome.
+          layoutID: store.state.taskOnMissingDirectory ?? store.state.layoutID(forDirectory: selectedWorktree.id),
           manager: terminalManager,
           terminalsStore: store.scope(state: \.terminals, action: \.terminals),
           runtime: ContentRuntime.liveValue,

@@ -2963,6 +2963,78 @@ struct AppFeatureSessionsTests {
     #expect(moved.state.repositories.selectedWorktreeID == otherWorktree.id)
   }
 
+  /// `/other` is still a roster worktree but its directory is gone from disk;
+  /// its two tasks (one live, one record only) survive.
+  private func otherDirectoryMissing() -> AppFeature.State {
+    var state = sixTasksOnTwoDirectories()
+    let missing = Worktree(
+      id: otherWorktree.id, name: otherWorktree.name, detail: "",
+      workingDirectory: otherWorktree.workingDirectory, repositoryRootURL: otherWorktree.repositoryRootURL,
+      isMissing: true)
+    state.repositories.repositories[id: "/other"] = Repository(
+      id: "/other", rootURL: missing.workingDirectory, name: "other", worktrees: [missing])
+    return state
+  }
+
+  @Test(.dependencies, arguments: [true, false])
+  func activatingATaskOnAMissingDirectoryShowsTheTaskNotThePlaceholder(live: Bool) async {
+    let task = live ? fifth : fourth
+    let rowID: SessionRowID = live ? .session(SessionKey(harness: .pi, sessionID: "five")) : .task(fourth)
+    let recorded = Recorded()
+    let store = taskStore(withRows(otherDirectoryMissing()), recorded: recorded)
+    #expect(store.state.repositories.worktree(for: otherWorktree.id)?.isMissing == true)
+
+    await store.send(.repositories(.activateSession(rowID)))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(store.state.repositories.selectedWorktreeID == otherWorktree.id)
+    #expect(store.state.taskOnMissingDirectory == task)
+    #expect(recorded.selectedLayouts == [task])
+    #expect(!recorded.mintedOrResumed)
+  }
+
+  @Test(.dependencies) func selectingAMissingDirectoryAloneKeepsThePlaceholder() async {
+    var initial = withRows(otherDirectoryMissing())
+    #expect(initial.taskOnMissingDirectory == nil, "nothing on the missing directory is selected")
+
+    initial.repositories.selection = .worktree(otherWorktree.id)
+    #expect(initial.taskOnMissingDirectory == nil, "the directory by itself is the placeholder")
+
+    initial.repositories.selectedTask = SelectedTask(id: fifth, directoryID: otherWorktree.id)
+    #expect(initial.taskOnMissingDirectory == fifth)
+
+    // Leaving for another directory lets go of the task, so the directory's
+    // own row leads back to the placeholder and its delete action.
+    let store = taskStore(initial, recorded: Recorded())
+    await store.send(.repositories(.selectWorktree(worktree.id)))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+    #expect(store.state.repositories.selectedTask == nil)
+    await store.send(.repositories(.selectWorktree(otherWorktree.id)))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+    #expect(store.state.repositories.selectedWorktreeID == otherWorktree.id)
+    #expect(store.state.taskOnMissingDirectory == nil)
+  }
+
+  @Test(.dependencies) func aTaskThatIsGoneDoesNotHideThePlaceholder() {
+    var state = withRows(otherDirectoryMissing())
+    state.repositories.selection = .worktree(otherWorktree.id)
+    state.repositories.selectedTask = SelectedTask(
+      id: LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A9")!), directoryID: otherWorktree.id)
+
+    #expect(state.taskOnMissingDirectory == nil)
+  }
+
+  @Test(.dependencies) func aTaskOnAPresentDirectoryIsNotTreatedAsMissing() {
+    var state = withRows(sixTasksOnTwoDirectories())
+    state.repositories.selection = .worktree(otherWorktree.id)
+    state.repositories.selectedTask = SelectedTask(id: fifth, directoryID: otherWorktree.id)
+
+    #expect(state.taskOnMissingDirectory == nil)
+  }
+
   @Test(.dependencies) func focusedShellOnlyTaskResolvesToItsTaskRow() {
     var state = withRows(sixTasksOnTwoDirectories())
     state.terminals.selectedLayoutID = third

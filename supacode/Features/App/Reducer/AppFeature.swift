@@ -637,6 +637,11 @@ struct AppFeature {
             }
           )
         }
+        // Picking another directory by itself lets go of the task, so coming
+        // back to the first one shows the directory, not the task again.
+        if taskID == nil, let selectedTask = state.repositories.selectedTask, selectedTask.directoryID != worktree.id {
+          state.repositories.selectedTask = nil
+        }
         let rootURL = worktree.repositoryRootURL
         let host = worktree.host
         let worktreeID = worktree.id
@@ -4367,6 +4372,16 @@ extension AppFeature.State {
   /// The single app-layer seam for "which layout does this worktree mean".
   func layoutID(forDirectory worktreeID: Worktree.ID) -> LayoutID {
     terminals.layoutID(forDirectory: worktreeID)
+  }
+
+  /// The selected task when its directory is still in the roster but gone from
+  /// disk. It is shown in place of the missing-directory placeholder, which
+  /// stays for a selection of the directory alone.
+  var taskOnMissingDirectory: LayoutID? {
+    guard let taskID = repositories.selectedTaskID, AppFeature.hasTask(taskID, state: self),
+      repositories.worktree(for: repositories.selectedWorktreeID)?.isMissing == true
+    else { return nil }
+    return taskID
   }
 
   /// The persisted layout of the task the seam resolves this directory to.
