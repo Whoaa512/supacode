@@ -3222,3 +3222,90 @@ deviation.
   and B keeps showing the tab it was showing.
   Gate (final tree): check 0; `LayoutsTransferTests` exit 0 (23 tests);
   build-app 0. No full `make test` (not a phase end, not destructive).
+
+- M2, 2026-10-09, `4a13aab8` (writer), `8504bb31` (M2a owner lookup),
+  `a2c82a53` (M2b transfer + M2c alias). Runtime tab transfer between
+  tasks, built to `plans/briefs/M2.md`. Nothing calls the command until M3;
+  M2 is proved by tests only. M2 closes no phase but is the highest-risk
+  slice, so the full suite was run.
+  What landed:
+  - A content's owner is looked up (`TerminalsFeature.State.layoutID(
+    holdingContent:)`, manager `owningLayoutID(of:)`, builder `owner`), for
+    spawn, wake, wiring and the unexpected-close probe. First spawn is
+    unchanged (nothing holds the tab yet).
+  - `TerminalClient.Command.transferTabs(from:into:_:scope:)` with scopes
+    `.all` (merge) and `.tab(_, members:)` (detach), answered by
+    `.tabsTransferred` / `.tabsTransferFailed`. `AppFeature` ignores both
+    until M3.
+  - `TerminalsFeature.Action.transferTabs` moves tabs (via M1's `flatten` /
+    `extract`) and members in one turn, both layouts or neither; members
+    move here, not in M3 (brief §8.2).
+  - `WorktreeContentHost.relinquish` / `adopt` / `bare` carry the
+    per-surface bookkeeping; the manager re-wires live surfaces.
+  - One flush carries both records; `RecordChange.record(releasing:)` and
+    `.mergedInto`; `TaskLayoutsFile.mergedTasks` + state `mergedTasks` keep a
+    merged id addressable on its own directory (decides the T11 hand-off).
+  Decisions and differences from the brief:
+  - Labels are `from:into:`, not `from:to:` (swiftlint identifier length).
+  - M1 has `flatten`/`extract`, not the brief's `orderedTabs` / `removing` /
+    `appending`; the reducer uses M1 as is. No file added to M1.
+  - `.transferTabs` is dispatched from `handleManagementCommand`
+    (`handleTabCommand` is at the lint body limit).
+  - New refusal `.layoutRejected`: the reducer moved nothing (a tab or
+    content id on both sides, an inconsistent layout). Logged and reported,
+    not `assertionFailure`: it is a data condition, and the bookkeeping is
+    put back. Success is checked on both layouts, so an empty-source merge
+    the reducer refused is not reported as moved.
+  - `removedByTransfer` holds the removal change, not just the id, so a quit
+    before the transfer flush still writes `.mergedInto` (the alias
+    survives), not a bare delete.
+  - The source's dormant watchers are reconciled before the destination
+    adopts, so two watchers never share a session socket.
+  - Two merges carried in one flush resolve to the task that stays.
+  - `detachLayout` drops aliases that point at the removed task (the writer
+    does the same on disk).
+  - No `equalizeIfEnabled` for a source pane a detach collapses: it follows
+    the close-tab rules, which do not equalize either.
+  - Refused, each narrowing D8 (brief §8.5, cj to confirm): different
+    machines, a running blocking-script tab, a pending close confirmation,
+    not yet hydrated / read-only / unreadable store, quit in progress.
+  Tests: `TerminalsFeatureTransferTests` (new, 19), `WorktreeTerminalManager
+  TransferTests` (new, 17), plus additions to `WorktreeContentHostTests`
+  (8), `LayoutsIncrementalWriterTests` (8), `TerminalSurfaceRecipeTests`
+  (2), `AppFeatureDeeplinkTaskTests` (2). Not written from the brief's list:
+  `paneWindowOfSourceCloses` at manager level (needs real windows; the
+  reducer test `windowedSourcePaneIsForgotten` covers the state half), and
+  `mergeEmitsNoSettleInTheApp` is the light form (members and
+  `agentPresence` unchanged, no close event; no presence records or sidecar
+  seeded).
+  Red first: not run before the implementation. One mutation run after it
+  (no `relinquish`, no re-wire, no quit-time removal, probe keeps its wired
+  id) failed exactly `detachLeavesTheSourceRunning`,
+  `liveSurfaceIsRewiredToTheDestination`, `quitRightAfterMergeStoresNoSource`
+  and `unexpectedCloseProbeFollowsTheMove`. `mergeKillsNothingAndClosesNothing`
+  stayed green under it: a merged source's host is removed unswept, so the
+  detach test is the one that guards the close signal. The reducer-level
+  timer re-arm was not mutation-tested.
+  Left for later:
+  - M3: entry points, which members ride on a detached tab, refusing the
+    primary (Q8), minting the id, app-level `selectedTask` after a merge
+    (the manager's own selection already moves), handling the two events,
+    showing a moved tab (the destination keeps its selection).
+  - M3 or later: a detached tab's shell still names its source task
+    (brief §4.17); origins of a directory whose last task is merged away
+    are released as on a last-tab close (brief §8.9).
+  - Found, not fixed (brief §8.11): `cancelPendingLayoutSaves` cancels flush
+    tasks that do not check cancellation; `.layoutsHydrated` does not skip
+    `removedLayoutIDs` (transfers are refused until hydration, so M2 does
+    not depend on it).
+  Only the live UI can confirm (cj, at the M3 checkpoint; nothing is
+  reachable before): a moved live terminal keeps rendering and taking input
+  with no flash or lost focus; a moved agent keeps reporting and is not
+  settled; a moved hibernated tab wakes with scrollback and a hidden moved
+  tab hibernates and wakes again; a windowed source pane closes its window
+  without closing the terminal; quit and relaunch after a merge reattaches
+  every session in the destination in order; `supacode tab new` from a
+  merged shell opens in the destination.
+  Gate (final tree): check 0; narrow suites exit 0 (400 tests, 0 failed);
+  build-app 0; full `make test` exit 2 with 4518 tests and only the 5 known
+  failures.
