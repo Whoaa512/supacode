@@ -292,7 +292,9 @@ extension AppFeature {
     guard let agent = SkillAgent(rawValue: event.agent) else { return .none }
     let presenceKey = AgentPresenceFeature.PresenceKey(agent: agent, surfaceID: event.surfaceID)
     let record = state.agentPresence.records[presenceKey]
-    if event.eventName == .sessionStart || event.eventName == .busy {
+    // Every event that puts its ref on the record, not only a start or a
+    // busy: once presence holds the new ref, no later event differs from it.
+    if AgentPresenceFeature.recordsSessionRef(of: event, in: state.agentPresence) {
       guard let newRef = event.sessionRef else { return .none }
       let new = SessionKey(harness: agent, sessionID: newRef)
       guard new.isValid else { return .none }

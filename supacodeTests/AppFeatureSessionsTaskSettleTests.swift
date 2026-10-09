@@ -199,6 +199,39 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(store.state.repositories.sessionItems[id: .session(key("n"))]?.location?.layoutID == task)
   }
 
+  /// Presence takes a changed ref from any event, so the first event of the
+  /// new session need not be a start or a busy.
+  @Test(.dependencies, arguments: ["idle", "awaiting_input", "error", "notification"])
+  func aReplacementFirstSeenOnAnotherEventStillTakesTheSlot(first: String) async {
+    let recorded = Recorded()
+    let store = store(state(second: live("b", pid: 12)), recorded: recorded)
+
+    await send(first, on: primarySurface, ref: "n", to: store)
+    await send("busy", on: primarySurface, ref: "n", to: store)
+
+    #expect(store.state.terminals.members[task] == [.session(key("n")), .session(key("a")), .session(key("b"))])
+    #expect(settledAt("a", in: store) == now, "the replaced session is marked")
+    #expect(settledAt("n", in: store) == nil)
+    #expect(!AppFeature.isTaskSettled(task, state: store.state))
+    #expect(recorded.closed.value.isEmpty, "no surface closes")
+    #expect(surfaces(of: task, in: store) == [primarySurface, secondSurface])
+  }
+
+  /// A remote agent's record can be seeded by an activity event alone.
+  @Test(.dependencies) func aRemoteReplacementSeededByAnActivityEventTakesTheSlot() async {
+    let recorded = Recorded()
+    let store = store(state(primaryPID: nil, second: live("b", pid: 12)), recorded: recorded)
+
+    await send("session_end", on: primarySurface, ref: "a", pid: nil, reason: "new", to: store)
+    await send("awaiting_input", on: primarySurface, ref: "n", pid: nil, to: store)
+    await send("busy", on: primarySurface, ref: "n", pid: nil, to: store)
+
+    #expect(store.state.terminals.members[task] == [.session(key("n")), .session(key("a")), .session(key("b"))])
+    #expect(settledAt("a", in: store) == now)
+    #expect(recorded.closed.value.isEmpty)
+    #expect(store.state.endedSessions.isEmpty)
+  }
+
   @Test(.dependencies) func resumingThePreviousPrimaryAfterANewMakesItThePrimaryAgain() async {
     let recorded = Recorded()
     let store = store(state(second: live("b", pid: 12)), recorded: recorded)

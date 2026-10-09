@@ -316,6 +316,23 @@ struct AgentPresenceFeature {
     return record.isFromNestedAgent(event, isDescendant: processAncestry.isDescendant)
   }
 
+  /// Whether applying this event leaves its session ref on the surface's
+  /// record. An existing record takes the ref from any event but an end; a
+  /// record is created by a start, or by a remote (pid-less) activity that
+  /// carries a badge. Mirrors `apply(event:)`; replacement detection relies
+  /// on it to see a changed ref on the same event presence does.
+  static func recordsSessionRef(of event: AgentHookEvent, in state: State) -> Bool {
+    guard let agent = SkillAgent(rawValue: event.agent), event.sessionRef != nil else { return false }
+    let eventName = event.eventName
+    guard eventName != .sessionEnd else { return false }
+    if state.records[PresenceKey(agent: agent, surfaceID: event.surfaceID)] != nil { return true }
+    switch eventName {
+    case .sessionStart: return true
+    case .busy, .awaitingInput, .error, .compacting: return event.pid == nil
+    default: return false
+    }
+  }
+
   /// `apply(event:)` plus the per-record diagnostics `agent explain` reports.
   /// Diagnostics are written after the fact so no mutator has to thread them,
   /// and they never widen the returned dirty-surface set: nothing renders them.
