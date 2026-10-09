@@ -198,6 +198,8 @@ struct AppFeature {
     /// One-at-a-time dormant session resume request waiting for folder
     /// registration or cwd validation to complete before launching.
     var pendingSessionLaunch: PendingSessionLaunch?
+    /// The task the last launch targeted, until its first tab exists.
+    var pendingTaskSelection: PendingTaskSelection?
     var lastFocusedSessionRowID: SessionRowID?
     var pendingBranchMismatchResume: PendingBranchMismatchResume?
     /// Tracks when each key last launched a tab; prevents re-launch within 10 s of dispatch.
@@ -668,8 +670,13 @@ struct AppFeature {
         // auto-focus races host creation and loses. The flag itself is consumed
         // by the detail view on appear.
         let wantsFocus = state.repositories.sidebarItems[id: worktree.id]?.shouldFocusTerminal == true
-        // A named task is shown as is; otherwise the directory's active one.
-        let layoutID = taskID ?? state.layoutID(forDirectory: worktree.id)
+        // A named task is shown as is; otherwise the task still selected on
+        // this directory (the terminal may not have echoed it into the
+        // directory's active task yet), else the directory's active one.
+        let selectedTaskID = state.repositories.selectedTask.flatMap {
+          $0.directoryID == worktree.id && Self.hasTask($0.id, state: state) ? $0.id : nil
+        }
+        let layoutID = taskID ?? selectedTaskID ?? state.layoutID(forDirectory: worktree.id)
         return .merge(
           .run { _ in
             await terminalClient.send(.setSelectedLayoutID(layoutID))

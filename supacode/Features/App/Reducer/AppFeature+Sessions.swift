@@ -9,6 +9,15 @@ struct PendingSessionLaunch: Equatable {
   let requestID: UUID
   var launched: Bool = false
   var probing: Bool = false
+  /// A brand-new agent rather than the resume of a known session.
+  var isNewSession: Bool = false
+}
+
+/// A task a launch just targeted, shown once it holds a tab. Selecting it
+/// earlier would bootstrap a plain shell tab into it.
+struct PendingTaskSelection: Equatable {
+  let layoutID: LayoutID
+  let directoryID: Worktree.ID
 }
 
 struct PendingBranchMismatchResume: Equatable {
@@ -122,6 +131,7 @@ extension AppFeature {
         let index = Self.surfaceIndex(tasks: tasks)
         let snapshots = Self.sessionSnapshots(state: state, index: index)
         return .concatenate(
+          Self.membershipEffect(state: state, index: index) ?? .none,
           .send(.repositories(.sessionSnapshotsChanged(snapshots))),
           .send(.repositories(.taskSnapshotsChanged(Self.taskSnapshots(tasks: tasks)))),
           .send(
@@ -157,6 +167,12 @@ extension AppFeature {
         }
         if let selected = state.repositories.selectedTask, !Self.hasTask(selected.id, state: state) {
           effects.append(.send(.repositories(.selectedTaskRemoved)))
+        }
+        if let membership = Self.membershipEffect(state: state, index: index) {
+          effects.append(membership)
+        }
+        if let selection = Self.showLaunchedTaskIfReady(state: &state) {
+          effects.append(selection)
         }
         if let pending = state.pendingSessionLaunch,
           !pending.launched, !pending.probing, state.pendingBranchMismatchResume == nil,
@@ -367,14 +383,13 @@ extension AppFeature {
       key: SessionKey(harness: .pi, sessionID: "new:\(requestID.uuidString)"),
       cwd: cwd,
       command: "pi",
-      requestID: requestID
+      requestID: requestID,
+      isNewSession: true
     )
     if let worktree = worktreeForCwd(cwd, state: state) {
       pending.launched = true
       state.pendingSessionLaunch = pending
-      return launchSessionTab(
-        layoutID: state.layoutID(forDirectory: worktree.id), worktree: worktree, command: pending.command,
-        requestID: requestID)
+      return launchSessionTab(pending, worktree: worktree, state: &state)
     }
     state.pendingSessionLaunch = pending
     return .send(.repositories(.registerSessionFolder(cwd)))
@@ -552,9 +567,7 @@ extension AppFeature {
     if let worktree = worktreeForCwd(prepared.cwd, state: state) {
       pending.launched = true
       state.pendingSessionLaunch = pending
-      return launchSessionTab(
-        layoutID: state.layoutID(forDirectory: worktree.id), worktree: worktree, command: pending.command,
-        requestID: requestID)
+      return launchSessionTab(pending, worktree: worktree, state: &state)
     }
     state.pendingSessionLaunch = pending
     return .send(.repositories(.registerSessionFolder(prepared.cwd)))
@@ -566,9 +579,7 @@ extension AppFeature {
   ) -> Effect<Action>? {
     guard let worktree = worktreeForCwd(pending.cwd, state: state) else { return nil }
     state.pendingSessionLaunch?.launched = true
-    return launchSessionTab(
-      layoutID: state.layoutID(forDirectory: worktree.id), worktree: worktree, command: pending.command,
-      requestID: pending.requestID)
+    return launchSessionTab(pending, worktree: worktree, state: &state)
   }
 
   private static func worktreeForCwd(_ cwd: URL, state: State) -> Worktree? {
@@ -579,10 +590,25 @@ extension AppFeature {
     }
   }
 
+  /// Launches into a task, never into "the directory": a new agent always
+  /// gets a task of its own, and so does a session no task lists. The task
+  /// is created by its first tab, so no launch leaves an empty one behind.
   private static func launchSessionTab(
-    layoutID: LayoutID, worktree: Worktree, command: String, requestID: UUID
+    _ pending: PendingSessionLaunch, worktree: Worktree, state: inout State
   ) -> Effect<Action> {
     @Dependency(TerminalClient.self) var terminalClient
+    @Dependency(\.uuid) var uuid
+    let layoutID: LayoutID
+    if !pending.isNewSession, let owner = task(listing: pending.key, onDirectory: worktree.id, state: state) {
+      layoutID = owner
+    } else {
+      layoutID = LayoutID(task: uuid())
+      // The resumed session is the new task's primary before its agent reports.
+      if !pending.isNewSession { state.terminals.members[layoutID] = [.session(pending.key)] }
+    }
+    state.pendingTaskSelection = PendingTaskSelection(layoutID: layoutID, directoryID: worktree.id)
+    let command = pending.command
+    let requestID = pending.requestID
     return .run { send in
       await terminalClient.send(
         .createTabWithInput(
@@ -596,6 +622,47 @@ extension AppFeature {
       )
       await send(.launchSessionCompleted(requestID: requestID))
     }
+  }
+
+  /// The task that lists a session, when it sits on the directory the session
+  /// resumes in. A task elsewhere is not reused: its tabs start in its own
+  /// directory, and the session has to resume in the one it ran in.
+  static func task(listing key: SessionKey, onDirectory directoryID: Worktree.ID, state: State) -> LayoutID? {
+    let persisted = state.repositories.persistedLayouts.tasks
+    var owners = state.terminals.members.filter { $0.value.contains(.session(key)) }.map(\.key)
+    owners += persisted.values
+      .filter { $0.sessions.contains(key) && state.terminals.members[$0.id] == nil }.map(\.id)
+    return
+      owners
+      .filter {
+        (state.terminals.directories[$0] ?? persisted[$0.persistenceKey]?.directory)?.worktreeID == directoryID
+      }
+      .min { $0.persistenceKey < $1.persistenceKey }
+  }
+
+  /// Every reporting agent with the task that owns its surface.
+  static func taskAgents(state: State, index: [UUID: SurfaceEntry]) -> [TaskAgent] {
+    state.agentPresence.records.compactMap { key, record in
+      guard let entry = index[key.surfaceID] else { return nil }
+      return TaskAgent(
+        layoutID: entry.layoutID, harness: key.agent, surfaceID: key.surfaceID, sessionRef: record.sessionRef)
+    }
+  }
+
+  static func membershipEffect(state: State, index: [UUID: SurfaceEntry]) -> Effect<Action>? {
+    let members = TaskMembership.reconciled(
+      state.terminals.members, agents: taskAgents(state: state, index: index))
+    guard members != state.terminals.members else { return nil }
+    return .send(.terminals(.membersChanged(members)))
+  }
+
+  /// Shows the task a launch targeted as soon as it holds a tab.
+  static func showLaunchedTaskIfReady(state: inout State) -> Effect<Action>? {
+    guard let pending = state.pendingTaskSelection,
+      state.terminals.layouts[id: pending.layoutID]?.layout.panes.contains(where: { !$0.tabs.isEmpty }) == true
+    else { return nil }
+    state.pendingTaskSelection = nil
+    return .send(.repositories(.selectTask(pending.layoutID, directory: pending.directoryID)))
   }
 
   // MARK: - Branch capture (FIFO queue, one in-flight at a time)

@@ -3348,4 +3348,318 @@ struct AppFeatureSessionsTests {
     #expect(sidecar[inTaskDirectory.id] == nil)
     #expect(sidecar[unrelated.id]?.settledAt != nil, "settlement ran and is only blocked per directory")
   }
+
+  // MARK: - Minting and membership
+
+  private struct Launch {
+    let layoutID: LayoutID
+    let directory: Worktree.ID
+    let input: String
+  }
+
+  private func launches(_ recorded: Recorded) -> [Launch] {
+    recorded.commands.value.compactMap { command in
+      guard case .createTabWithInput(let layoutID, let context, let input, _, _, _, _, _) = command else { return nil }
+      return Launch(layoutID: layoutID, directory: context.worktreeID, input: input)
+    }
+  }
+
+  /// The fixture worktree moved onto a real directory, since a launch checks the cwd exists.
+  private func stateOnDisk(_ directory: URL) -> (AppFeature.State, Worktree) {
+    let path = directory.path(percentEncoded: false)
+    let onDisk = Worktree(
+      id: Worktree.ID(path), name: "disk", detail: "", workingDirectory: directory, repositoryRootURL: directory)
+    var state = state()
+    state.repositories.repositories = [
+      Repository(id: RepositoryID(path), rootURL: directory, name: "disk", worktrees: [onDisk])
+    ]
+    state.repositories.selection = .worktree(onDisk.id)
+    state.terminals.layouts = []
+    return (state, onDisk)
+  }
+
+  private func dormantRow(_ key: SessionKey, cwd: URL) -> SessionSidebarItemFeature.State {
+    SessionSidebarItemFeature.State(
+      id: .session(key), title: "Dormant", cwd: cwd.path(percentEncoded: false), createdAt: .distantPast,
+      location: nil)
+  }
+
+  private func mintingStore(_ initial: AppFeature.State, recorded: Recorded) -> TestStoreOf<AppFeature> {
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.uuid = .incrementing
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.send = { command in recorded.commands.withValue { $0.append(command) } }
+      $0.worktreeInfoWatcher.send = { _ in }
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+    }
+    store.exhaustivity = .off
+    return store
+  }
+
+  @Test(.dependencies) func newSessionMintsATaskInTheCurrentDirectoryWithTheDefaultAgentAndNoPrompt() async throws {
+    let directory = try temporaryDirectory(named: "mint-new")
+    let (initial, onDisk) = stateOnDisk(directory)
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newSession)
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    let launch = try #require(launches(recorded).first)
+    #expect(launches(recorded).count == 1)
+    #expect(launch.layoutID == LayoutID(task: UUID(1)), "a fresh task, not the directory's own layout")
+    #expect(launch.layoutID != onDisk.id.layoutID)
+    #expect(launch.directory == onDisk.id)
+    #expect(launch.input == "pi")
+    #expect(store.state.alert == nil)
+    #expect(store.state.pendingTaskSelection == PendingTaskSelection(layoutID: launch.layoutID, directoryID: onDisk.id))
+  }
+
+  @Test(.dependencies) func aSecondNewSessionMintsAnotherTaskOnTheSameDirectory() async throws {
+    let directory = try temporaryDirectory(named: "mint-twice")
+    let (initial, _) = stateOnDisk(directory)
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newSession)
+    await store.receive(\.launchSessionCompleted)
+    await store.send(.newSession)
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    #expect(Set(launches(recorded).map(\.layoutID)).count == 2)
+  }
+
+  @Test(.dependencies) func aLaunchWhoseTabIsNeverCreatedLeavesNoTask() async throws {
+    let directory = try temporaryDirectory(named: "mint-empty")
+    let (initial, _) = stateOnDisk(directory)
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newSession)
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    // The task exists only through its first tab: nothing is attached, listed, selected or stored for it.
+    #expect(store.state.terminals.layouts.isEmpty)
+    #expect(store.state.terminals.members.isEmpty)
+    #expect(store.state.repositories.selectedTask == nil)
+    #expect(!recorded.commands.value.contains { if case .ensureInitialTab = $0 { true } else { false } })
+  }
+
+  @Test(.dependencies) func aLaunchedTaskIsShownOnlyOnceItHoldsATab() async {
+    var initial = state()
+    let minted = LayoutID(task: UUID(7))
+    initial.pendingTaskSelection = PendingTaskSelection(layoutID: minted, directoryID: worktree.id)
+    initial.terminals.layouts.append(LayoutFeature.State(id: minted, layout: PaneLayout()))
+    initial.terminals.directories[minted] = TaskRecord.Directory(worktreeID: worktree.id)
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    await store.send(.terminals(.hibernationPolicyChanged))
+    await store.finish()
+    #expect(store.state.pendingTaskSelection != nil)
+    #expect(recorded.selectedLayouts.isEmpty, "an empty task is not selected: that would bootstrap a shell tab")
+
+    let filled = agentTask(minted, surface: thirdSurface).layout
+    await store.send(.terminals(.replaceRestoredLayout(worktreeID: minted, layout: filled)))
+    await store.receive(\.repositories.selectTask)
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(store.state.pendingTaskSelection == nil)
+    #expect(store.state.repositories.selectedTask?.id == minted)
+    #expect(recorded.selectedLayouts == [minted])
+    #expect(!recorded.mintedOrResumed)
+  }
+
+  @Test(.dependencies) func resumingASessionNoTaskListsMintsATaskWithItAsPrimary() async throws {
+    let directory = try temporaryDirectory(named: "mint-resume")
+    var (initial, onDisk) = stateOnDisk(directory)
+    let key = SessionKey(harness: .pi, sessionID: "history")
+    initial.repositories.sessionItems = [dormantRow(key, cwd: directory)]
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    let launch = try #require(launches(recorded).first)
+    #expect(launches(recorded).count == 1)
+    #expect(launch.layoutID != onDisk.id.layoutID)
+    #expect(launch.directory == onDisk.id)
+    #expect(launch.input == "pi --session history")
+    #expect(store.state.terminals.members == [launch.layoutID: [.session(key)]])
+  }
+
+  @Test(.dependencies) func resumingASessionReusesTheTaskThatListsIt() async throws {
+    let directory = try temporaryDirectory(named: "mint-reuse")
+    var (initial, onDisk) = stateOnDisk(directory)
+    let key = SessionKey(harness: .pi, sessionID: "member")
+    initial.repositories.sessionItems = [dormantRow(key, cwd: directory)]
+    // Its task kept its record when the last tab closed; nothing is live.
+    initial.repositories.$persistedLayouts = SharedReader(
+      value: TaskLayoutsFile(tasks: [
+        first.persistenceKey: TaskRecord(
+          id: first, directory: TaskRecord.Directory(worktreeID: onDisk.id), sessions: [key], createdAt: .distantPast)
+      ]))
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    #expect(launches(recorded).map(\.layoutID) == [first])
+    #expect(store.state.pendingTaskSelection == PendingTaskSelection(layoutID: first, directoryID: onDisk.id))
+  }
+
+  @Test(.dependencies) func resumingASessionListedByATaskOnAnotherDirectoryMintsATask() async throws {
+    let directory = try temporaryDirectory(named: "mint-elsewhere")
+    var (initial, onDisk) = stateOnDisk(directory)
+    let key = SessionKey(harness: .pi, sessionID: "tangent")
+    initial.repositories.sessionItems = [dormantRow(key, cwd: directory)]
+    initial.terminals.members[first] = [.session(key)]
+    initial.terminals.directories[first] = TaskRecord.Directory(worktreeID: "/somewhere/else")
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    let launch = try #require(launches(recorded).first)
+    #expect(launch.layoutID != first, "the other task's tabs start in its own directory")
+    #expect(launch.directory == onDisk.id)
+    #expect(store.state.terminals.members[first] == [.session(key)], "the other task keeps its member")
+  }
+
+  private func piKey(_ ref: String) -> SessionKey { SessionKey(harness: .pi, sessionID: ref) }
+
+  /// One task holding two agent tabs, beside the fixture's own-key layout.
+  private func oneTaskWithTwoAgents(firstRef: String?, secondRef: String?) -> AppFeature.State {
+    var state = state()
+    var task = agentTask(first, surface: firstSurface)
+    let extra = agentTask(first, surface: secondSurface).layout.panes[0].tabs[0]
+    task.layout.panes[0].tabs.append(extra)
+    state.terminals.layouts.append(task)
+    state.terminals.directories = [
+      worktree.id.layoutID: TaskRecord.Directory(worktreeID: worktree.id),
+      first: TaskRecord.Directory(worktreeID: worktree.id),
+    ]
+    state.agentPresence.records[.init(agent: .pi, surfaceID: firstSurface)] = record(ref: firstRef)
+    state.agentPresence.records[.init(agent: .pi, surfaceID: secondSurface)] = record(ref: secondRef)
+    return state
+  }
+
+  private func observingMembers(_ initial: AppFeature.State) async -> (AppFeature.State, [LayoutID]) {
+    let written = LockIsolated<[LayoutID]>([])
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.date.now = .distantPast
+      $0.continuousClock = ImmediateClock()
+      $0.terminalClient.send = { _ in }
+      $0.worktreeInfoWatcher.send = { _ in }
+      $0[LayoutChangeObserver.self].sessionsChanged = { id in written.withValue { $0.append(id) } }
+      $0.terminalClient.saveLayoutsWithAgents = { _ in }
+    }
+    store.exhaustivity = .off
+    await store.send(.agentPresence(.delegate(.surfacesChanged([]))))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+    return (store.state, written.value)
+  }
+
+  @Test(.dependencies) func agentsStartingInATaskJoinItAndTheFirstIsPrimary() async {
+    let (state, written) = await observingMembers(twoTasksOnOneDirectory())
+
+    #expect(state.terminals.members == [first: [.session(piKey("one"))], second: [.session(piKey("two"))]])
+    #expect(written == [first, second], "each task's stored sessions are written once")
+  }
+
+  @Test(.dependencies) func twoAgentsInOneTaskAreBothMembersAndBothRows() async throws {
+    let (state, _) = await observingMembers(oneTaskWithTwoAgents(firstRef: "one", secondRef: "two"))
+
+    #expect(state.terminals.members == [first: [.session(piKey("one")), .session(piKey("two"))]])
+    let rows = state.repositories.sessionItems.filter { $0.location?.layoutID == first }
+    #expect(Set(rows.map(\.id)) == [.session(piKey("one")), .session(piKey("two"))])
+
+    // Membership survives the stored form and a relaunch.
+    let stored = TaskLayoutsFile(tasks: [
+      first.persistenceKey: TaskRecord(
+        id: first, directory: TaskRecord.Directory(worktreeID: worktree.id),
+        layout: try #require(state.terminals.layouts[id: first]).layout,
+        sessions: (state.terminals.members[first] ?? []).compactMap(\.sessionKey), createdAt: .distantPast)
+    ])
+    let decoded = try JSONDecoder().decode(TaskLayoutsFile.self, from: JSONEncoder().encode(stored))
+    #expect(decoded.undecodedEntryCount == 0)
+    #expect(decoded.tasks[first.persistenceKey]?.sessions == [piKey("one"), piKey("two")])
+    let relaunched = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
+    relaunched.exhaustivity = .off
+    await relaunched.send(.layoutsHydrated(decoded))
+    #expect(relaunched.state.members == [first: [.session(piKey("one")), .session(piKey("two"))]])
+  }
+
+  @Test(.dependencies) func anAgentAlreadyListedWritesNothing() async {
+    var initial = twoTasksOnOneDirectory()
+    initial.terminals.members = [first: [.session(piKey("one"))], second: [.session(piKey("two"))]]
+
+    let (state, written) = await observingMembers(initial)
+
+    #expect(state.terminals.members == initial.terminals.members)
+    #expect(written.isEmpty)
+  }
+
+  @Test(.dependencies) func provisionalMemberUpgradesInPlaceWhenItsSessionArrives() async {
+    // The second surface's agent started first and has not reported; the first surface's has.
+    var initial = oneTaskWithTwoAgents(firstRef: "one", secondRef: nil)
+    initial.terminals.members[first] = [.provisional(harness: .pi, surfaceID: secondSurface)]
+    let (waiting, writtenWhileWaiting) = await observingMembers(initial)
+    #expect(
+      waiting.terminals.members[first] == [
+        .provisional(harness: .pi, surfaceID: secondSurface), .session(piKey("one")),
+      ])
+    #expect(writtenWhileWaiting == [first])
+
+    var arrived = waiting
+    arrived.agentPresence.records[.init(agent: .pi, surfaceID: secondSurface)] = record(ref: "two")
+    let (state, _) = await observingMembers(arrived)
+
+    #expect(state.terminals.members[first] == [.session(piKey("two")), .session(piKey("one"))])
+    let rows = state.repositories.sessionItems.filter { $0.location?.layoutID == first }
+    #expect(rows.count == 2, "no second row for the upgraded member")
+  }
+
+  @Test(.dependencies) func aProvisionalMemberWhoseAgentLeftIsDroppedAndASessionIsKept() async {
+    var initial = oneTaskWithTwoAgents(firstRef: "one", secondRef: nil)
+    initial.terminals.members[first] = [
+      .session(piKey("one")), .provisional(harness: .pi, surfaceID: secondSurface),
+    ]
+    initial.agentPresence.records = [:]
+
+    let (state, written) = await observingMembers(initial)
+
+    #expect(state.terminals.members[first] == [.session(piKey("one"))])
+    #expect(written.isEmpty, "a provisional member is never stored")
+  }
+
+  @Test(.dependencies) func aRosterReloadKeepsTheSelectedTaskBeforeTheTerminalEchoesIt() async {
+    var initial = twoTasksOnOneDirectory()
+    // `second` was just selected; the directory's active task still says `first`.
+    initial.repositories.selectedTask = .init(id: second, directoryID: worktree.id)
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    await store.send(.repositories(.delegate(.selectedWorktreeChanged(worktree, layoutID: nil))))
+    await store.finish()
+
+    #expect(recorded.selectedLayouts == [second])
+  }
 }
