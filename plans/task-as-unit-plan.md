@@ -1486,12 +1486,7 @@ deviation.
     and one an index-backed row, because a roster or terminal change now
     reconciles task rows.
   Left for later:
-  - Orphan tasks (T6 gate, else T7/T10): an orphan has a row and is in the
-    cycle, but activating it is a no-op. `DirectoryContext` and the detail
-    view both need a roster `Worktree`, and the plan does not say how a task
-    on an unknown directory is shown. A36's "activating the row shows that
-    layout" does not hold for orphans yet. Needs a decision before T6 if its
-    fixture gains one.
+  - Orphan tasks: fixed in review round 1, see the T5 r1 entry below.
   - Resolver (T6/T10), both from T3: a directory with no `activeTasks` entry
     still resolves to its own-key id even when that layout does not exist or
     is recorded on another directory. Not changed here: the fallback would
@@ -1504,3 +1499,41 @@ deviation.
   Gate: check 0, `supacodeFeatureTests` + `supacodeTests` 3216 tests with
   only 3 baseline failures (ack flake, settings-changed, bracket chords),
   build-app 0.
+- T5 review round 1, 2026-10-08: an orphan task (directory not in the
+  roster) is now shown and focused from its row and from the cycle (A36);
+  before, both focus helpers returned without doing anything. Decisions the
+  plan did not make, taken as the non-destructive and smallest option:
+  - Context: `DirectoryContext(orphan:)` is built from the directory the task
+    recorded (live `terminals.directories`, else the stored record): the id
+    is the path, which also stands in for name, repository root and
+    repository id; host from the record. Nothing is added to the roster and
+    no `Worktree` is invented.
+  - Selection: `.selectTask` on an unknown directory clears the worktree
+    selection, keeps `selectedTask`, and sends
+    `selectedWorktreeChanged(nil, layoutID: task)`. The handler then selects
+    that layout in the terminal instead of none, points the watcher at
+    nothing, drops the repo scripts, and leaves `sidebar.focusedWorktreeID`
+    alone so the next launch still restores the last real worktree.
+    `orphanTaskID` answers only while `selection == nil` and the directory is
+    still unknown; a plain deselect (`selectedWorktreeChanged(nil)` with no
+    task) clears `selectedTask`, and any other selection ends it by
+    construction. `selectedWorktreeID` is nil for an orphan, so A18 reads as
+    "no directory, no directory features".
+  - Detail view: with no selected worktree and an `orphanTaskID`, it mounts
+    `WorktreeLayoutView` for that layout with none of the directory chrome.
+    Checked safe: roster prune removes a host only for a directory named as
+    archived, so hosting an orphan does not expose it to prune.
+  - Tests (`AppFeatureSessionsTests`): the test that pinned the no-op is
+    replaced by activation of an orphan shell row and an orphan agent row
+    (record-only), the orphan context, cycling in both directions from every
+    row over the six tasks plus two orphans, and leaving an orphan.
+  Left for later (T10/T11): the app-menu terminal commands (new tab, close
+  tab, split, search, rename) resolve through `selectedWorktreeID` and are
+  disabled while an orphan is shown; typing in its terminals and the
+  session shortcuts work. Branch capture for an agent in an orphan is
+  skipped (needs a roster worktree; T8). Not verified in the live UI.
+  `RepositoriesFeatureTaskSelectionTests` had a second test pinning the
+  no-op; it now asserts the orphan selection and leaving it.
+  Gate: check 0, `supacodeFeatureTests` + `supacodeTests` 3220 tests with
+  only the 3 baseline failures (ack flake, settings-changed, bracket
+  chords), build-app 0.
