@@ -285,6 +285,14 @@ struct AgentHookCommandTests {
     #expect(!AgentHookCommandOwnership.isLegacyCommand(userHook))
   }
 
+  @Test func hookGuardDoesNotRequireTheTaskID() {
+    // A shell started before tasks existed has no `SUPACODE_TASK_ID`. Its
+    // hooks must keep firing, and the guard doubles as the legacy
+    // fingerprint, so it stays the four variables it always was.
+    #expect(!AgentHookSettingsCommand.envCheck.contains("SUPACODE_TASK_ID"))
+    #expect(AgentHookSettingsCommand.envCheck.contains("SUPACODE_WORKTREE_ID"))
+  }
+
   @Test func verbatimEnvCheckGuardWithoutSentinelIsLegacy() {
     // Lock the intent of the `envCheck` fingerprint: a command that
     // carries the verbatim 4-var guard but lacks the sentinel is a

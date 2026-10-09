@@ -23,6 +23,7 @@ struct TerminalSurfaceRecipeTests {
     let surfaceID = UUID()
     let env = TerminalSurfaceRecipe.environment(
       for: DirectoryContext(worktree: Self.makeWorktree()),
+      layoutID: LayoutID(task: UUID()),
       tabID: tabID,
       surfaceID: surfaceID,
       socketPath: "/tmp/socket"
@@ -36,9 +37,28 @@ struct TerminalSurfaceRecipeTests {
     #expect(env["ZMX_DIR"] != nil)
   }
 
+  @Test func twoTasksOnOneDirectoryShareTheWorktreeIDAndDifferByTaskID() {
+    let context = DirectoryContext(worktree: Self.makeWorktree())
+    let minted = LayoutID(task: UUID())
+    // The task a directory had before tasks is keyed by its path, so its id is
+    // encoded the same way the worktree id is.
+    let ownKey = Self.makeWorktree().id.layoutID
+    let mintedEnv = TerminalSurfaceRecipe.environment(
+      for: context, layoutID: minted, tabID: TabID(), surfaceID: UUID(), socketPath: nil)
+    let ownKeyEnv = TerminalSurfaceRecipe.environment(
+      for: context, layoutID: ownKey, tabID: TabID(), surfaceID: UUID(), socketPath: nil)
+    #expect(mintedEnv["SUPACODE_WORKTREE_ID"] == "%2Ftmp%2Frecipe-fixture%2Fwt")
+    #expect(ownKeyEnv["SUPACODE_WORKTREE_ID"] == "%2Ftmp%2Frecipe-fixture%2Fwt")
+    #expect(mintedEnv["SUPACODE_TASK_ID"] == minted.persistenceKey)
+    #expect(ownKeyEnv["SUPACODE_TASK_ID"] == "%2Ftmp%2Frecipe-fixture%2Fwt")
+    #expect(LayoutID(external: mintedEnv["SUPACODE_TASK_ID"] ?? "") == minted)
+    #expect(LayoutID(external: ownKeyEnv["SUPACODE_TASK_ID"] ?? "") == ownKey)
+  }
+
   @Test func environmentOmitsSocketWhenAbsent() {
     let env = TerminalSurfaceRecipe.environment(
       for: DirectoryContext(worktree: Self.makeWorktree()),
+      layoutID: LayoutID(task: UUID()),
       tabID: TabID(),
       surfaceID: UUID(),
       socketPath: nil
@@ -49,6 +69,7 @@ struct TerminalSurfaceRecipeTests {
   @Test func extraVariablesCannotOverrideTheZmxDirectoryLock() {
     let env = TerminalSurfaceRecipe.environment(
       for: DirectoryContext(worktree: Self.makeWorktree()),
+      layoutID: LayoutID(task: UUID()),
       tabID: TabID(),
       surfaceID: UUID(),
       socketPath: nil,
@@ -166,6 +187,7 @@ struct TerminalSurfaceRecipeTests {
       )
     )
     #expect(plan.fontSize == 13)
+    #expect(plan.environment["SUPACODE_TASK_ID"] == request.worktreeID.externalID)
     #expect(plan.environment["SUPACODE_TAB_ID"] == request.tabID.rawValue.uuidString)
     #expect(plan.environment["SUPACODE_SURFACE_ID"] == request.contentID.rawValue.uuidString)
     // The re-attach targets the zmx session derived from the content identity.

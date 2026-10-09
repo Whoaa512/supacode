@@ -11,6 +11,17 @@ nonisolated struct LayoutID: Hashable, Sendable, Codable, CustomStringConvertibl
   /// A task minted by the app; never derived from a directory.
   init(task uuid: UUID) { rawValue = uuid.uuidString }
 
+  /// A task id as `SUPACODE_TASK_ID`, a deeplink's task segment or the CLI's
+  /// `--task` names it. Taken as written: it only ever addresses a task that
+  /// already exists, and never becomes one.
+  init?(external raw: String) {
+    guard let decoded = ExternalID.decode(raw) else { return nil }
+    rawValue = decoded
+  }
+
+  /// The form `init(external:)` reads back.
+  var externalID: String { ExternalID.encode(rawValue) }
+
   /// The key this layout is written under in the persisted layouts blob.
   var persistenceKey: String { rawValue }
 

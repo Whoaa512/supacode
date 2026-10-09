@@ -92,6 +92,7 @@ nonisolated enum TerminalSurfaceRecipe {
   @MainActor
   static func environment(
     for context: DirectoryContext,
+    layoutID: LayoutID,
     tabID: TabID,
     surfaceID: UUID,
     socketPath: String?,
@@ -103,6 +104,9 @@ nonisolated enum TerminalSurfaceRecipe {
     env["SUPACODE_REPO_ID"] = percentEncode(repoPath, allowedCharacters: percentEncodingSet, label: "SUPACODE_REPO_ID")
     env["SUPACODE_WORKTREE_ID"] = percentEncode(
       context.worktreeID.rawValue, allowedCharacters: percentEncodingSet, label: "SUPACODE_WORKTREE_ID")
+    // The directory stays the worktree id above; the task is what tells two
+    // tasks on one directory apart.
+    env["SUPACODE_TASK_ID"] = layoutID.externalID
     env["SUPACODE_TAB_ID"] = tabID.rawValue.uuidString
     env["SUPACODE_SURFACE_ID"] = surfaceID.uuidString
     if let socketPath {
@@ -232,6 +236,7 @@ nonisolated enum TerminalSurfaceRecipe {
       commandWrapper: launch.commandWrapper,
       environment: environment(
         for: seed.directory,
+        layoutID: request.worktreeID,
         tabID: request.tabID,
         surfaceID: request.contentID.rawValue,
         socketPath: seed.socketPath,
