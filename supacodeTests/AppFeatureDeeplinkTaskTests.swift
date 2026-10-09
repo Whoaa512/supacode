@@ -381,6 +381,136 @@ struct AppFeatureDeeplinkTaskTests {
     #expect(targets(sent.value) == [other.id])
   }
 
+  // MARK: - Surface close.
+
+  @Test(.dependencies) func closingASurfaceClosesItInItsOwnTaskOnlyAndAcksOnThatTask() async {
+    let (readFD, writeFD) = pipe()
+    defer { close(readFD) }
+    let (store, sent) = makeStore()
+    // The tab segment is stale: it names a tab of the shown task.
+    let action = Deeplink.WorktreeAction.surfaceDestroy(tabID: shown.tab, surfaceID: other.surface)
+    await store.send(
+      .deeplink(
+        .worktree(id: worktree.id, action: action, background: true),
+        source: .socket, responseFD: writeFD, timeoutSeconds: 0))
+    #expect(closes(sent.value) == ["surface \(other.id.externalID) \(shown.tab) \(other.surface)"])
+    #expect(
+      store.state.pendingCommandAcks[id: writeFD]?.match
+        == .surfaceClosed(layoutID: other.id, surfaceID: other.surface))
+
+    // The shown task reporting that id closed is not this command's ack.
+    await store.send(.terminalEvent(.surfacesClosed(layoutID: shown.id, [other.surface])))
+    #expect(store.state.pendingCommandAcks[id: writeFD] != nil)
+    await store.send(.terminalEvent(.surfacesClosed(layoutID: other.id, [other.surface])))
+    await store.finish()
+    #expect(store.state.pendingCommandAcks.isEmpty)
+    #expect(closes(sent.value).count == 1)
+  }
+
+  @Test(.dependencies) func aSurfaceCloseWaitsForTheConfirmationThenClosesInItsOwnTask() async {
+    let (store, sent) = makeStore(confirming())
+    let action = Deeplink.WorktreeAction.surfaceDestroy(tabID: shown.tab, surfaceID: other.surface)
+    await store.send(.deeplink(.worktree(id: worktree.id, action: action, background: true)))
+    #expect(store.state.deeplinkInputConfirmation != nil)
+    #expect(sent.value.isEmpty)
+    await confirm(action, in: store)
+    #expect(closes(sent.value) == ["surface \(other.id.externalID) \(shown.tab) \(other.surface)"])
+  }
+
+  @Test(.dependencies) func aCancelledCloseClosesNothing() async {
+    let actions: [Deeplink.WorktreeAction] = [
+      .surfaceDestroy(tabID: other.tab, surfaceID: other.surface),
+      .paneDestroy(token: other.pane.rawValue),
+      .tabDestroy(tabID: other.tab),
+    ]
+    for action in actions {
+      let (store, sent) = makeStore(confirming())
+      await store.send(.deeplink(.worktree(id: worktree.id, action: action, background: true)))
+      #expect(store.state.deeplinkInputConfirmation != nil)
+      await withKnownIssue("TCA @Presents dismiss tracking") {
+        await store.send(.deeplinkInputConfirmation(.presented(.delegate(.cancel))))
+      }
+      await store.finish()
+      #expect(store.state.deeplinkInputConfirmation == nil)
+      #expect(sent.value.isEmpty)
+    }
+  }
+
+  /// The target goes away while the dialog waits. The stale tab hint names a
+  /// tab the shown task does hold, which must not turn the close onto it.
+  @Test(.dependencies) func aCloseWhoseTargetWentAwayDuringTheConfirmationClosesNothing() async {
+    let actions: [Deeplink.WorktreeAction] = [
+      .surfaceDestroy(tabID: shown.tab, surfaceID: other.surface),
+      .surfaceDestroy(tabID: other.tab, surfaceID: other.surface),
+      .paneDestroy(token: other.pane.rawValue),
+      .paneDestroy(token: other.tab),
+      .tabDestroy(tabID: other.tab),
+    ]
+    for action in actions {
+      // The terminal dropped the task; the state has not caught up.
+      let gone = LockIsolated<Set<LayoutID>>([])
+      let (store, sent) = makeStore(confirming(), gone: gone)
+      await store.send(.deeplink(.worktree(id: worktree.id, action: action, background: true)))
+      #expect(store.state.deeplinkInputConfirmation != nil)
+      gone.setValue([other.id])
+      await confirm(action, in: store)
+      #expect(sent.value.isEmpty, "\(action)")
+      #expect(store.state.alert != nil, "\(action)")
+
+      // The state caught up too: the task is gone from it, so the directory
+      // resolves to the shown task, which holds none of these targets.
+      var removed = confirming()
+      removed.terminals.layouts.remove(id: other.id)
+      removed.terminals.directories[other.id] = nil
+      let (late, lateSent) = makeStore(removed)
+      await confirm(action, in: late)
+      #expect(lateSent.value.isEmpty, "\(action)")
+      #expect(late.state.alert != nil, "\(action)")
+    }
+  }
+
+  @Test(.dependencies) func closingASurfaceOrPaneOfAnotherDirectoryClosesNothing() async {
+    let actions: [Deeplink.WorktreeAction] = [
+      .surfaceDestroy(tabID: elsewhere.tab, surfaceID: elsewhere.surface),
+      // A tab of this directory beside a surface of the other one.
+      .surfaceDestroy(tabID: other.tab, surfaceID: elsewhere.surface),
+      .paneDestroy(token: elsewhere.pane.rawValue),
+      .paneDestroy(token: elsewhere.surface),
+    ]
+    for action in actions {
+      let (store, sent) = makeStore()
+      await store.send(.deeplink(.worktree(id: worktree.id, action: action, background: true)))
+      await store.finish()
+      #expect(sent.value.isEmpty, "\(action)")
+      #expect(store.state.alert != nil, "\(action)")
+      #expect(store.state.pendingCommandAcks.isEmpty)
+    }
+  }
+
+  // MARK: - Pane close.
+
+  @Test(.dependencies) func closingAPaneClosesItInItsOwnTaskOnly() async {
+    // A pane token is a pane, tab or content id.
+    for token in [other.pane.rawValue, other.tab, other.surface] {
+      let (store, sent) = makeStore()
+      await store.send(
+        .deeplink(.worktree(id: worktree.id, action: .paneDestroy(token: token), background: true)))
+      await store.finish()
+      #expect(closes(sent.value) == ["pane \(other.id.externalID) \(token)"])
+      #expect(store.state.alert == nil)
+    }
+  }
+
+  @Test(.dependencies) func aPaneCloseWaitsForTheConfirmationThenClosesInItsOwnTask() async {
+    let (store, sent) = makeStore(confirming())
+    let action = Deeplink.WorktreeAction.paneDestroy(token: other.pane.rawValue)
+    await store.send(.deeplink(.worktree(id: worktree.id, action: action, background: true)))
+    #expect(store.state.deeplinkInputConfirmation != nil)
+    #expect(sent.value.isEmpty)
+    await confirm(action, in: store)
+    #expect(closes(sent.value) == ["pane \(other.id.externalID) \(other.pane.rawValue)"])
+  }
+
   // MARK: - Acks.
 
   @Test(.dependencies) func aTabNewAckWaitsForTheTaskItWasSentTo() async {
