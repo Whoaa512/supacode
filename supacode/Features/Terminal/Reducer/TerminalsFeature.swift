@@ -396,15 +396,32 @@ extension TerminalsFeature.State {
   /// The task a directory's row shows: one that holds a tab and sits on that
   /// directory. The recorded one when it still is such a task (the usual
   /// case, no scan), else the one selected most recently this run, else the
-  /// first by key. Nil when the directory has no task to show.
+  /// own-key one, else the first by key. Nil when the directory has no task
+  /// to show. No recorded entry is not a vote for the own-key task: removing
+  /// the active task clears the entry too.
   func task(forDirectory directoryID: Worktree.ID) -> LayoutID? {
-    let recorded = recordedLayoutID(forDirectory: directoryID)
+    if let recorded = activeTasks[directoryID], isTask(recorded, onDirectory: directoryID) { return recorded }
+    if let recent = selectionOrder.last(where: { isTask($0, onDirectory: directoryID) }) { return recent }
+    let ownKey = Self.ownKeyLayoutID(forDirectory: directoryID)
+    if isTask(ownKey, onDirectory: directoryID) { return ownKey }
+    return layoutIDs(onDirectory: directoryID).first(where: holdsTabs)
+  }
+
+  /// Whether a layout holds a tab and sits on this directory.
+  func isTask(_ layoutID: LayoutID, onDirectory directoryID: Worktree.ID) -> Bool {
+    guard holdsTabs(layoutID) else { return false }
     // A layout no record or host names yet is the one the directory was sent to.
-    if holdsTabs(recorded), directories[recorded].map({ $0.worktreeID == directoryID }) ?? true {
-      return recorded
-    }
-    let tasks = layoutIDs(onDirectory: directoryID).filter(holdsTabs)
-    return selectionOrder.last { tasks.contains($0) } ?? tasks.first
+    return directories[layoutID].map { $0.worktreeID == directoryID }
+      ?? (layoutID == recordedLayoutID(forDirectory: directoryID))
+  }
+
+  /// What a directory's detail mounts: the task its row shows, else the layout
+  /// its first tab lands in. Nil when that layout is another directory's
+  /// task, which is never shown or selected as this directory's.
+  func displayLayoutID(forDirectory directoryID: Worktree.ID) -> LayoutID? {
+    if let task = task(forDirectory: directoryID) { return task }
+    let landing = recordedLayoutID(forDirectory: directoryID)
+    return directories[landing].map { $0.worktreeID == directoryID } ?? true ? landing : nil
   }
 
   /// The directory's most recently selected task as recorded, unchecked: the

@@ -4165,6 +4165,40 @@ struct AppFeatureSessionsTests {
     #expect(store.state.layoutID(forDirectory: worktree.id) == second, "commands follow the task the row shows")
   }
 
+  /// A populated layout under the directory's own key beside minted tasks.
+  private func ownKeyTaskBeside(_ ids: [(LayoutID, UUID)]) -> AppFeature.State {
+    mintedTasksOnly([(worktree.id.layoutID, surface)] + ids)
+  }
+
+  @Test(.dependencies) func removingTheActiveTaskPrefersTheLastSelectedTaskOverTheOwnKeyOne() async {
+    let ownKey = worktree.id.layoutID
+    // The own-key task, then `first`, then `second` were selected, as the
+    // terminal records it: an own-key selection clears the directory's entry.
+    var initial = ownKeyTaskBeside([(first, firstSurface), (second, secondSurface)])
+    initial.terminals.selectionOrder = [ownKey, first, second]
+    initial.terminals.activeTasks[worktree.id] = second
+    let store = taskStore(initial, recorded: Recorded())
+
+    await store.send(.terminals(.detachLayout(worktreeID: second)))
+    await store.finish()
+
+    #expect(store.state.terminals.activeTasks[worktree.id] == nil)
+    #expect(store.state.terminals.task(forDirectory: worktree.id) == first, "selected after the own-key task")
+    #expect(store.state.layoutID(forDirectory: worktree.id) == first)
+
+    // The own-key task is the answer when it was selected last, or when
+    // nothing on the directory was selected this run.
+    var ownKeyLast = store.state.terminals
+    ownKeyLast.selectionOrder = [first, ownKey]
+    #expect(ownKeyLast.task(forDirectory: worktree.id) == ownKey)
+    ownKeyLast.selectionOrder = []
+    #expect(ownKeyLast.task(forDirectory: worktree.id) == ownKey)
+    // One no record names yet is still the directory's own.
+    ownKeyLast.directories[ownKey] = nil
+    ownKeyLast.selectionOrder = [first, ownKey]
+    #expect(ownKeyLast.task(forDirectory: worktree.id) == ownKey)
+  }
+
   @Test func aTaskWithNoTabOrOnAnotherDirectoryIsNotTheDirectorysTask() {
     var state = mintedTasksOnly([(first, firstSurface)])
     // Recorded as active, but it holds no tab: showing it would bootstrap one.
