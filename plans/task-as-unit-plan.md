@@ -3078,3 +3078,62 @@ deviation.
   Gate: check 0; `AppFeatureSessionsTaskSettleTests` exit 0 (39 tests);
   full `make test` exit 2 with 4407 tests and only the 5 known failures;
   build-app 0.
+- K1, 2026-10-09, `ae0b4452`, `0af0bea7`, `a0c04284`, `d43ca726`. Task chord
+  correct under key repeat and unable to mint; tab chords target the task
+  on screen. App layer only: no new state, action, view or persistence.
+  - Task chord: `core`'s arm steps from `sessionCycleOrigin` (the task last
+    asked for, `selectedTaskID`, else the focused row).
+    `syncSessionSelectionToFocus` does not follow the terminal while an
+    asked task has not been echoed. `focusTask` refuses a task that holds
+    no tab (`taskHoldsTabs(_:state:)`, live layout else stored record), for
+    the chord and for a click.
+  - Tab chords (`selectNext/PreviousTerminalTab`, `selectTerminalTabAtIndex`)
+    resolve through `AppFeature.State.tabChordLayoutID`: orphan task, task
+    on a missing directory, else `shownTask(forDirectory:)`, else the
+    directory seam as before.
+  - Red first, run: on unmodified source the held-chord, stale-row and
+    four tab-chord tests failed on their assertions. The echo-bounce test
+    (§2b) was not discriminating until §2a landed; with §2a/§2c/§2d in and
+    §2b out it failed on the highlight assertion, then passed with §2b. So
+    all four brief changes were proven, none dropped.
+  - Difference from the brief: the §2b hold is bounded by
+    `taskHoldsTabs(asked)`, not `hasTask(asked)`. A selected task whose
+    last tab closed but which still lists a session keeps its record and
+    row; the manager then shows the directory's other task, and with
+    `hasTask` the highlight would never follow it. `taskStore` gained
+    `hostingContent:` (content dependencies) because
+    `selectedLayoutChanged` / `detachLayout` re-diff hibernation;
+    `Recorded.resumes` counts `resumeSession` delegates through a wrapping
+    reducer.
+  - Decided (brief §8): tab chord stays "tabs of the focused pane" of the
+    selected task, never another task's (narrows the plan's "surfaces of
+    the selected task"; cj to confirm or ask for a cross-pane walk); the
+    task chord shows the task with its own focus, not a member's surface;
+    a stale live row is refused, not skipped, so the chord sits on it
+    until the next snapshot drops the row; the task chord still accepts
+    auto-repeat, the tab chord still drops it; a sub-row is not a keyboard
+    stop.
+  Left for later:
+  - K2: use `sessionCycleOrigin` in `handleNextSessionNeedsMe` /
+    settle-and-advance (still on `focusedSessionRowID`); exact-surface
+    targeting; keyboard reach of a sub-row.
+  - Z1: the other menu sites still on the directory seam (rename tab,
+    split, close, search, new tab).
+  - Whoever next edits `ensureInitialTab`: a tab closing between
+    `focusTask`'s guard and the manager handling the command can still
+    bootstrap a shell tab (needs a non-bootstrapping show command).
+  - Not addressed: two `setSelectedLayoutID` effects from consecutive
+    presses delivered out of order (pre-existing, unstructured effects).
+  Only the live UI can confirm (cj): holding the task chord walks every
+  live task once per lap with no stall or highlight bounce and the detail
+  pane ends on the highlighted task; the chord returns to the tab and pane
+  each task last had focused; the tab chord right after a task switch acts
+  on the task now on screen, works on an orphan task and on a task whose
+  directory is gone, and its menu items are enabled there (enablement not
+  read); with splits it stays in the focused pane; no shell tab ever
+  appears from cycling.
+  Gate (final tree): check 0; `AppFeatureSessionsTests`,
+  `AppFeatureSelectTerminalTabTests`, `RepositoriesFeatureTaskSelectionTests`,
+  `SessionsSidebarTaskRowsTests`, `WorktreeTerminalManagerPaneCycleTests`
+  exit 0 (220 tests); build-app 0. No full `make test` (K2 closes the
+  phase). The first K1 commit was not built on its own.
