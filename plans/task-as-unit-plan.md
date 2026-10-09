@@ -1665,3 +1665,31 @@ deviation.
   Gate: check 0, focused Terminal migration suites + `AppFeatureSessionsTests`
   170 tests 0 failures, build-app 0, full `make test` exit 2 with 4128 tests
   and only the 5 baseline failures.
+- T6 review round 2, 2026-10-09, `2f2ce547` + `58269dd3`:
+  - Empty directory (P1, held): the splitter drops a directory with no tabs
+    (T1 decision), but "directory left without a task" demanded a task for
+    it, so one empty own-key layout failed the check for the whole store on
+    every launch. The check now applies only to a directory that had tabs
+    under its own key. Its origin still has to survive ("origins differ").
+  - Cross-directory hint (P1, held): a hint naming an existing task on
+    another directory counted as valid, suppressing both the focused-tab
+    mapping and the all-agent fallback, while hydration ignores such a hint.
+    The splitter now uses hydration's rule (task exists and its recorded
+    directory is the hinted one) when reading a hint and when filtering the
+    result, so the entry is dropped and the fallback applies. The integrity
+    check gained "active task on another directory", and "directory left
+    without a task" requires the resolved task to sit on that directory.
+  - Tests: `emptyDirectoryDoesNotBlockTheSplit` (v2 and unsplit v3),
+    `hintNamingAnotherDirectorysTaskDoesNotCostAnAllAgentDirectoryItsMapping`,
+    the new integrity case, and `AppFeatureSessionsTests/
+    allAgentDirectoryWithACrossDirectoryHintResolvesToItsOwnMigratedTask`
+    (split, codec, hydrate, resolve). All red before the fixes.
+  Left for T7: the splitter drops a record whose layout is empty even if it
+  carries `sessions`, and drops the record's `sessions` when every tab was an
+  agent. No store written before T7 has such a record (sessions are only
+  filled by the split itself or by T7, whose stores are born split), but T7's
+  "task with sessions keeps its record with an empty layout" must not be fed
+  through the splitter by a lost-marker rerun.
+  Gate: check 0, focused split suites + `AppFeatureSessionsTests` 133 tests
+  0 failures, build-app 0, full `make test` exit 2 with 4131 tests and only
+  the 5 baseline failures.
