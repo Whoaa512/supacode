@@ -2414,3 +2414,63 @@ deviation.
   Gate: check 0, focused (`TerminalsFeatureTests` +
   `WorktreeTerminalManagerAckTests`) exit 0 with 89 tests, build-app 0,
   full `make test` exit 2 with 4255 tests and only the 5 known failures.
+- T10, 2026-10-09, `58540f0f`: a worktree row shows its directory's most
+  recent task and selecting it mints nothing. Decisions:
+  - Resolver: `TerminalsFeature.State.task(forDirectory:)` answers only with
+    a task that holds a tab and sits on that directory: the recorded active
+    task when it still is one (O(1), the usual case), else the one selected
+    last this run (`selectionOrder`), else the first by key; nil when the
+    directory has none. `layoutID(forDirectory:)` is now
+    `task(forDirectory:) ?? recorded-or-own-key`, so all seam callers
+    (commands, CLI queries, the manager's re-select after a task's last tab
+    closes) agree with the row. Closes the T3/T5/T6 "unchecked own-key
+    fallback" notes. A layout nothing names yet (no `directories` entry)
+    still counts as its directory's when it is the recorded id, as before.
+    Chosen over repairing `activeTasks` on every removal and at hydration:
+    one function, no new write, and the scan only runs for a directory whose
+    recorded task is not showable.
+  - Selection (`selectedWorktreeChanged` with no task named): with a task,
+    select it and send `ensureInitialTab` for focus only. With none, send
+    only `setSelectedLayoutID` (the id a first tab would land in, so Cmd-T
+    there shows up; `nil` if that id is another directory's task) plus the
+    directory sends; no `ensureInitialTab`, so no shell task is bootstrapped
+    (open question 11). `selectedTask` is not set by a directory selection,
+    so the missing-directory placeholder rule from T5 r2 is unchanged.
+  - A freshly created worktree still gets its first tab and setup script,
+    from `worktreeCreated` alone (the selection no longer races it). Not a
+    selection, so outside question 11; kept for A14.
+  - "New task here": `AppFeature.Action.newTask(inDirectory:)` starts the
+    default agent in a minted task on that roster directory, local or
+    remote, through `launchSessionTab` (shown once its first tab exists, as
+    Cmd-N). Not routed through Cmd-N because its directory follows the
+    current task or session row, not the worktree row. Refused for a missing
+    or unlisted directory. The button sits in the existing "No terminals
+    open" state of `WorktreeLayoutView`, only on the worktree branch of the
+    detail view; it has no shortcut, and its tooltip says what it does.
+  - Badges: nothing to do; rows already read the per-directory merged
+    projection from T3.
+  - Tests are in `AppFeatureSessionsTests` (0/1/2 tasks, removed active task,
+    empty and cross-directory tasks, the mint and its refusal), not
+    `RepositoriesFeatureTests`: that feature has no task table, the
+    resolution is `AppFeature`'s. Behaviour-changed tests: the two
+    `AppFeatureTerminalSetupScriptTests` that pinned the selection bootstrap
+    became one pinning that selection sends no bootstrap and
+    `worktreeCreated` does; the focus test now has a task to focus;
+    `WorktreeTerminalManagerAckTests/aTaskWithNoSessionIsRemovedWhenItsLastTabCloses`
+    now expects the directory to follow its sibling task.
+  Left for later:
+  - T11: the app-menu terminal commands still resolve through
+    `selectedWorktreeID`, so they stay disabled while an orphan task is
+    shown (T5 r1 note).
+  - Z1 (A32): with no task, the seam still falls back to the own-key id;
+    a first plain tab (Cmd-T) on an empty directory lands there.
+  - Across a relaunch, a directory whose active task was removed while it
+    was not on screen has no stored hint, so it shows its first task by key
+    until one is selected.
+  Only the live UI can confirm: the empty state and button look right; the
+  brief empty state between creating a worktree and its first tab; focus
+  after "New Task Here".
+  Gate: check 0, focused (`supacodeFeatureTests` + `supacodeTerminalTests` +
+  `supacodeTests/TerminalsFeatureTests`) exit 2 with 1626 tests and only 4
+  known failures (ack flake, settings-changed, 2 Ghostty), build-app 0,
+  full `make test` exit 2 with 4262 tests and only the 5 known failures.
