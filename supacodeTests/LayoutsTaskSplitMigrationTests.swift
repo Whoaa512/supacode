@@ -245,6 +245,37 @@ struct LayoutsTaskSplitMigrationTests {
     #expect(file.activeTasks[Self.mixed] == Self.task(holdingTab: 2, in: file)?.id.persistenceKey)
   }
 
+  /// A directory with no tabs yields no task, which is not a loss: it must
+  /// not hold back the split of every other directory.
+  @Test(arguments: [true, false])
+  func emptyDirectoryDoesNotBlockTheSplit(fromV2: Bool) throws {
+    let empty = "/tmp/repo/empty"
+    var legacy = try Self.v2Fixture()
+    legacy.worktrees[empty] = LayoutRecord(layout: PaneLayout(), origin: Self.origin(surface: 503))
+    var unsplit = TaskLayoutsFile(oneTaskPerDirectory: legacy)
+    let defaults = UserDefaults.inMemory
+    if fromV2 {
+      defaults.set(try JSONEncoder().encode(legacy), forKey: LayoutsFile.userDefaultsKey)
+    } else {
+      unsplit.activeTasks = [empty: empty]
+      defaults.set(try JSONEncoder().encode(unsplit), forKey: LayoutsFile.userDefaultsKey)
+    }
+
+    Self.migrate(defaults)
+
+    let file = try Self.stored(defaults)
+    #expect(file.tasksSplit)
+    #expect(file.tasks.count == 8)
+    #expect(file.tasks.values.allSatisfy { !$0.layout.panes.isEmpty }, "no empty task")
+    #expect(file.tasks.values.allSatisfy { $0.directory.worktreeID.rawValue != empty })
+    #expect(file.activeTasks[empty] == nil)
+    #expect(Self.tabs(file) == Self.tabs(unsplit))
+    #expect(file.origins == unsplit.origins)
+    #expect(file.origins[empty] == Self.origin(surface: 503))
+    #expect(file.allKnownSurfaceIDs == legacy.allKnownSurfaceIDs)
+    #expect(file.activeTasks[Self.allAgents] == Self.task(holdingTab: 7, in: file)?.id.persistenceKey)
+  }
+
   @Test func backupIsWrittenBeforeTheSplitValue() throws {
     let defaults = RecordingUserDefaults()
     let v3Data = try JSONEncoder().encode(TaskLayoutsFile(oneTaskPerDirectory: try Self.v2Fixture()))

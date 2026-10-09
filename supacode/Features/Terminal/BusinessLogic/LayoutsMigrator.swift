@@ -611,8 +611,10 @@ nonisolated extension LayoutsMigrator {
       return "task stored under another id"
     }
     guard split.activeTasks.values.allSatisfy({ split.tasks[$0] != nil }) else { return "active task missing" }
-    // A directory that had a task under its own key must still resolve to one.
-    for key in source.tasks.keys where source.tasks[key]?.directory.worktreeID.rawValue == key {
+    // A directory that had tabs under its own key must still resolve to a
+    // task. One with none yields no task, which is not a loss.
+    for (key, record) in source.tasks where record.directory.worktreeID.rawValue == key {
+      guard record.layout.panes.contains(where: { !$0.tabs.isEmpty }) else { continue }
       guard split.tasks[split.activeTasks[key] ?? key] != nil else { return "directory left without a task" }
     }
     return nil
