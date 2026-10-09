@@ -1693,3 +1693,72 @@ deviation.
   Gate: check 0, focused split suites + `AppFeatureSessionsTests` 133 tests
   0 failures, build-app 0, full `make test` exit 2 with 4131 tests and only
   the 5 baseline failures.
+- T7, 2026-10-09, `672f3f55` + `489508b7` + `aa02291e`: Cmd-N and the
+  resume of a session no task lists mint a task; a reporting agent joins the
+  task that owns its surface. Started without the A34 UI checkpoint being
+  confirmed in this plan (still cj's). Decisions:
+  - Membership: `TerminalsFeature.State.members: [LayoutID: [TaskMember]]`
+    (`.session(key)` or `.provisional(harness, surfaceID)`), primary first.
+    `TaskMembership.reconciled` (pure) runs in `sessionsLinkReducer` over
+    presence × T4's surface index and is applied by `.membersChanged` only
+    when it differs. A session is appended once and never removed here; a
+    provisional member becomes its session in place (so the agent started
+    first stays primary), is dropped when its session is already listed,
+    and goes when its agent does. Only `.session` members are stored.
+    Hydration loads `record.sessions` (stored first, then anything this run
+    added before the file loaded); `detachLayout` forgets them.
+  - Storage: no new write path. `.record` gained `sessions`, read by the
+    manager from `members` at flush time; a change in stored sessions marks
+    the layout dirty through the new `LayoutChangeObserver.sessionsChanged`.
+    The writer only ever adds to the stored sessions (the caller may not
+    have loaded them). T9 (slot replacement) and M (merge/detach) need their
+    own reorder/remove change.
+  - Last tab closed: the manager no longer decides. It sends the empty
+    layout and the writer deletes the record only when the stored record,
+    after the merge, lists no session; otherwise the record stays with an
+    empty layout, its directory and its active-task hint. Runtime is
+    unchanged: the emptied layout and host stay until relaunch, as an
+    own-key layout always did, so a new tab in that directory can refill a
+    minted task whose record was deleted (the file's hint for it is gone
+    until it is selected again: the T10 resolver note).
+  - Splitter: a record that lists sessions is left as is (covers the T6 r2
+    note: an empty task with sessions, and a multi-agent task on a
+    lost-marker rerun). Consequence: if the split was deferred by an
+    integrity failure and this build then adds sessions to an unsplit
+    own-key record, a later retry leaves that record's agent tabs together.
+  - Minting: the id is minted in `launchSessionTab` (`LayoutID(task:)`), the
+    task comes into being through `createTabWithInput` on that id, so a
+    launch whose tab is never created leaves no layout, record or member.
+    Resume reuses the task that lists the session only when that task sits
+    on the directory the session resumes in (its tabs start in its own
+    directory; a tangent that ran elsewhere gets a new task and stays listed
+    in the old one too); the minted resume task is seeded with the session
+    as primary before the agent reports.
+  - Showing it: `AppFeature.State.pendingTaskSelection` holds the launch's
+    task and `.selectTask` is sent from the reducer pass that first sees a
+    tab in it. Selecting earlier would run `ensureInitialTab` on an empty
+    layout and bootstrap a plain shell tab beside the agent (tab creation
+    is asynchronous in the manager). If the tab never appears the pending
+    selection is simply replaced by the next launch.
+  - T5's note for T7: a `selectedWorktreeChanged` with no `layoutID` now
+    keeps the task still selected on that directory (when it exists) before
+    falling back to the seam, so a roster reload cannot flip back to the
+    directory's previous active task before the terminal echoes the new one.
+  - Default agent stays `pi` (open question 15). No row or grouping change.
+  Left for later:
+  - T9: membership appends every valid ref a surface reports, so `/new`,
+    `/fork` and (if the follow-up's hypothesis holds) workflow sub-agent refs
+    all become trailing members; T9's slot rule and sub-agent filter must
+    also clean those. A session resumed by hand in another task's tab is
+    listed by both tasks; resume picks the one on its directory, lowest key.
+  - T8/S: resuming a member whose task sits on another directory mints a
+    task instead of reopening it there.
+  - Not covered by a test: the manager passing `members` into the record
+    (writer and reducer sides are); the first-responder handoff of the
+    deferred selection is not verified in the live UI.
+  Tests: `AppFeatureSessionsTests` (minting and membership block, A15, A21,
+  A22), `LayoutsIncrementalWriterTests` (sessions and the last tab),
+  `LayoutsTaskSplitterTests`, `TerminalsFeatureTests`. Gate: check 0,
+  `supacodeFeatureTests` + `supacodeTerminalTests` +
+  `supacodeTests/TerminalsFeatureTests` 1519 tests with only 4 baseline
+  failures (ack flake, settings-changed, 2 Ghostty), build-app 0.
