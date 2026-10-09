@@ -1637,3 +1637,31 @@ deviation.
   `AppFeatureSessionsTests` 511 tests with only the 2 baseline Ghostty
   failures, build-app 0, full `make test` 4125 with only the 5 baseline
   failures.
+- T6 review round 1, 2026-10-09, `310067d5` + `067601a7`:
+  - Marker (P1, held): a present but unreadable `tasksSplit` (`"true"`, `1`,
+    `null`, `{}`) decoded as unsplit and authorised the split. Only an
+    absent marker means unsplit now. Choice: the unreadable marker is
+    counted in `undecodedEntryCount` (blob classifies `.lossy`) instead of
+    the reviewer's throwing decode, because a throw classifies
+    `.undecodable` and `LayoutsIncrementalWriter.readPersisted` stashes such
+    a blob aside and starts fresh. Lossy is the non-destructive one:
+    migration defers, the writer aborts its flush, readers report unreadable
+    so nothing is reaped.
+  - Stale hint (P2, held): a hint whose target is not in the file now reads
+    as no hint, and every directory whose own-key task the split removes
+    gets a fallback entry (its first minted task) if nothing valid is left
+    after the stale-entry filter; that also covers a hint naming another
+    task that the split itself removes. The integrity check gained
+    "directory left without a task": a directory that had an own-key task
+    must still resolve (`activeTasks[dir] ?? dir`) to an existing task.
+  - Tests: `unreadableSplitMarkerLeavesTheStoreUntouched`,
+    `staleHintOnAnAllAgentDirectoryStillMapsItToARealTask`, the new
+    integrity case, and
+    `AppFeatureSessionsTests/allAgentDirectoryWithAStaleHintResolvesToAMigratedTask`
+    (split, hydrate, resolve). All red before the fixes.
+  Still left for T10: the runtime resolver's unchecked own-key fallback
+  (deleting a directory's active task at runtime clears the hint in
+  `LayoutsIncrementalWriter`, which is the T3 behaviour, not the split's).
+  Gate: check 0, focused Terminal migration suites + `AppFeatureSessionsTests`
+  170 tests 0 failures, build-app 0, full `make test` exit 2 with 4128 tests
+  and only the 5 baseline failures.
