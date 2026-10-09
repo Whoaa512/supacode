@@ -760,4 +760,131 @@ struct LayoutsIncrementalWriterTests {
 
     #expect(readFile(defaults)?.origins.keys.map { $0 } == ["/w1"])
   }
+
+  // MARK: - Tabs moving between tasks
+
+  @Test func releasingDropsOnlyTheNamedStoredSessions() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let minted = LayoutID(task: UUID())
+    let (one, two, three) = (sessionKey("one"), sessionKey("two"), sessionKey("three"))
+    await writer.flush(records: [minted: change(layout("/w1"), sessions: [one, two, three])])
+
+    await writer.flush(records: [
+      minted: .record(
+        layout: layout("/w1"), directory: TaskRecord.Directory(worktreeID: "/w1"), sessions: [one, three],
+        storedSessions: .loaded, createdAt: Self.createdAt, releasing: [two])
+    ])
+
+    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [one, three])
+  }
+
+  @Test func releasingNothingKeepsEveryStoredSession() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let minted = LayoutID(task: UUID())
+    let (one, two) = (sessionKey("one"), sessionKey("two"))
+    await writer.flush(records: [minted: change(layout("/w1"), sessions: [one, two])])
+
+    await writer.flush(records: [
+      minted: .record(
+        layout: layout("/w1"), directory: TaskRecord.Directory(worktreeID: "/w1"), sessions: [one],
+        storedSessions: .loaded, createdAt: Self.createdAt, releasing: [])
+    ])
+
+    #expect(readFile(defaults)?.tasks[minted.persistenceKey]?.sessions == [one, two])
+  }
+
+  @Test func mergedIntoDeletesAndRecordsTheAlias() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let (source, destination) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    await writer.flush(records: [source: change(layout("/a")), destination: change(layout("/b"))])
+
+    // One flush carries both halves of the move.
+    await writer.flush(records: [source: .mergedInto(destination), destination: change(layout("/b"))])
+
+    let file = readFile(defaults)
+    #expect(file?.tasks.keys.map { $0 } == [destination.persistenceKey])
+    #expect(file?.mergedTasks == [source.persistenceKey: destination.persistenceKey])
+  }
+
+  @Test func mergedIntoRepointsEarlierAliases() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let (first, second, third) = (LayoutID(task: UUID()), LayoutID(task: UUID()), LayoutID(task: UUID()))
+    await writer.flush(records: [
+      first: change(layout("/a")), second: change(layout("/b")), third: change(layout("/c")),
+    ])
+
+    await writer.flush(records: [first: .mergedInto(second)])
+    await writer.flush(records: [second: .mergedInto(third)])
+
+    // One hop each: nothing names a task that is gone.
+    #expect(
+      readFile(defaults)?.mergedTasks
+        == [first.persistenceKey: third.persistenceKey, second.persistenceKey: third.persistenceKey])
+  }
+
+  @Test func twoMergesInOneFlushStillEndAtTheTaskThatStays() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let (first, second, third) = (LayoutID(task: UUID()), LayoutID(task: UUID()), LayoutID(task: UUID()))
+    await writer.flush(records: [
+      first: change(layout("/a")), second: change(layout("/b")), third: change(layout("/c")),
+    ])
+
+    await writer.flush(records: [first: .mergedInto(second), second: .mergedInto(third)])
+
+    #expect(
+      readFile(defaults)?.mergedTasks
+        == [first.persistenceKey: third.persistenceKey, second.persistenceKey: third.persistenceKey])
+  }
+
+  @Test func aliasToAMissingTaskIsDropped() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let (source, destination) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    await writer.flush(records: [source: change(layout("/a")), destination: change(layout("/b"))])
+    await writer.flush(records: [source: .mergedInto(destination)])
+
+    await writer.flush(records: [destination: .delete])
+
+    #expect(readFile(defaults)?.mergedTasks.isEmpty == true)
+  }
+
+  @Test func recordClearsItsOwnAlias() async {
+    let defaults = makeDefaults()
+    let writer = makeWriter(defaults)
+    let (source, destination) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    await writer.flush(records: [source: change(layout("/a")), destination: change(layout("/b"))])
+    await writer.flush(records: [source: .mergedInto(destination)])
+
+    // The id is a task again: a tab was opened under it.
+    await writer.flush(records: [source: change(layout("/a"))])
+
+    let file = readFile(defaults)
+    #expect(file?.mergedTasks.isEmpty == true)
+    #expect(file?.tasks[source.persistenceKey] != nil)
+  }
+
+  @Test func mergedTasksDecodesAbsentAndUnreadableAsEmpty() throws {
+    let absent = try JSONDecoder().decode(TaskLayoutsFile.self, from: JSONEncoder().encode(TaskLayoutsFile()))
+    #expect(absent.mergedTasks.isEmpty)
+    #expect(absent.undecodedEntryCount == 0)
+
+    var object = try #require(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(TaskLayoutsFile())) as? [String: Any])
+    #expect(object["mergedTasks"] == nil, "an empty map is not written")
+    object["mergedTasks"] = ["a": 1]
+    let unreadable = try JSONDecoder().decode(
+      TaskLayoutsFile.self, from: JSONSerialization.data(withJSONObject: object))
+    #expect(unreadable.mergedTasks.isEmpty)
+    #expect(unreadable.undecodedEntryCount == 0, "an addressing hint is not a loss")
+
+    var merged = TaskLayoutsFile()
+    merged.mergedTasks = ["a": "b"]
+    #expect(
+      try JSONDecoder().decode(TaskLayoutsFile.self, from: JSONEncoder().encode(merged)).mergedTasks == ["a": "b"])
+  }
 }

@@ -59,13 +59,19 @@ actor LayoutsIncrementalWriter {
     /// Upsert: an existing task takes the layout (its directory and
     /// `createdAt` are kept); a new one is created from all four. A task
     /// left with no tab and no session is removed like a `.delete`.
-    /// No stored session is ever dropped. `storedSessions` says what the
+    /// No stored session is dropped, except the ones named in `releasing`:
+    /// sessions that moved to another task with their tab, written to that
+    /// task in the same flush. `storedSessions` says what the
     /// caller knows of the stored list, which decides whose order stands
     /// (`TaskMembership.storing`); a caller that says nothing only adds.
     case record(
       layout: PaneLayout, directory: TaskRecord.Directory, sessions: [SessionKey] = [],
-      storedSessions: TaskMembership.StoredSessions = .unreadable, createdAt: Date)
+      storedSessions: TaskMembership.StoredSessions = .unreadable, createdAt: Date,
+      releasing: [SessionKey] = [])
     case delete
+    /// A delete that leaves a forwarding entry: the task's tabs and sessions
+    /// moved into the named task, written in the same flush.
+    case mergedInto(LayoutID)
     /// A delete keyed on a guess from the directory: a stored record that
     /// names another directory is that directory's task and stays.
     case deleteIfOn(Worktree.ID)
@@ -149,6 +155,7 @@ actor LayoutsIncrementalWriter {
 
   private nonisolated static func apply(_ changes: [LayoutID: RecordChange], to file: inout TaskLayoutsFile) {
     var vacatedDirectories: Set<String> = []
+    var merged: [String: String] = [:]
     func remove(_ key: String) {
       // A task that was never written can only be a directory's own-key
       // one, whose key is the directory.
@@ -159,12 +166,15 @@ actor LayoutsIncrementalWriter {
     for (id, change) in changes {
       let key = id.persistenceKey
       switch change {
-      case .record(let layout, let directory, let sessions, let storedSessions, let createdAt):
+      case .record(let layout, let directory, let sessions, let storedSessions, let createdAt, let releasing):
         var task = file.tasks[key] ?? TaskRecord(id: id, directory: directory, createdAt: createdAt)
         task.layout = layout
         // The first stored session is the primary, so the stored order
         // changes only for a caller that has loaded it.
         task.sessions = TaskMembership.storing(sessions, into: task.sessions, known: storedSessions)
+        task.sessions.removeAll { releasing.contains($0) }
+        // A task written again is a task again, not a forward to another.
+        file.mergedTasks.removeValue(forKey: key)
         // Nothing open and nothing to resume: the task leaves no trace. One
         // with sessions stays, so its members are still there to resume.
         guard layout.panes.isEmpty, task.sessions.isEmpty else {
@@ -179,8 +189,26 @@ actor LayoutsIncrementalWriter {
         remove(key)
       case .delete:
         remove(key)
+      case .mergedInto(let destination):
+        remove(key)
+        merged[key] = destination.persistenceKey
       }
     }
+    // Applied after the records, so the result does not depend on the order
+    // the changes were visited in. Chains stay one hop: whatever pointed at
+    // the merged task now points at its destination.
+    for (key, next) in merged {
+      // Two merges in one flush can chain; follow them to the task that stays.
+      var destination = next
+      for _ in merged where merged[destination] != nil {
+        destination = merged[destination] ?? destination
+      }
+      for (earlier, target) in file.mergedTasks where target == key {
+        file.mergedTasks[earlier] = destination
+      }
+      file.mergedTasks[key] = destination
+    }
+    file.mergedTasks = file.mergedTasks.filter { file.tasks[$0.value] != nil && file.tasks[$0.key] == nil }
     // An origin belongs to its directory, not to the task stored under the
     // directory's key: it is released to the reaper only with the directory's
     // last task, whichever id that task has.

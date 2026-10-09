@@ -56,6 +56,10 @@ nonisolated struct TaskLayoutsFile: Equatable, Codable, Sendable {
   /// before the split decodes as false; a store created fresh starts true,
   /// because nothing in it predates task ownership.
   var tasksSplit = true
+  /// Tasks merged away, removed task key → the task that took its tabs. A
+  /// shell started in a merged task still names the old id, so the id stays
+  /// addressable for as long as its destination exists.
+  var mergedTasks: [String: String] = [:]
   /// Entries or tabs a tolerant decode dropped; never encoded. A non-zero
   /// count marks the value as lossy, so readers and writers must reject it.
   var undecodedEntryCount = 0
@@ -66,6 +70,7 @@ nonisolated struct TaskLayoutsFile: Equatable, Codable, Sendable {
     case origins
     case activeTasks
     case tasksSplit
+    case mergedTasks
     /// Always written empty: lets a pre-v3 build decode the stamp, see a newer
     /// schema and leave the blob alone instead of stashing it as corrupt.
     case worktrees
@@ -94,6 +99,8 @@ nonisolated struct TaskLayoutsFile: Equatable, Codable, Sendable {
     origins = rawOrigins.compactMapValues(\.value)
     // A selection hint, never an owner of sessions: an unreadable one is not a loss.
     activeTasks = (try? container.decodeIfPresent([String: String].self, forKey: .activeTasks)) ?? [:]
+    // An addressing hint like `activeTasks`: an unreadable one is not a loss.
+    mergedTasks = (try? container.decodeIfPresent([String: String].self, forKey: .mergedTasks)) ?? [:]
     // The marker authorises the one-time regrouping, so only an absent one
     // means "not split". An unreadable one is counted as a loss rather than
     // thrown: a thrown decode reads as corrupt and the writer would stash the
@@ -116,6 +123,9 @@ nonisolated struct TaskLayoutsFile: Equatable, Codable, Sendable {
     }
     if tasksSplit {
       try container.encode(true, forKey: .tasksSplit)
+    }
+    if !mergedTasks.isEmpty {
+      try container.encode(mergedTasks, forKey: .mergedTasks)
     }
     try container.encode([String: String](), forKey: .worktrees)
   }
