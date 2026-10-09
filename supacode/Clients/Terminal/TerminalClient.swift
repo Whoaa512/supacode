@@ -133,7 +133,9 @@ struct TerminalClient {
     /// Only tasks on a directory named in `archivedDirectories` (and not also
     /// kept or protected) are pruned. Absence from the kept set never prunes:
     /// that set is stale by delivery, and a missing directory can also mean an
-    /// orphan task or a repository that has not loaded yet.
+    /// orphan task or a repository that has not loaded yet. The archived set
+    /// is stale by delivery too: the manager prunes only what the store still
+    /// calls archived then.
     case prune(
       keepingDirectories: Set<Worktree.ID>, protectingRepositoryIDs: Set<Repository.ID>,
       archivedDirectories: Set<Worktree.ID> = [])

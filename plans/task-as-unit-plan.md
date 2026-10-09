@@ -1885,3 +1885,64 @@ deviation.
   the same key, so a stale entry cannot redirect a kill).
   Gate: check 0, `AppFeatureSessionsTests` + `supacodeTerminalTests` 551
   tests with only the 2 Ghostty baseline failures, build-app 0.
+- T7 r4 (review fixes), 2026-10-09, `aa7aa5cb` + `130b1465` + `db889e97` +
+  `7a5d616c`. Four findings, all held; this supersedes "neither `members`
+  nor the launch-time record lists a session" (r1) and "the writer only
+  ever adds to the stored sessions" is now also "and never moves one":
+  - Partial list replaced the primary (P1): the writer put the caller's
+    list first. Stored order now stands and unlisted sessions are appended
+    (`task.sessions += new`), the same order `TaskMembership.merged` hydrates
+    in. Same class, checked and left: `showLaunchedTaskIfReady` puts a
+    resume's primary first, but only for a task minted by that launch
+    (`owner == nil`), which has no stored record; the splitter leaves a
+    record that lists sessions alone. T9 (slot replacement) and M still need
+    their own reorder/remove change.
+  - Stale archived set (P1): `handleCommand(.prune)` intersects the
+    command's `archivedDirectories` with `AppFeature.State.archivedDirectories`
+    read from the store at delivery (the reducer computes its set from the
+    same property). No store, nothing pruned. `prune(...)` itself still
+    tears down what it is given; the teardown tests call it directly
+    because the harness store has no roster. Same class, checked and left:
+    `.removeLayouts(forDirectory:)` follows `worktreeDeleted` (the directory
+    is gone from disk, nothing to reverse); the protected-repository set is
+    only ever a shield, and a repository that stops loading loses its rows,
+    so its directories are no longer "archived now".
+  - Removal decided from two sources (P2): the race was real (mutation
+    check: with the launch-time check restored, a task whose stored record
+    lists a session the runtime never loaded was detached while its record
+    stayed). `removeTaskIfEmptied` now asks
+    `LayoutsIncrementalWriter.storedSessions(of:)`, which reads behind every
+    queued flush on the writer's queue. Runtime members ∪ that read is
+    everything the writer will merge, so both keep or both drop.
+    Decisions (not in the plan): an unreadable store (lossy, newer) keeps
+    the runtime task, since the writer aborts and the record stays; an
+    undecodable blob counts as "no record". The read blocks the main actor
+    behind queued layout flushes, as the quit-time `flushSync` does; it runs
+    only when a task's last tab closed and the runtime lists no session.
+    Not verified in the live UI: that this wait is unnoticeable.
+  - Unchecked stash (P1): `stashCorrupt` reads the stash back; a flush that
+    cannot stash aborts and leaves the blob. Same class, fixed:
+    `SettingsRelocationMigrator.seedLayouts` wrote over an unreadable value
+    after the same unchecked stash; it now leaves the value and
+    `layouts.json`, and `legacyLayoutsAwaitStash` withholds the relocation
+    marker so the seed retries. Left (not layouts, pre-dates this work): the
+    sidebar seed's `stashCorruptUserDefaults` and `SidebarPersistenceKey`
+    stash are still unchecked; a second undecodable blob overwrites the
+    first stash.
+  Tests, red before the fixes: `LayoutsIncrementalWriterTests`
+  (`recordNeverDropsOrReordersAStoredSession`,
+  `aPartialListNamingAStoredTangentDoesNotPromoteIt`,
+  `aCorruptBlobThatCannotBeStashedIsLeftInPlace`),
+  `SettingsRelocationMigratorTests`
+  (`legacyLayoutsAreNotSeededOverAnUnreadableValueThatCannotBeStashed`),
+  `WorktreeTerminalManagerAckTests`
+  (`anArchiveReversedBeforeThePruneIsDeliveredTearsNothingDown`,
+  `aPruneDeliveredWithoutAStoreTearsNothingDown`,
+  `aTaskIsRemovedOnlyWhenTheStoredRecordListsNoSessionEither`,
+  `aSessionlessTaskIsNotRemovedWhileItsStoredRecordCannotBeRead`; plus the
+  positive `aDeliveredPruneTearsDownADirectoryThatIsStillArchived`).
+  Test note: a task's last-tab removal needs the layout change of its first
+  tab to have reached the manager, so these tests await the first flush
+  before closing, as the r1 ones do.
+  Gate: check 0, the three suites above 89 tests 0 failures, build-app 0,
+  full `make test` exit 2 with 4176 tests and only the 5 baseline failures.
