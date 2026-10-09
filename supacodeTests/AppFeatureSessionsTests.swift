@@ -2606,6 +2606,54 @@ struct AppFeatureSessionsTests {
     #expect(probes.value.isEmpty)
   }
 
+  /// A task whose directory is no roster worktree, known from the running
+  /// task or only from its persisted record.
+  private func orphanTask(_ directory: TaskRecord.Directory, isLive: Bool) -> AppFeature.State {
+    var state = state()
+    let layout = agentTask(first, surface: firstSurface)
+    if isLive {
+      state.terminals.layouts.append(layout)
+      state.terminals.directories[first] = directory
+    } else {
+      state.repositories.$persistedLayouts = SharedReader(
+        value: TaskLayoutsFile(tasks: [
+          first.persistenceKey: TaskRecord(
+            id: first, directory: directory, layout: layout.layout, createdAt: .distantPast)
+        ]))
+    }
+    return state
+  }
+
+  @Test(.dependencies, arguments: [true, false])
+  func anOrphanTasksAgentCapturesTheBranchOfItsDirectory(isLive: Bool) async {
+    let initial = orphanTask(TaskRecord.Directory(worktreeID: "/gone/checkout"), isLive: isLive)
+    let probes = LockIsolated<[String]>([])
+    let store = captureStore(initial, probes: probes)
+
+    await store.send(busy(firstSurface, ref: "orphan"))
+    await store.finish()
+
+    #expect(
+      store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "orphan")]?.branches == ["a-branch"])
+    #expect(probes.value == ["/gone/checkout"])
+  }
+
+  /// `/srv/app` on the host is not `/srv/app` here.
+  @Test(.dependencies, arguments: [true, false])
+  func aRemoteOrphanTasksDirectoryIsNeverProbedOnThisMachine(isLive: Bool) async throws {
+    let host = try #require(RemoteHost(authority: "me@box"))
+    let initial = orphanTask(TaskRecord.Directory(worktreeID: "me@box/srv/app", host: host), isLive: isLive)
+    #expect(AppFeature.surfaceIndex(state: initial)[firstSurface]?.directoryPath == "/srv/app")
+    let probes = LockIsolated<[String]>([])
+    let store = captureStore(initial, probes: probes)
+
+    await store.send(busy(firstSurface, ref: "orphan"))
+    await store.finish()
+
+    #expect(store.state.repositories.sessions[SessionKey(harness: .pi, sessionID: "orphan")] == nil)
+    #expect(probes.value.isEmpty)
+  }
+
   /// A tangent that ran in B inside a task on A recorded B's branch. Resuming
   /// it where it ran compares against B; resuming it in A compares against A.
   @Test(.dependencies, arguments: [true, false])
