@@ -1135,6 +1135,15 @@ deviation.
     `terminalToggleFromNonRosterOriginStillSelectsIt`.
   - Ack matchers compare `layoutID(forDirectory: ackWorktree)` to the
     event's layout id.
+  - Review fix: the roster skip above covers only the
+    `worktreeCreationSettled` half of `tabCreated` /
+    `initialTabCreationFailed`. Their worktree-new ack resolves from the
+    ack's own bound directory (matched through the seam; the success
+    `resourceID` is that bound directory), roster or not, as before F1.
+    The first F1 cut guarded the whole case, so such an ack rode the
+    watchdog and a creation error became a timeout. Tests:
+    `tabCreatedResolvesWorktreeNewAckForDirectoryOutsideRoster`,
+    `initialTabCreationFailedFailsWorktreeNewAckForDirectoryOutsideRoster`.
   - Manager: worktree-facing events (`notificationReceived`,
     `runStatusChanged`, `blockingScriptCompleted`,
     `worktreeProjectionChanged`, `NotificationLocation`) carry the host's
