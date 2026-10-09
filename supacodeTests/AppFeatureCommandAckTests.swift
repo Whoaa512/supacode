@@ -1860,7 +1860,7 @@ struct AppFeatureCommandAckTests {
     let worktree = makeWorktree()
     let surfaceID = UUID()
     let store = makeFolderAckStore(
-      match: .surfaceSplit(worktreeID: worktree.id, surfaceID: surfaceID))
+      match: .surfaceSplit(layoutID: worktree.id.layoutID, surfaceID: surfaceID))
     defer { close(store.readFD) }
 
     await store.store.send(

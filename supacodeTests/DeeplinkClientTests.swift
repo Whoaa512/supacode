@@ -24,6 +24,72 @@ struct DeeplinkClientTests {
     #expect(parse(url) == nil)
   }
 
+  // MARK: - Task segment.
+
+  private let taskUUID = UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!
+
+  @Test func taskSegmentIsLiftedOutFromBehindTheWorktreeID() {
+    let encoded = "%2Ftmp%2Frepo%2Fwt-1"
+    let task = LayoutID(task: taskUUID)
+    let tabID = UUID()
+    let surfaceID = UUID()
+    let prefix = "supacode://worktree/\(encoded)/task/\(taskUUID.uuidString)"
+    #expect(parse(URL(string: prefix)!) == .worktree(id: "/tmp/repo/wt-1", action: .select, task: task))
+    #expect(
+      parse(URL(string: "\(prefix)/tab/new?input=ls&background=true")!)
+        == .worktree(id: "/tmp/repo/wt-1", action: .tabNew(input: "ls", id: nil), background: true, task: task))
+    #expect(
+      parse(URL(string: "\(prefix)/tab/\(tabID.uuidString)/surface/\(surfaceID.uuidString)")!)
+        == .worktree(
+          id: "/tmp/repo/wt-1", action: .surface(tabID: tabID, surfaceID: surfaceID, input: nil), task: task))
+    #expect(
+      parse(URL(string: "\(prefix)/pane/equalize")!)
+        == .worktree(id: "/tmp/repo/wt-1", action: .paneEqualize, task: task))
+  }
+
+  @Test func taskSegmentCarriesAPathShapedTaskID() {
+    // The task a directory had before tasks is keyed by its path.
+    let encoded = "%2Ftmp%2Frepo%2Fwt-1"
+    let url = URL(string: "supacode://worktree/\(encoded)/task/\(encoded)/tab/new")!
+    let task = LayoutID(external: encoded)
+    #expect(task?.persistenceKey == "/tmp/repo/wt-1")
+    #expect(parse(url) == .worktree(id: "/tmp/repo/wt-1", action: .tabNew(input: nil, id: nil), task: task))
+  }
+
+  @Test func worktreeDeeplinkWithoutATaskSegmentNamesNoTask() {
+    let url = URL(string: "supacode://worktree/%2Ftmp%2Frepo%2Fwt-1/tab/new")!
+    #expect(parse(url) == .worktree(id: "/tmp/repo/wt-1", action: .tabNew(input: nil, id: nil), task: nil))
+  }
+
+  @Test func taskSegmentWithNoTaskIDFailsTheParse() {
+    #expect(parse(URL(string: "supacode://worktree/%2Ftmp%2Frepo%2Fwt-1/task")!) == nil)
+  }
+
+  @Test func taskSegmentKeepsRejectingAnUnknownAction() {
+    let url = URL(string: "supacode://worktree/%2Ftmp%2Frepo%2Fwt-1/task/\(taskUUID.uuidString)/bogus")!
+    #expect(parse(url) == nil)
+  }
+
+  // MARK: - Shared id parsing.
+
+  @Test func externalWorktreeIDsDecodeAndDropOneTrailingSlash() {
+    #expect(WorktreeID(external: "%2Ftmp%2Frepo%2Fwt-1") == "/tmp/repo/wt-1")
+    #expect(WorktreeID(external: "%2Ftmp%2Frepo%2Fwt-1%2F") == "/tmp/repo/wt-1")
+    #expect(WorktreeID(external: "/tmp/repo/wt-1/") == "/tmp/repo/wt-1")
+    #expect(WorktreeID(external: "") == nil)
+    #expect(WorktreeID(external: "%ZZ") == nil)
+  }
+
+  @Test func externalTaskIDsRoundTripAsWritten() {
+    let minted = LayoutID(task: taskUUID)
+    #expect(LayoutID(external: minted.externalID) == minted)
+    // A task id is taken as written: no trailing-slash rule.
+    let ownKey = LayoutID(external: "%2Ftmp%2Frepo%2Fwt-1%2F")
+    #expect(ownKey?.persistenceKey == "/tmp/repo/wt-1/")
+    #expect(ownKey?.externalID == "%2Ftmp%2Frepo%2Fwt-1%2F")
+    #expect(LayoutID(external: "") == nil)
+  }
+
   // MARK: - Background opt-out.
 
   @Test func backgroundQueryItemSuppressesFocus() {

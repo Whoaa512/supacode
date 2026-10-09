@@ -55,6 +55,10 @@ struct DeeplinkReferenceView: View {
 
   private static let worktreeRows: [DeeplinkEntry] = [
     .init(url: "supacode://worktree/<worktree_id>", description: "Select worktree."),
+    .init(
+      url: "supacode://worktree/<worktree_id>/task/<task_id>/…",
+      description: "A tab or pane route sent to one task of the worktree (SUPACODE_TASK_ID), not the one it shows."
+    ),
     .init(url: "supacode://worktree/<worktree_id>/run", description: "Run the primary run-kind script."),
     .init(url: "supacode://worktree/<worktree_id>/stop", description: "Stop all run-kind scripts."),
     .init(

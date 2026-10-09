@@ -521,37 +521,13 @@ struct SupacodeApp: App {
       }
       AgentHookSocketServer.sendQueryResponse(clientFD: clientFD, data: data)
     case "tabs":
-      guard let worktreeID = params["worktreeID"] else {
-        AgentHookSocketServer.sendCommandResponse(
-          clientFD: clientFD, ok: false, error: "Missing worktreeID for tab list.")
-        return
-      }
-      let tabs = terminalManager.listTabs(worktreeID: worktreeID)
-      if tabs == nil {
-        let decoded = worktreeID.removingPercentEncoding ?? worktreeID
-        let worktreeExists = repos.contains { $0.worktrees.contains { $0.id.rawValue == decoded } }
-        guard worktreeExists else {
-          AgentHookSocketServer.sendCommandResponse(
-            clientFD: clientFD, ok: false, error: "Worktree not found: \(worktreeID)")
-          return
-        }
-      }
-      AgentHookSocketServer.sendQueryResponse(clientFD: clientFD, data: tabs ?? [])
+      handleTabsQuery(
+        params: params, repos: repos, clientFD: clientFD, terminalManager: terminalManager, store: store)
     case "panes":
       handlePanesQuery(
-        params: params, repos: repos, clientFD: clientFD, terminalManager: terminalManager)
+        params: params, repos: repos, clientFD: clientFD, terminalManager: terminalManager, store: store)
     case "surfaces":
-      guard let worktreeID = params["worktreeID"], let tabID = params["tabID"] else {
-        AgentHookSocketServer.sendCommandResponse(
-          clientFD: clientFD, ok: false, error: "Missing worktreeID/tabID for surface list.")
-        return
-      }
-      guard let surfaces = terminalManager.listSurfaces(worktreeID: worktreeID, tabID: tabID) else {
-        AgentHookSocketServer.sendCommandResponse(
-          clientFD: clientFD, ok: false, error: "Worktree or tab not found.")
-        return
-      }
-      AgentHookSocketServer.sendQueryResponse(clientFD: clientFD, data: surfaces)
+      handleSurfacesQuery(params: params, clientFD: clientFD, terminalManager: terminalManager, store: store)
     case "worktreeStatus":
       handleWorktreeStatusQuery(params: params, repos: repos, clientFD: clientFD, store: store)
     case "worktreeAppearance":
@@ -568,28 +544,94 @@ struct SupacodeApp: App {
     }
   }
 
+  private static func handleTabsQuery(
+    params: [String: String],
+    repos: IdentifiedArrayOf<Repository>,
+    clientFD: Int32,
+    terminalManager: WorktreeTerminalManager,
+    store: StoreOf<AppFeature>
+  ) {
+    guard let worktreeID = params["worktreeID"] else {
+      AgentHookSocketServer.sendCommandResponse(
+        clientFD: clientFD, ok: false, error: "Missing worktreeID for tab list.")
+      return
+    }
+    guard let layoutID = queryLayoutID(params: params, clientFD: clientFD, store: store) else { return }
+    let tabs = terminalManager.listTabs(layoutID: layoutID)
+    guard tabs != nil || resolveWorktree(worktreeID, in: repos) != nil else {
+      AgentHookSocketServer.sendCommandResponse(
+        clientFD: clientFD, ok: false, error: "Worktree not found: \(worktreeID)")
+      return
+    }
+    AgentHookSocketServer.sendQueryResponse(clientFD: clientFD, data: tabs ?? [])
+  }
+
+  private static func handleSurfacesQuery(
+    params: [String: String],
+    clientFD: Int32,
+    terminalManager: WorktreeTerminalManager,
+    store: StoreOf<AppFeature>
+  ) {
+    guard params["worktreeID"] != nil, let tabID = params["tabID"] else {
+      AgentHookSocketServer.sendCommandResponse(
+        clientFD: clientFD, ok: false, error: "Missing worktreeID/tabID for surface list.")
+      return
+    }
+    // The tab id finds its own task, whichever one the directory shows.
+    let tabUUID = UUID(uuidString: tabID)
+    guard
+      let layoutID = queryLayoutID(
+        params: params, holding: tabUUID.map { [$0] } ?? [], clientFD: clientFD, store: store)
+    else { return }
+    guard let tabUUID, let surfaces = terminalManager.listSurfaces(layoutID: layoutID, tabID: tabUUID) else {
+      AgentHookSocketServer.sendCommandResponse(
+        clientFD: clientFD, ok: false, error: "Worktree or tab not found.")
+      return
+    }
+    AgentHookSocketServer.sendQueryResponse(clientFD: clientFD, data: surfaces)
+  }
+
   private static func handlePanesQuery(
     params: [String: String],
     repos: IdentifiedArrayOf<Repository>,
     clientFD: Int32,
-    terminalManager: WorktreeTerminalManager
+    terminalManager: WorktreeTerminalManager,
+    store: StoreOf<AppFeature>
   ) {
     guard let worktreeID = params["worktreeID"] else {
       AgentHookSocketServer.sendCommandResponse(
         clientFD: clientFD, ok: false, error: "Missing worktreeID for pane list.")
       return
     }
-    let panes = terminalManager.listPanes(worktreeID: worktreeID)
-    if panes == nil {
-      let decoded = worktreeID.removingPercentEncoding ?? worktreeID
-      let worktreeExists = repos.contains { $0.worktrees.contains { $0.id.rawValue == decoded } }
-      guard worktreeExists else {
-        AgentHookSocketServer.sendCommandResponse(
-          clientFD: clientFD, ok: false, error: "Worktree not found: \(worktreeID)")
-        return
-      }
+    guard let layoutID = queryLayoutID(params: params, clientFD: clientFD, store: store) else { return }
+    let panes = terminalManager.listPanes(layoutID: layoutID)
+    guard panes != nil || resolveWorktree(worktreeID, in: repos) != nil else {
+      AgentHookSocketServer.sendCommandResponse(
+        clientFD: clientFD, ok: false, error: "Worktree not found: \(worktreeID)")
+      return
     }
     AgentHookSocketServer.sendQueryResponse(clientFD: clientFD, data: panes ?? [])
+  }
+
+  /// The layout a tab, pane or surface list query means, answering the client
+  /// itself when the directory or the task it names cannot be resolved.
+  @MainActor
+  private static func queryLayoutID(
+    params: [String: String],
+    holding ids: [UUID] = [],
+    clientFD: Int32,
+    store: StoreOf<AppFeature>
+  ) -> LayoutID? {
+    let worktreeID = params["worktreeID"] ?? ""
+    let taskID = params["taskID"]
+    let layoutID = store.withState {
+      $0.commandLayoutID(externalWorktreeID: worktreeID, externalTaskID: taskID, holding: ids)
+    }
+    if layoutID == nil {
+      let missing = taskID.map { "Task not found: \($0)" } ?? "Worktree not found: \(worktreeID)"
+      AgentHookSocketServer.sendCommandResponse(clientFD: clientFD, ok: false, error: missing)
+    }
+    return layoutID
   }
 
   /// The agent-scoped query family, split out of `handleQuery` so the top-level
@@ -641,14 +683,14 @@ struct SupacodeApp: App {
         clientFD: clientFD, ok: false, error: "Missing worktreeID for agent read.")
       return
     }
-    let decoded = rawWorktreeID.removingPercentEncoding ?? rawWorktreeID
-    let worktreeID = WorktreeID(decoded.hasSuffix("/") ? String(decoded.dropLast()) : decoded)
-    guard let item = store.repositories.sidebarItems[id: worktreeID] else {
+    guard let worktreeID = WorktreeID(external: rawWorktreeID),
+      let item = store.repositories.sidebarItems[id: worktreeID]
+    else {
       AgentHookSocketServer.sendCommandResponse(
         clientFD: clientFD, ok: false, error: "Worktree not found: \(rawWorktreeID)")
       return
     }
-    let layoutID = store.withState { $0.layoutID(forDirectory: worktreeID) }
+    let seamLayoutID = store.withState { $0.layoutID(forDirectory: worktreeID) }
     let surfaceID: UUID?
     if let rawAgent = params["agent"] {
       guard let agent = SkillAgent(rawValue: rawAgent) else {
@@ -664,10 +706,14 @@ struct SupacodeApp: App {
       }
       surfaceID = key.surfaceID
     } else {
-      surfaceID = terminalManager.focusedSurfaceID(worktreeID: layoutID) ?? item.surfaceIDs.first
+      surfaceID = terminalManager.focusedSurfaceID(worktreeID: seamLayoutID) ?? item.surfaceIDs.first
     }
+    // The row lists the surfaces of every task on the directory, so the
+    // surface is read through the task that holds it.
     guard let surfaceID,
-      let screen = terminalManager.screenPreview(worktreeID: layoutID, surfaceID: surfaceID)
+      let screen = terminalManager.screenPreview(
+        worktreeID: store.withState { $0.layoutID(forDirectory: worktreeID, holding: surfaceID) },
+        surfaceID: surfaceID)
     else {
       AgentHookSocketServer.sendCommandResponse(
         clientFD: clientFD, ok: false,
@@ -700,9 +746,9 @@ struct SupacodeApp: App {
         clientFD: clientFD, ok: false, error: "Unknown agent kind: \(rawAgent)")
       return
     }
-    let decoded = rawWorktreeID.removingPercentEncoding ?? rawWorktreeID
-    let worktreeID = WorktreeID(decoded.hasSuffix("/") ? String(decoded.dropLast()) : decoded)
-    guard let item = store.repositories.sidebarItems[id: worktreeID] else {
+    guard let worktreeID = WorktreeID(external: rawWorktreeID),
+      let item = store.repositories.sidebarItems[id: worktreeID]
+    else {
       AgentHookSocketServer.sendCommandResponse(
         clientFD: clientFD, ok: false, error: "Worktree not found: \(rawWorktreeID)")
       return
@@ -824,11 +870,11 @@ struct SupacodeApp: App {
     _ worktreeID: String,
     in repos: IdentifiedArrayOf<Repository>
   ) -> (Repository, Worktree)? {
-    let decoded = worktreeID.removingPercentEncoding ?? worktreeID
+    guard let parsed = WorktreeID(external: worktreeID)?.rawValue else { return nil }
     return repos.lazy.compactMap { repo -> (Repository, Worktree)? in
       // IDs from standardizedFileURL carry a trailing slash; accept both forms.
       let worktree = repo.worktrees.first { candidate in
-        candidate.id.rawValue == decoded || candidate.id.rawValue == decoded + "/"
+        candidate.id.rawValue == parsed || candidate.id.rawValue == parsed + "/"
       }
       return worktree.map { (repo, $0) }
     }.first

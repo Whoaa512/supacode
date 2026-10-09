@@ -284,21 +284,23 @@ struct AppFeature {
   /// What a deferred ack is waiting for, with the key that correlates the
   /// completion signal back to the originating command.
   enum CompletionMatch: Equatable, Sendable {
-    /// tab new: resolves when the worktree's new tab projection carries `tabID`.
-    case tabInWorktree(worktreeID: Worktree.ID, tabID: UUID)
-    /// surface split: resolves when the worktree's tab projection lists `surfaceID`.
-    case surfaceSplit(worktreeID: Worktree.ID, surfaceID: UUID)
+    /// tab new: resolves when the task's layout reports `tabID` created. The
+    /// tab and surface cases name the task the command was sent to, fixed at
+    /// dispatch: the directory may show another task by the time it completes.
+    case tabInWorktree(layoutID: LayoutID, tabID: UUID)
+    /// surface split: resolves when the task's layout reports `surfaceID` created.
+    case surfaceSplit(layoutID: LayoutID, surfaceID: UUID)
     /// repo worktree-new: `pendingID` (supplied by the deeplink so it flows back
     /// through the creation stream) correlates the exact creation even when
     /// several run concurrently in one repo; `worktreeID` is nil until that
     /// worktree is created, then its first tab resolves the ack.
     case worktreeNew(pendingID: Worktree.ID, worktreeID: Worktree.ID?)
     /// tab close.
-    case tabRemoved(worktreeID: Worktree.ID, tabID: TabID)
+    case tabRemoved(layoutID: LayoutID, tabID: TabID)
     /// tab rename: resolves when the manager reports whether the title applied.
-    case tabRenamed(worktreeID: Worktree.ID, tabID: TabID)
-    /// surface close (scoped by worktree so a duplicate id elsewhere can't cross-resolve).
-    case surfaceClosed(worktreeID: Worktree.ID, surfaceID: UUID)
+    case tabRenamed(layoutID: LayoutID, tabID: TabID)
+    /// surface close (scoped by task so a duplicate id elsewhere can't cross-resolve).
+    case surfaceClosed(layoutID: LayoutID, surfaceID: UUID)
     /// worktree delete (git worktree removed).
     case worktreeRemoved(worktreeID: Worktree.ID)
     /// worktree archive (moved to the archived bucket, after any archive script).
@@ -668,23 +670,17 @@ struct AppFeature {
         // auto-focus races host creation and loses. The flag itself is consumed
         // by the detail view on appear.
         let wantsFocus = state.repositories.sidebarItems[id: worktree.id]?.shouldFocusTerminal == true
-        // A named task is shown as is; otherwise the task still selected on
-        // this directory (the terminal may not have echoed it into the
-        // directory's active task yet), else the directory's most recent one.
-        // Only while it holds a tab here: an emptied task that still lists a
-        // session keeps its row, and selecting its directory must not put a
-        // shell tab in it.
-        let selectedTaskID = state.repositories.selectedTask.flatMap {
-          $0.directoryID == worktree.id && Self.taskHoldsTabs($0.id, onDirectory: worktree.id, state: state)
-            ? $0.id : nil
-        }
         let directoryEffects = Effect<Action>.merge(
           .run { _ in
             await worktreeInfoWatcher.send(.setSelectedWorktreeID(worktree.id))
           },
           Self.loadWorktreeSettingsEffect(key: key, worktreeID: worktreeID)
         )
-        let task = taskID ?? selectedTaskID ?? state.terminals.task(forDirectory: worktree.id)
+        // A named task is shown as is; otherwise the one the directory shows,
+        // which only counts while it holds a tab here: an emptied task that
+        // still lists a session keeps its row, and selecting its directory
+        // must not put a shell tab in it.
+        let task = taskID ?? state.shownTask(forDirectory: worktree.id)
         // The directory by itself resolved to something else than the task
         // picked earlier (it holds no tab here any more), so that pick is
         // over: kept, it would stay mounted on a missing directory while the
@@ -1370,9 +1366,9 @@ struct AppFeature {
 
       case .focusTerminalSurface(let worktreeID, let tabID, let surfaceID):
         guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        let layoutID = state.layoutID(forDirectory: worktree.id, holding: surfaceID)
         return .merge(
-          .send(.repositories(.selectWorktree(worktreeID, focusTerminal: true))),
+          Self.selectEffect(showing: layoutID, onDirectory: worktree.id, state: state),
           .run { @MainActor _ in
             terminalClient.focusSurface(layoutID, DirectoryContext(worktree: worktree), tabID, surfaceID)
           }
@@ -1380,14 +1376,14 @@ struct AppFeature {
 
       case .closeTerminalSurface(let worktreeID, let tabID, let surfaceID):
         guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        let layoutID = state.layoutID(forDirectory: worktree.id, holding: surfaceID)
         return .run { @MainActor _ in
           terminalClient.closeSurface(layoutID, DirectoryContext(worktree: worktree), tabID, surfaceID)
         }
 
       case .closeTerminalTab(let worktreeID, let tabID):
         guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        let layoutID = state.layoutID(forDirectory: worktree.id, holding: tabID.rawValue)
         return .run { @MainActor _ in
           terminalClient.closeTab(layoutID, tabID)
         }
@@ -1754,6 +1750,7 @@ struct AppFeature {
         let timeoutSeconds =
           state.deeplinkInputConfirmation?.timeoutSeconds ?? defaultCommandTimeoutSeconds
         let background = state.deeplinkInputConfirmation?.background ?? false
+        let task = state.deeplinkInputConfirmation?.task
         state.deeplinkInputConfirmation = nil
         // The initial deeplink dispatch already ran the select (or deliberately
         // skipped it when backgrounded). Re-dispatch only the action effect.
@@ -1766,6 +1763,7 @@ struct AppFeature {
             responseFD: pendingFD,
             timeoutSeconds: timeoutSeconds,
             background: background,
+            task: task,
           )
         }
         let responseEffect: Effect<Action>
@@ -2183,7 +2181,8 @@ struct AppFeature {
         let isMuted = isViewed && state.settings.muteNotificationsForActiveSurface
         if state.settings.systemNotificationsEnabled && !isMuted {
           let deeplinkURL = surfaceDeeplinkURL(
-            worktreeID: worktreeID, layoutID: state.layoutID(forDirectory: worktreeID), surfaceID: surfaceID)
+            worktreeID: worktreeID, layoutID: state.layoutID(forDirectory: worktreeID, holding: surfaceID),
+            surfaceID: surfaceID)
           effects.append(
             .run { _ in
               await systemNotificationClient.send(title, body, deeplinkURL)
@@ -2305,13 +2304,12 @@ struct AppFeature {
 
       case .terminalEvent(.surfaceCreated(let layoutID, let id)):
         // Resolve tab-new / surface-split acks once the supplied id lands.
-        let layout = state.layoutID(forDirectory:)
         return resolveCommandAcks(ok: true, state: &state) { match in
           switch match {
-          case .tabInWorktree(let ackWorktree, let tabID):
-            return layout(ackWorktree) == layoutID && tabID == id
-          case .surfaceSplit(let ackWorktree, let surfaceID):
-            return layout(ackWorktree) == layoutID && surfaceID == id
+          case .tabInWorktree(let ackLayout, let tabID):
+            return ackLayout == layoutID && tabID == id
+          case .surfaceSplit(let ackLayout, let surfaceID):
+            return ackLayout == layoutID && surfaceID == id
           default:
             return false
           }
@@ -2341,13 +2339,12 @@ struct AppFeature {
         // An ordinary tab / split failure: resolve only its own ack. It never
         // touches `.pending` or the worktree-new ack, which belong to the
         // initial-tab bootstrap (`.initialTabCreationFailed`).
-        let layout = state.layoutID(forDirectory:)
         return resolveCommandAcks(ok: false, error: message, state: &state) { match in
           switch match {
-          case .tabInWorktree(let ackWorktree, let tabID):
-            return layout(ackWorktree) == layoutID && tabID == attemptedID
-          case .surfaceSplit(let ackWorktree, let surfaceID):
-            return layout(ackWorktree) == layoutID && surfaceID == attemptedID
+          case .tabInWorktree(let ackLayout, let tabID):
+            return ackLayout == layoutID && tabID == attemptedID
+          case .surfaceSplit(let ackLayout, let surfaceID):
+            return ackLayout == layoutID && surfaceID == attemptedID
           default:
             return false
           }
@@ -2366,24 +2363,22 @@ struct AppFeature {
         return .merge(ackEffect, .send(.repositories(.worktreeCreationSettled(worktreeID))))
 
       case .terminalEvent(.tabRemoved(let layoutID, let tabID)):
-        let layout = state.layoutID(forDirectory:)
         let ackEffect = resolveCommandAcks(ok: true, state: &state) { match in
-          if case .tabRemoved(let ackWorktree, let removed) = match {
-            return layout(ackWorktree) == layoutID && removed == tabID
+          if case .tabRemoved(let ackLayout, let removed) = match {
+            return ackLayout == layoutID && removed == tabID
           }
           return false
         }
         return ackEffect
 
       case .terminalEvent(.tabRenamed(let layoutID, let tabID, let applied)):
-        let layout = state.layoutID(forDirectory:)
         return resolveCommandAcks(
           ok: applied,
           error: applied ? nil : "The tab could not be renamed. It may have been closed.",
           state: &state
         ) { match in
-          guard case .tabRenamed(let ackWorktree, let renamed) = match else { return false }
-          return layout(ackWorktree) == layoutID && renamed == tabID
+          guard case .tabRenamed(let ackLayout, let renamed) = match else { return false }
+          return ackLayout == layoutID && renamed == tabID
         }
 
       case .terminalEvent(.worktreeStateTornDown):
@@ -2432,10 +2427,9 @@ struct AppFeature {
 
       case .terminalEvent(.surfacesClosed(let layoutID, let ids)):
         guard !ids.isEmpty else { return .none }
-        let layout = state.layoutID(forDirectory:)
         let ackEffect = resolveCommandAcks(ok: true, state: &state) { match in
-          if case .surfaceClosed(let ackWorktree, let surfaceID) = match {
-            return layout(ackWorktree) == layoutID && ids.contains(surfaceID)
+          if case .surfaceClosed(let ackLayout, let surfaceID) = match {
+            return ackLayout == layoutID && ids.contains(surfaceID)
           }
           return false
         }
@@ -2794,10 +2788,10 @@ struct AppFeature {
     case .help:
       state.isDeeplinkReferenceRequested = true
       return .none
-    case .worktree(let worktreeID, let action, let background):
+    case .worktree(let worktreeID, let action, let background, let task):
       return handleWorktreeDeeplink(
         worktreeID: worktreeID, action: action, source: source, responseFD: responseFD,
-        timeoutSeconds: timeoutSeconds, state: &state, background: background
+        timeoutSeconds: timeoutSeconds, state: &state, background: background, task: task
       )
     case .agent(let worktreeID, let rawAgent, let agentAction):
       return handleAgentDeeplink(
@@ -2948,6 +2942,18 @@ struct AppFeature {
 
   // MARK: Worktree deeplink dispatch.
 
+  /// Selects a directory for a command sent to `layoutID`. A command that
+  /// addresses a task other than the one the directory shows has to show that
+  /// task, or it would act on a layout nobody is looking at.
+  static func selectEffect(
+    showing layoutID: LayoutID, onDirectory worktreeID: Worktree.ID, state: State
+  ) -> Effect<Action> {
+    guard layoutID != state.shownTask(forDirectory: worktreeID),
+      state.terminals.isTask(layoutID, onDirectory: worktreeID)
+    else { return .send(.repositories(.selectWorktree(worktreeID, focusTerminal: true))) }
+    return .send(.repositories(.selectTask(layoutID, directory: worktreeID)))
+  }
+
   private func handleWorktreeDeeplink(
     worktreeID rawWorktreeID: Worktree.ID,
     action: Deeplink.WorktreeAction,
@@ -2956,7 +2962,8 @@ struct AppFeature {
     timeoutSeconds: Int = defaultCommandTimeoutSeconds,
     state: inout State,
     bypassConfirmation: Bool = false,
-    background: Bool = false
+    background: Bool = false,
+    task: LayoutID? = nil
   ) -> Effect<Action> {
     let worktreeID = resolveWorktreeID(rawWorktreeID, state: state)
     // A still-creating row supports the pin toggle; every other action needs
@@ -3006,9 +3013,16 @@ struct AppFeature {
 
     let policyBypass = state.settings.automatedActionPolicy.allowsBypass(from: source)
     // Appearance and tab rename are metadata-only updates; don't steal focus for a title change.
+    guard
+      let layoutID = state.terminals.commandLayoutID(
+        forDirectory: worktreeID, task: task, holding: action.addressedIDs)
+    else {
+      state.alert = taskNotFoundAlert()
+      return .none
+    }
     let selectEffect: Effect<Action> =
       action.selectsWorktree && !background
-      ? .send(.repositories(.selectWorktree(worktreeID, focusTerminal: true)))
+      ? Self.selectEffect(showing: layoutID, onDirectory: worktreeID, state: state)
       : .none
     let actionEffect = worktreeActionEffect(
       worktreeID: worktreeID,
@@ -3018,6 +3032,7 @@ struct AppFeature {
       responseFD: responseFD,
       timeoutSeconds: timeoutSeconds,
       background: background,
+      task: task,
     )
     return .concatenate(selectEffect, actionEffect)
   }
@@ -3030,7 +3045,8 @@ struct AppFeature {
     bypassConfirmation: Bool,
     responseFD: Int32? = nil,
     timeoutSeconds: Int = defaultCommandTimeoutSeconds,
-    background: Bool = false
+    background: Bool = false,
+    task: LayoutID? = nil
   ) -> Effect<Action> {
     // Block only the actions that would spawn a shell/script at the
     // missing working dir. Cleanup actions (delete/archive/pin) and
@@ -3063,6 +3079,15 @@ struct AppFeature {
           "\(worktree.name) has no working directory on disk. Restore it or delete the worktree."
         )
       }
+      return .none
+    }
+    // Resolved again here, not carried from the dispatch: a confirmation can
+    // sit between the two, and the task or tab may be gone by then.
+    guard
+      let layoutID = state.terminals.commandLayoutID(
+        forDirectory: worktreeID, task: task, holding: action.addressedIDs)
+    else {
+      state.alert = taskNotFoundAlert()
       return .none
     }
     switch action {
@@ -3099,8 +3124,8 @@ struct AppFeature {
         background: background
       )
     case .stop:
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, worktree in
-        .stopRunScript(layoutID, DirectoryContext(worktree: worktree), focusing: !background)
+      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { seamLayoutID, worktree in
+        .stopRunScript(seamLayoutID, DirectoryContext(worktree: worktree), focusing: !background)
       }
     case .runScript(let scriptID):
       return runScriptDeeplinkEffect(
@@ -3193,8 +3218,8 @@ struct AppFeature {
         )
       )
     case .tab(let tabID):
-      guard validateTab(worktreeID: worktreeID, tabID: tabID, state: &state) else { return .none }
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, worktree in
+      guard validateTab(layoutID: layoutID, worktreeID: worktreeID, tabID: tabID, state: &state) else { return .none }
+      return sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) { layoutID, worktree in
         .selectTab(layoutID, DirectoryContext(worktree: worktree), tabID: TabID(rawValue: tabID))
       }
     case .tabNew(let input, let id, let title, let pane):
@@ -3208,7 +3233,7 @@ struct AppFeature {
       // A pane anchor that resolves nothing must fail loudly, not fall back
       // to a pane the caller didn't ask for. The anchor is a pane token, so it
       // resolves a pane, tab, or content id (matching `createTabAsync`).
-      if let pane, !terminalClient.paneExists(state.layoutID(forDirectory: worktreeID), pane) {
+      if let pane, !terminalClient.paneExists(layoutID, pane) {
         deeplinkLogger.warning("Rejecting unknown pane anchor \(pane) in worktree \(worktreeID)")
         state.alert = AlertState {
           TextState("Pane not found")
@@ -3223,7 +3248,7 @@ struct AppFeature {
       // (the runtime and hibernation key globally), or an in-flight creation, so
       // a duplicate id can't have one creation resolve the other's ack.
       if let id,
-        terminalClient.tabExists(state.layoutID(forDirectory: worktreeID), TabID(rawValue: id))
+        terminalClient.tabExists(layoutID, TabID(rawValue: id))
           || terminalClient.idExistsAnywhere(id)
           || Self.hasPendingCreationAck(id: id, state: state)
       {
@@ -3237,22 +3262,24 @@ struct AppFeature {
         return .none
       }
       guard let input, !input.isEmpty else {
-        let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, worktree in
+        let effect = sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) {
+          layoutID, worktree in
           .createTab(
             layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, id: id, title: title,
             focusing: !background,
             anchor: pane)
         }
         return awaitingCompletion(
-          effect, match: id.map { .tabInWorktree(worktreeID: worktreeID, tabID: $0) },
+          effect, match: id.map { .tabInWorktree(layoutID: layoutID, tabID: $0) },
           responseFD: responseFD, timeoutSeconds: timeoutSeconds, state: &state)
       }
       if requiresInputConfirmation(state: state, bypassConfirmation: bypassConfirmation) {
         return presentDeeplinkConfirmation(
-          worktreeID: worktreeID, responseFD: responseFD, timeoutSeconds: timeoutSeconds,
+          worktreeID: worktreeID, task: task, responseFD: responseFD, timeoutSeconds: timeoutSeconds,
           message: .command(input), action: action, state: &state, background: background)
       }
-      let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, worktree in
+      let effect = sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) {
+        layoutID, worktree in
         .createTabWithInput(
           layoutID, DirectoryContext(worktree: worktree),
           input: input,
@@ -3264,10 +3291,10 @@ struct AppFeature {
         )
       }
       return awaitingCompletion(
-        effect, match: id.map { .tabInWorktree(worktreeID: worktreeID, tabID: $0) },
+        effect, match: id.map { .tabInWorktree(layoutID: layoutID, tabID: $0) },
         responseFD: responseFD, timeoutSeconds: timeoutSeconds, state: &state)
     case .tabRename(let tabID, let title):
-      guard validateTab(worktreeID: worktreeID, tabID: tabID, state: &state) else { return .none }
+      guard validateTab(layoutID: layoutID, worktreeID: worktreeID, tabID: tabID, state: &state) else { return .none }
       // A blank title clears the override, but one that survives only as control
       // characters would wipe it while reporting the rename as applied.
       let clearsTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -3277,7 +3304,7 @@ struct AppFeature {
           message: "The tab title has no visible characters. Pass an empty title to clear it.")
         return .none
       }
-      guard terminalClient.tabCanRename(state.layoutID(forDirectory: worktreeID), TabID(rawValue: tabID)) else {
+      guard terminalClient.tabCanRename(layoutID, TabID(rawValue: tabID)) else {
         deeplinkLogger.warning("Tab \(tabID) has a locked title in worktree \(worktreeID)")
         state.alert = AlertState {
           TextState("Tab cannot be renamed")
@@ -3290,17 +3317,17 @@ struct AppFeature {
         }
         return .none
       }
-      let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, _ in
+      let effect = sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) { layoutID, _ in
         .renameTab(layoutID, tabID: TabID(rawValue: tabID), title: title)
       }
       return awaitingCompletion(
-        effect, match: .tabRenamed(worktreeID: worktreeID, tabID: TabID(rawValue: tabID)),
+        effect, match: .tabRenamed(layoutID: layoutID, tabID: TabID(rawValue: tabID)),
         responseFD: responseFD, timeoutSeconds: timeoutSeconds, state: &state)
     case .tabDestroy(let tabID):
-      guard validateTab(worktreeID: worktreeID, tabID: tabID, state: &state) else { return .none }
+      guard validateTab(layoutID: layoutID, worktreeID: worktreeID, tabID: tabID, state: &state) else { return .none }
       guard bypassConfirmation else {
         return presentDeeplinkConfirmation(
-          worktreeID: worktreeID,
+          worktreeID: worktreeID, task: task,
           responseFD: responseFD,
           timeoutSeconds: timeoutSeconds,
           message: .confirmation("Close tab \(tabID.uuidString.prefix(8))…?"),
@@ -3308,39 +3335,43 @@ struct AppFeature {
           state: &state,
           background: background)
       }
-      let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, _ in
+      let effect = sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) { layoutID, _ in
         .destroyTab(layoutID, tabID: TabID(rawValue: tabID), focusing: !background)
       }
       return awaitingCompletion(
-        effect, match: .tabRemoved(worktreeID: worktreeID, tabID: TabID(rawValue: tabID)),
+        effect, match: .tabRemoved(layoutID: layoutID, tabID: TabID(rawValue: tabID)),
         responseFD: responseFD, timeoutSeconds: timeoutSeconds, state: &state)
     case .surface(let tabID, let surfaceID, let input):
-      guard validateSurface(worktreeID: worktreeID, tabID: tabID, surfaceID: surfaceID, state: &state) else {
+      guard
+        validateSurface(layoutID: layoutID, worktreeID: worktreeID, tabID: tabID, surfaceID: surfaceID, state: &state)
+      else {
         return .none
       }
       if let input, !input.isEmpty,
         requiresInputConfirmation(state: state, bypassConfirmation: bypassConfirmation)
       {
         return presentDeeplinkConfirmation(
-          worktreeID: worktreeID, responseFD: responseFD, timeoutSeconds: timeoutSeconds,
+          worktreeID: worktreeID, task: task, responseFD: responseFD, timeoutSeconds: timeoutSeconds,
           message: .command(input), action: action, state: &state)
       }
       // Focus has no reliable completion signal (the event only fires when
       // focus actually moves), so this acks immediately.
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, worktree in
+      return sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) { layoutID, worktree in
         .focusSurface(
           layoutID, DirectoryContext(worktree: worktree), tabID: TabID(rawValue: tabID), surfaceID: surfaceID,
           input: input)
       }
     case .surfaceSplit(let tabID, let surfaceID, let direction, let input, let id):
-      guard validateSurface(worktreeID: worktreeID, tabID: tabID, surfaceID: surfaceID, state: &state) else {
+      guard
+        validateSurface(layoutID: layoutID, worktreeID: worktreeID, tabID: tabID, surfaceID: surfaceID, state: &state)
+      else {
         return .none
       }
       // Reject explicit IDs colliding with a tab or content id in any worktree
       // (the runtime and hibernation key globally), or an in-flight split, so a
       // duplicate id can't have one split resolve the other's ack.
       if let id,
-        terminalClient.surfaceExistsInWorktree(state.layoutID(forDirectory: worktreeID), id)
+        terminalClient.surfaceExistsInWorktree(layoutID, id)
           || terminalClient.idExistsAnywhere(id)
           || Self.hasPendingCreationAck(id: id, state: state)
       {
@@ -3357,24 +3388,27 @@ struct AppFeature {
         requiresInputConfirmation(state: state, bypassConfirmation: bypassConfirmation)
       {
         return presentDeeplinkConfirmation(
-          worktreeID: worktreeID, responseFD: responseFD, timeoutSeconds: timeoutSeconds,
+          worktreeID: worktreeID, task: task, responseFD: responseFD, timeoutSeconds: timeoutSeconds,
           message: .command(input), action: action, state: &state, background: background)
       }
-      let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, worktree in
+      let effect = sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) {
+        layoutID, worktree in
         .splitSurface(
           layoutID, DirectoryContext(worktree: worktree), tabID: TabID(rawValue: tabID), surfaceID: surfaceID,
           direction: direction, input: input, id: id, focusing: !background)
       }
       return awaitingCompletion(
-        effect, match: id.map { .surfaceSplit(worktreeID: worktreeID, surfaceID: $0) },
+        effect, match: id.map { .surfaceSplit(layoutID: layoutID, surfaceID: $0) },
         responseFD: responseFD, timeoutSeconds: timeoutSeconds, state: &state)
     case .surfaceDestroy(let tabID, let surfaceID):
-      guard validateSurface(worktreeID: worktreeID, tabID: tabID, surfaceID: surfaceID, state: &state) else {
+      guard
+        validateSurface(layoutID: layoutID, worktreeID: worktreeID, tabID: tabID, surfaceID: surfaceID, state: &state)
+      else {
         return .none
       }
       guard bypassConfirmation else {
         return presentDeeplinkConfirmation(
-          worktreeID: worktreeID,
+          worktreeID: worktreeID, task: task,
           responseFD: responseFD,
           timeoutSeconds: timeoutSeconds,
           message: .confirmation("Close surface \(surfaceID.uuidString.prefix(8))…?"),
@@ -3382,19 +3416,20 @@ struct AppFeature {
           state: &state,
           background: background)
       }
-      let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, worktree in
+      let effect = sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) {
+        layoutID, worktree in
         .destroySurface(
           layoutID, DirectoryContext(worktree: worktree), tabID: TabID(rawValue: tabID), surfaceID: surfaceID,
           focusing: !background)
       }
       return awaitingCompletion(
-        effect, match: .surfaceClosed(worktreeID: worktreeID, surfaceID: surfaceID),
+        effect, match: .surfaceClosed(layoutID: layoutID, surfaceID: surfaceID),
         responseFD: responseFD, timeoutSeconds: timeoutSeconds, state: &state)
     case .tabMove(let tabID, let direction):
-      guard validateTab(worktreeID: worktreeID, tabID: tabID, state: &state) else { return .none }
+      guard validateTab(layoutID: layoutID, worktreeID: worktreeID, tabID: tabID, state: &state) else { return .none }
       // A single-tab or windowed pane refuses the move; report that instead of
       // a phantom success.
-      guard terminalClient.canMoveTabToNewSplit(state.layoutID(forDirectory: worktreeID), tabID) else {
+      guard terminalClient.canMoveTabToNewSplit(layoutID, tabID) else {
         deeplinkLogger.warning("Tab \(tabID) cannot move to a new split in worktree \(worktreeID)")
         state.alert = AlertState {
           TextState("Tab cannot be moved")
@@ -3406,25 +3441,25 @@ struct AppFeature {
         return .none
       }
       // Layout topology has no distinct completion signal, so this acks immediately.
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, _ in
+      return sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) { layoutID, _ in
         .moveTabToSplit(layoutID, tabID: tabID, direction: direction, focusing: !background)
       }
     case .paneFocus(let token):
-      guard validatePane(worktreeID: worktreeID, token: token, state: &state) else { return .none }
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, _ in
+      guard validatePane(layoutID: layoutID, worktreeID: worktreeID, token: token, state: &state) else { return .none }
+      return sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) { layoutID, _ in
         .focusPane(layoutID, paneToken: token)
       }
     case .paneFocusDirection(let direction):
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, _ in
+      return sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) { layoutID, _ in
         .focusSplit(layoutID, direction: direction)
       }
     case .paneSplit(let token, let direction, let input, let id):
-      guard validatePane(worktreeID: worktreeID, token: token, state: &state) else { return .none }
+      guard validatePane(layoutID: layoutID, worktreeID: worktreeID, token: token, state: &state) else { return .none }
       // Reject explicit IDs colliding with a tab or content id in any worktree
       // (the runtime and hibernation key globally), or an in-flight split, so a
       // duplicate id can't have one split resolve the other's ack.
       if let id,
-        terminalClient.surfaceExistsInWorktree(state.layoutID(forDirectory: worktreeID), id)
+        terminalClient.surfaceExistsInWorktree(layoutID, id)
           || terminalClient.idExistsAnywhere(id)
           || Self.hasPendingCreationAck(id: id, state: state)
       {
@@ -3441,22 +3476,23 @@ struct AppFeature {
         requiresInputConfirmation(state: state, bypassConfirmation: bypassConfirmation)
       {
         return presentDeeplinkConfirmation(
-          worktreeID: worktreeID, responseFD: responseFD, timeoutSeconds: timeoutSeconds,
+          worktreeID: worktreeID, task: task, responseFD: responseFD, timeoutSeconds: timeoutSeconds,
           message: .command(input), action: action, state: &state, background: background)
       }
-      let effect = sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, worktree in
+      let effect = sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) {
+        layoutID, worktree in
         .splitPane(
           layoutID, DirectoryContext(worktree: worktree), paneToken: token, direction: direction, input: input,
           id: id, focusing: !background)
       }
       return awaitingCompletion(
-        effect, match: id.map { .surfaceSplit(worktreeID: worktreeID, surfaceID: $0) },
+        effect, match: id.map { .surfaceSplit(layoutID: layoutID, surfaceID: $0) },
         responseFD: responseFD, timeoutSeconds: timeoutSeconds, state: &state)
     case .paneDestroy(let token):
-      guard validatePane(worktreeID: worktreeID, token: token, state: &state) else { return .none }
+      guard validatePane(layoutID: layoutID, worktreeID: worktreeID, token: token, state: &state) else { return .none }
       guard bypassConfirmation else {
         return presentDeeplinkConfirmation(
-          worktreeID: worktreeID,
+          worktreeID: worktreeID, task: task,
           responseFD: responseFD,
           timeoutSeconds: timeoutSeconds,
           message: .confirmation("Close pane \(token.uuidString.prefix(8))… and its tabs?"),
@@ -3464,21 +3500,21 @@ struct AppFeature {
           state: &state,
           background: background)
       }
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, _ in
+      return sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) { layoutID, _ in
         .closePane(layoutID, paneToken: token)
       }
     case .paneZoom(let token):
-      guard validatePane(worktreeID: worktreeID, token: token, state: &state) else { return .none }
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, _ in
+      guard validatePane(layoutID: layoutID, worktreeID: worktreeID, token: token, state: &state) else { return .none }
+      return sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) { layoutID, _ in
         .toggleZoomPane(layoutID, paneToken: token)
       }
     case .paneWindow(let token):
-      guard validatePane(worktreeID: worktreeID, token: token, state: &state) else { return .none }
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, _ in
+      guard validatePane(layoutID: layoutID, worktreeID: worktreeID, token: token, state: &state) else { return .none }
+      return sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) { layoutID, _ in
         .toggleWindowModeForPane(layoutID, paneToken: token)
       }
     case .paneEqualize:
-      return sendTerminalCommand(worktreeID: worktreeID, state: &state) { layoutID, _ in
+      return sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) { layoutID, _ in
         .equalizeSplits(layoutID)
       }
     }
@@ -3651,6 +3687,18 @@ struct AppFeature {
       }
     } message: {
       TextState("No worktree matching the deeplink could be found. It may have been removed.")
+    }
+  }
+
+  private func taskNotFoundAlert() -> AlertState<Alert> {
+    AlertState {
+      TextState("Task not found")
+    } actions: {
+      ButtonState(role: .cancel, action: .dismiss) {
+        TextState("OK")
+      }
+    } message: {
+      TextState("No task matching the deeplink could be found in this worktree. It may have been closed.")
     }
   }
 
@@ -3894,6 +3942,7 @@ struct AppFeature {
 
   private func sendTerminalCommand(
     worktreeID: Worktree.ID,
+    layoutID: LayoutID? = nil,
     state: inout State,
     command: (LayoutID, Worktree) -> TerminalClient.Command
   ) -> Effect<Action> {
@@ -3903,7 +3952,7 @@ struct AppFeature {
       state.alert = worktreeNotFoundAlert()
       return .none
     }
-    let cmd = command(state.layoutID(forDirectory: worktree.id), worktree)
+    let cmd = command(layoutID ?? state.layoutID(forDirectory: worktree.id), worktree)
     let terminalClient = terminalClient
     return .run { _ in await terminalClient.send(cmd) }
   }
@@ -4197,6 +4246,7 @@ struct AppFeature {
 
   private func presentDeeplinkConfirmation(
     worktreeID: Worktree.ID,
+    task: LayoutID? = nil,
     responseFD: Int32? = nil,
     timeoutSeconds: Int = defaultCommandTimeoutSeconds,
     message: DeeplinkConfirmationMessage,
@@ -4229,6 +4279,7 @@ struct AppFeature {
       responseFD: responseFD,
       timeoutSeconds: timeoutSeconds,
       background: background,
+      task: task,
       timeoutToken: token
     )
     // A socket-backed dialog left open would strand its fd, so time it out on the
@@ -4254,11 +4305,12 @@ struct AppFeature {
   /// in the worktree, showing an alert if not. Keeps the CLI ack honest instead
   /// of reporting a silent no-op as success.
   private func validatePane(
+    layoutID: LayoutID,
     worktreeID: Worktree.ID,
     token: UUID,
     state: inout State
   ) -> Bool {
-    guard terminalClient.paneExists(state.layoutID(forDirectory: worktreeID), token) else {
+    guard terminalClient.paneExists(layoutID, token) else {
       deeplinkLogger.warning("Pane token \(token) not found in worktree \(worktreeID)")
       state.alert = AlertState {
         TextState("Pane not found")
@@ -4276,11 +4328,12 @@ struct AppFeature {
 
   /// Validates that a tab exists in the given worktree, showing an alert if not.
   private func validateTab(
+    layoutID: LayoutID,
     worktreeID: Worktree.ID,
     tabID: UUID,
     state: inout State
   ) -> Bool {
-    guard terminalClient.tabExists(state.layoutID(forDirectory: worktreeID), TabID(rawValue: tabID)) else {
+    guard terminalClient.tabExists(layoutID, TabID(rawValue: tabID)) else {
       deeplinkLogger.warning("Tab \(tabID) not found in worktree \(worktreeID)")
       state.alert = AlertState {
         TextState("Tab not found")
@@ -4298,6 +4351,7 @@ struct AppFeature {
 
   /// Validates that a tab and surface exist in the given worktree, showing an alert if not.
   private func validateSurface(
+    layoutID: LayoutID,
     worktreeID: Worktree.ID,
     tabID: UUID,
     surfaceID: UUID,
@@ -4306,12 +4360,11 @@ struct AppFeature {
     // Surface-first: the tab segment is a hint. Migration moves surfaces
     // between tabs and long-running shells hold stale pairs by design, so a
     // resolvable surface is valid wherever it lives now.
-    if terminalClient.surfaceExistsInWorktree(state.layoutID(forDirectory: worktreeID), surfaceID) {
+    if terminalClient.surfaceExistsInWorktree(layoutID, surfaceID) {
       return true
     }
-    guard validateTab(worktreeID: worktreeID, tabID: tabID, state: &state) else { return false }
-    guard terminalClient.surfaceExists(state.layoutID(forDirectory: worktreeID), TabID(rawValue: tabID), surfaceID)
-    else {
+    guard validateTab(layoutID: layoutID, worktreeID: worktreeID, tabID: tabID, state: &state) else { return false }
+    guard terminalClient.surfaceExists(layoutID, TabID(rawValue: tabID), surfaceID) else {
       deeplinkLogger.warning("Surface \(surfaceID) not found in tab \(tabID) of worktree \(worktreeID)")
       state.alert = AlertState {
         TextState("Surface not found")
@@ -4335,10 +4388,7 @@ struct AppFeature {
     _ rawID: Worktree.ID,
     state: State
   ) -> Worktree.ID {
-    guard state.repositories.worktree(for: rawID) == nil else { return rawID }
-    let alternate = WorktreeID(rawID.rawValue + "/")
-    if state.repositories.worktree(for: alternate) != nil { return alternate }
-    return state.repositories.resolvedWorktreeID(for: rawID)
+    state.resolveWorktreeID(rawID)
   }
 
   // MARK: Settings deeplink.
@@ -4405,6 +4455,49 @@ extension AppFeature.State {
   /// The single app-layer seam for "which layout does this worktree mean".
   func layoutID(forDirectory worktreeID: Worktree.ID) -> LayoutID {
     terminals.layoutID(forDirectory: worktreeID)
+  }
+
+  /// The task on a directory that holds this tab or surface. A caller that
+  /// has such an id (an agent's surface, a grid tile, a notification) found
+  /// it across every task of the directory, so the layout to reach it through
+  /// is its owner, not whichever task the directory shows.
+  func layoutID(forDirectory worktreeID: Worktree.ID, holding id: UUID) -> LayoutID {
+    terminals.commandLayoutID(forDirectory: worktreeID, holding: [id]) ?? layoutID(forDirectory: worktreeID)
+  }
+
+  /// See `AppFeature.resolveWorktreeID`: the one place a parsed directory id
+  /// is matched to the roster's spelling of it.
+  func resolveWorktreeID(_ rawID: Worktree.ID) -> Worktree.ID {
+    guard repositories.worktree(for: rawID) == nil else { return rawID }
+    let alternate = WorktreeID(rawID.rawValue + "/")
+    if repositories.worktree(for: alternate) != nil { return alternate }
+    return repositories.resolvedWorktreeID(for: rawID)
+  }
+
+  /// The layout a CLI query means, from the ids as the CLI sent them. Nil
+  /// when the directory id does not parse, or it names a task that is not one
+  /// of that directory's.
+  func commandLayoutID(
+    externalWorktreeID: String, externalTaskID: String?, holding ids: [UUID] = []
+  ) -> LayoutID? {
+    guard let parsed = WorktreeID(external: externalWorktreeID) else { return nil }
+    var task: LayoutID?
+    if let externalTaskID, !externalTaskID.isEmpty {
+      guard let named = LayoutID(external: externalTaskID) else { return nil }
+      task = named
+    }
+    return terminals.commandLayoutID(forDirectory: resolveWorktreeID(parsed), task: task, holding: ids)
+  }
+
+  /// The task selecting a directory shows: the task still selected on it (the
+  /// terminal may not have echoed it into the directory's active task yet),
+  /// else the directory's most recent one. Only while it holds a tab here.
+  func shownTask(forDirectory worktreeID: Worktree.ID) -> LayoutID? {
+    let picked = repositories.selectedTask.flatMap {
+      $0.directoryID == worktreeID && AppFeature.taskHoldsTabs($0.id, onDirectory: worktreeID, state: self)
+        ? $0.id : nil
+    }
+    return picked ?? terminals.task(forDirectory: worktreeID)
   }
 
   /// The layout the detail view mounts for a selected directory, and the one

@@ -47,12 +47,13 @@ private nonisolated enum DeeplinkParser {
     case "worktree":
       // Rewrapped here so the action parsers stay unaware of the dispatch flag.
       guard
-        case .worktree(let id, let action, _)? = parseWorktree(
+        case .worktree(let id, let action, _, let task)? = parseWorktree(
           pathSegments: pathSegments,
           queryItems: queryItems,
         )
       else { return nil }
-      return .worktree(id: id, action: action, background: parseBoolFlag("background", from: queryItems))
+      return .worktree(
+        id: id, action: action, background: parseBoolFlag("background", from: queryItems), task: task)
     case "repo":
       return parseRepo(pathSegments: pathSegments, queryItems: queryItems)
     case "agent":
@@ -146,11 +147,10 @@ private nonisolated enum DeeplinkParser {
       logger.warning("Agent deeplink missing worktree id, agent kind, or action")
       return nil
     }
-    guard let rawWorktreeID = pathSegments[0].removingPercentEncoding, !rawWorktreeID.isEmpty else {
+    guard let worktreeID = WorktreeID(external: pathSegments[0]) else {
       logger.warning("Failed to percent-decode worktree ID in agent deeplink")
       return nil
     }
-    let worktreeID = WorktreeID(rawWorktreeID.hasSuffix("/") ? String(rawWorktreeID.dropLast()) : rawWorktreeID)
     guard let action = parseAgentAction(pathSegments[2], queryItems: queryItems) else { return nil }
     return .agent(worktreeID: worktreeID, agent: pathSegments[1], action: action)
   }
@@ -206,7 +206,29 @@ private nonisolated enum DeeplinkParser {
 
   // MARK: - Worktree.
 
+  /// Lifts the optional `task/<task-id>` pair out from behind the worktree id,
+  /// so the action parsers below see the same segments with or without it.
   private static func parseWorktree(
+    pathSegments: [String],
+    queryItems: [URLQueryItem]
+  ) -> Deeplink? {
+    guard pathSegments.count >= 2, pathSegments[1] == "task" else {
+      return parseWorktreeAction(pathSegments: pathSegments, queryItems: queryItems)
+    }
+    // A malformed task fails the parse rather than acting on a task the
+    // caller did not ask for.
+    guard pathSegments.count >= 3, let task = LayoutID(external: pathSegments[2]) else {
+      logger.warning("Worktree deeplink has a task segment with no task id")
+      return nil
+    }
+    guard
+      case .worktree(let id, let action, let background, _)? = parseWorktreeAction(
+        pathSegments: [pathSegments[0]] + pathSegments.dropFirst(3), queryItems: queryItems)
+    else { return nil }
+    return .worktree(id: id, action: action, background: background, task: task)
+  }
+
+  private static func parseWorktreeAction(
     pathSegments: [String],
     queryItems: [URLQueryItem]
   ) -> Deeplink? {
@@ -215,13 +237,12 @@ private nonisolated enum DeeplinkParser {
       logger.warning("Worktree deeplink missing id")
       return nil
     }
-    guard let rawWorktreeID = pathSegments[0].removingPercentEncoding, !rawWorktreeID.isEmpty else {
+    // Trailing slashes are normalized so that IDs with and without one
+    // resolve to the same worktree.
+    guard let worktreeID = WorktreeID(external: pathSegments[0]) else {
       logger.warning("Failed to percent-decode worktree ID")
       return nil
     }
-    // Normalize trailing slashes so that IDs with and without a trailing
-    // slash resolve to the same worktree.
-    let worktreeID = WorktreeID(rawWorktreeID.hasSuffix("/") ? String(rawWorktreeID.dropLast()) : rawWorktreeID)
     guard pathSegments.count >= 2 else {
       return .worktree(id: worktreeID, action: .select)
     }

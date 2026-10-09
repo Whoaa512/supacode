@@ -4,7 +4,11 @@ import Foundation
 enum Deeplink: Equatable, Sendable {
   case open
   case help
-  case worktree(id: Worktree.ID, action: WorktreeAction, background: Bool = false)
+  /// `worktree/<worktree-id>[/task/<task-id>][/<action>...]`. The task segment
+  /// picks one of the directory's tasks for an action that carries no tab,
+  /// pane or surface id; without it such an action goes to the task the
+  /// directory shows.
+  case worktree(id: Worktree.ID, action: WorktreeAction, background: Bool = false, task: LayoutID? = nil)
   case repoOpen(path: URL)
   case repoWorktreeNew(
     repositoryID: Repository.ID,
@@ -84,6 +88,26 @@ enum Deeplink: Equatable, Sendable {
     case surface(tabID: UUID, surfaceID: UUID, input: String?)
     case surfaceSplit(tabID: UUID, surfaceID: UUID, direction: SplitDirection, input: String?, id: UUID?)
     case surfaceDestroy(tabID: UUID, surfaceID: UUID)
+
+    /// The pane, tab and surface ids the action addresses, most specific
+    /// first. Ids it only proposes for something new are not listed.
+    var addressedIDs: [UUID] {
+      switch self {
+      case .tab(let tabID), .tabRename(let tabID, _), .tabDestroy(let tabID), .tabMove(let tabID, _):
+        [tabID]
+      case .tabNew(_, _, _, let pane):
+        pane.map { [$0] } ?? []
+      case .paneFocus(let token), .paneSplit(let token, _, _, _), .paneDestroy(let token), .paneZoom(let token),
+        .paneWindow(let token):
+        [token]
+      case .surface(let tabID, let surfaceID, _), .surfaceSplit(let tabID, let surfaceID, _, _, _),
+        .surfaceDestroy(let tabID, let surfaceID):
+        [surfaceID, tabID]
+      case .select, .run, .stop, .runScript, .stopScript, .archive, .unarchive, .delete, .pin, .unpin,
+        .appearance, .paneFocusDirection, .paneEqualize:
+        []
+      }
+    }
 
     /// Whether dispatching this action should also select / focus the worktree.
     /// Metadata-only updates (appearance, tab rename) skip it so they don't steal focus.

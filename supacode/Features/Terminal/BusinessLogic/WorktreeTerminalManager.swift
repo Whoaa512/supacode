@@ -293,11 +293,11 @@ final class WorktreeTerminalManager {
 
   // MARK: - CLI queries.
 
-  func listTabs(worktreeID: String) -> [[String: String]]? {
-    let decoded = worktreeID.removingPercentEncoding ?? worktreeID
-    guard let layoutID = layoutID(forDirectory: WorktreeID(decoded)),
-      let layoutState = layoutState(for: layoutID)
-    else { return nil }
+  // Each takes the layout the app layer resolved the command to: which task a
+  // directory, task or tab id means is decided there, in one place.
+
+  func listTabs(layoutID: LayoutID) -> [[String: String]]? {
+    guard let layoutState = layoutState(for: layoutID) else { return nil }
     let layout = layoutState.layout
     let focusedTabID = layout.focusedPaneID.flatMap { layout.panes[id: $0]?.selectedTabID }
     return layout.panes.flatMap { pane in
@@ -309,11 +309,8 @@ final class WorktreeTerminalManager {
     }
   }
 
-  func listSurfaces(worktreeID: String, tabID: String) -> [[String: String]]? {
-    let decoded = worktreeID.removingPercentEncoding ?? worktreeID
-    guard let layoutID = layoutID(forDirectory: WorktreeID(decoded)),
-      let layoutState = layoutState(for: layoutID),
-      let tabUUID = UUID(uuidString: tabID),
+  func listSurfaces(layoutID: LayoutID, tabID tabUUID: UUID) -> [[String: String]]? {
+    guard let layoutState = layoutState(for: layoutID),
       let tab = layoutState.layout.pane(containingTab: TabID(rawValue: tabUUID))?
         .tabs[id: TabID(rawValue: tabUUID)]
     else { return nil }
@@ -1637,11 +1634,8 @@ final class WorktreeTerminalManager {
   }
 
   /// Pane UUIDs in the worktree, flagging the focused one.
-  func listPanes(worktreeID: String) -> [[String: String]]? {
-    let decoded = worktreeID.removingPercentEncoding ?? worktreeID
-    guard let layoutID = layoutID(forDirectory: WorktreeID(decoded)),
-      let layoutState = layoutState(for: layoutID)
-    else { return nil }
+  func listPanes(layoutID: LayoutID) -> [[String: String]]? {
+    guard let layoutState = layoutState(for: layoutID) else { return nil }
     let layout = layoutState.layout
     return layout.panes.map { pane in
       var entry = ["id": pane.id.rawValue.uuidString]

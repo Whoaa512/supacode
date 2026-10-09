@@ -407,6 +407,30 @@ extension TerminalsFeature.State {
     return layoutIDs(onDirectory: directoryID).first(where: holdsTabs)
   }
 
+  /// The layout a directory-addressed command means. A pane, tab or surface id
+  /// the command carries decides first: ids are unique across tasks, so the
+  /// task that holds one is the target whichever task the directory shows.
+  /// Then the task the command names, which has to sit on this directory.
+  /// Then the directory's own answer. Nil only for a named task that is not
+  /// one of this directory's.
+  func commandLayoutID(
+    forDirectory directoryID: Worktree.ID, task: LayoutID? = nil, holding ids: [UUID] = []
+  ) -> LayoutID? {
+    let resolved = layoutID(forDirectory: directoryID)
+    if !ids.isEmpty {
+      // The resolved layout first: it is the usual owner, and the only
+      // candidate nothing names yet.
+      let candidates = [resolved] + layoutIDs(onDirectory: directoryID).filter { $0 != resolved }
+      for id in ids {
+        if let owner = candidates.first(where: { layouts[id: $0]?.layout.pane(forToken: id) != nil }) {
+          return owner
+        }
+      }
+    }
+    guard let task else { return resolved }
+    return directories[task]?.worktreeID == directoryID ? task : nil
+  }
+
   /// Whether a layout holds a tab and sits on this directory.
   func isTask(_ layoutID: LayoutID, onDirectory directoryID: Worktree.ID) -> Bool {
     guard holdsTabs(layoutID) else { return false }

@@ -38,7 +38,8 @@ extension AppFeature {
     guard let key = resolved.key else { return resolved.error }
     let submitSequence = submit ? (AgentKeySequence.sequence(for: "enter") ?? "\r") : ""
     guard
-      terminalClient.sendTextToSurface(state.layoutID(forDirectory: worktreeID), key.surfaceID, text + submitSequence)
+      terminalClient.sendTextToSurface(
+        state.layoutID(forDirectory: worktreeID, holding: key.surfaceID), key.surfaceID, text + submitSequence)
     else {
       return "Agent surface is not live in \(worktreeID.rawValue)."
     }
@@ -61,7 +62,10 @@ extension AppFeature {
     let resolved = agentPresenceKey(worktreeID: worktreeID, agent: agent, state: state)
     guard let key = resolved.key else { return resolved.error }
     for sequence in mapped.sequences {
-      guard terminalClient.sendTextToSurface(state.layoutID(forDirectory: worktreeID), key.surfaceID, sequence) else {
+      guard
+        terminalClient.sendTextToSurface(
+          state.layoutID(forDirectory: worktreeID, holding: key.surfaceID), key.surfaceID, sequence)
+      else {
         return "Agent surface is not live in \(worktreeID.rawValue)."
       }
     }
@@ -107,7 +111,8 @@ extension AppFeature {
     let submit = AgentKeySequence.sequence(for: "enter") ?? "\r"
     guard
       terminalClient.sendTextToSurface(
-        state.layoutID(forDirectory: worktreeID), candidate.key.surfaceID, command + submit)
+        state.layoutID(forDirectory: worktreeID, holding: candidate.key.surfaceID), candidate.key.surfaceID,
+        command + submit)
     else {
       return (.none, "Agent surface is not live in \(worktreeID.rawValue).")
     }
