@@ -3495,7 +3495,64 @@ struct AppFeatureSessionsTests {
     #expect(launch.layoutID != onDisk.id.layoutID)
     #expect(launch.directory == onDisk.id)
     #expect(launch.input == "pi --session history")
+    #expect(
+      store.state.pendingTaskSelection
+        == PendingTaskSelection(layoutID: launch.layoutID, directoryID: onDisk.id, primary: key))
+
+    // The task comes into being with its first tab, and lists the session then.
+    await store.send(
+      .terminals(
+        .attachLayout(
+          worktreeID: launch.layoutID, directory: TaskRecord.Directory(worktreeID: onDisk.id), titlePrefix: "disk")))
+    #expect(store.state.terminals.members.isEmpty)
+    let filled = agentTask(launch.layoutID, surface: thirdSurface).layout
+    await store.send(.terminals(.replaceRestoredLayout(worktreeID: launch.layoutID, layout: filled)))
+    await store.receive(\.terminals.membersChanged)
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
     #expect(store.state.terminals.members == [launch.layoutID: [.session(key)]])
+    #expect(store.state.pendingTaskSelection == nil)
+  }
+
+  @Test(.dependencies) func aResumedSessionLeadsTheMintedTaskEvenWhenItsAgentReportedAnotherFirst() async {
+    var initial = state()
+    let minted = LayoutID(task: UUID(7))
+    let key = piKey("history")
+    initial.pendingTaskSelection = PendingTaskSelection(layoutID: minted, directoryID: worktree.id, primary: key)
+    initial.terminals.layouts.append(agentTask(minted, surface: thirdSurface))
+    initial.terminals.directories[minted] = TaskRecord.Directory(worktreeID: worktree.id)
+    initial.agentPresence.records[.init(agent: .pi, surfaceID: thirdSurface)] = record(ref: "forked")
+
+    let (state, written) = await observingMembers(initial)
+
+    #expect(state.terminals.members[minted] == [.session(key), .session(piKey("forked"))])
+    #expect(written == [minted])
+  }
+
+  @Test(.dependencies) func aResumeWhoseTabIsNeverCreatedLeavesNoTaskAndNoMember() async throws {
+    let directory = try temporaryDirectory(named: "mint-resume-empty")
+    var (initial, _) = stateOnDisk(directory)
+    let key = piKey("history")
+    initial.repositories.sessionItems = [dormantRow(key, cwd: directory)]
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.repositories(.activateSession(.session(key))))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+    #expect(launches(recorded).count == 1)
+    #expect(store.state.terminals.layouts.isEmpty)
+    #expect(store.state.terminals.members.isEmpty, "no member for a task that does not exist")
+    #expect(store.state.repositories.selectedTask == nil)
+
+    // The next launch takes over; the failed one's session is listed nowhere.
+    await store.send(.newSession)
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+    #expect(store.state.pendingTaskSelection?.primary == nil)
+    #expect(store.state.terminals.members.isEmpty)
   }
 
   @Test(.dependencies) func resumingASessionReusesTheTaskThatListsIt() async throws {

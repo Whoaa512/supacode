@@ -18,6 +18,9 @@ struct PendingSessionLaunch: Equatable {
 struct PendingTaskSelection: Equatable {
   let layoutID: LayoutID
   let directoryID: Worktree.ID
+  /// The session a resume minted the task for: its primary, listed once the
+  /// task exists. A launch whose tab never appears lists nothing.
+  var primary: SessionKey?
 }
 
 struct PendingBranchMismatchResume: Equatable {
@@ -177,12 +180,12 @@ extension AppFeature {
         if let selected = state.repositories.selectedTask, !Self.hasTask(selected.id, state: state) {
           effects.append(.send(.repositories(.selectedTaskRemoved)))
         }
-        if let membership = Self.membershipEffect(state: state, index: index) {
+        var members = state.terminals.members
+        let selection = Self.showLaunchedTaskIfReady(state: &state, members: &members)
+        if let membership = Self.membershipEffect(state: state, index: index, members: members) {
           effects.append(membership)
         }
-        if let selection = Self.showLaunchedTaskIfReady(state: &state) {
-          effects.append(selection)
-        }
+        if let selection { effects.append(selection) }
         if let pending = state.pendingSessionLaunch,
           !pending.launched, !pending.probing, state.pendingBranchMismatchResume == nil,
           case .repositories(.delegate(.repositoriesChanged)) = action,
@@ -607,15 +610,13 @@ extension AppFeature {
   ) -> Effect<Action> {
     @Dependency(TerminalClient.self) var terminalClient
     @Dependency(\.uuid) var uuid
-    let layoutID: LayoutID
-    if !pending.isNewSession, let owner = task(listing: pending.key, onDirectory: worktree.id, state: state) {
-      layoutID = owner
-    } else {
-      layoutID = LayoutID(task: uuid())
-      // The resumed session is the new task's primary before its agent reports.
-      if !pending.isNewSession { state.terminals.members[layoutID] = [.session(pending.key)] }
-    }
-    state.pendingTaskSelection = PendingTaskSelection(layoutID: layoutID, directoryID: worktree.id)
+    let owner = pending.isNewSession ? nil : task(listing: pending.key, onDirectory: worktree.id, state: state)
+    let layoutID = owner ?? LayoutID(task: uuid())
+    // The resumed session is the minted task's primary before its agent
+    // reports. It is listed when the task's first tab exists, not here, so a
+    // launch that never gets a tab leaves no member for a task that is not there.
+    let primary = owner == nil && !pending.isNewSession ? pending.key : nil
+    state.pendingTaskSelection = PendingTaskSelection(layoutID: layoutID, directoryID: worktree.id, primary: primary)
     let command = pending.command
     let requestID = pending.requestID
     return .run { send in
@@ -657,19 +658,25 @@ extension AppFeature {
     }
   }
 
-  static func membershipEffect(state: State, index: [UUID: SurfaceEntry]) -> Effect<Action>? {
+  static func membershipEffect(
+    state: State, index: [UUID: SurfaceEntry], members: [LayoutID: [TaskMember]]? = nil
+  ) -> Effect<Action>? {
     let members = TaskMembership.reconciled(
-      state.terminals.members, agents: taskAgents(state: state, index: index))
+      members ?? state.terminals.members, agents: taskAgents(state: state, index: index))
     guard members != state.terminals.members else { return nil }
     return .send(.terminals(.membersChanged(members)))
   }
 
-  /// Shows the task a launch targeted as soon as it holds a tab.
-  static func showLaunchedTaskIfReady(state: inout State) -> Effect<Action>? {
+  /// Shows the task a launch targeted as soon as it holds a tab, and lists
+  /// the session it was minted for ahead of whatever its agent reports.
+  static func showLaunchedTaskIfReady(state: inout State, members: inout [LayoutID: [TaskMember]]) -> Effect<Action>? {
     guard let pending = state.pendingTaskSelection,
       state.terminals.layouts[id: pending.layoutID]?.layout.panes.contains(where: { !$0.tabs.isEmpty }) == true
     else { return nil }
     state.pendingTaskSelection = nil
+    if let primary = pending.primary.map(TaskMember.session) {
+      members[pending.layoutID] = [primary] + (members[pending.layoutID] ?? []).filter { $0 != primary }
+    }
     return .send(.repositories(.selectTask(pending.layoutID, directory: pending.directoryID)))
   }
 
