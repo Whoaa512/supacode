@@ -31,3 +31,17 @@ extension Worktree {
     )
   }
 }
+
+// Tests address a layout by the legacy key of its directory, the same id the
+// app's resolver seam hands out.
+extension WorktreeID {
+  var layoutID: LayoutID { LayoutID(legacyWorktreeKey: rawValue) }
+}
+
+extension Worktree {
+  var layoutID: LayoutID { id.layoutID }
+}
+
+extension LayoutID: @retroactive ExpressibleByStringLiteral {
+  public init(stringLiteral value: String) { self.init(legacyWorktreeKey: value) }
+}

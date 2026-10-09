@@ -2136,7 +2136,8 @@ struct AppFeature {
         var effects: [Effect<Action>] = []
         let isMuted = isViewed && state.settings.muteNotificationsForActiveSurface
         if state.settings.systemNotificationsEnabled && !isMuted {
-          let deeplinkURL = surfaceDeeplinkURL(worktreeID: worktreeID, surfaceID: surfaceID)
+          let deeplinkURL = surfaceDeeplinkURL(
+            worktreeID: worktreeID, layoutID: state.layoutID(forDirectory: worktreeID), surfaceID: surfaceID)
           effects.append(
             .run { _ in
               await systemNotificationClient.send(title, body, deeplinkURL)
@@ -2165,18 +2166,22 @@ struct AppFeature {
         state.hasAnyTerminalSurface = hasAny
         return .none
 
-      case .terminalEvent(.commandPaletteToggleRequested(let worktreeID)):
+      case .terminalEvent(.commandPaletteToggleRequested(let layoutID)):
         // Ghostty's toggle action targets the command palette specifically, so force
         // `.commands`; otherwise it would inherit the last-used mode. Selecting the
         // originating worktree only makes sense when the palette is opening.
         guard !state.commandPalette.isPresented else {
           return .send(.commandPalette(.togglePresentInMode(.commands)))
         }
+        guard let worktreeID = state.worktree(forLayout: layoutID)?.id else {
+          return .send(.commandPalette(.togglePresentInMode(.commands)))
+        }
         return .merge(
           .send(.repositories(.selectWorktree(worktreeID))),
           .send(.commandPalette(.togglePresentInMode(.commands)))
         )
-      case .terminalEvent(.setupScriptConsumed(let worktreeID)):
+      case .terminalEvent(.setupScriptConsumed(let layoutID)):
+        guard let worktreeID = state.worktree(forLayout: layoutID)?.id else { return .none }
         return .send(.repositories(.worktreeCreationSettled(worktreeID)))
 
       case .terminalEvent(.blockingScriptCompleted(let worktreeID, let kind, let exitCode, let tabId)):
@@ -2255,22 +2260,24 @@ struct AppFeature {
           readyEffect
         )
 
-      case .terminalEvent(.surfaceCreated(let worktreeID, let id)):
+      case .terminalEvent(.surfaceCreated(let layoutID, let id)):
         // Resolve tab-new / surface-split acks once the supplied id lands.
+        let layout = state.layoutID(forDirectory:)
         return resolveCommandAcks(ok: true, state: &state) { match in
           switch match {
           case .tabInWorktree(let ackWorktree, let tabID):
-            return ackWorktree == worktreeID && tabID == id
+            return layout(ackWorktree) == layoutID && tabID == id
           case .surfaceSplit(let ackWorktree, let surfaceID):
-            return ackWorktree == worktreeID && surfaceID == id
+            return layout(ackWorktree) == layoutID && surfaceID == id
           default:
             return false
           }
         }
 
-      case .terminalEvent(.tabCreated(let worktreeID)):
+      case .terminalEvent(.tabCreated(let layoutID)):
         // Resolve worktree-new acks once the new worktree's first tab exists,
         // returning the created worktree id to the CLI.
+        guard let worktreeID = state.worktree(forLayout: layoutID)?.id else { return .none }
         let ackEffect = resolveCommandAcks(
           ok: true, resourceID: Self.percentEncodedID(worktreeID.rawValue), state: &state
         ) { match in
@@ -2282,48 +2289,52 @@ struct AppFeature {
         // (empty script, skip, or hydrated layout never emit `.setupScriptConsumed`).
         return .merge(ackEffect, .send(.repositories(.worktreeCreationSettled(worktreeID))))
 
-      case .terminalEvent(.surfaceCreationFailed(let worktreeID, let attemptedID, let message)):
+      case .terminalEvent(.surfaceCreationFailed(let layoutID, let attemptedID, let message)):
         // An ordinary tab / split failure: resolve only its own ack. It never
         // touches `.pending` or the worktree-new ack, which belong to the
         // initial-tab bootstrap (`.initialTabCreationFailed`).
+        let layout = state.layoutID(forDirectory:)
         return resolveCommandAcks(ok: false, error: message, state: &state) { match in
           switch match {
           case .tabInWorktree(let ackWorktree, let tabID):
-            return ackWorktree == worktreeID && tabID == attemptedID
+            return layout(ackWorktree) == layoutID && tabID == attemptedID
           case .surfaceSplit(let ackWorktree, let surfaceID):
-            return ackWorktree == worktreeID && surfaceID == attemptedID
+            return layout(ackWorktree) == layoutID && surfaceID == attemptedID
           default:
             return false
           }
         }
 
-      case .terminalEvent(.initialTabCreationFailed(let worktreeID, let message)):
+      case .terminalEvent(.initialTabCreationFailed(let layoutID, let message)):
         // The first tab could not be hosted: fail the worktree-new ack and
         // settle the creation-progress state so the worktree shows with no tabs
         // (a valid empty state to retry from).
+        guard let worktreeID = state.worktree(forLayout: layoutID)?.id else { return .none }
         let ackEffect = resolveCommandAcks(ok: false, error: message, state: &state) { match in
           if case .worktreeNew(_, let boundID?) = match { return boundID == worktreeID }
           return false
         }
         return .merge(ackEffect, .send(.repositories(.worktreeCreationSettled(worktreeID))))
 
-      case .terminalEvent(.tabRemoved(let worktreeID, let tabID)):
+      case .terminalEvent(.tabRemoved(let layoutID, let tabID)):
+        let layout = state.layoutID(forDirectory:)
         let ackEffect = resolveCommandAcks(ok: true, state: &state) { match in
           if case .tabRemoved(let ackWorktree, let removed) = match {
-            return ackWorktree == worktreeID && removed == tabID
+            return layout(ackWorktree) == layoutID && removed == tabID
           }
           return false
         }
         return ackEffect
 
-      case .terminalEvent(.tabRenamed(let worktreeID, let tabID, let applied)):
+      case .terminalEvent(.tabRenamed(let layoutID, let tabID, let applied)):
+        let layout = state.layoutID(forDirectory:)
         return resolveCommandAcks(
           ok: applied,
           error: applied ? nil : "The tab could not be renamed. It may have been closed.",
           state: &state
         ) { match in
           guard case .tabRenamed(let ackWorktree, let renamed) = match else { return false }
-          return ackWorktree == worktreeID && renamed == tabID
+          return layout(ackWorktree) == layoutID && renamed == tabID
         }
 
       case .terminalEvent(.worktreeStateTornDown):
@@ -2362,11 +2373,12 @@ struct AppFeature {
         guard !keys.isEmpty else { return .none }
         return .merge(keys.map { .send(.repositories(.settleSession($0))) })
 
-      case .terminalEvent(.surfacesClosed(let worktreeID, let ids)):
+      case .terminalEvent(.surfacesClosed(let layoutID, let ids)):
         guard !ids.isEmpty else { return .none }
+        let layout = state.layoutID(forDirectory:)
         let ackEffect = resolveCommandAcks(ok: true, state: &state) { match in
           if case .surfaceClosed(let ackWorktree, let surfaceID) = match {
-            return ackWorktree == worktreeID && ids.contains(surfaceID)
+            return layout(ackWorktree) == layoutID && ids.contains(surfaceID)
           }
           return false
         }
@@ -2442,7 +2454,7 @@ struct AppFeature {
   }
 
   private func closeTargetSurfaceIDs(
-    worktreeID: Worktree.ID,
+    worktreeID: LayoutID,
     contentID: ContentID,
     scope: LayoutFeature.CloseScope,
     state: State
@@ -4296,11 +4308,11 @@ struct AppFeature {
   /// Builds a `supacode://worktree/<id>/surface/<tabID>/<surfaceID>` URL for a
   /// notification whose surface is known; falls back to the worktree-level
   /// URL when the tab containing the surface can no longer be resolved.
-  private func surfaceDeeplinkURL(worktreeID: Worktree.ID, surfaceID: UUID) -> URL? {
+  private func surfaceDeeplinkURL(worktreeID: Worktree.ID, layoutID: LayoutID, surfaceID: UUID) -> URL? {
     let percentEncodingSet = CharacterSet.urlPathAllowed.subtracting(.init(charactersIn: "/"))
     let encodedWorktreeID =
       worktreeID.rawValue.addingPercentEncoding(withAllowedCharacters: percentEncodingSet) ?? worktreeID.rawValue
-    guard let tabID = terminalClient.tabID(worktreeID, surfaceID) else {
+    guard let tabID = terminalClient.tabID(layoutID, surfaceID) else {
       notificationsLogger.debug(
         "Surface \(surfaceID) is no longer attached to a tab in \(worktreeID); "
           + "degrading tap deeplink to the worktree root."
@@ -4334,7 +4346,18 @@ struct AppFeature {
 extension AppFeature.State {
   /// The single app-layer seam for "which layout does this worktree mean".
   func layoutID(forDirectory worktreeID: Worktree.ID) -> LayoutID {
-    worktreeID
+    LayoutID(legacyWorktreeKey: worktreeID.rawValue)
+  }
+
+  /// The seam read backwards: the roster worktree whose layout this is. Scans
+  /// through `layoutID(forDirectory:)` so there is no second conversion.
+  func worktree(forLayout layoutID: LayoutID) -> Worktree? {
+    for repository in repositories.repositories {
+      for worktree in repository.worktrees where self.layoutID(forDirectory: worktree.id) == layoutID {
+        return worktree
+      }
+    }
+    return nil
   }
 }
 

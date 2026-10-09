@@ -55,13 +55,15 @@ private struct TerminalSessionCardView: View {
         }
         Spacer(minLength: 4)
         Button {
-          store.send(
-            .focusTerminalSurface(
-              worktreeID: session.worktreeID,
-              tabID: session.tabID,
-              surfaceID: session.surfaceID
+          if let worktreeID = session.worktreeID {
+            store.send(
+              .focusTerminalSurface(
+                worktreeID: worktreeID,
+                tabID: session.tabID,
+                surfaceID: session.surfaceID
+              )
             )
-          )
+          }
           dismissWindow(id: WindowID.settings)
         } label: {
           Label("Focus Terminal", systemImage: "arrow.up.forward.square")
@@ -70,9 +72,10 @@ private struct TerminalSessionCardView: View {
         .buttonStyle(.borderless)
         .help("Focus this terminal and close Settings")
         Button(role: .destructive) {
+          guard let worktreeID = session.worktreeID else { return }
           store.send(
             .closeTerminalSurface(
-              worktreeID: session.worktreeID,
+              worktreeID: worktreeID,
               tabID: session.tabID,
               surfaceID: session.surfaceID
             )
@@ -123,7 +126,7 @@ private struct TerminalSessionCardView: View {
   }
 
   private var previewText: String? {
-    guard let contents = terminalClient.sessionPreview(session.worktreeID, session.surfaceID) else {
+    guard let contents = terminalClient.sessionPreview(session.layoutID, session.surfaceID) else {
       return nil
     }
     var lines = contents.split(separator: "\n", omittingEmptySubsequences: false)

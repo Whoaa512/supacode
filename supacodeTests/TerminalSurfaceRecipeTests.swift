@@ -92,7 +92,7 @@ struct TerminalSurfaceRecipeTests {
     origin: ContentOrigin = .tab
   ) -> ContentRequest {
     ContentRequest(
-      worktreeID: makeWorktree().id,
+      worktreeID: makeWorktree().id.layoutID,
       tabID: TabID(),
       contentID: ContentID(),
       content: .terminal(state),

@@ -221,7 +221,7 @@ struct WorktreeTerminalManagerSessionsTests {
       WorktreeTerminalManager(runtime: GhosttyRuntime())
     }
 
-    await manager.killSession(for: ContentID(rawValue: surfaceID), worktreeID: WorktreeID("/tmp/repo"))
+    await manager.killSession(for: ContentID(rawValue: surfaceID), layoutID: "/tmp/repo")
 
     #expect(manager.isHarnessEndSuppressed(surfaceID: surfaceID))
   }

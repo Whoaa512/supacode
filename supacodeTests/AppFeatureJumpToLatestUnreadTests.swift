@@ -54,7 +54,7 @@ struct AppFeatureJumpToLatestUnreadTests {
     await store.finish()
 
     let expectedFocus = TerminalClient.Command.focusSurface(
-      worktree.id, DirectoryContext(worktree: worktree),
+      worktree.id.layoutID, DirectoryContext(worktree: worktree),
       tabID: TabID(rawValue: tabUUID),
       surfaceID: surfaceUUID,
       input: nil

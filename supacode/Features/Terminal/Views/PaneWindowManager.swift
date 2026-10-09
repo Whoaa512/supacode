@@ -291,7 +291,9 @@ final class PaneWindowManager {
       return false
     }
     let isWorktreeSelected =
-      terminalManager.appStore?.withState { $0.repositories.selectedWorktreeID } == worktreeID
+      terminalManager.appStore?.withState { state in
+        state.repositories.selectedWorktreeID.map(state.layoutID(forDirectory:))
+      } == worktreeID
     let intent = PaneWindowShortcut.intent(
       for: event,
       pane: pane,
@@ -327,7 +329,11 @@ final class PaneWindowManager {
   private func beginHeaderTracking(for key: Key) {
     guard let model = controllers[key]?.headerModel, let store = terminalManager?.appStore else { return }
     let title = withObservationTracking {
-      Self.headerInfo(for: key.worktreeID, in: store.repositories)
+      // The pane's host names its directory; a hostless layout falls back to the roster.
+      let directoryID =
+        terminalManager?.hostIfExists(for: key.worktreeID)?.worktreeID
+        ?? store.state.worktree(forLayout: key.worktreeID)?.id
+      return directoryID.map { Self.headerInfo(for: $0, in: store.repositories) } ?? ""
     } onChange: { [weak self] in
       Task { @MainActor [weak self] in
         // Same-model check: a torn-down and reopened window would otherwise

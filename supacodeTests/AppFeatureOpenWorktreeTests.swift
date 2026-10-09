@@ -37,7 +37,7 @@ struct AppFeatureOpenWorktreeTests {
     #expect(
       context.terminalCommands.value == [
         .createTabWithInput(
-          context.worktree.id, DirectoryContext(worktree: context.worktree), input: "$EDITOR",
+          context.worktree.id.layoutID, DirectoryContext(worktree: context.worktree), input: "$EDITOR",
           runSetupScriptIfNew: false)
       ]
     )
@@ -52,7 +52,8 @@ struct AppFeatureOpenWorktreeTests {
     #expect(
       context.terminalCommands.value == [
         .createTabWithInput(
-          context.worktree.id, DirectoryContext(worktree: context.worktree), input: "$EDITOR", runSetupScriptIfNew: true
+          context.worktree.id.layoutID, DirectoryContext(worktree: context.worktree), input: "$EDITOR",
+          runSetupScriptIfNew: true
         )
       ]
     )

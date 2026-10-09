@@ -106,14 +106,14 @@ struct WorktreeTerminalManagerAckTests {
     let id = UUID()
     harness.manager.handleCommand(
       .createTab(
-        harness.worktree.id, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false, id: id,
+        harness.worktree.id.layoutID, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false, id: id,
         focusing: false))
 
     let events = await pump.next(2)
-    #expect(events.contains(.tabCreated(layoutID: harness.worktree.id)))
-    #expect(events.contains(.surfaceCreated(layoutID: harness.worktree.id, id: id)))
+    #expect(events.contains(.tabCreated(layoutID: harness.worktree.id.layoutID)))
+    #expect(events.contains(.surfaceCreated(layoutID: harness.worktree.id.layoutID, id: id)))
     // The documented invariant: the initial surface ID equals the tab ID.
-    let layout = harness.store.withState { $0.terminals.layouts[id: harness.worktree.id]?.layout }
+    let layout = harness.store.withState { $0.terminals.layouts[id: harness.worktree.id.layoutID]?.layout }
     #expect(layout?.pane(containingTab: TabID(rawValue: id))?.tabs[id: TabID(rawValue: id)]?.content.id.rawValue == id)
   }
 
@@ -127,7 +127,8 @@ struct WorktreeTerminalManagerAckTests {
     let pump = CreationEvents(manager)
     let id = UUID()
     manager.handleCommand(
-      .createTab(worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, id: id, focusing: false)
+      .createTab(
+        worktree.id.layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, id: id, focusing: false)
     )
 
     let events = await pump.next(1)
@@ -135,7 +136,7 @@ struct WorktreeTerminalManagerAckTests {
       Issue.record("Expected surfaceCreationFailed, got \(events)")
       return
     }
-    #expect(worktreeID == worktree.id)
+    #expect(worktreeID == worktree.layoutID)
     #expect(attemptedID == id)
   }
 
@@ -150,14 +151,15 @@ struct WorktreeTerminalManagerAckTests {
     }
     let pump = CreationEvents(manager)
     manager.handleCommand(
-      .ensureInitialTab(worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: false))
+      .ensureInitialTab(
+        worktree.id.layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: false))
 
     let events = await pump.next(1)
     guard case .initialTabCreationFailed(let worktreeID, _) = events.first else {
       Issue.record("Expected initialTabCreationFailed, got \(events)")
       return
     }
-    #expect(worktreeID == worktree.id)
+    #expect(worktreeID == worktree.layoutID)
   }
 
   @Test(.dependencies) func collidingContentIDCreateFailsInsteadOfFalselyAcking() async {
@@ -166,7 +168,8 @@ struct WorktreeTerminalManagerAckTests {
     let first = UUID()
     harness.manager.handleCommand(
       .createTab(
-        harness.worktree.id, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false, id: first,
+        harness.worktree.id.layoutID, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false,
+        id: first,
         focusing: false))
     _ = await pump.next(2)
 
@@ -174,7 +177,8 @@ struct WorktreeTerminalManagerAckTests {
     // match the old content and ack a creation that never happened.
     harness.manager.handleCommand(
       .createTab(
-        harness.worktree.id, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false, id: first,
+        harness.worktree.id.layoutID, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false,
+        id: first,
         focusing: false))
     let events = await pump.next(1)
     guard case .surfaceCreationFailed = events.first else {
@@ -188,7 +192,8 @@ struct WorktreeTerminalManagerAckTests {
     let pump = CreationEvents(harness.manager)
     harness.manager.handleCommand(
       .createTab(
-        harness.worktree.id, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false, id: UUID(),
+        harness.worktree.id.layoutID, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false,
+        id: UUID(),
         focusing: false))
     _ = await pump.next(2)
 
@@ -196,9 +201,10 @@ struct WorktreeTerminalManagerAckTests {
     // worktree-new ack instead of stranding it until the watchdog.
     harness.manager.handleCommand(
       .ensureInitialTab(
-        harness.worktree.id, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false, focusing: false))
+        harness.worktree.id.layoutID, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false,
+        focusing: false))
     let events = await pump.next(1)
-    #expect(events.first == .tabCreated(layoutID: harness.worktree.id))
+    #expect(events.first == .tabCreated(layoutID: harness.worktree.id.layoutID))
   }
 
   private func singleTabLayout(contentID: UUID) -> PaneLayout {
@@ -248,14 +254,14 @@ struct WorktreeTerminalManagerAckTests {
         .layoutsHydrated(LayoutsFile(worktrees: [harness.worktree.id.rawValue: record]))
       )
     )
-    #expect(harness.store.withState { $0.terminals.layouts[id: harness.worktree.id] } != nil)
+    #expect(harness.store.withState { $0.terminals.layouts[id: harness.worktree.id.layoutID] } != nil)
 
     harness.manager.handleCommand(
       .removeLayouts(forDirectory: harness.worktree.id, remoteHost: nil))
 
     // The in-memory layout detaches AND the persisted record goes with it;
     // this hostless-hydrated case is exactly the one roster prune cannot reach.
-    #expect(harness.store.withState { $0.terminals.layouts[id: harness.worktree.id] } == nil)
+    #expect(harness.store.withState { $0.terminals.layouts[id: harness.worktree.id.layoutID] } == nil)
     var writes = fileWrites.makeAsyncIterator()
     let written = await writes.next()
     #expect(written?.worktrees.isEmpty == true)
@@ -274,13 +280,13 @@ struct WorktreeTerminalManagerAckTests {
       .removeLayouts(forDirectory: harness.worktree.id, remoteHost: nil))
 
     // The prune must retract the surface so AppFeature clears its agent presence.
-    var closed: (worktreeID: Worktree.ID, ids: Set<UUID>)?
+    var closed: (worktreeID: LayoutID, ids: Set<UUID>)?
     while closed == nil, let event = await iterator.next() {
       if case .surfacesClosed(let worktreeID, let ids) = event {
         closed = (worktreeID, ids)
       }
     }
-    #expect(closed?.worktreeID == harness.worktree.id)
+    #expect(closed?.worktreeID == harness.worktree.layoutID)
     #expect(closed?.ids == [contentID])
   }
 
@@ -330,7 +336,7 @@ struct WorktreeTerminalManagerAckTests {
     let harness = makeHarness()
     let pump = CreationEvents(harness.manager)
     let directory = makeWorktree(id: "/tmp/repo/wt-directory")
-    let layoutID = LayoutID("/tmp/repo/wt-layout-key")
+    let layoutID = LayoutID(legacyWorktreeKey: "/tmp/repo/wt-layout-key")
     _ = await openLayout(layoutID, on: directory, in: harness, pump: pump)
 
     harness.manager.handleCommand(.prune(keepingDirectories: [directory.id], protectingRepositoryIDs: []))
@@ -339,7 +345,7 @@ struct WorktreeTerminalManagerAckTests {
     #expect(harness.store.withState { $0.terminals.layouts[id: layoutID] } != nil)
 
     // Keeping the key alone protects nothing: the directory is gone.
-    harness.manager.handleCommand(.prune(keepingDirectories: [layoutID], protectingRepositoryIDs: []))
+    harness.manager.handleCommand(.prune(keepingDirectories: ["/tmp/repo/wt-layout-key"], protectingRepositoryIDs: []))
 
     #expect(harness.manager.hostIfExists(for: layoutID) == nil)
     #expect(harness.store.withState { $0.terminals.layouts[id: layoutID] } == nil)
@@ -350,19 +356,19 @@ struct WorktreeTerminalManagerAckTests {
     let pump = CreationEvents(harness.manager)
     let directory = makeWorktree(id: "/tmp/repo/wt-directory")
     let other = makeWorktree(id: "/tmp/repo/wt-other")
-    let first = LayoutID("/tmp/repo/wt-layout-first")
-    let second = LayoutID("/tmp/repo/wt-layout-second")
+    let first = LayoutID(legacyWorktreeKey: "/tmp/repo/wt-layout-first")
+    let second = LayoutID(legacyWorktreeKey: "/tmp/repo/wt-layout-second")
     let firstSurface = await openLayout(first, on: directory, in: harness, pump: pump)
     let secondSurface = await openLayout(second, on: directory, in: harness, pump: pump)
-    _ = await openLayout(other.id, on: other, in: harness, pump: pump)
+    _ = await openLayout(other.id.layoutID, on: other, in: harness, pump: pump)
     var iterator = harness.manager.eventStream().makeAsyncIterator()
 
     harness.manager.handleCommand(.removeLayouts(forDirectory: directory.id, remoteHost: nil))
 
     #expect(harness.manager.hostIfExists(for: first) == nil)
     #expect(harness.manager.hostIfExists(for: second) == nil)
-    #expect(harness.manager.hostIfExists(for: other.id) != nil)
-    #expect(harness.store.withState { Array($0.terminals.layouts.ids) } == [other.id])
+    #expect(harness.manager.hostIfExists(for: other.id.layoutID) != nil)
+    #expect(harness.store.withState { Array($0.terminals.layouts.ids) } == [other.layoutID])
 
     // Each layout reports its own closed surfaces and its own teardown.
     var closed: [LayoutID: Set<UUID>] = [:]
@@ -370,7 +376,9 @@ struct WorktreeTerminalManagerAckTests {
     while tornDown.count < 2, let event = await iterator.next() {
       switch event {
       case .surfacesClosed(let layoutID, let ids): closed[layoutID] = ids
-      case .worktreeStateTornDown(let layoutID): tornDown.insert(layoutID)
+      case .worktreeStateTornDown(let worktreeID, let layoutID):
+        #expect(worktreeID == directory.id)
+        tornDown.insert(layoutID)
       default: continue
       }
     }
@@ -384,18 +392,20 @@ struct WorktreeTerminalManagerAckTests {
     let anchor = UUID()
     harness.manager.handleCommand(
       .createTab(
-        harness.worktree.id, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false, id: anchor,
+        harness.worktree.id.layoutID, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false,
+        id: anchor,
         focusing: false))
     _ = await pump.next(2)
 
     let added = UUID()
     harness.manager.handleCommand(
       .createTab(
-        harness.worktree.id, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false, id: added,
+        harness.worktree.id.layoutID, DirectoryContext(worktree: harness.worktree), runSetupScriptIfNew: false,
+        id: added,
         focusing: false, anchor: anchor))
     _ = await pump.next(2)
 
-    let layout = harness.store.withState { $0.terminals.layouts[id: harness.worktree.id]?.layout }
+    let layout = harness.store.withState { $0.terminals.layouts[id: harness.worktree.id.layoutID]?.layout }
     let anchorPane = layout?.tab(containingContent: ContentID(rawValue: anchor))?.pane
     #expect(anchorPane?.tabs[id: TabID(rawValue: added)] != nil)
   }

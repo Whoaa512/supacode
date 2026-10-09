@@ -38,7 +38,7 @@ struct TerminalClient {
   /// accessibility tree uses). `nil` when the surface is gone or dormant.
   var surfaceScreenText: @MainActor @Sendable (LayoutID, UUID) -> String?
   var latestUnreadNotification: @MainActor @Sendable () -> NotificationLocation?
-  var markNotificationRead: @MainActor @Sendable (LayoutID, UUID) -> Void
+  var markNotificationRead: @MainActor @Sendable (Worktree.ID, UUID) -> Void
   /// Marks every notification in every worktree read (menu bar "Mark All as Read").
   var markAllNotificationsRead: @MainActor @Sendable () -> Void
   /// Blocking scripts (setup / archive / delete / run) bypass zmx and die
@@ -166,7 +166,7 @@ struct TerminalClient {
     /// title was locked, so the CLI ack reports the failure instead of ok.
     case tabRenamed(layoutID: LayoutID, tabID: TabID, applied: Bool)
     /// The worktree's terminal state was torn down (prune path).
-    case worktreeStateTornDown(worktreeID: Worktree.ID)
+    case worktreeStateTornDown(worktreeID: Worktree.ID, layoutID: LayoutID)
     case userClosedSurfaces(layoutID: LayoutID, Set<UUID>)
     /// Forwarded from the terminal manager when surfaces close (single or bulk).
     /// `AppFeature` translates this into `agentPresence(.surfaceClosed/surfacesClosed)`.

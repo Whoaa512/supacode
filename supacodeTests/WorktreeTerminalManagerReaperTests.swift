@@ -86,7 +86,7 @@ struct WorktreeTerminalManagerReaperTests {
     }
 
     let worktree = makeWorktree()
-    let host = manager.host(for: worktree.id, context: DirectoryContext(worktree: worktree))
+    let host = manager.host(for: worktree.id.layoutID, context: DirectoryContext(worktree: worktree))
     let trackedSurfaceID = UUID()
     let paneID = PaneID()
     let tabID = TabID(rawValue: trackedSurfaceID)

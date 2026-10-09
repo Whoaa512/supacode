@@ -72,7 +72,7 @@ struct AppFeatureRunScriptTests {
       Issue.record("Expected runBlockingScript command")
       return
     }
-    #expect(sentWorktree == worktree.id)
+    #expect(sentWorktree == worktree.layoutID)
     #expect(sentContext == DirectoryContext(worktree: worktree))
     #expect(script == "npm run dev")
     guard case .script(let sentDefinition) = kind else {
@@ -286,7 +286,7 @@ struct AppFeatureRunScriptTests {
       Issue.record("Expected stopRunScript command")
       return
     }
-    #expect(sentWorktree == worktree.id)
+    #expect(sentWorktree == worktree.layoutID)
     #expect(sentContext == DirectoryContext(worktree: worktree))
   }
 
@@ -316,7 +316,7 @@ struct AppFeatureRunScriptTests {
       Issue.record("Expected stopScript command")
       return
     }
-    #expect(sentWorktree == worktree.id)
+    #expect(sentWorktree == worktree.layoutID)
     #expect(sentContext == DirectoryContext(worktree: worktree))
     #expect(definitionID == definition.id)
   }

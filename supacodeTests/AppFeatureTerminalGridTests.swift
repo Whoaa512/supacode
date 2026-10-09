@@ -80,6 +80,23 @@ struct AppFeatureTerminalGridTests {
     #expect(closed.value == tabID)
   }
 
+  @Test(.dependencies) func layoutSeamReadsBackToTheRosterWorktree() {
+    let worktree = makeWorktree()
+    let state = makeStore(worktree: worktree) { _ in }.state
+
+    #expect(state.worktree(forLayout: state.layoutID(forDirectory: worktree.id))?.id == worktree.id)
+    // A layout whose directory is not in the roster has no worktree to name.
+    #expect(state.worktree(forLayout: state.layoutID(forDirectory: "/tmp/repo/unknown")) == nil)
+  }
+
+  @Test(.dependencies) func initialTabOfALayoutOutsideTheRosterSettlesNothing() async {
+    let worktree = makeWorktree()
+    let store = makeStore(worktree: worktree) { _ in }
+    store.exhaustivity = .on
+
+    await store.send(.terminalEvent(.tabCreated(layoutID: "/tmp/repo/unknown")))
+  }
+
   private func makeStore(
     worktree: Worktree,
     configure: (inout DependencyValues) -> Void
@@ -112,6 +129,7 @@ struct AppFeatureTerminalGridTests {
 
   private func makeSession(worktree: Worktree) -> TerminalSession {
     TerminalSession(
+      layoutID: worktree.layoutID,
       worktreeID: worktree.id,
       worktreeName: worktree.name,
       directoryName: worktree.workingDirectory.lastPathComponent,

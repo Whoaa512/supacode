@@ -29,7 +29,7 @@ struct AppFeatureTerminalSessionBrowserTests {
       .focusTerminalSurface(worktreeID: worktree.id, tabID: tabID, surfaceID: surfaceID))
     await store.finish()
 
-    #expect(calls.value == [.focus(worktree.id, DirectoryContext(worktree: worktree), tabID, surfaceID)])
+    #expect(calls.value == [.focus(worktree.id.layoutID, DirectoryContext(worktree: worktree), tabID, surfaceID)])
   }
 
   @Test(.dependencies) func closeUsesTerminalClientClosePath() async {
@@ -47,7 +47,7 @@ struct AppFeatureTerminalSessionBrowserTests {
       .closeTerminalSurface(worktreeID: worktree.id, tabID: tabID, surfaceID: surfaceID))
     await store.finish()
 
-    #expect(calls.value == [.close(worktree.id, DirectoryContext(worktree: worktree), tabID, surfaceID)])
+    #expect(calls.value == [.close(worktree.id.layoutID, DirectoryContext(worktree: worktree), tabID, surfaceID)])
   }
 
   @Test(.dependencies) func missingWorktreeDropsFocusAndClose() async {
@@ -134,7 +134,7 @@ struct AppFeatureTerminalSessionBrowserTests {
     )
     let pane = Pane(id: PaneID(), tabs: [tab], selectedTabID: tab.id)
     return LayoutFeature.State(
-      id: worktree.id,
+      id: worktree.id.layoutID,
       layout: PaneLayout(
         tree: SplitTree(view: pane.id),
         panes: [pane],

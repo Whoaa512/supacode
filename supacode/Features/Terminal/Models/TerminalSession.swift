@@ -8,7 +8,9 @@ struct TerminalSession: Equatable, Identifiable, Sendable {
     case snapshot
   }
 
-  let worktreeID: Worktree.ID
+  let layoutID: LayoutID
+  /// Nil when the layout's directory is not in the roster (hydrated, repository not loaded).
+  let worktreeID: Worktree.ID?
   let worktreeName: String
   let directoryName: String
   let tabID: TabID

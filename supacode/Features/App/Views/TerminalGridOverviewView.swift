@@ -136,7 +136,8 @@ struct TerminalGridOverviewView: View {
     case .delete:
       let tile = tiles[currentIndex]
       if press.modifiers.contains(.shift) {
-        store.send(.closeTerminalTab(worktreeID: tile.worktreeID, tabID: tile.tabID))
+        guard let worktreeID = tile.worktreeID else { return .handled }
+        store.send(.closeTerminalTab(worktreeID: worktreeID, tabID: tile.tabID))
       } else {
         closeSurface(tile)
       }
@@ -152,9 +153,14 @@ struct TerminalGridOverviewView: View {
   }
 
   private func jump(to tile: TerminalGridOverview.Tile) {
+    // A tile whose directory is not in the roster has nothing to focus; the grid still closes.
+    guard let worktreeID = tile.worktreeID else {
+      store.send(.setTerminalGridPresented(false))
+      return
+    }
     store.send(
       .terminalGridJumpToSurface(
-        worktreeID: tile.worktreeID,
+        worktreeID: worktreeID,
         tabID: tile.tabID,
         surfaceID: tile.surfaceID
       )
@@ -162,9 +168,10 @@ struct TerminalGridOverviewView: View {
   }
 
   private func closeSurface(_ tile: TerminalGridOverview.Tile) {
+    guard let worktreeID = tile.worktreeID else { return }
     store.send(
       .closeTerminalSurface(
-        worktreeID: tile.worktreeID,
+        worktreeID: worktreeID,
         tabID: tile.tabID,
         surfaceID: tile.surfaceID
       )
@@ -173,7 +180,7 @@ struct TerminalGridOverviewView: View {
 
   private func previewText(for tile: TerminalGridOverview.Tile) -> AttributedString? {
     if tile.availability == .live {
-      guard let contents = terminalClient.sessionPreview(tile.worktreeID, tile.surfaceID) else { return nil }
+      guard let contents = terminalClient.sessionPreview(tile.layoutID, tile.surfaceID) else { return nil }
       var lines = contents.split(separator: "\n", omittingEmptySubsequences: false)
       while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty {
         lines.removeLast()

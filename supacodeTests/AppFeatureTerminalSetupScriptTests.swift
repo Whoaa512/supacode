@@ -32,7 +32,7 @@ struct AppFeatureTerminalSetupScriptTests {
     }
 
     await store.send(.newTerminal)
-    await store.send(.terminalEvent(.setupScriptConsumed(layoutID: worktree.id)))
+    await store.send(.terminalEvent(.setupScriptConsumed(layoutID: worktree.id.layoutID)))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.receive(\.repositories.sidebarItems) {
       $0.repositories.sidebarItems[id: worktree.id]?.lifecycle = .idle
@@ -42,7 +42,9 @@ struct AppFeatureTerminalSetupScriptTests {
     }
     await store.finish()
     #expect(
-      sent.value == [.createTab(worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, id: nil)])
+      sent.value == [
+        .createTab(worktree.id.layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, id: nil)
+      ])
   }
 
   @Test(.dependencies) func newTerminalWithoutSetupScriptDoesNotConsume() async {
@@ -69,7 +71,9 @@ struct AppFeatureTerminalSetupScriptTests {
     await store.send(.newTerminal)
     await store.finish()
     #expect(
-      sent.value == [.createTab(worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, id: nil)]
+      sent.value == [
+        .createTab(worktree.id.layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, id: nil)
+      ]
     )
   }
 
@@ -92,7 +96,7 @@ struct AppFeatureTerminalSetupScriptTests {
       AppFeature()
     }
 
-    await store.send(.terminalEvent(.tabCreated(layoutID: worktree.id)))
+    await store.send(.terminalEvent(.tabCreated(layoutID: worktree.id.layoutID)))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.receive(\.repositories.sidebarItems) {
       $0.repositories.sidebarItems[id: worktree.id]?.lifecycle = .idle
@@ -121,7 +125,7 @@ struct AppFeatureTerminalSetupScriptTests {
       AppFeature()
     }
 
-    await store.send(.terminalEvent(.setupScriptConsumed(layoutID: worktree.id)))
+    await store.send(.terminalEvent(.setupScriptConsumed(layoutID: worktree.id.layoutID)))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.receive(\.repositories.sidebarItems) {
       $0.repositories.sidebarItems[id: worktree.id]?.lifecycle = .idle
@@ -131,7 +135,7 @@ struct AppFeatureTerminalSetupScriptTests {
     }
     // The later readiness signal re-fires but the row is already idle: the
     // guard makes it inert (no follow-up `sidebarItems` mutation).
-    await store.send(.terminalEvent(.tabCreated(layoutID: worktree.id)))
+    await store.send(.terminalEvent(.tabCreated(layoutID: worktree.id.layoutID)))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.finish()
   }
@@ -156,7 +160,7 @@ struct AppFeatureTerminalSetupScriptTests {
     }
 
     await store.send(
-      .terminalEvent(.surfaceCreationFailed(layoutID: worktree.id, attemptedID: UUID(), message: "boom"))
+      .terminalEvent(.surfaceCreationFailed(layoutID: worktree.id.layoutID, attemptedID: UUID(), message: "boom"))
     )
     await store.finish()
     #expect(store.state.repositories.sidebarItems[id: worktree.id]?.lifecycle == .pending)
@@ -180,7 +184,7 @@ struct AppFeatureTerminalSetupScriptTests {
       AppFeature()
     }
 
-    await store.send(.terminalEvent(.initialTabCreationFailed(layoutID: worktree.id, message: "boom")))
+    await store.send(.terminalEvent(.initialTabCreationFailed(layoutID: worktree.id.layoutID, message: "boom")))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.receive(\.repositories.sidebarItems) {
       $0.repositories.sidebarItems[id: worktree.id]?.lifecycle = .idle
@@ -211,7 +215,7 @@ struct AppFeatureTerminalSetupScriptTests {
       AppFeature()
     }
 
-    await store.send(.terminalEvent(.tabCreated(layoutID: worktree.id)))
+    await store.send(.terminalEvent(.tabCreated(layoutID: worktree.id.layoutID)))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.finish()
     #expect(store.state.repositories.sidebarItems[id: worktree.id]?.lifecycle == .deleting)
@@ -314,7 +318,7 @@ struct AppFeatureTerminalSetupScriptTests {
       AppFeature()
     }
 
-    await store.send(.terminalEvent(.setupScriptConsumed(layoutID: worktree.id)))
+    await store.send(.terminalEvent(.setupScriptConsumed(layoutID: worktree.id.layoutID)))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.receive(\.repositories.sidebarItems) {
       $0.repositories.sidebarItems[id: worktree.id]?.lifecycle = .idle
@@ -350,7 +354,8 @@ struct AppFeatureTerminalSetupScriptTests {
     await store.finish()
     #expect(
       sent.value == [
-        .ensureInitialTab(worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, focusing: false)
+        .ensureInitialTab(
+          worktree.id.layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, focusing: false)
       ]
     )
   }
@@ -381,7 +386,7 @@ struct AppFeatureTerminalSetupScriptTests {
     #expect(
       sent.value == [
         .ensureInitialTab(
-          worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: false)
+          worktree.id.layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: false)
       ]
     )
   }
@@ -417,7 +422,8 @@ struct AppFeatureTerminalSetupScriptTests {
     await store.finish()
     #expect(
       sent.value.contains(
-        .ensureInitialTab(worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, focusing: false)
+        .ensureInitialTab(
+          worktree.id.layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, focusing: false)
       )
     )
   }
@@ -451,7 +457,7 @@ struct AppFeatureTerminalSetupScriptTests {
     #expect(
       sent.value.contains(
         .ensureInitialTab(
-          worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: false))
+          worktree.id.layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: false))
     )
   }
 
@@ -497,7 +503,8 @@ struct AppFeatureTerminalSetupScriptTests {
     // The activation command carries the focus intent so the host claims focus.
     #expect(
       sent.value.contains(
-        .ensureInitialTab(worktree.id, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: true)
+        .ensureInitialTab(
+          worktree.id.layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: true)
       ))
   }
 

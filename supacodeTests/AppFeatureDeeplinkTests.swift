@@ -92,7 +92,7 @@ struct AppFeatureDeeplinkTests {
     await store.finish()
     let ranTarget = sent.value.contains {
       if case .runBlockingScript(let target, _, _, let script, _) = $0 {
-        return target == worktree.id && script == definition.command
+        return target == worktree.layoutID && script == definition.command
       }
       return false
     }
@@ -125,7 +125,7 @@ struct AppFeatureDeeplinkTests {
     #expect(
       sent.value.contains {
         if case .splitPane(let target, _, let paneToken, let direction, let input, let id, _) = $0 {
-          return target == worktree.id && paneToken == token && direction == .vertical && input == nil
+          return target == worktree.layoutID && paneToken == token && direction == .vertical && input == nil
             && id == newID
         }
         return false
@@ -154,7 +154,7 @@ struct AppFeatureDeeplinkTests {
     #expect(
       sent.value.contains {
         if case .toggleZoomPane(let target, let paneToken) = $0 {
-          return target == worktree.id && paneToken == token
+          return target == worktree.layoutID && paneToken == token
         }
         return false
       })
@@ -183,7 +183,7 @@ struct AppFeatureDeeplinkTests {
     #expect(
       sent.value.contains {
         if case .moveTabToSplit(let target, let tab, let direction, _) = $0 {
-          return target == worktree.id && tab == tabID && direction == .right
+          return target == worktree.layoutID && tab == tabID && direction == .right
         }
         return false
       })
@@ -235,7 +235,7 @@ struct AppFeatureDeeplinkTests {
     await store.finish()
     #expect(
       sent.value.contains {
-        if case .equalizeSplits(let target) = $0 { return target == worktree.id }
+        if case .equalizeSplits(let target) = $0 { return target == worktree.layoutID }
         return false
       })
   }
@@ -319,7 +319,7 @@ struct AppFeatureDeeplinkTests {
     #expect(store.state.repositories.selection == .worktree(worktree.id))
     let ranTarget = sent.value.contains {
       if case .runBlockingScript(let ran, _, _, let script, _) = $0 {
-        return ran == target.id && script == definition.command
+        return ran == target.layoutID && script == definition.command
       }
       return false
     }
@@ -1066,7 +1066,7 @@ struct AppFeatureDeeplinkTests {
     await store.receive(\.repositories.selectWorktree)
     await store.finish()
     let stoppedTarget = sent.value.contains {
-      if case .stopRunScript(let target, _, _) = $0 { return target == worktree.id }
+      if case .stopRunScript(let target, _, _) = $0 { return target == worktree.layoutID }
       return false
     }
     #expect(stoppedTarget)
@@ -1094,7 +1094,7 @@ struct AppFeatureDeeplinkTests {
     await store.finish()
     #expect(store.state.repositories.selection == .worktree(worktree.id))
     let stoppedTarget = sent.value.contains {
-      if case .stopRunScript(let stopped, _, _) = $0 { return stopped == target.id }
+      if case .stopRunScript(let stopped, _, _) = $0 { return stopped == target.layoutID }
       return false
     }
     #expect(stoppedTarget)
@@ -1938,7 +1938,7 @@ struct AppFeatureDeeplinkTests {
     await store.send(.deeplink(.worktree(id: worktree.id, action: .tab(tabID: tabUUID))))
     await store.receive(\.repositories.selectWorktree)
     let expected = TerminalClient.Command.selectTab(
-      worktree.id, DirectoryContext(worktree: worktree), tabID: TabID(rawValue: tabUUID))
+      worktree.id.layoutID, DirectoryContext(worktree: worktree), tabID: TabID(rawValue: tabUUID))
     #expect(sent.value.contains(expected))
   }
 
@@ -1978,7 +1978,8 @@ struct AppFeatureDeeplinkTests {
     #expect(
       sent.value.contains(
         .createTabWithInput(
-          worktree.id, DirectoryContext(worktree: worktree), input: "echo hello", runSetupScriptIfNew: false, id: nil)
+          worktree.id.layoutID, DirectoryContext(worktree: worktree), input: "echo hello", runSetupScriptIfNew: false,
+          id: nil)
       )
     )
   }
@@ -2014,7 +2015,8 @@ struct AppFeatureDeeplinkTests {
     #expect(
       sent.value.contains(
         .createTabWithInput(
-          worktree.id, DirectoryContext(worktree: worktree), input: "echo hello", runSetupScriptIfNew: false, id: nil)
+          worktree.id.layoutID, DirectoryContext(worktree: worktree), input: "echo hello", runSetupScriptIfNew: false,
+          id: nil)
       )
     )
     await store.finish()
@@ -2132,7 +2134,7 @@ struct AppFeatureDeeplinkTests {
 
     await store.send(.deeplink(.worktree(id: worktree.id, action: .tabNew(input: nil, id: nil))))
     let hasCreateTab = sent.value.contains(where: {
-      if case .createTab(let target, _, _, _, _, _, _) = $0 { return target == worktree.id }
+      if case .createTab(let target, _, _, _, _, _, _) = $0 { return target == worktree.layoutID }
       return false
     })
     #expect(hasCreateTab)
@@ -2168,7 +2170,7 @@ struct AppFeatureDeeplinkTests {
     #expect(
       sent.value.contains(
         .createTab(
-          worktree.id, DirectoryContext(worktree: worktree),
+          worktree.id.layoutID, DirectoryContext(worktree: worktree),
           runSetupScriptIfNew: true,
           id: tabID,
           title: "implement"
@@ -2220,7 +2222,7 @@ struct AppFeatureDeeplinkTests {
     #expect(
       sent.value.contains(
         .createTabWithInput(
-          worktree.id, DirectoryContext(worktree: worktree),
+          worktree.id.layoutID, DirectoryContext(worktree: worktree),
           input: "omp",
           runSetupScriptIfNew: false,
           id: nil,
@@ -2247,10 +2249,10 @@ struct AppFeatureDeeplinkTests {
         sent.withValue { $0.append(command) }
       }
       $0.terminalClient.tabExists = { worktreeID, candidate in
-        worktreeID == worktree.id && candidate.rawValue == tabID
+        worktreeID == worktree.layoutID && candidate.rawValue == tabID
       }
       $0.terminalClient.tabCanRename = { worktreeID, candidate in
-        worktreeID == worktree.id && candidate.rawValue == tabID
+        worktreeID == worktree.layoutID && candidate.rawValue == tabID
       }
     }
     store.exhaustivity = .off
@@ -2262,7 +2264,7 @@ struct AppFeatureDeeplinkTests {
     )
     #expect(
       sent.value.contains(
-        .renameTab(worktree.id, tabID: TabID(rawValue: tabID), title: "review")
+        .renameTab(worktree.id.layoutID, tabID: TabID(rawValue: tabID), title: "review")
       )
     )
   }
@@ -2294,7 +2296,7 @@ struct AppFeatureDeeplinkTests {
     )
     #expect(
       sent.value.contains(
-        .renameTab(worktree.id, tabID: TabID(rawValue: tabID), title: "")
+        .renameTab(worktree.id.layoutID, tabID: TabID(rawValue: tabID), title: "")
       )
     )
     #expect(store.state.alert == nil)
@@ -3358,7 +3360,8 @@ struct AppFeatureDeeplinkTests {
     #expect(
       sent.value.contains(
         .createTabWithInput(
-          worktree.id, DirectoryContext(worktree: worktree), input: "echo test", runSetupScriptIfNew: false, id: nil)
+          worktree.id.layoutID, DirectoryContext(worktree: worktree), input: "echo test", runSetupScriptIfNew: false,
+          id: nil)
       )
     )
   }
@@ -3867,7 +3870,8 @@ struct AppFeatureDeeplinkTests {
     #expect(
       sent.value.contains(
         .createTabWithInput(
-          worktree.id, DirectoryContext(worktree: worktree), input: "echo test", runSetupScriptIfNew: false, id: nil)
+          worktree.id.layoutID, DirectoryContext(worktree: worktree), input: "echo test", runSetupScriptIfNew: false,
+          id: nil)
       )
     )
   }

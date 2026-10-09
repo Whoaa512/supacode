@@ -21,7 +21,7 @@ struct AppFeatureRenameTabTests {
 
     await store.send(.renameSelectedTerminalTab).finish()
 
-    #expect(sent.value == [.beginTabRename(worktree.id, DirectoryContext(worktree: worktree), tabID: tabID)])
+    #expect(sent.value == [.beginTabRename(worktree.id.layoutID, DirectoryContext(worktree: worktree), tabID: tabID)])
   }
 
   @Test(.dependencies) func noSelectedWorktreeDoesNothing() async {
@@ -79,7 +79,8 @@ struct AppFeatureRenameTabTests {
     currentTabID.setValue(secondTabID)
     await task.finish()
 
-    #expect(sent.value == [.beginTabRename(worktree.id, DirectoryContext(worktree: worktree), tabID: firstTabID)])
+    #expect(
+      sent.value == [.beginTabRename(worktree.id.layoutID, DirectoryContext(worktree: worktree), tabID: firstTabID)])
   }
 
   private static func makeStore(

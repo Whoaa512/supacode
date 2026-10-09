@@ -128,7 +128,7 @@ struct LayoutFeatureTests {
     let runtime = ContentRuntime()
     let recorder = ContentRecorder()
     let store = TestStore(
-      initialState: LayoutFeature.State(id: WorktreeID("/tmp/layout-feature"), layout: layout)
+      initialState: LayoutFeature.State(id: LayoutID(legacyWorktreeKey: "/tmp/layout-feature"), layout: layout)
     ) {
       LayoutFeature()
     } withDependencies: {
@@ -1517,7 +1517,7 @@ struct LayoutFeatureTests {
   }
 
   @Test func closeTabKillsTheSessionOfItsWorktree() async {
-    let killed = LockIsolated<[(content: ContentID, worktree: Worktree.ID)]>([])
+    let killed = LockIsolated<[(content: ContentID, worktree: LayoutID)]>([])
     let harness = await makeHarness(
       killer: ContentSessionKiller(
         kill: { content, worktree in
@@ -1533,7 +1533,7 @@ struct LayoutFeatureTests {
     await harness.store.receive(.runtime(.killConfirmed(id: harness.contentID)))
     #expect(killed.value.count == 1)
     #expect(killed.value.first?.content == harness.contentID)
-    #expect(killed.value.first?.worktree == WorktreeID("/tmp/layout-feature"))
+    #expect(killed.value.first?.worktree == LayoutID(legacyWorktreeKey: "/tmp/layout-feature"))
   }
 
   @Test func titleCommittedWithTheSameTitleIsANoOp() async {

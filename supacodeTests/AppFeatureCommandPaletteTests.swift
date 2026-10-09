@@ -242,7 +242,7 @@ struct AppFeatureCommandPaletteTests {
     #expect(
       sent.value == [
         .performBindingActionOnSurface(
-          worktree.id, DirectoryContext(worktree: worktree), surfaceID: surfaceID, action: "goto_split:right")
+          worktree.id.layoutID, DirectoryContext(worktree: worktree), surfaceID: surfaceID, action: "goto_split:right")
       ]
     )
   }
@@ -277,7 +277,7 @@ struct AppFeatureCommandPaletteTests {
 
     #expect(
       sent.value == [
-        .performBindingAction(worktree.id, DirectoryContext(worktree: worktree), action: "goto_split:right")
+        .performBindingAction(worktree.id.layoutID, DirectoryContext(worktree: worktree), action: "goto_split:right")
       ])
   }
 
@@ -318,7 +318,8 @@ struct AppFeatureCommandPaletteTests {
     #expect(
       sent.value == [
         .performBindingActionOnSurface(
-          worktree.id, DirectoryContext(worktree: worktree), surfaceID: firstSurface, action: "toggle_split_zoom")
+          worktree.id.layoutID, DirectoryContext(worktree: worktree), surfaceID: firstSurface,
+          action: "toggle_split_zoom")
       ]
     )
   }
@@ -352,7 +353,8 @@ struct AppFeatureCommandPaletteTests {
     await store.send(.commandPalette(.delegate(.ghosttyCommand("prompt_surface_title"))))
     await store.finish()
 
-    #expect(sent.value == [.beginTabRename(worktree.id, DirectoryContext(worktree: worktree), tabID: capturedTabID)])
+    #expect(
+      sent.value == [.beginTabRename(worktree.id.layoutID, DirectoryContext(worktree: worktree), tabID: capturedTabID)])
   }
 
   @Test(.dependencies) func promptTabTitleGhosttyCommandCapturesSelectedTabIDSynchronously() async {
@@ -384,7 +386,8 @@ struct AppFeatureCommandPaletteTests {
     await store.send(.commandPalette(.delegate(.ghosttyCommand("prompt_tab_title"))))
     await store.finish()
 
-    #expect(sent.value == [.beginTabRename(worktree.id, DirectoryContext(worktree: worktree), tabID: capturedTabID)])
+    #expect(
+      sent.value == [.beginTabRename(worktree.id.layoutID, DirectoryContext(worktree: worktree), tabID: capturedTabID)])
   }
 
   @Test(.dependencies) func promptTitleGhosttyCommandCapturesSelectedTabIDBeforeAsyncDispatch() async {
@@ -421,7 +424,8 @@ struct AppFeatureCommandPaletteTests {
     currentTabID.setValue(secondTabID)
     await task.finish()
 
-    #expect(sent.value == [.beginTabRename(worktree.id, DirectoryContext(worktree: worktree), tabID: firstTabID)])
+    #expect(
+      sent.value == [.beginTabRename(worktree.id.layoutID, DirectoryContext(worktree: worktree), tabID: firstTabID)])
   }
 
   @Test(.dependencies) func promptTitleGhosttyCommandPassesNilTabIDWhenNoneSelected() async {
@@ -452,7 +456,7 @@ struct AppFeatureCommandPaletteTests {
     await store.send(.commandPalette(.delegate(.ghosttyCommand("prompt_surface_title"))))
     await store.finish()
 
-    #expect(sent.value == [.beginTabRename(worktree.id, DirectoryContext(worktree: worktree), tabID: nil)])
+    #expect(sent.value == [.beginTabRename(worktree.id.layoutID, DirectoryContext(worktree: worktree), tabID: nil)])
   }
 
   @Test(.dependencies) func promptTitleGhosttyCommandDoesNothingForMissingWorktree() async {
@@ -518,7 +522,7 @@ struct AppFeatureCommandPaletteTests {
 
     #expect(
       sent.value == [
-        .performBindingAction(worktree.id, DirectoryContext(worktree: worktree), action: "new_split:right")
+        .performBindingAction(worktree.id.layoutID, DirectoryContext(worktree: worktree), action: "new_split:right")
       ])
   }
 
@@ -810,7 +814,7 @@ struct AppFeatureCommandPaletteTests {
     store.exhaustivity = .off
 
     // Ghostty's toggle opens the command palette, never the last-used switcher.
-    await store.send(.terminalEvent(.commandPaletteToggleRequested(layoutID: worktree.id)))
+    await store.send(.terminalEvent(.commandPaletteToggleRequested(layoutID: worktree.id.layoutID)))
     await store.receive(\.commandPalette.togglePresentInMode)
     #expect(store.state.commandPalette.mode == .commands)
     #expect(store.state.commandPalette.isPresented == true)
@@ -833,7 +837,7 @@ struct AppFeatureCommandPaletteTests {
     store.exhaustivity = .off
 
     // The switcher swaps to the command palette rather than closing.
-    await store.send(.terminalEvent(.commandPaletteToggleRequested(layoutID: worktree.id)))
+    await store.send(.terminalEvent(.commandPaletteToggleRequested(layoutID: worktree.id.layoutID)))
     await store.receive(\.commandPalette.togglePresentInMode)
     #expect(store.state.commandPalette.mode == .commands)
     #expect(store.state.commandPalette.isPresented == true)
@@ -858,7 +862,7 @@ struct AppFeatureCommandPaletteTests {
 
     // The toggle fires from wt-b's surface while wt-a is selected. Closing must not
     // drag the selection onto the originating worktree.
-    await store.send(.terminalEvent(.commandPaletteToggleRequested(layoutID: origin.id)))
+    await store.send(.terminalEvent(.commandPaletteToggleRequested(layoutID: origin.id.layoutID)))
     await store.receive(\.commandPalette.togglePresentInMode)
     await store.receive(\.commandPalette.setPresented)
     await store.receive(\.commandPalette.delegate.dismissedWithoutSelection)

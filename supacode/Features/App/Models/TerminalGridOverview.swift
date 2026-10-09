@@ -17,7 +17,8 @@ enum TerminalGridOverview {
   }
 
   struct Tile: Equatable, Identifiable {
-    let worktreeID: Worktree.ID
+    let layoutID: LayoutID
+    let worktreeID: Worktree.ID?
     let worktreeName: String
     let directoryName: String
     let repositoryPath: String
@@ -107,10 +108,11 @@ enum TerminalGridOverview {
   ) -> [Tile] {
     sessions.map { session in
       Tile(
+        layoutID: session.layoutID,
         worktreeID: session.worktreeID,
         worktreeName: session.worktreeName,
         directoryName: session.directoryName,
-        repositoryPath: worktreeLookup(session.worktreeID)?.repositoryRootURL.path
+        repositoryPath: session.worktreeID.flatMap(worktreeLookup)?.repositoryRootURL.path
           ?? session.directoryName,
         tabID: session.tabID,
         tabTitle: session.tabTitle,
@@ -147,7 +149,7 @@ enum TerminalGridOverview {
   }
 
   private static func sortKey(_ tile: Tile) -> String {
-    [tile.repositoryPath, tile.worktreeName, tile.worktreeID.rawValue]
+    [tile.repositoryPath, tile.worktreeName, tile.layoutID.persistenceKey]
       .joined(separator: "\u{1f}")
   }
 }

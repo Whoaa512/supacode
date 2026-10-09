@@ -289,7 +289,9 @@ final class WorktreeTerminalManager {
 
   func listTabs(worktreeID: String) -> [[String: String]]? {
     let decoded = worktreeID.removingPercentEncoding ?? worktreeID
-    guard let layoutState = layoutState(for: WorktreeID(decoded)) else { return nil }
+    guard let layoutID = layoutID(forDirectory: WorktreeID(decoded)),
+      let layoutState = layoutState(for: layoutID)
+    else { return nil }
     let layout = layoutState.layout
     let focusedTabID = layout.focusedPaneID.flatMap { layout.panes[id: $0]?.selectedTabID }
     return layout.panes.flatMap { pane in
@@ -303,7 +305,8 @@ final class WorktreeTerminalManager {
 
   func listSurfaces(worktreeID: String, tabID: String) -> [[String: String]]? {
     let decoded = worktreeID.removingPercentEncoding ?? worktreeID
-    guard let layoutState = layoutState(for: WorktreeID(decoded)),
+    guard let layoutID = layoutID(forDirectory: WorktreeID(decoded)),
+      let layoutState = layoutState(for: layoutID),
       let tabUUID = UUID(uuidString: tabID),
       let tab = layoutState.layout.pane(containingTab: TabID(rawValue: tabUUID))?
         .tabs[id: TabID(rawValue: tabUUID)]
@@ -611,14 +614,14 @@ final class WorktreeTerminalManager {
         markLayoutDirty(worktreeID: previousID)
       }
       selectedLayoutID = id
-      hosts[id ?? WorktreeID("")]?.setWorktreeSelected(true)
+      id.flatMap { hosts[$0] }?.setWorktreeSelected(true)
       // Deselecting arms grace timers, selecting wakes the visible tabs; the
       // reducer owns both through the selection action.
       sendTerminals(.selectedLayoutChanged(id))
       // A sidebar click never hands AppKit focus to the terminal, so no focus
       // event fires; refresh here or the window keeps the previous tint.
       refreshFocusedSurfaceBackground()
-      terminalLogger.info("Selected worktree \(id?.rawValue ?? "nil")")
+      terminalLogger.info("Selected layout \(id?.description ?? "nil")")
     case .createTab, .createTabWithInput, .openFileWithScript, .ensureInitialTab, .stopRunScript, .stopScript,
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .performBindingAction,
       .performBindingActionOnSurface, .setImagePasteAgents, .startSearch, .searchSelection, .navigateSearchNext,
@@ -708,6 +711,11 @@ final class WorktreeTerminalManager {
   }
 
   /// The worktree's layout state in the store, nil before hydration/attach.
+  /// The app-layer seam, for the entry points that still arrive with a directory id.
+  private func layoutID(forDirectory directoryID: Worktree.ID) -> LayoutID? {
+    appStore?.withState { $0.layoutID(forDirectory: directoryID) }
+  }
+
   func layoutState(for worktreeID: LayoutID) -> LayoutFeature.State? {
     appStore?.withState { $0.terminals.layouts[id: worktreeID] }
   }
@@ -763,6 +771,7 @@ final class WorktreeTerminalManager {
       clock: clock,
       runSetupScript: runSetupScriptIfNew()
     )
+    let directoryID = context.worktreeID
     host.socketPath = socketServer?.socketPath
     host.notificationsEnabled = notificationsEnabled
     host.layout = { [weak self] in self?.layoutState(for: layoutID)?.layout }
@@ -796,7 +805,7 @@ final class WorktreeTerminalManager {
     host.onNotificationReceived = { [weak self] surfaceID, title, body, isViewed in
       self?.emit(
         .notificationReceived(
-          worktreeID: layoutID,
+          worktreeID: directoryID,
           surfaceID: surfaceID,
           title: title,
           body: body,
@@ -823,11 +832,11 @@ final class WorktreeTerminalManager {
       self?.refreshFocusedSurfaceBackground()
     }
     host.onRunStatusChanged = { [weak self] status in
-      self?.emit(.runStatusChanged(worktreeID: layoutID, status: status))
+      self?.emit(.runStatusChanged(worktreeID: directoryID, status: status))
       self?.emitProjection(for: layoutID)
     }
     host.onBlockingScriptCompleted = { [weak self] kind, exitCode, tabId in
-      self?.emit(.blockingScriptCompleted(worktreeID: layoutID, kind: kind, exitCode: exitCode, tabId: tabId))
+      self?.emit(.blockingScriptCompleted(worktreeID: directoryID, kind: kind, exitCode: exitCode, tabId: tabId))
     }
     host.onRunningScriptsChanged = { [weak self] in
       // Force past the projection dedupe: an archived-strip can clear the row while
@@ -930,7 +939,7 @@ final class WorktreeTerminalManager {
   /// unexpected-close probe decided to spare them. `isBundled` (not
   /// `executableURL`) gates the local kill so sessions from a previous
   /// under-budget launch still tear down.
-  func killSession(for contentID: ContentID, worktreeID: Worktree.ID) async {
+  func killSession(for contentID: ContentID, layoutID: LayoutID) async {
     guard !consumeSpareSession(for: contentID) else { return }
     suppressHarnessEnd(surfaceID: contentID.rawValue)
     let killLocal = zmxClient.isBundled()
@@ -940,8 +949,8 @@ final class WorktreeTerminalManager {
     let remoteHost =
       localOnly
       ? nil
-      : hosts[worktreeID]?.context.host
-        ?? appStore?.withState { $0.repositories.worktree(for: worktreeID)?.host }
+      : hosts[layoutID]?.context.host
+        ?? appStore?.withState { $0.worktree(forLayout: layoutID)?.host }
     guard killLocal || remoteHost != nil else { return }
     analyticsClient.capture(
       "terminal_persistence_session_killed",
@@ -1548,7 +1557,9 @@ final class WorktreeTerminalManager {
   /// Pane UUIDs in the worktree, flagging the focused one.
   func listPanes(worktreeID: String) -> [[String: String]]? {
     let decoded = worktreeID.removingPercentEncoding ?? worktreeID
-    guard let layoutState = layoutState(for: WorktreeID(decoded)) else { return nil }
+    guard let layoutID = layoutID(forDirectory: WorktreeID(decoded)),
+      let layoutState = layoutState(for: layoutID)
+    else { return nil }
     let layout = layoutState.layout
     return layout.panes.map { pane in
       var entry = ["id": pane.id.rawValue.uuidString]
@@ -1562,18 +1573,22 @@ final class WorktreeTerminalManager {
   /// never selected has none). Roster prune cannot do this, since a hostless
   /// layout could also belong to a repository that merely failed to load.
   func removeLayouts(forDirectory directoryID: Worktree.ID, remoteHost: RemoteHost?) {
-    var layoutIDs = hosts.filter { $0.value.worktreeID == directoryID }.map(\.key)
-    // A hostless layout carries no directory, so it is found by the legacy
-    // key (the directory id); a host under that key has already answered.
-    if hosts[directoryID] == nil {
-      layoutIDs.append(directoryID)
+    var layoutIDs = layoutIDs(hostedOn: directoryID)
+    // A hostless layout carries no directory, so it is found through the
+    // seam; a host under that id has already answered.
+    if let resolved = layoutID(forDirectory: directoryID), hosts[resolved] == nil {
+      layoutIDs.append(resolved)
     }
     for layoutID in layoutIDs {
-      removeLayout(layoutID, remoteHost: remoteHost)
+      removeLayout(layoutID, directoryID: directoryID, remoteHost: remoteHost)
     }
   }
 
-  private func removeLayout(_ layoutID: LayoutID, remoteHost: RemoteHost?) {
+  private func layoutIDs(hostedOn directoryID: Worktree.ID) -> [LayoutID] {
+    hosts.filter { $0.value.worktreeID == directoryID }.map(\.key)
+  }
+
+  private func removeLayout(_ layoutID: LayoutID, directoryID: Worktree.ID, remoteHost: RemoteHost?) {
     let surfaceIDs =
       hosts[layoutID]?.allSurfaceIDs
       ?? layoutState(for: layoutID)?.layout.allContentIDs.map(\.rawValue) ?? []
@@ -1595,9 +1610,9 @@ final class WorktreeTerminalManager {
       handleSurfacesClosed(layoutID: layoutID, surfaceIDs: closedSurfaceIDs)
     }
     sendTerminals(.detachLayout(worktreeID: layoutID))
-    emit(.worktreeStateTornDown(worktreeID: layoutID))
+    emit(.worktreeStateTornDown(worktreeID: directoryID, layoutID: layoutID))
     cancelPendingIdleHooks(forSurfaceIDs: closedSurfaceIDs)
-    invalidateCaches(forPrunedLayout: layoutID)
+    invalidateCaches(forPrunedLayout: layoutID, directoryID: directoryID)
     emitNotificationIndicatorCountIfNeeded()
     emitHasAnyTerminalSurfaceIfNeeded()
     refreshFocusedSurfaceBackground()
@@ -1649,14 +1664,14 @@ final class WorktreeTerminalManager {
       }
       // Signals the reducer to drop the pruned layout and bookkeeping.
       sendTerminals(.detachLayout(worktreeID: id))
-      emit(.worktreeStateTornDown(worktreeID: id))
+      emit(.worktreeStateTornDown(worktreeID: host.worktreeID, layoutID: id))
     }
     if !removed.isEmpty {
       terminalLogger.info("Pruned \(removed.count) terminal host(s)")
     }
     hosts = hosts.filter { shouldKeep($0.value) }
     cancelPendingIdleHooks(forSurfaceIDs: prunedSurfaceIDs)
-    for (id, _) in removed { invalidateCaches(forPrunedLayout: id) }
+    for (id, host) in removed { invalidateCaches(forPrunedLayout: id, directoryID: host.worktreeID) }
     emitNotificationIndicatorCountIfNeeded()
     emitHasAnyTerminalSurfaceIfNeeded()
     refreshFocusedSurfaceBackground()
@@ -1888,11 +1903,11 @@ final class WorktreeTerminalManager {
     guard let appStore else { return [] }
     return appStore.withState { state in
       state.terminals.layouts.flatMap { layoutState in
-        let worktreeID = layoutState.id
-        let worktree = state.repositories.worktree(for: worktreeID)
-        let host = hosts[worktreeID]
+        let layoutID = layoutState.id
+        let worktree = state.worktree(forLayout: layoutID)
+        let host = hosts[layoutID]
         let worktreeName =
-          worktree?.name ?? host?.context.name ?? URL(fileURLWithPath: worktreeID.persistenceKey).lastPathComponent
+          worktree?.name ?? host?.context.name ?? URL(fileURLWithPath: layoutID.persistenceKey).lastPathComponent
         let directoryName = worktree?.workingDirectory.lastPathComponent ?? worktreeName
         return layoutState.layout.panes.flatMap { pane in
           pane.tabs.map { tab in
@@ -1906,14 +1921,15 @@ final class WorktreeTerminalManager {
                 .dormant
               }
             return TerminalSession(
-              worktreeID: worktreeID,
+              layoutID: layoutID,
+              worktreeID: worktree?.id ?? host?.worktreeID,
               worktreeName: worktreeName,
               directoryName: directoryName,
               tabID: tab.id,
               tabTitle: TabTitle.resolved(for: tab, runtime: ContentRuntime.liveValue),
               surfaceID: surfaceID,
               availability: availability,
-              isFocused: selectedLayoutID == worktreeID
+              isFocused: selectedLayoutID == layoutID
                 && layoutState.layout.focusedPaneID == pane.id
                 && pane.selectedTabID == tab.id
             )
@@ -1921,8 +1937,8 @@ final class WorktreeTerminalManager {
         }
       }
       .sorted {
-        ($0.worktreeName, $0.worktreeID.rawValue, $0.tabTitle, $0.surfaceID.uuidString)
-          < ($1.worktreeName, $1.worktreeID.rawValue, $1.tabTitle, $1.surfaceID.uuidString)
+        ($0.worktreeName, $0.layoutID.persistenceKey, $0.tabTitle, $0.surfaceID.uuidString)
+          < ($1.worktreeName, $1.layoutID.persistenceKey, $1.tabTitle, $1.surfaceID.uuidString)
       }
     }
   }
@@ -2161,19 +2177,19 @@ final class WorktreeTerminalManager {
     var best: NotificationLocation?
     var bestCreatedAt: Date?
     var skippedClosedSurface = false
-    for (worktreeID, host) in hosts {
+    for (layoutID, host) in hosts {
       for notification in host.unreadNotifications() {
         if let bestCreatedAt, bestCreatedAt >= notification.createdAt { break }
         guard let tabID = host.tabID(containing: notification.surfaceID) else {
           skippedClosedSurface = true
           terminalLogger.debug(
             "latestUnreadNotificationLocation: skipping closed surface \(notification.surfaceID) "
-              + "in \(worktreeID); trying older unread."
+              + "in \(layoutID); trying older unread."
           )
           continue
         }
         best = NotificationLocation(
-          worktreeID: worktreeID,
+          worktreeID: host.worktreeID,
           tabID: tabID,
           surfaceID: notification.surfaceID,
           notificationID: notification.id,
@@ -2194,13 +2210,17 @@ final class WorktreeTerminalManager {
   }
 
   func markNotificationRead(worktreeID: Worktree.ID, notificationID: UUID) {
-    hosts[worktreeID]?.markNotificationRead(id: notificationID)
-    emitProjection(for: worktreeID)
+    for layoutID in layoutIDs(hostedOn: worktreeID) {
+      hosts[layoutID]?.markNotificationRead(id: notificationID)
+      emitProjection(for: layoutID)
+    }
   }
 
   func dismissNotification(worktreeID: Worktree.ID, notificationID: UUID) {
-    hosts[worktreeID]?.dismissNotification(notificationID)
-    emitProjection(for: worktreeID)
+    for layoutID in layoutIDs(hostedOn: worktreeID) {
+      hosts[layoutID]?.dismissNotification(notificationID)
+      emitProjection(for: layoutID)
+    }
   }
 
   /// Indicator and projection updates propagate via each state's notification
@@ -2466,7 +2486,7 @@ final class WorktreeTerminalManager {
     // buffer would loop and evict live events every tick (#573).
     guard !isDrainingShedProjectionReplays else { return }
     let wasIdle = pendingShedProjectionReplays.isEmpty
-    pendingShedProjectionReplays.insert(worktreeID)
+    pendingShedProjectionReplays.formUnion(layoutIDs(hostedOn: worktreeID))
     guard wasIdle else { return }
     Task { @MainActor [weak self] in self?.drainShedProjectionReplays() }
   }
@@ -2488,7 +2508,9 @@ final class WorktreeTerminalManager {
     lastEmittedCoalescable.removeValue(forKey: key)
     switch shed {
     case .worktreeProjectionChanged(let worktreeID, _):
-      lastEmittedProjections.removeValue(forKey: worktreeID)
+      for layoutID in layoutIDs(hostedOn: worktreeID) {
+        lastEmittedProjections.removeValue(forKey: layoutID)
+      }
     case .notificationIndicatorChanged:
       lastNotificationIndicatorCount = nil
     case .terminalHasAnySurfaceChanged(let hasAny):
@@ -2529,18 +2551,18 @@ final class WorktreeTerminalManager {
   /// persisted tab UUIDs) would otherwise be wrongly deduped and dropped.
   private static func invalidatedCoalesceKeys(by event: TerminalClient.Event) -> [CoalesceKey] {
     switch event {
-    case .worktreeStateTornDown(let worktreeID):
-      [.worktreeProjection(worktreeID), .runStatus(worktreeID), .focus(worktreeID)]
+    case .worktreeStateTornDown(let worktreeID, let layoutID):
+      [.worktreeProjection(worktreeID), .runStatus(worktreeID), .focus(layoutID)]
     default: []
     }
   }
 
   /// Clears the worktree-keyed lastEmittedProjections during prune; emit's purge has
   /// already cleared the coalesce keys, which this re-clears as a guard against drift.
-  private func invalidateCaches(forPrunedLayout id: LayoutID) {
+  private func invalidateCaches(forPrunedLayout id: LayoutID, directoryID: Worktree.ID) {
     lastEmittedProjections.removeValue(forKey: id)
     pendingShedProjectionReplays.remove(id)
-    for key in Self.invalidatedCoalesceKeys(by: .worktreeStateTornDown(worktreeID: id)) {
+    for key in Self.invalidatedCoalesceKeys(by: .worktreeStateTornDown(worktreeID: directoryID, layoutID: id)) {
       lastEmittedCoalescable.removeValue(forKey: key)
     }
   }
@@ -2583,9 +2605,10 @@ final class WorktreeTerminalManager {
   /// Re-delivers a worktree's projection past both dedupe layers, so a row that
   /// diverged from the cache (a reducer-side archived-strip) is reconciled even
   /// when the projection value is unchanged (#573).
-  private func forceEmitProjection(for id: Worktree.ID) {
+  private func forceEmitProjection(for id: LayoutID) {
+    guard let host = hosts[id] else { return }
     lastEmittedProjections.removeValue(forKey: id)
-    lastEmittedCoalescable.removeValue(forKey: .worktreeProjection(id))
+    lastEmittedCoalescable.removeValue(forKey: .worktreeProjection(host.worktreeID))
     emitProjection(for: id)
   }
 
@@ -2594,13 +2617,13 @@ final class WorktreeTerminalManager {
   /// hook bursts produce after the per-row equality short-circuit lands.
   /// Skipped while no subscriber is attached so projections never accumulate in
   /// `pendingEvents` (the row reads its initial snapshot from the next live emit).
-  private func emitProjection(for worktreeID: Worktree.ID) {
+  private func emitProjection(for layoutID: LayoutID) {
     guard eventContinuation != nil else { return }
-    guard let host = hosts[worktreeID] else { return }
+    guard let host = hosts[layoutID] else { return }
     let projection = host.currentProjection()
-    guard lastEmittedProjections[worktreeID] != projection else { return }
-    lastEmittedProjections[worktreeID] = projection
-    emit(.worktreeProjectionChanged(worktreeID, projection))
+    guard lastEmittedProjections[layoutID] != projection else { return }
+    lastEmittedProjections[layoutID] = projection
+    emit(.worktreeProjectionChanged(host.worktreeID, projection))
     // hasAny can only flip when this worktree's surface set actually changed,
     // which `projectionChanged` already implies.
     emitHasAnyTerminalSurfaceIfNeeded()

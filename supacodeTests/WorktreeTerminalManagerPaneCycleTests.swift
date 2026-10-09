@@ -19,11 +19,11 @@ struct WorktreeTerminalManagerPaneCycleTests {
     let paneIDs: [PaneID]
 
     var focusedPaneID: PaneID? {
-      store.withState { $0.terminals.layouts[id: worktree.id]?.layout.focusedPaneID }
+      store.withState { $0.terminals.layouts[id: worktree.id.layoutID]?.layout.focusedPaneID }
     }
 
     func focus(forward: Bool) {
-      manager.handleCommand(.focusRelativePane(worktree.id, forward: forward))
+      manager.handleCommand(.focusRelativePane(worktree.id.layoutID, forward: forward))
     }
   }
 

@@ -71,7 +71,7 @@ struct TerminalsFeatureTests {
     let store: TestStoreOf<TerminalsFeature>
     let clock: TestClock<Duration>
     let runtime: ContentRuntime
-    let worktreeID: Worktree.ID
+    let worktreeID: LayoutID
     let paneID: PaneID
     let selectedTab: TabID
     let hiddenTab: TabID
@@ -83,7 +83,7 @@ struct TerminalsFeatureTests {
 
   /// One worktree, one pane, two tabs; both contents live in the runtime.
   private func makeHibernationHarness(startSessions: Bool = true) -> HibernationHarness {
-    let worktreeID = Worktree.ID("/tmp/hib")
+    let worktreeID = LayoutID(legacyWorktreeKey: "/tmp/hib")
     let paneID = PaneID()
     let selectedTab = TabID()
     let hiddenTab = TabID()
@@ -278,9 +278,9 @@ struct TerminalsFeatureTests {
     }
     // The window floats over any worktree; leaving this one must not arm its
     // selection.
-    await harness.store.send(.selectedLayoutChanged(Worktree.ID("/tmp/other"))) {
-      $0.selectedLayoutID = Worktree.ID("/tmp/other")
-      $0.recentLayoutIDs = [Worktree.ID("/tmp/other")]
+    await harness.store.send(.selectedLayoutChanged(LayoutID(legacyWorktreeKey: "/tmp/other"))) {
+      $0.selectedLayoutID = LayoutID(legacyWorktreeKey: "/tmp/other")
+      $0.recentLayoutIDs = [LayoutID(legacyWorktreeKey: "/tmp/other")]
     }
     await harness.clock.advance(by: TerminalsFeature.hibernationGraceWindow)
     await harness.store.receive(\.hibernationGraceElapsed) {
@@ -303,9 +303,9 @@ struct TerminalsFeatureTests {
       $0.layouts[id: harness.worktreeID]?.windowedPaneIDs = [harness.paneID]
       $0.hibernationArmedTabs = [harness.hiddenTab]
     }
-    await harness.store.send(.selectedLayoutChanged(Worktree.ID("/tmp/other"))) {
-      $0.selectedLayoutID = Worktree.ID("/tmp/other")
-      $0.recentLayoutIDs = [Worktree.ID("/tmp/other")]
+    await harness.store.send(.selectedLayoutChanged(LayoutID(legacyWorktreeKey: "/tmp/other"))) {
+      $0.selectedLayoutID = LayoutID(legacyWorktreeKey: "/tmp/other")
+      $0.recentLayoutIDs = [LayoutID(legacyWorktreeKey: "/tmp/other")]
     }
     // Re-attaching withdraws the exemption: the selection is hidden again.
     await harness.store.send(
@@ -351,7 +351,7 @@ struct TerminalsFeatureTests {
   @Test(.dependencies) func zoomedPaneHidesTheOtherPanesSelectedTab() async throws {
     @Shared(.settingsFile) var settingsFile
     $settingsFile.withLock { $0.global.terminalHibernationEnabled = true }
-    let worktreeID = Worktree.ID("/tmp/zoom")
+    let worktreeID = LayoutID(legacyWorktreeKey: "/tmp/zoom")
     let paneA = PaneID()
     let paneB = PaneID()
     let tabA = TabID()
@@ -424,9 +424,9 @@ struct TerminalsFeatureTests {
     $settingsFile.withLock { $0.global.terminalHibernationEnabled = true }
     let harness = makeHibernationHarness()
     // Selecting another worktree hides both tabs; both arm.
-    await harness.store.send(.selectedLayoutChanged(Worktree.ID("/tmp/other"))) {
-      $0.selectedLayoutID = Worktree.ID("/tmp/other")
-      $0.recentLayoutIDs = [Worktree.ID("/tmp/other")]
+    await harness.store.send(.selectedLayoutChanged(LayoutID(legacyWorktreeKey: "/tmp/other"))) {
+      $0.selectedLayoutID = LayoutID(legacyWorktreeKey: "/tmp/other")
+      $0.recentLayoutIDs = [LayoutID(legacyWorktreeKey: "/tmp/other")]
       $0.hibernationArmedTabs = [harness.selectedTab, harness.hiddenTab]
     }
     await harness.store.send(.detachLayout(worktreeID: harness.worktreeID)) {
@@ -450,9 +450,9 @@ struct TerminalsFeatureTests {
     // Deselecting keeps the worktree inside the recency window, so its visible
     // selection is retained (never arms) even though it is now hidden; only the
     // stacked tab stays armed.
-    await harness.store.send(.selectedLayoutChanged(Worktree.ID("/tmp/other"))) {
-      $0.selectedLayoutID = Worktree.ID("/tmp/other")
-      $0.recentLayoutIDs = [Worktree.ID("/tmp/other"), harness.worktreeID]
+    await harness.store.send(.selectedLayoutChanged(LayoutID(legacyWorktreeKey: "/tmp/other"))) {
+      $0.selectedLayoutID = LayoutID(legacyWorktreeKey: "/tmp/other")
+      $0.recentLayoutIDs = [LayoutID(legacyWorktreeKey: "/tmp/other"), harness.worktreeID]
     }
     // Advance well past the grace window: a retained selection never arms, so no
     // amount of idle time hibernates it, while the stacked tab fires once.
@@ -479,7 +479,7 @@ struct TerminalsFeatureTests {
       $0.hibernationArmedTabs = [harness.hiddenTab]
     }
     // Visit enough other worktrees to push this one past `liveWorktreeLimit`.
-    let others = ["/tmp/o1", "/tmp/o2", "/tmp/o3"].map { Worktree.ID($0) }
+    let others = ["/tmp/o1", "/tmp/o2", "/tmp/o3"].map { LayoutID(legacyWorktreeKey: $0) }
     await harness.store.send(.selectedLayoutChanged(others[0])) {
       $0.selectedLayoutID = others[0]
       $0.recentLayoutIDs = [others[0], harness.worktreeID]
@@ -512,7 +512,7 @@ struct TerminalsFeatureTests {
     await harness.store.send(.task)
     await harness.store.send(.selectedLayoutChanged(harness.worktreeID))
     // Deselect but stay recent: without pressure the selection is retained live.
-    await harness.store.send(.selectedLayoutChanged(Worktree.ID("/tmp/other")))
+    await harness.store.send(.selectedLayoutChanged(LayoutID(legacyWorktreeKey: "/tmp/other")))
     #expect(harness.selectedContent.renderer != nil)
 
     harness.pressure.yield()
@@ -521,7 +521,7 @@ struct TerminalsFeatureTests {
 
     // Recency collapses to the current selection, and the deselected worktree's
     // retained selection hibernates now instead of waiting out the grace window.
-    #expect(harness.store.state.recentLayoutIDs == [Worktree.ID("/tmp/other")])
+    #expect(harness.store.state.recentLayoutIDs == [LayoutID(legacyWorktreeKey: "/tmp/other")])
     #expect(harness.selectedContent.renderer == nil)
     #expect(harness.hiddenContent.renderer == nil)
 
@@ -558,7 +558,7 @@ struct TerminalsFeatureTests {
     await harness.store.send(.task)
     await harness.store.send(.selectedLayoutChanged(harness.worktreeID))
     // Deselect so the selection tab is hidden and becomes a pressure target.
-    await harness.store.send(.selectedLayoutChanged(Worktree.ID("/tmp/other")))
+    await harness.store.send(.selectedLayoutChanged(LayoutID(legacyWorktreeKey: "/tmp/other")))
 
     harness.pressure.yield()
     await harness.store.receive(\.memoryPressureWarning)
@@ -587,9 +587,9 @@ struct TerminalsFeatureTests {
       $0.selectedLayoutID = harness.worktreeID
       $0.recentLayoutIDs = [harness.worktreeID]
     }
-    await harness.store.send(.selectedLayoutChanged(Worktree.ID("/tmp/other"))) {
-      $0.selectedLayoutID = Worktree.ID("/tmp/other")
-      $0.recentLayoutIDs = [Worktree.ID("/tmp/other"), harness.worktreeID]
+    await harness.store.send(.selectedLayoutChanged(LayoutID(legacyWorktreeKey: "/tmp/other"))) {
+      $0.selectedLayoutID = LayoutID(legacyWorktreeKey: "/tmp/other")
+      $0.recentLayoutIDs = [LayoutID(legacyWorktreeKey: "/tmp/other"), harness.worktreeID]
     }
 
     harness.pressure.yield()
@@ -598,7 +598,7 @@ struct TerminalsFeatureTests {
     await harness.store.receive(\.memoryPressureWarning)
     #expect(harness.selectedContent.renderer != nil)
     #expect(harness.hiddenContent.renderer != nil)
-    #expect(harness.store.state.recentLayoutIDs == [Worktree.ID("/tmp/other"), harness.worktreeID])
+    #expect(harness.store.state.recentLayoutIDs == [LayoutID(legacyWorktreeKey: "/tmp/other"), harness.worktreeID])
 
     harness.pressure.finish()
     await harness.store.finish()
@@ -614,9 +614,9 @@ struct TerminalsFeatureTests {
       $0.hibernationArmedTabs = [harness.hiddenTab]
     }
     // Deselect but stay recent: the selection is retained, never armed.
-    await harness.store.send(.selectedLayoutChanged(Worktree.ID("/tmp/other"))) {
-      $0.selectedLayoutID = Worktree.ID("/tmp/other")
-      $0.recentLayoutIDs = [Worktree.ID("/tmp/other"), harness.worktreeID]
+    await harness.store.send(.selectedLayoutChanged(LayoutID(legacyWorktreeKey: "/tmp/other"))) {
+      $0.selectedLayoutID = LayoutID(legacyWorktreeKey: "/tmp/other")
+      $0.recentLayoutIDs = [LayoutID(legacyWorktreeKey: "/tmp/other"), harness.worktreeID]
     }
     // A grace timer that fired for the now-retained selection (a race the
     // arm-time cancel could miss) must not hibernate it: the fire-time gate wins.
@@ -658,7 +658,7 @@ struct TerminalsFeatureTests {
     $settingsFile.withLock { $0.global.terminalHibernationEnabled = false }
     let harness = makeHibernationHarness()
     let worktreeA = harness.worktreeID
-    let worktreeB = Worktree.ID("/tmp/b")
+    let worktreeB = LayoutID(legacyWorktreeKey: "/tmp/b")
     await harness.store.send(.selectedLayoutChanged(worktreeA)) {
       $0.selectedLayoutID = worktreeA
       $0.recentLayoutIDs = [worktreeA]
@@ -699,7 +699,7 @@ struct TerminalsFeatureTests {
     ])
     let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
     await store.send(.layoutsHydrated(file)) {
-      $0.layouts = [LayoutFeature.State(id: Worktree.ID("/tmp/good"), layout: good)]
+      $0.layouts = [LayoutFeature.State(id: LayoutID(legacyWorktreeKey: "/tmp/good"), layout: good)]
     }
   }
 
@@ -715,14 +715,14 @@ struct TerminalsFeatureTests {
     ])
     let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
     await store.send(.layoutsHydrated(file)) {
-      $0.layouts = [LayoutFeature.State(id: Worktree.ID("/tmp/a"), layout: first)]
+      $0.layouts = [LayoutFeature.State(id: LayoutID(legacyWorktreeKey: "/tmp/a"), layout: first)]
     }
   }
 
   @Test func layoutsHydrationNeverReplacesALiveLayout() async {
     let live = Self.layout(paneID: PaneID(), tabID: TabID(), contentID: ContentID())
     let persisted = Self.layout(paneID: PaneID(), tabID: TabID(), contentID: ContentID())
-    let worktreeID = Worktree.ID("/tmp/repo")
+    let worktreeID = LayoutID(legacyWorktreeKey: "/tmp/repo")
     let store = TestStore(
       initialState: TerminalsFeature.State(layouts: [LayoutFeature.State(id: worktreeID, layout: live)])
     ) {
@@ -740,7 +740,7 @@ struct TerminalsFeatureTests {
     let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
     await store.send(.layoutsHydrated(file)) {
       $0.layoutsAreReadOnly = true
-      $0.layouts = [LayoutFeature.State(id: Worktree.ID("/tmp/good"), layout: good)]
+      $0.layouts = [LayoutFeature.State(id: LayoutID(legacyWorktreeKey: "/tmp/good"), layout: good)]
     }
   }
 }

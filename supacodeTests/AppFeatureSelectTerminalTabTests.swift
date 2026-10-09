@@ -27,7 +27,7 @@ struct AppFeatureSelectTerminalTabTests {
 
     await store.send(.selectTerminalTabAtIndex(tabNumber))
     await store.finish()
-    #expect(sent.value == [.selectTabAtIndex(worktree.id, index: tabNumber)])
+    #expect(sent.value == [.selectTabAtIndex(worktree.id.layoutID, index: tabNumber)])
   }
 
   @Test(.dependencies) func selectTerminalTabWithoutSelectionIsNoop() async {

@@ -52,6 +52,7 @@ struct TerminalGridOverviewTests {
       repositoryRootURL: URL(fileURLWithPath: "/repo")
     )
     let session = TerminalSession(
+      layoutID: worktree.layoutID,
       worktreeID: worktree.id,
       worktreeName: worktree.name,
       directoryName: "wt",
@@ -74,6 +75,35 @@ struct TerminalGridOverviewTests {
     #expect(tile.availability == .dormant)
     #expect(tile.isFocused)
     #expect(tile.activity == .awaitingInput)
+  }
+
+  @Test func tileOfALayoutOutsideTheRosterFallsBackToItsDirectoryName() throws {
+    let session = TerminalSession(
+      layoutID: "/repo/gone",
+      worktreeID: nil,
+      worktreeName: "gone",
+      directoryName: "gone",
+      tabID: TabID(),
+      tabTitle: "agent",
+      surfaceID: UUID(),
+      availability: .snapshot,
+      isFocused: false
+    )
+
+    let tile = try #require(
+      TerminalGridOverview.tiles(
+        sessions: [session],
+        worktreeLookup: { _ in
+          Issue.record("No directory to look up")
+          return nil
+        },
+        agentsForSurface: { _ in [] }
+      ).first
+    )
+
+    #expect(tile.worktreeID == nil)
+    #expect(tile.layoutID == session.layoutID)
+    #expect(tile.repositoryPath == "gone")
   }
 
   @Test func responsiveColumnCountUsesYouTubeStyleBreakpoints() {
@@ -102,6 +132,7 @@ struct TerminalGridOverviewTests {
     agents: [AgentPresenceFeature.AgentInstance] = []
   ) -> TerminalGridOverview.Tile {
     TerminalGridOverview.Tile(
+      layoutID: LayoutID(legacyWorktreeKey: "\(repositoryPath)/\(worktreeName)"),
       worktreeID: WorktreeID("\(repositoryPath)/\(worktreeName)"),
       worktreeName: worktreeName,
       directoryName: worktreeName,

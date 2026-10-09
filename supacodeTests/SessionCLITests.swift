@@ -23,7 +23,8 @@ struct SessionCLITests {
         id: .session(key), title: "Title", cwd: "/tmp/project", createdAt: .distantPast,
         lifecycle: .active,
         location: SessionLocation(
-          layoutID: WorktreeID("/tmp/project"), directoryID: WorktreeID("/tmp/project"), tabID: TabID(),
+          layoutID: LayoutID(legacyWorktreeKey: "/tmp/project"), directoryID: WorktreeID("/tmp/project"),
+          tabID: TabID(),
           surfaceID: surface),
         branchAnnotation: "feature/session")
     ]
@@ -84,7 +85,8 @@ struct SessionCLITests {
         id: .session(key), title: "Known", cwd: directory.path, createdAt: .distantPast,
         location: live
           ? SessionLocation(
-            layoutID: WorktreeID(directory.path), directoryID: WorktreeID(directory.path), tabID: TabID(),
+            layoutID: LayoutID(legacyWorktreeKey: directory.path), directoryID: WorktreeID(directory.path),
+            tabID: TabID(),
             surfaceID: UUID()) : nil)
     ]
     if let location = state.repositories.sessionItems[id: .session(key)]?.location {

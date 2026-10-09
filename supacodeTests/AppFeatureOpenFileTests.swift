@@ -87,7 +87,7 @@ struct AppFeatureOpenFileTests {
       Issue.record("Expected openFileWithScript command")
       return
     }
-    #expect(sentWorktree == worktree.id)
+    #expect(sentWorktree == worktree.layoutID)
     #expect(sentContext == DirectoryContext(worktree: worktree))
     #expect(
       input == "export SUPACODE_FILE_PATH='/tmp/repo/wt-1/main.swift'; code \"$SUPACODE_FILE_PATH\""

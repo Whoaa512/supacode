@@ -325,7 +325,7 @@ struct TerminalContentBuilder {
       // A vanished worktree cannot host a session; inert content keeps the
       // layout itself usable.
       TerminalSurfaceRecipe.builderLogger.error(
-        "No worktree \(request.worktreeID.rawValue) for content \(request.contentID.rawValue)")
+        "No worktree \(request.worktreeID) for content \(request.contentID.rawValue)")
       return InertTabContent(id: request.contentID, state: request.content)
     }
     let lookUpDirectory = directory

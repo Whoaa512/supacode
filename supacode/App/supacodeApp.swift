@@ -255,8 +255,8 @@ struct SupacodeApp: App {
         terminalManager: terminalManager
       )
       values[ContentSessionKiller.self] = ContentSessionKiller(
-        kill: { contentID, worktreeID in
-          await terminalManager.killSession(for: contentID, worktreeID: worktreeID)
+        kill: { contentID, layoutID in
+          await terminalManager.killSession(for: contentID, layoutID: layoutID)
         }
       )
       values[SplitZoomPolicy.self] = SplitZoomPolicy(
@@ -404,7 +404,7 @@ struct SupacodeApp: App {
     TerminalContentBuilder(
       runtime: runtime,
       directory: { [weak terminalManager] id in
-        terminalManager?.appStore?.withState { $0.repositories.worktree(for: id) }.map(DirectoryContext.init)
+        terminalManager?.appStore?.withState { $0.worktree(forLayout: id) }.map(DirectoryContext.init)
       },
       socketPath: { [weak terminalManager] in
         terminalManager?.socketServer?.socketPath
@@ -419,16 +419,16 @@ struct SupacodeApp: App {
       wireSurface: { [weak terminalManager] view, request in
         guard let terminalManager,
           let worktree = terminalManager.appStore?.withState({
-            $0.repositories.worktree(for: request.worktreeID)
+            $0.worktree(forLayout: request.worktreeID)
           })
         else { return }
-        let host = terminalManager.host(for: worktree.id, context: DirectoryContext(worktree: worktree))
+        let host = terminalManager.host(for: request.worktreeID, context: DirectoryContext(worktree: worktree))
         LayoutSurfaceConduit(
           host: host,
           runtime: ContentRuntime.liveValue,
           handleUnexpectedZmxClose: { [weak terminalManager] view, processAlive in
             guard !processAlive else { return }
-            terminalManager?.handleUnexpectedZmxClose(view, worktreeID: worktree.id)
+            terminalManager?.handleUnexpectedZmxClose(view, worktreeID: request.worktreeID)
           }
         ).wire(view, contentID: request.contentID)
       },
@@ -633,6 +633,7 @@ struct SupacodeApp: App {
         clientFD: clientFD, ok: false, error: "Worktree not found: \(rawWorktreeID)")
       return
     }
+    let layoutID = store.withState { $0.layoutID(forDirectory: worktreeID) }
     let surfaceID: UUID?
     if let rawAgent = params["agent"] {
       guard let agent = SkillAgent(rawValue: rawAgent) else {
@@ -648,10 +649,10 @@ struct SupacodeApp: App {
       }
       surfaceID = key.surfaceID
     } else {
-      surfaceID = terminalManager.focusedSurfaceID(worktreeID: worktreeID) ?? item.surfaceIDs.first
+      surfaceID = terminalManager.focusedSurfaceID(worktreeID: layoutID) ?? item.surfaceIDs.first
     }
     guard let surfaceID,
-      let screen = terminalManager.screenPreview(worktreeID: worktreeID, surfaceID: surfaceID)
+      let screen = terminalManager.screenPreview(worktreeID: layoutID, surfaceID: surfaceID)
     else {
       AgentHookSocketServer.sendCommandResponse(
         clientFD: clientFD, ok: false,

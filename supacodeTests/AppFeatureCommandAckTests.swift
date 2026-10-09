@@ -50,7 +50,7 @@ struct AppFeatureCommandAckTests {
     )
     #expect(store.state.pendingCommandAcks[id: writeFD] != nil)
 
-    await store.send(.terminalEvent(.surfaceCreated(layoutID: worktree.id, id: tabID)))
+    await store.send(.terminalEvent(.surfaceCreated(layoutID: worktree.id.layoutID, id: tabID)))
     await store.finish()
 
     #expect(store.state.pendingCommandAcks.isEmpty)
@@ -148,7 +148,7 @@ struct AppFeatureCommandAckTests {
         .createRandomWorktreeSucceeded(created, repositoryID: "/tmp/repo", pendingID: pendingID)))
     #expect(store.state.pendingCommandAcks[id: writeFD] != nil)
 
-    await store.send(.terminalEvent(.tabCreated(layoutID: created.id)))
+    await store.send(.terminalEvent(.tabCreated(layoutID: created.id.layoutID)))
     await store.finish()
 
     #expect(store.state.pendingCommandAcks.isEmpty)
@@ -186,7 +186,7 @@ struct AppFeatureCommandAckTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.terminalEvent(.tabCreated(layoutID: worktree.id)))
+    await store.send(.terminalEvent(.tabCreated(layoutID: worktree.id.layoutID)))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.receive(\.repositories.sidebarItems)
     await store.finish()
@@ -273,7 +273,7 @@ struct AppFeatureCommandAckTests {
     store.exhaustivity = .off
 
     await store.send(
-      .terminalEvent(.surfaceCreationFailed(layoutID: worktree.id, attemptedID: UUID(), message: "boom")))
+      .terminalEvent(.surfaceCreationFailed(layoutID: worktree.id.layoutID, attemptedID: UUID(), message: "boom")))
     await store.finish()
 
     #expect(store.state.pendingCommandAcks[id: writeFD] != nil)
@@ -304,7 +304,7 @@ struct AppFeatureCommandAckTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.terminalEvent(.initialTabCreationFailed(layoutID: worktree.id, message: "boom")))
+    await store.send(.terminalEvent(.initialTabCreationFailed(layoutID: worktree.id.layoutID, message: "boom")))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.receive(\.repositories.sidebarItems)
     await store.finish()
@@ -480,14 +480,14 @@ struct AppFeatureCommandAckTests {
       tree: SplitTree(view: paneID), panes: [Pane(id: paneID, tabs: [tab], selectedTabID: tab.id)],
       focusedPaneID: paneID)
     var state = AppFeature.State(repositories: RepositoriesFeature.State(), settings: SettingsFeature.State())
-    state.terminals.layouts = [LayoutFeature.State(id: worktreeID, layout: populated)]
+    state.terminals.layouts = [LayoutFeature.State(id: worktreeID.layoutID, layout: populated)]
 
     #expect(WorktreeDetailView.hasFocusedTab(in: state, worktreeID: worktreeID))
     #expect(!WorktreeDetailView.hasFocusedTab(in: state, worktreeID: nil))
     #expect(!WorktreeDetailView.hasFocusedTab(in: state, worktreeID: Worktree.ID("/tmp/other")))
 
     // An emptied layout has no tab to close, so Cmd-W cedes to Close Window.
-    state.terminals.layouts = [LayoutFeature.State(id: worktreeID, layout: PaneLayout())]
+    state.terminals.layouts = [LayoutFeature.State(id: worktreeID.layoutID, layout: PaneLayout())]
     #expect(!WorktreeDetailView.hasFocusedTab(in: state, worktreeID: worktreeID))
   }
 
@@ -563,7 +563,7 @@ struct AppFeatureCommandAckTests {
     #expect(store.state.pendingCommandAcks[id: writeFD] != nil)
 
     await store.send(
-      .terminalEvent(.tabRemoved(layoutID: worktree.id, tabID: TabID(rawValue: tabID)))
+      .terminalEvent(.tabRemoved(layoutID: worktree.id.layoutID, tabID: TabID(rawValue: tabID)))
     )
     await store.finish()
 
@@ -596,7 +596,7 @@ struct AppFeatureCommandAckTests {
     )
     #expect(store.state.pendingCommandAcks[id: writeFD] != nil)
 
-    await store.send(.terminalEvent(.surfacesClosed(layoutID: worktree.id, [surfaceID])))
+    await store.send(.terminalEvent(.surfacesClosed(layoutID: worktree.id.layoutID, [surfaceID])))
     await store.finish()
 
     #expect(store.state.pendingCommandAcks.isEmpty)
@@ -683,7 +683,7 @@ struct AppFeatureCommandAckTests {
     await store.send(
       .terminalEvent(
         .tabRenamed(
-          layoutID: worktree.id, tabID: TabID(rawValue: tabID), applied: true))
+          layoutID: worktree.id.layoutID, tabID: TabID(rawValue: tabID), applied: true))
     )
     await store.finish()
 
@@ -691,7 +691,7 @@ struct AppFeatureCommandAckTests {
     #expect(readPipeJSON(readFD)?["ok"] as? Bool == true)
     #expect(
       sent.value.contains(
-        .renameTab(worktree.id, tabID: TabID(rawValue: tabID), title: "review")))
+        .renameTab(worktree.id.layoutID, tabID: TabID(rawValue: tabID), title: "review")))
   }
 
   @Test(.dependencies) func tabRenameSocketDeeplinkFailsWhenRenameDoesNotApply() async {
@@ -715,7 +715,7 @@ struct AppFeatureCommandAckTests {
     await store.send(
       .terminalEvent(
         .tabRenamed(
-          layoutID: worktree.id, tabID: TabID(rawValue: tabID), applied: false))
+          layoutID: worktree.id.layoutID, tabID: TabID(rawValue: tabID), applied: false))
     )
     await store.finish()
 
@@ -758,7 +758,7 @@ struct AppFeatureCommandAckTests {
     await store.send(
       .terminalEvent(
         .tabRenamed(
-          layoutID: worktree.id, tabID: TabID(rawValue: tabID), applied: true))
+          layoutID: worktree.id.layoutID, tabID: TabID(rawValue: tabID), applied: true))
     )
     await store.finish()
 
@@ -978,7 +978,7 @@ struct AppFeatureCommandAckTests {
     await store.send(
       .terminalEvent(
         .tabRenamed(
-          layoutID: worktree.id, tabID: TabID(rawValue: tabID), applied: true))
+          layoutID: worktree.id.layoutID, tabID: TabID(rawValue: tabID), applied: true))
     )
     await store.finish()
 
@@ -1804,7 +1804,7 @@ struct AppFeatureCommandAckTests {
     await store.store.send(
       .terminalEvent(
         .surfaceCreationFailed(
-          layoutID: worktree.id, attemptedID: surfaceID, message: "Could not create the split surface."
+          layoutID: worktree.id.layoutID, attemptedID: surfaceID, message: "Could not create the split surface."
         )))
     await store.store.finish()
 

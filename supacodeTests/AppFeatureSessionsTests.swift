@@ -23,7 +23,7 @@ struct AppFeatureSessionsTests {
   }
 
   private var location: SessionLocation {
-    SessionLocation(layoutID: worktree.id, directoryID: worktree.id, tabID: tab, surfaceID: surface)
+    SessionLocation(layoutID: worktree.id.layoutID, directoryID: worktree.id, tabID: tab, surfaceID: surface)
   }
 
   private func state(restored: Bool = false) -> AppFeature.State {
@@ -61,7 +61,7 @@ struct AppFeatureSessionsTests {
           worktree.id.rawValue: LayoutRecord(layout: layout)
         ]))
     } else {
-      state.terminals.layouts = [LayoutFeature.State(id: worktree.id, layout: layout)]
+      state.terminals.layouts = [LayoutFeature.State(id: worktree.id.layoutID, layout: layout)]
     }
     return state
   }
@@ -91,9 +91,9 @@ struct AppFeatureSessionsTests {
       AppFeature()
     } withDependencies: {
       $0.date.now = .distantPast
-      $0.terminalClient.focusSurface = { layoutID, _, tab, surf in
+      $0.terminalClient.focusSurface = { layoutID, context, tab, surf in
         focused.withValue {
-          $0.append(SessionLocation(layoutID: layoutID, directoryID: layoutID, tabID: tab, surfaceID: surf))
+          $0.append(SessionLocation(layoutID: layoutID, directoryID: context.worktreeID, tabID: tab, surfaceID: surf))
         }
       }
     }
@@ -120,9 +120,9 @@ struct AppFeatureSessionsTests {
       AppFeature()
     } withDependencies: {
       $0.date.now = .distantPast
-      $0.terminalClient.focusSurface = { layoutID, _, tab, surf in
+      $0.terminalClient.focusSurface = { layoutID, context, tab, surf in
         focused.withValue {
-          $0.append(SessionLocation(layoutID: layoutID, directoryID: layoutID, tabID: tab, surfaceID: surf))
+          $0.append(SessionLocation(layoutID: layoutID, directoryID: context.worktreeID, tabID: tab, surfaceID: surf))
         }
       }
     }
@@ -552,7 +552,7 @@ struct AppFeatureSessionsTests {
     let key2 = SessionKey(harness: .pi, sessionID: "sess2")
     let surface2 = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
     let tab2 = TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!)
-    let layout = initial.terminals.layouts[id: worktree.id]!.layout
+    let layout = initial.terminals.layouts[id: worktree.id.layoutID]!.layout
     let newTabs =
       layout.panes[0].tabs + [
         TabItem(
@@ -561,7 +561,7 @@ struct AppFeatureSessionsTests {
             id: ContentID(rawValue: surface2),
             state: .terminal(TerminalContentState(workingDirectory: "/workspace"))))
       ]
-    initial.terminals.layouts[id: worktree.id]?.layout.panes[0].tabs = IdentifiedArray(uniqueElements: newTabs)
+    initial.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].tabs = IdentifiedArray(uniqueElements: newTabs)
     let presenceKey1 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     initial.agentPresence.records[presenceKey1] = record(ref: "sess1")
     initial.agentPresence.bySurface[surface] = [.pi]
@@ -573,16 +573,16 @@ struct AppFeatureSessionsTests {
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
     initial.repositories.sessionSelection = .session(key1)
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    initial.terminals.selectedLayoutID = worktree.id
-    initial.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = self.tab
+    initial.terminals.selectedLayoutID = worktree.id.layoutID
+    initial.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].selectedTabID = self.tab
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
       $0.date.now = .distantPast
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
-      $0.terminalClient.focusSurface = { layoutID, _, tab, surf in
+      $0.terminalClient.focusSurface = { layoutID, context, tab, surf in
         focused.withValue {
-          $0.append(SessionLocation(layoutID: layoutID, directoryID: layoutID, tabID: tab, surfaceID: surf))
+          $0.append(SessionLocation(layoutID: layoutID, directoryID: context.worktreeID, tabID: tab, surfaceID: surf))
         }
       }
     }
@@ -608,7 +608,7 @@ struct AppFeatureSessionsTests {
     let key2 = SessionKey(harness: .pi, sessionID: "sess2")
     let surface2 = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
     let tab2 = TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!)
-    let layout = initial.terminals.layouts[id: worktree.id]!.layout
+    let layout = initial.terminals.layouts[id: worktree.id.layoutID]!.layout
     let newTabs =
       layout.panes[0].tabs + [
         TabItem(
@@ -617,7 +617,7 @@ struct AppFeatureSessionsTests {
             id: ContentID(rawValue: surface2),
             state: .terminal(TerminalContentState(workingDirectory: "/workspace"))))
       ]
-    initial.terminals.layouts[id: worktree.id]?.layout.panes[0].tabs = IdentifiedArray(uniqueElements: newTabs)
+    initial.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].tabs = IdentifiedArray(uniqueElements: newTabs)
     let presenceKey1 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     initial.agentPresence.records[presenceKey1] = record(ref: "sess1")
     initial.agentPresence.bySurface[surface] = [.pi]
@@ -629,16 +629,16 @@ struct AppFeatureSessionsTests {
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
     initial.repositories.sessionSelection = .session(key1)
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    initial.terminals.selectedLayoutID = worktree.id
-    initial.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = self.tab
+    initial.terminals.selectedLayoutID = worktree.id.layoutID
+    initial.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].selectedTabID = self.tab
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
       $0.date.now = .distantPast
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
-      $0.terminalClient.focusSurface = { layoutID, _, tab, surf in
+      $0.terminalClient.focusSurface = { layoutID, context, tab, surf in
         focused.withValue {
-          $0.append(SessionLocation(layoutID: layoutID, directoryID: layoutID, tabID: tab, surfaceID: surf))
+          $0.append(SessionLocation(layoutID: layoutID, directoryID: context.worktreeID, tabID: tab, surfaceID: surf))
         }
       }
     }
@@ -664,7 +664,7 @@ struct AppFeatureSessionsTests {
     let key2 = SessionKey(harness: .pi, sessionID: "sess2")
     let surface2 = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
     let tab2 = TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!)
-    let layout = initial.terminals.layouts[id: worktree.id]!.layout
+    let layout = initial.terminals.layouts[id: worktree.id.layoutID]!.layout
     let newTabs =
       layout.panes[0].tabs + [
         TabItem(
@@ -673,7 +673,7 @@ struct AppFeatureSessionsTests {
             id: ContentID(rawValue: surface2),
             state: .terminal(TerminalContentState(workingDirectory: "/workspace"))))
       ]
-    initial.terminals.layouts[id: worktree.id]?.layout.panes[0].tabs = IdentifiedArray(uniqueElements: newTabs)
+    initial.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].tabs = IdentifiedArray(uniqueElements: newTabs)
     let presenceKey1 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     initial.agentPresence.records[presenceKey1] = record(ref: "sess1")
     initial.agentPresence.bySurface[surface] = [.pi]
@@ -684,16 +684,16 @@ struct AppFeatureSessionsTests {
     initial.repositories.reconcileSessionItems(now: .distantPast)
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    initial.terminals.selectedLayoutID = worktree.id
-    initial.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = self.tab
+    initial.terminals.selectedLayoutID = worktree.id.layoutID
+    initial.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].selectedTabID = self.tab
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
       $0.date.now = .distantPast
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
-      $0.terminalClient.focusSurface = { layoutID, _, tab, surf in
+      $0.terminalClient.focusSurface = { layoutID, context, tab, surf in
         focused.withValue {
-          $0.append(SessionLocation(layoutID: layoutID, directoryID: layoutID, tabID: tab, surfaceID: surf))
+          $0.append(SessionLocation(layoutID: layoutID, directoryID: context.worktreeID, tabID: tab, surfaceID: surf))
         }
       }
     }
@@ -712,11 +712,11 @@ struct AppFeatureSessionsTests {
 
   @Test(.dependencies) func focusedSurfaceResolvesToSessionRowID() {
     var state = state()
-    state.terminals.selectedLayoutID = worktree.id
-    state.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = tab
+    state.terminals.selectedLayoutID = worktree.id.layoutID
+    state.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].selectedTabID = tab
     let key = SessionKey(harness: .pi, sessionID: "real")
     let location = SessionLocation(
-      layoutID: worktree.id, directoryID: worktree.id, tabID: TabID(rawValue: tab.id), surfaceID: surface)
+      layoutID: worktree.id.layoutID, directoryID: worktree.id, tabID: TabID(rawValue: tab.id), surfaceID: surface)
     let snapshot = SessionLiveSnapshot(
       harness: .pi, sessionRef: "real", cwd: "/workspace", location: location)
     state.repositories.sessionSnapshots = [snapshot]
@@ -727,8 +727,8 @@ struct AppFeatureSessionsTests {
 
   @Test(.dependencies) func sidebarSelectionFollowsFocusedTabOnlyWhenFocusMoves() {
     var state = state()
-    state.terminals.selectedLayoutID = worktree.id
-    state.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = tab
+    state.terminals.selectedLayoutID = worktree.id.layoutID
+    state.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].selectedTabID = tab
     let key = SessionKey(harness: .pi, sessionID: "real")
     state.repositories.sessionSnapshots = [
       SessionLiveSnapshot(harness: .pi, sessionRef: "real", cwd: "/workspace", location: location)
@@ -743,10 +743,10 @@ struct AppFeatureSessionsTests {
     AppFeature.syncSessionSelectionToFocus(state: &state)
     #expect(state.repositories.sessionSelection == nil, "a manual selection survives until focus moves")
 
-    state.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = TabID(rawValue: shell)
+    state.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].selectedTabID = TabID(rawValue: shell)
     AppFeature.syncSessionSelectionToFocus(state: &state)
     #expect(state.repositories.sessionSelection == nil)
-    state.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = tab
+    state.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].selectedTabID = tab
     AppFeature.syncSessionSelectionToFocus(state: &state)
     #expect(state.repositories.sessionSelection == .session(key))
   }
@@ -766,7 +766,7 @@ struct AppFeatureSessionsTests {
     let key2 = SessionKey(harness: .pi, sessionID: "sess2")
     let surface2 = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
     let tab2 = TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!)
-    let layout = initial.terminals.layouts[id: worktree.id]!.layout
+    let layout = initial.terminals.layouts[id: worktree.id.layoutID]!.layout
     let newTabs =
       layout.panes[0].tabs + [
         TabItem(
@@ -775,8 +775,8 @@ struct AppFeatureSessionsTests {
             id: ContentID(rawValue: surface2),
             state: .terminal(TerminalContentState(workingDirectory: "/workspace"))))
       ]
-    initial.terminals.layouts[id: worktree.id]?.layout.panes[0].tabs = IdentifiedArray(uniqueElements: newTabs)
-    initial.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = tab2
+    initial.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].tabs = IdentifiedArray(uniqueElements: newTabs)
+    initial.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].selectedTabID = tab2
     let presenceKey1 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     initial.agentPresence.records[presenceKey1] = record(ref: "sess1")
     initial.agentPresence.bySurface[surface] = [.pi]
@@ -788,15 +788,15 @@ struct AppFeatureSessionsTests {
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
     initial.repositories.sessionSelection = .session(key1)
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    initial.terminals.selectedLayoutID = worktree.id
+    initial.terminals.selectedLayoutID = worktree.id.layoutID
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
       $0.date.now = .distantPast
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
-      $0.terminalClient.focusSurface = { layoutID, _, tab, surf in
+      $0.terminalClient.focusSurface = { layoutID, context, tab, surf in
         focused.withValue {
-          $0.append(SessionLocation(layoutID: layoutID, directoryID: layoutID, tabID: tab, surfaceID: surf))
+          $0.append(SessionLocation(layoutID: layoutID, directoryID: context.worktreeID, tabID: tab, surfaceID: surf))
         }
       }
     }
@@ -1069,7 +1069,7 @@ struct AppFeatureSessionsTests {
       Repository(
         id: RepositoryID("/workspace2"), rootURL: worktree2.workingDirectory, name: "workspace2",
         worktrees: [worktree2]))
-    initial.terminals.layouts.append(LayoutFeature.State(id: worktree2.id, layout: layout2))
+    initial.terminals.layouts.append(LayoutFeature.State(id: worktree2.id.layoutID, layout: layout2))
 
     let presenceKey1 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     let presenceKey2 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface2)
@@ -1127,8 +1127,8 @@ struct AppFeatureSessionsTests {
       id: Worktree.ID(focusedCwd.path(percentEncoded: false)), name: "focused", detail: "",
       workingDirectory: focusedCwd, repositoryRootURL: focusedCwd)
     var initial = state()
-    initial.terminals.selectedLayoutID = worktree.id
-    initial.terminals.layouts[id: worktree.id]?.layout.panes[0].selectedTabID = tab
+    initial.terminals.selectedLayoutID = worktree.id.layoutID
+    initial.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].selectedTabID = tab
     initial.repositories.repositories.append(
       Repository(
         id: RepositoryID(focusedCwd.path(percentEncoded: false)), rootURL: focusedCwd,
@@ -1274,7 +1274,7 @@ struct AppFeatureSessionsTests {
     let key2 = SessionKey(harness: .pi, sessionID: "next")
     let surface2 = UUID(uuidString: "00000000-0000-0000-0000-000000000099")!
     let location2 = SessionLocation(
-      layoutID: worktree.id,
+      layoutID: worktree.id.layoutID,
       directoryID: worktree.id,
       tabID: TabID(rawValue: surface2),
       surfaceID: surface2
@@ -1321,7 +1321,8 @@ struct AppFeatureSessionsTests {
       SessionLiveSnapshot(
         harness: .pi, sessionRef: "real", cwd: "/workspace",
         location: SessionLocation(
-          layoutID: worktree.id, directoryID: worktree.id, tabID: TabID(rawValue: detached), surfaceID: detached))
+          layoutID: worktree.id.layoutID, directoryID: worktree.id, tabID: TabID(rawValue: detached),
+          surfaceID: detached))
     ]
     initial.repositories.reconcileSessionItems(now: .distantPast)
     let store = TestStore(initialState: initial) {
@@ -1333,7 +1334,7 @@ struct AppFeatureSessionsTests {
     store.exhaustivity = .off
     await store.send(.repositories(.settleSessionRequested(key)))
     await store.receive(\.repositories.settleSession)
-    await store.receive(\.terminals.layouts[id: worktree.id].contentRequestedClose) {
+    await store.receive(\.terminals.layouts[id: worktree.layoutID].contentRequestedClose) {
       #expect($0.repositories.sessions[key]?.settledAt != nil)
     }
   }
@@ -1344,7 +1345,7 @@ struct AppFeatureSessionsTests {
     let key2 = SessionKey(harness: .pi, sessionID: "next")
     let surface2 = UUID(uuidString: "00000000-0000-0000-0000-000000000099")!
     let location2 = SessionLocation(
-      layoutID: worktree.id,
+      layoutID: worktree.id.layoutID,
       directoryID: worktree.id,
       tabID: TabID(rawValue: surface2),
       surfaceID: surface2
@@ -1463,11 +1464,11 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.terminalEvent(.userClosedSurfaces(layoutID: worktree.id, [surface])))
+    await store.send(.terminalEvent(.userClosedSurfaces(layoutID: worktree.id.layoutID, [surface])))
     await store.receive(\.repositories.settleSession) { appState in
       #expect(appState.repositories.sessions[key]?.settledAt == Date(timeIntervalSince1970: 100))
     }
-    await store.send(.terminalEvent(.surfacesClosed(layoutID: worktree.id, [surface])))
+    await store.send(.terminalEvent(.surfacesClosed(layoutID: worktree.id.layoutID, [surface])))
     await store.receive(\.agentPresence.surfaceClosed)
     await store.finish()
   }
@@ -1491,7 +1492,7 @@ struct AppFeatureSessionsTests {
         id: .session(second), title: "Two", cwd: "/workspace",
         createdAt: .distantPast,
         location: SessionLocation(
-          layoutID: worktree.id, directoryID: worktree.id, tabID: TabID(rawValue: shell), surfaceID: shell)
+          layoutID: worktree.id.layoutID, directoryID: worktree.id, tabID: TabID(rawValue: shell), surfaceID: shell)
       ),
     ]
     let store = TestStore(initialState: initial) {
@@ -1503,12 +1504,12 @@ struct AppFeatureSessionsTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.terminalEvent(.userClosedSurfaces(layoutID: worktree.id, [surface, shell])))
+    await store.send(.terminalEvent(.userClosedSurfaces(layoutID: worktree.id.layoutID, [surface, shell])))
     await store.receive(\.repositories.settleSession)
     await store.receive(\.repositories.settleSession)
     #expect(store.state.repositories.sessions[first]?.settledAt == Date(timeIntervalSince1970: 100))
     #expect(store.state.repositories.sessions[second]?.settledAt == Date(timeIntervalSince1970: 100))
-    await store.send(.terminalEvent(.surfacesClosed(layoutID: worktree.id, [surface, shell])))
+    await store.send(.terminalEvent(.surfacesClosed(layoutID: worktree.id.layoutID, [surface, shell])))
     await store.receive(\.agentPresence.surfacesClosed)
     await store.finish()
   }
@@ -1527,7 +1528,7 @@ struct AppFeatureSessionsTests {
       .terminals(
         .layouts(
           .element(
-            id: worktree.id,
+            id: worktree.id.layoutID,
             action: .contentRequestedClose(content: ContentID(rawValue: surface), scope: .allTabs)
           )
         )
@@ -1851,9 +1852,11 @@ struct AppFeatureSessionsTests {
     let surfaceNeeds = UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!
     let surfaceDone = UUID(uuidString: "00000000-0000-0000-0000-0000000000A2")!
     let needsLocation = SessionLocation(
-      layoutID: worktree.id, directoryID: worktree.id, tabID: TabID(rawValue: surfaceNeeds), surfaceID: surfaceNeeds)
+      layoutID: worktree.id.layoutID, directoryID: worktree.id, tabID: TabID(rawValue: surfaceNeeds),
+      surfaceID: surfaceNeeds)
     let doneLocation = SessionLocation(
-      layoutID: worktree.id, directoryID: worktree.id, tabID: TabID(rawValue: surfaceDone), surfaceID: surfaceDone)
+      layoutID: worktree.id.layoutID, directoryID: worktree.id, tabID: TabID(rawValue: surfaceDone),
+      surfaceID: surfaceDone)
     initial.repositories.sessionItems = [
       SessionSidebarItemFeature.State(
         id: .session(idle), title: "Idle", cwd: "/workspace",
@@ -1892,22 +1895,22 @@ struct AppFeatureSessionsTests {
     let next = SessionKey(harness: .pi, sessionID: "next")
     let working = SessionKey(harness: .pi, sessionID: "working")
     let firstLocation = SessionLocation(
-      layoutID: worktree.id,
+      layoutID: worktree.id.layoutID,
       directoryID: worktree.id,
       tabID: TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-0000000000B1")!),
       surfaceID: UUID(uuidString: "00000000-0000-0000-0000-0000000000B1")!)
     let idleLocation = SessionLocation(
-      layoutID: worktree.id,
+      layoutID: worktree.id.layoutID,
       directoryID: worktree.id,
       tabID: TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-0000000000B2")!),
       surfaceID: UUID(uuidString: "00000000-0000-0000-0000-0000000000B2")!)
     let nextLocation = SessionLocation(
-      layoutID: worktree.id,
+      layoutID: worktree.id.layoutID,
       directoryID: worktree.id,
       tabID: TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-0000000000B3")!),
       surfaceID: UUID(uuidString: "00000000-0000-0000-0000-0000000000B3")!)
     let workingLocation = SessionLocation(
-      layoutID: worktree.id,
+      layoutID: worktree.id.layoutID,
       directoryID: worktree.id,
       tabID: TabID(rawValue: UUID(uuidString: "00000000-0000-0000-0000-0000000000B4")!),
       surfaceID: UUID(uuidString: "00000000-0000-0000-0000-0000000000B4")!)
@@ -2123,7 +2126,7 @@ struct AppFeatureSessionsTests {
         harness: .pi, sessionRef: nil,
         cwd: tmpDir.path(percentEncoded: false),
         location: SessionLocation(
-          layoutID: worktree.id, directoryID: worktree.id, tabID: TabID(), surfaceID: surfaceID))
+          layoutID: worktree.id.layoutID, directoryID: worktree.id, tabID: TabID(), surfaceID: surfaceID))
     ]
     let store = TestStore(initialState: initial) {
       AppFeature()
@@ -2159,7 +2162,8 @@ struct AppFeatureSessionsTests {
         harness: .pi, sessionRef: nil,
         cwd: tmpDir.path(percentEncoded: false),
         location: SessionLocation(
-          layoutID: WorktreeID(tmpDir.path), directoryID: WorktreeID(tmpDir.path), tabID: TabID(), surfaceID: surfaceID)
+          layoutID: LayoutID(legacyWorktreeKey: tmpDir.path), directoryID: WorktreeID(tmpDir.path), tabID: TabID(),
+          surfaceID: surfaceID)
       )
     ]
     let sent = LockIsolated<[TerminalClient.Command]>([])
@@ -2199,7 +2203,8 @@ struct AppFeatureSessionsTests {
         harness: .pi, sessionRef: nil,
         cwd: tmpDir.path(percentEncoded: false),
         location: SessionLocation(
-          layoutID: WorktreeID(tmpDir.path), directoryID: WorktreeID(tmpDir.path), tabID: TabID(), surfaceID: surfaceID)
+          layoutID: LayoutID(legacyWorktreeKey: tmpDir.path), directoryID: WorktreeID(tmpDir.path), tabID: TabID(),
+          surfaceID: surfaceID)
       )
     ]
     let store = TestStore(initialState: initial) {
@@ -2248,7 +2253,7 @@ struct AppFeatureSessionsTests {
         harness: .pi, sessionRef: nil,
         cwd: nonstandardCwdPath,
         location: SessionLocation(
-          layoutID: worktree.id, directoryID: worktree.id, tabID: TabID(), surfaceID: surfaceID))
+          layoutID: worktree.id.layoutID, directoryID: worktree.id, tabID: TabID(), surfaceID: surfaceID))
     ]
     let store = TestStore(initialState: initial) {
       AppFeature()
@@ -2336,9 +2341,9 @@ struct AppFeatureSessionsTests {
         return nil
       }
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
-      $0.terminalClient.focusSurface = { targetLayoutID, _, targetTab, surf in
+      $0.terminalClient.focusSurface = { targetLayoutID, context, targetTab, surf in
         let loc = SessionLocation(
-          layoutID: targetLayoutID, directoryID: targetLayoutID, tabID: targetTab, surfaceID: surf)
+          layoutID: targetLayoutID, directoryID: context.worktreeID, tabID: targetTab, surfaceID: surf)
         focused.withValue { $0.append(loc) }
       }
     }
@@ -2350,7 +2355,8 @@ struct AppFeatureSessionsTests {
     let snapshot = SessionLiveSnapshot(
       harness: .pi, sessionRef: "arrives-during-probe",
       cwd: tmpDir.path(percentEncoded: false),
-      location: SessionLocation(layoutID: worktreeA.id, directoryID: worktreeA.id, tabID: TabID(), surfaceID: surfaceID)
+      location: SessionLocation(
+        layoutID: worktreeA.id.layoutID, directoryID: worktreeA.id, tabID: TabID(), surfaceID: surfaceID)
     )
     await store.send(.repositories(.sessionSnapshotsChanged([snapshot])))
     #expect(store.state.repositories.sessionItems[id: .session(key)]?.location != nil)
@@ -2399,9 +2405,9 @@ struct AppFeatureSessionsTests {
       $0.continuousClock = ImmediateClock()
       $0[GitClientDependency.self].branchName = { _ in "new-branch" }
       $0.terminalClient.send = { cmd in sent.withValue { $0.append(cmd) } }
-      $0.terminalClient.focusSurface = { targetLayoutID, _, targetTab, surf in
+      $0.terminalClient.focusSurface = { targetLayoutID, context, targetTab, surf in
         let loc = SessionLocation(
-          layoutID: targetLayoutID, directoryID: targetLayoutID, tabID: targetTab, surfaceID: surf)
+          layoutID: targetLayoutID, directoryID: context.worktreeID, tabID: targetTab, surfaceID: surf)
         focused.withValue { $0.append(loc) }
       }
     }
@@ -2416,7 +2422,8 @@ struct AppFeatureSessionsTests {
     let snapshot = SessionLiveSnapshot(
       harness: .pi, sessionRef: "arrives-during-alert",
       cwd: tmpDir.path(percentEncoded: false),
-      location: SessionLocation(layoutID: worktreeB.id, directoryID: worktreeB.id, tabID: TabID(), surfaceID: surfaceID)
+      location: SessionLocation(
+        layoutID: worktreeB.id.layoutID, directoryID: worktreeB.id, tabID: TabID(), surfaceID: surfaceID)
     )
     await store.send(.repositories(.sessionSnapshotsChanged([snapshot])))
     await store.send(.alert(.presented(.confirmBranchMismatchResume))) { appState in
