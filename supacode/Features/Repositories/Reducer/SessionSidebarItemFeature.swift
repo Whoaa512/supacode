@@ -54,7 +54,7 @@ nonisolated struct SessionLiveSnapshot: Equatable, Sendable {
   }
 }
 
-/// A task that holds tabs but no live agent, so no session row leads to it.
+/// A task that holds tabs. It becomes a row only when no session row leads to it.
 nonisolated struct TaskLiveSnapshot: Equatable, Sendable {
   var title: String
   var cwd: String

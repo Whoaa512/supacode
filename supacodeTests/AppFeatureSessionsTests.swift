@@ -2618,8 +2618,7 @@ struct AppFeatureSessionsTests {
     var state = state
     let snapshots = AppFeature.sessionSnapshots(state: state)
     state.repositories.sessionSnapshots = snapshots
-    state.repositories.taskSnapshots = AppFeature.taskSnapshots(
-      tasks: AppFeature.taskEntries(state: state), sessionSnapshots: snapshots)
+    state.repositories.taskSnapshots = AppFeature.taskSnapshots(tasks: AppFeature.taskEntries(state: state))
     state.repositories.reconcileSessionItems(now: .distantPast)
     state.repositories.recomputeSessionsSidebarStructureIfChanged()
     return state
@@ -2667,26 +2666,83 @@ struct AppFeatureSessionsTests {
     return store
   }
 
-  @Test func taskWithoutALiveAgentGetsATaskRowTitledByItsDirectory() {
-    let state = sixTasksOnTwoDirectories()
-    let snapshots = AppFeature.sessionSnapshots(state: state)
+  @Test(.dependencies) func taskWithoutALiveAgentGetsATaskRowTitledByItsDirectory() {
+    let state = withRows(sixTasksOnTwoDirectories())
 
-    let tasks = AppFeature.taskSnapshots(tasks: AppFeature.taskEntries(state: state), sessionSnapshots: snapshots)
+    let tasks = [worktree.id.layoutID, third, fourth].compactMap { state.repositories.sessionItems[id: .task($0)] }
+    let taskRowIDs = state.repositories.sessionItems.ids.filter {
+      if case .task = $0 { return true }
+      return false
+    }
 
-    #expect(tasks.map(\.id) == [.task(worktree.id.layoutID), .task(third), .task(fourth)])
+    #expect(Set(taskRowIDs) == [.task(worktree.id.layoutID), .task(third), .task(fourth)])
     #expect(tasks.map(\.title) == ["workspace", "workspace", "other"])
     #expect(tasks.map(\.cwd) == ["/workspace", "/workspace", "/other"])
-    #expect(tasks.map(\.location.directoryID) == [worktree.id, worktree.id, otherWorktree.id])
-    #expect(tasks.map(\.createdAt) == [nil, nil, Date(timeIntervalSince1970: 7)])
-    #expect(tasks[0].location.surfaceID == surface, "anchored on the task's first tab, whatever is focused")
-    #expect(tasks[2].location.surfaceID == fourthSurface)
+    #expect(tasks.map(\.location?.directoryID) == [worktree.id, worktree.id, otherWorktree.id])
+    #expect(tasks.map(\.createdAt) == [.distantPast, .distantPast, Date(timeIntervalSince1970: 7)])
+    #expect(tasks[0].location?.surfaceID == surface, "anchored on the task's first tab, whatever is focused")
+    #expect(tasks[2].location?.surfaceID == fourthSurface)
+  }
+
+  /// Two tasks reporting one session identity share a single session row,
+  /// which leads to only one of them: the other still needs a row of its own.
+  private func twoTasksReportingTheSameSession() -> AppFeature.State {
+    var state = sixTasksOnTwoDirectories()
+    state.agentPresence.records[.init(agent: .pi, surfaceID: fifthSurface)] = record(ref: "one")
+    return state
+  }
+
+  @Test(.dependencies) func tasksSharingASessionIdentityAreBothTheTargetOfARow() {
+    let state = withRows(twoTasksReportingTheSameSession())
+    let rows = state.repositories.sessionItems
+    let shared = rows[id: .session(SessionKey(harness: .pi, sessionID: "one"))]?.location?.layoutID
+
+    #expect(Set(rows.compactMap(\.location?.layoutID)) == allSixLayouts)
+    #expect(rows.count == 6, "one row per task: no task is listed twice")
+    #expect(shared == first || shared == fifth)
+    #expect(rows[id: .task(shared == first ? fifth : first)] != nil)
+    #expect(rows[id: .task(shared == first ? first : fifth)] == nil)
+  }
+
+  @Test(.dependencies, arguments: [1, -1])
+  func cyclingVisitsBothTasksSharingASessionIdentity(offset: Int) async {
+    let initial = withRows(twoTasksReportingTheSameSession())
+    @Shared(.sidebarTab) var tab
+    $tab.withLock { $0 = SidebarTab.sessions.rawValue }
+    let rowIDs = initial.repositories.sessionsSidebarStructure.liveIDs
+    #expect(rowIDs.count == 6)
+    let recorded = Recorded()
+    let store = taskStore(initial, recorded: recorded)
+
+    for _ in rowIDs {
+      await store.send(.repositories(offset > 0 ? .selectNextWorktree : .selectPreviousWorktree))
+      await store.finish()
+      await store.skipReceivedActions(strict: false)
+      await store.skipReceivedActions(strict: false)
+    }
+
+    #expect(Set(recorded.selectedLayouts) == allSixLayouts)
+    #expect(!recorded.mintedOrResumed)
+    #expect(store.state.pendingSessionLaunch == nil)
+  }
+
+  @Test(.dependencies) func focusInTheTaskASharedSessionRowDoesNotLeadToHighlightsItsTaskRow() {
+    var state = withRows(twoTasksReportingTheSameSession())
+    let sessionRow = SessionRowID.session(SessionKey(harness: .pi, sessionID: "one"))
+    let reached = state.repositories.sessionItems[id: sessionRow]?.location?.layoutID
+    let other = reached == first ? fifth : first
+
+    state.terminals.selectedLayoutID = other
+    #expect(AppFeature.focusedSessionRowID(state: state) == .task(other))
+    state.terminals.selectedLayoutID = reached
+    #expect(AppFeature.focusedSessionRowID(state: state) == sessionRow)
   }
 
   @Test func emptyTaskGetsNoRow() {
     var state = state()
     state.terminals.layouts[id: worktree.id.layoutID]?.layout.panes[0].tabs = []
 
-    #expect(AppFeature.taskSnapshots(tasks: AppFeature.taskEntries(state: state), sessionSnapshots: []).isEmpty)
+    #expect(AppFeature.taskSnapshots(tasks: AppFeature.taskEntries(state: state)).isEmpty)
   }
 
   @Test func orphanTaskIsListedAsATaskRow() {

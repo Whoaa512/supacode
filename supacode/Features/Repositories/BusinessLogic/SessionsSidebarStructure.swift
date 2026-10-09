@@ -166,7 +166,9 @@ extension RepositoriesFeature.State {
       }
       if sessionSelection == provisionalID, id != provisionalID { sessionSelection = id }
     }
-    for task in taskSnapshots where indexByID[task.id] == nil {
+    // A task gets its own row only when no session row leads to it.
+    let reached = Set(drafts.compactMap(\.location?.layoutID))
+    for task in taskSnapshots where indexByID[task.id] == nil && !reached.contains(task.location.layoutID) {
       append(
         SessionRowDraft(
           id: task.id, title: task.title, cwd: task.cwd,

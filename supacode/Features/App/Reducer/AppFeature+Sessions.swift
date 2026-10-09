@@ -43,14 +43,19 @@ extension AppFeature {
 
   static func focusedSessionRowID(state: State) -> SessionRowID? {
     guard let surfaceID = focusedSurfaceID(state: state) else { return nil }
+    let layoutID = state.terminals.selectedLayoutID
+    let taskRow = layoutID.flatMap { state.repositories.sessionItems[id: .task($0)]?.id }
     if let id = state.repositories.sessionSnapshots.first(where: { $0.location.surfaceID == surfaceID })?.id {
+      // A session two tasks report has one row, and it leads to the other task.
+      if let taskRow, let location = state.repositories.sessionItems[id: id]?.location,
+        location.layoutID != layoutID
+      {
+        return taskRow
+      }
       return id
     }
     // No agent on the focused surface: the row is the task's own, when it has one.
-    guard let layoutID = state.terminals.selectedLayoutID,
-      state.repositories.sessionItems[id: .task(layoutID)] != nil
-    else { return nil }
-    return .task(layoutID)
+    return taskRow
   }
 
   /// The directory facts for a task: the roster worktree's, else what the task
@@ -118,7 +123,7 @@ extension AppFeature {
         let snapshots = Self.sessionSnapshots(state: state, index: index)
         return .concatenate(
           .send(.repositories(.sessionSnapshotsChanged(snapshots))),
-          .send(.repositories(.taskSnapshotsChanged(Self.taskSnapshots(tasks: tasks, sessionSnapshots: snapshots)))),
+          .send(.repositories(.taskSnapshotsChanged(Self.taskSnapshots(tasks: tasks)))),
           .send(
             .repositories(
               .sessionsRestorationCompleted(
@@ -146,7 +151,7 @@ extension AppFeature {
         if snapshots != state.repositories.sessionSnapshots {
           effects.append(.send(.repositories(.sessionSnapshotsChanged(snapshots))))
         }
-        let taskRows = Self.taskSnapshots(tasks: tasks, sessionSnapshots: snapshots)
+        let taskRows = Self.taskSnapshots(tasks: tasks)
         if taskRows != state.repositories.taskSnapshots {
           effects.append(.send(.repositories(.taskSnapshotsChanged(taskRows))))
         }
@@ -713,14 +718,12 @@ extension AppFeature {
     return entries
   }
 
-  /// A row for every task that holds tabs and has no live agent: nothing else
-  /// in the sidebar would lead to it. Decided by the agents present, not by the
-  /// record's `sessions`, so a task whose agents have all quit stays reachable.
-  static func taskSnapshots(tasks: [TaskEntry], sessionSnapshots: [SessionLiveSnapshot]) -> [TaskLiveSnapshot] {
-    let occupied = Set(sessionSnapshots.map(\.location.layoutID))
+  /// A candidate row for every task that holds tabs. The reconcile pass keeps
+  /// one only where no session row leads to the task: two tasks reporting one
+  /// session share a single session row, so "has a live agent" is not enough.
+  static func taskSnapshots(tasks: [TaskEntry]) -> [TaskLiveSnapshot] {
     return tasks.compactMap { task in
-      guard !occupied.contains(task.layoutID), let tab = task.layout.panes.lazy.compactMap(\.tabs.first).first
-      else { return nil }
+      guard let tab = task.layout.panes.lazy.compactMap(\.tabs.first).first else { return nil }
       let name = URL(fileURLWithPath: task.directoryPath).lastPathComponent
       return TaskLiveSnapshot(
         title: name.isEmpty ? task.directoryPath : name, cwd: task.directoryPath, createdAt: task.createdAt,
