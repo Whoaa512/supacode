@@ -3580,3 +3580,20 @@ deviation.
   `AppFeatureCommandPaletteTests` + `TerminalsFeatureTransferTests` exit 0
   (151 tests, 0 failed); build-app 0; full `make test` exit 2 with 4560
   tests and only the 5 known failures.
+- M3 r2, 2026-10-10. Review of `6e195190` found one P1, held: the palette's
+  `.mergeTask` / `.detachFocusedTab` activation branches
+  (`delegateAction(for:)`) had no reducer test; the one M3 palette test
+  checks `taskTransferItems(from:)` only, and `AppFeatureCommandPaletteTests`
+  injects the delegate directly. Brief §5 test 35 needs activation itself.
+  Fix: `CommandPaletteFeatureTests` +2 (`activateMergeTaskDispatchesDelegate`,
+  `activateDetachFocusedTabDispatchesDelegate`), each sending `.activateItem`
+  through a `TestStore` and asserting dismissal (`isPresented`, `query`,
+  `selectedIndex`), the recency stamp and the exact delegate. Coverage-only
+  (the reducer was right), so no red run. Correction to the M3 Progress line
+  above: test 35 is covered by these two, not by the earlier
+  `CommandPaletteFeatureTests` +1, which is tests 33–34. Sibling checked:
+  the sidebar's merge/detach path reaches `AppFeature` through actions
+  already exercised by `AppFeatureTaskTransferTests`, nothing more to add.
+  Gate (final tree): check 0; `CommandPaletteFeatureTests` exit 0 (121
+  tests, 0 failed); full `make test` exit 2 with 4562 tests and only the 5
+  known failures; build-app 0.

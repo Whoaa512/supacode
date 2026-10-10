@@ -1364,6 +1364,60 @@ struct CommandPaletteFeatureTests {
     await store.receive(.delegate(.ghosttyCommand("goto_split:right")))
   }
 
+  @Test func activateMergeTaskDispatchesDelegate() async {
+    let now = Date(timeIntervalSince1970: 7_654_322)
+    let source = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000B1")!)
+    let target = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000B2")!)
+    let item = CommandPaletteItem(
+      id: "task.\(target.persistenceKey).merge-into",
+      title: "Merge Task into: Other",
+      subtitle: nil,
+      kind: .mergeTask(source, into: target)
+    )
+    var state = CommandPaletteFeature.State()
+    state.isPresented = true
+    state.query = "merge"
+    state.selectedIndex = 0
+    let store = TestStore(initialState: state) {
+      CommandPaletteFeature()
+    }
+    store.dependencies.date = .constant(now)
+
+    await store.send(.activateItem(item)) {
+      $0.isPresented = false
+      $0.query = ""
+      $0.selectedIndex = nil
+      $0.recencyByItemID[item.id] = now.timeIntervalSince1970
+    }
+    await store.receive(.delegate(.mergeTask(source, into: target)))
+  }
+
+  @Test func activateDetachFocusedTabDispatchesDelegate() async {
+    let now = Date(timeIntervalSince1970: 7_654_323)
+    let item = CommandPaletteItem(
+      id: "task.detach-focused-tab",
+      title: "Detach Tab into New Task",
+      subtitle: nil,
+      kind: .detachFocusedTab
+    )
+    var state = CommandPaletteFeature.State()
+    state.isPresented = true
+    state.query = "detach"
+    state.selectedIndex = 0
+    let store = TestStore(initialState: state) {
+      CommandPaletteFeature()
+    }
+    store.dependencies.date = .constant(now)
+
+    await store.send(.activateItem(item)) {
+      $0.isPresented = false
+      $0.query = ""
+      $0.selectedIndex = nil
+      $0.recencyByItemID[item.id] = now.timeIntervalSince1970
+    }
+    await store.receive(.delegate(.detachFocusedTab))
+  }
+
   @Test func updateSelection_usesDefaultIndexWhenNoSelection() async {
     let store = TestStore(initialState: CommandPaletteFeature.State()) {
       CommandPaletteFeature()
