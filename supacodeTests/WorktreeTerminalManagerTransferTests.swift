@@ -5,6 +5,7 @@ import Dependencies
 import DependenciesTestSupport
 import Foundation
 import IdentifiedCollections
+import OrderedCollections
 import Sharing
 import SupacodeSettingsFeature
 import SupacodeSettingsShared
@@ -1445,6 +1446,98 @@ struct WorktreeTerminalManagerTransferTests {
     ).finish()
     let closing = await harness.events.collect { if case .surfacesClosed = $0 { true } else { false } }
     #expect(closing.contains(.surfacesClosed(layoutID: destination, [dormant])))
+  }
+
+  // MARK: - A new task's first tab is decided when the launch lands.
+
+  enum DirectoryChange: CaseIterable {
+    case archived, deleting, removed
+  }
+
+  /// The roster changes after the launch was accepted, before it lands.
+  private func change(_ change: DirectoryChange, in harness: Harness) async {
+    let directory = Self.directory
+    switch change {
+    case .archived:
+      let repoID = RepositoryID(directory.repositoryRootURL.path)
+      harness.store.withState { $0.repositories.$sidebar }.withLock { sidebar in
+        sidebar.sections[repoID] = .init(buckets: [.archived: .init(items: [directory.id: .init()])])
+      }
+      #expect(harness.store.withState { $0.repositories.isWorktreeArchived(directory.id) })
+    case .deleting:
+      await harness.store.send(
+        .repositories(.sidebarItems(.element(id: directory.id, action: .lifecycleChanged(.deleting))))
+      ).finish()
+      #expect(harness.store.withState { $0.repositories.sidebarItems[id: directory.id]?.lifecycle } == .deleting)
+    case .removed:
+      await harness.store.send(
+        .repositories(.repositoriesLoaded([], failures: [], roots: [], animated: false))
+      ).finish()
+      #expect(harness.store.withState { $0.repositories.worktree(for: directory.id) } == nil)
+    }
+  }
+
+  private static func isTaskLaunch(_ command: TerminalClient.Command) -> Bool {
+    if case .createTaskTab = command { return true }
+    return false
+  }
+
+  /// The picker accepted a live directory; by the time its first tab lands
+  /// the directory is archived, winding down or gone from the roster. The
+  /// launch carried the directory's identity only, and the manager decides
+  /// now: no host, no layout, no tab, nothing selected, nothing stored.
+  @Test(.dependencies, arguments: DirectoryChange.allCases, [NewTaskKind.agent, .shell])
+  func aLaunchLandingAfterItsDirectoryChangedCreatesNothing(change: DirectoryChange, kind: NewTaskKind) async {
+    let harness = await makeHarness { state in
+      Self.listDirectory(&state)
+      state.repositories.reconcileSidebarForTesting()
+    }
+    await harness.store.send(.newTask(inDirectory: Self.directory.id, kind: kind)).finish()
+    let queued = harness.recorder.queuedCommands.value
+    #expect(queued.count(where: Self.isTaskLaunch) == 1, "the launch is in flight: \(queued)")
+    guard case .createTaskTab(let minted, let directoryID, let input, _)? = queued.first(where: Self.isTaskLaunch)
+    else { return }
+    #expect(directoryID == Self.directory.id)
+    #expect(input == (kind == .agent ? "pi" : nil))
+
+    await self.change(change, in: harness)
+    deliverQueuedCommands(in: harness)
+    let after = await harness.events.collect(until: Self.createsATab)
+
+    #expect(harness.manager.hostIfExists(for: minted) == nil, "no host for a task on a dead directory")
+    #expect(harness.terminals.layouts[id: minted] == nil, "no layout attached")
+    #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
+    #expect(harness.manager.selectedLayoutID != minted)
+    #expect(harness.store.withState(\.repositories.selectedTaskID) != minted)
+    #expect(harness.store.withState(\.terminals.selectedLayoutID) != minted)
+    let stored = await settledStore(harness)
+    #expect(stored.tasks[minted.persistenceKey] == nil, "nothing persisted for the task")
+    #expect(stored.activeTasks[Self.directory.id.rawValue] != minted.persistenceKey)
+  }
+
+  /// The same launch on a directory still live: one tab, in the minted
+  /// task, from the roster's current directory.
+  @Test(.dependencies, arguments: [NewTaskKind.agent, .shell])
+  func aLaunchLandingOnALiveDirectoryCreatesItsOneTab(kind: NewTaskKind) async {
+    let harness = await makeHarness { state in
+      Self.listDirectory(&state)
+      state.repositories.reconcileSidebarForTesting()
+    }
+    await harness.store.send(.newTask(inDirectory: Self.directory.id, kind: kind)).finish()
+    guard
+      case .createTaskTab(let minted, _, _, _)? = harness.recorder.queuedCommands.value.first(where: Self.isTaskLaunch)
+    else {
+      Issue.record("no launch queued")
+      return
+    }
+
+    deliverQueuedCommands(in: harness)
+    let after = await harness.events.collect(until: Self.createsATab)
+
+    #expect(after.count(where: Self.createsATab) == 1, "exactly one tab: \(after)")
+    #expect(harness.tabIDs(minted).count == 1)
+    #expect(harness.manager.hostIfExists(for: minted) != nil)
+    #expect(harness.terminals.directories[minted]?.worktreeID == Self.directory.id)
   }
 
   // MARK: - Live surfaces.

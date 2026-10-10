@@ -357,6 +357,19 @@ final class WorktreeTerminalManager {
     }
   }
 
+  /// Decided here, in the turn the command lands, not when the directory was
+  /// picked: the roster is read again and a directory archived, removed,
+  /// missing or winding down since gets nothing, no host, layout or tab. No
+  /// further hop follows, so nothing can change between this check and the
+  /// creation. With no store to ask, nothing is created.
+  private func createTaskTab(in layoutID: LayoutID, directoryID: Worktree.ID, input: String?, focusing: Bool) {
+    guard let context = appStore?.withState({ AppFeature.launchDirectory(directoryID, state: $0) }) else {
+      terminalLogger.info("createTaskTab: directory \(directoryID.rawValue) is not live any more; nothing created.")
+      return
+    }
+    createTabAsync(in: layoutID, context: context, runSetupScriptIfNew: false, initialInput: input, focusing: focusing)
+  }
+
   // swiftlint:disable:next cyclomatic_complexity
   private func handleTabCommand(_ command: TerminalClient.Command) -> Bool {
     switch command {
@@ -370,6 +383,8 @@ final class WorktreeTerminalManager {
       scheduleTabCreation(
         in: layoutID, context: context, runSetupScriptIfNew: runSetupScriptIfNew, input: input,
         tabID: id, customTitle: title, focusing: focusing, anchor: anchor)
+    case .createTaskTab(let layoutID, let directoryID, let input, let focusing):
+      createTaskTab(in: layoutID, directoryID: directoryID, input: input, focusing: focusing)
     case .openFileWithScript(let layoutID, let context, let input):
       openFileWithScript(in: layoutID, context: context, input: input)
     case .ensureInitialTab(let layoutID, let context, let runSetupScriptIfNew, let focusing):
@@ -519,7 +534,8 @@ final class WorktreeTerminalManager {
       host(for: layoutID, context: context).navigateSearchOnFocusedSurface(.next)
     case .navigateSearchPrevious(let layoutID, let context):
       host(for: layoutID, context: context).navigateSearchOnFocusedSurface(.previous)
-    case .createTab, .createTabWithInput, .openFileWithScript, .ensureInitialTab, .showTask, .stopRunScript,
+    case .createTab, .createTabWithInput, .createTaskTab, .openFileWithScript, .ensureInitialTab, .showTask,
+      .stopRunScript,
       .stopScript,
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .performBindingAction,
       .performBindingActionOnSurface, .selectTab, .selectTabAtIndex, .selectRelativeTab, .focusSurface, .splitSurface,
@@ -571,7 +587,8 @@ final class WorktreeTerminalManager {
       host(for: layoutID, context: context).performBindingAction(action, onSurfaceID: surfaceID)
     case .setImagePasteAgents(let surfaceID, let agents):
       setImagePasteAgents(agents, onSurfaceID: surfaceID)
-    case .createTab, .createTabWithInput, .openFileWithScript, .ensureInitialTab, .showTask, .stopRunScript,
+    case .createTab, .createTabWithInput, .createTaskTab, .openFileWithScript, .ensureInitialTab, .showTask,
+      .stopRunScript,
       .stopScript,
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .startSearch, .searchSelection,
       .navigateSearchNext, .navigateSearchPrevious, .selectTab, .selectTabAtIndex, .selectRelativeTab,
@@ -624,7 +641,8 @@ final class WorktreeTerminalManager {
       selectLayout(id)
     case .selectLayout(let id, let directoryID):
       selectLayout(selection(id, forDirectory: directoryID))
-    case .createTab, .createTabWithInput, .openFileWithScript, .ensureInitialTab, .showTask, .stopRunScript,
+    case .createTab, .createTabWithInput, .createTaskTab, .openFileWithScript, .ensureInitialTab, .showTask,
+      .stopRunScript,
       .stopScript,
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .performBindingAction,
       .performBindingActionOnSurface, .setImagePasteAgents, .startSearch, .searchSelection, .navigateSearchNext,

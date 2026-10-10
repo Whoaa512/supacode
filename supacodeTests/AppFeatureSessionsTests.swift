@@ -386,6 +386,7 @@ struct AppFeatureSessionsTests {
 
     let createInputs = sent.value.compactMap { cmd -> String? in
       if case .createTabWithInput(_, _, let input, _, _, _, _, _) = cmd { return input }
+      if case .createTaskTab(_, _, let input?, _) = cmd { return input }
       return nil
     }
     #expect(createInputs == ["pi --session piSess1"])
@@ -393,6 +394,7 @@ struct AppFeatureSessionsTests {
       if case .createTabWithInput(_, _, _, let setup, _, _, let focusing, _) = cmd {
         return (setup, focusing)
       }
+      if case .createTaskTab(_, _, _, let focusing) = cmd { return (false, focusing) }
       return nil
     }
     #expect(createFlags.count == 1)
@@ -487,6 +489,7 @@ struct AppFeatureSessionsTests {
       }
       $0.terminalClient.send = { command in
         if case .createTabWithInput = command { sent.withValue { $0.append(command) } }
+        if case .createTaskTab = command { sent.withValue { $0.append(command) } }
       }
     }
     store.exhaustivity = .off
@@ -607,6 +610,7 @@ struct AppFeatureSessionsTests {
     #expect(
       !sent.value.contains {
         if case .createTabWithInput = $0 { return true }
+        if case .createTaskTab = $0 { return true }
         return false
       })
     #expect(focused.value == [initial.repositories.sessionItems[id: .implicit(key2)]!.location!])
@@ -663,6 +667,7 @@ struct AppFeatureSessionsTests {
     #expect(
       !sent.value.contains {
         if case .createTabWithInput = $0 { return true }
+        if case .createTaskTab = $0 { return true }
         return false
       })
     #expect(focused.value == [initial.repositories.sessionItems[id: .implicit(key2)]!.location!])
@@ -718,6 +723,7 @@ struct AppFeatureSessionsTests {
     #expect(
       !sent.value.contains {
         if case .createTabWithInput = $0 { return true }
+        if case .createTaskTab = $0 { return true }
         return false
       })
     #expect(focused.value == [initial.repositories.sessionItems[id: .implicit(key2)]!.location!])
@@ -821,6 +827,7 @@ struct AppFeatureSessionsTests {
     #expect(
       !sent.value.contains {
         if case .createTabWithInput = $0 { return true }
+        if case .createTaskTab = $0 { return true }
         return false
       })
     #expect(focused.value == [initial.repositories.sessionItems[id: .implicit(key1)]!.location!])
@@ -890,6 +897,7 @@ struct AppFeatureSessionsTests {
 
     let tabInputs = sent.value.compactMap { cmd -> String? in
       if case .createTabWithInput(_, _, let input, _, _, _, _, _) = cmd { return input }
+      if case .createTaskTab(_, _, let input?, _) = cmd { return input }
       return nil
     }
     #expect(tabInputs == ["pi --session piSess2"])
@@ -934,6 +942,7 @@ struct AppFeatureSessionsTests {
 
     let created = sent.value.compactMap { cmd -> String? in
       if case .createTabWithInput(_, _, let input, _, _, _, _, _) = cmd { return input }
+      if case .createTaskTab(_, _, let input?, _) = cmd { return input }
       return nil
     }
     #expect(created == ["pi --session piSess3"])
@@ -1162,6 +1171,7 @@ struct AppFeatureSessionsTests {
 
     let input = sent.value.compactMap { command -> String? in
       if case .createTabWithInput(_, _, let input, _, _, _, _, _) = command { return input }
+      if case .createTaskTab(_, _, let input?, _) = command { return input }
       return nil
     }
     #expect(input == ["pi"])
@@ -1202,12 +1212,12 @@ struct AppFeatureSessionsTests {
     await store.finish()
     #expect(store.state.repositories.openPanelPurpose == .openRepository)
     #expect(sent.value.count == 1)
-    guard case .createTabWithInput(_, let context, let input, _, _, _, _, _) = sent.value[0]
+    guard case .createTaskTab(_, let directoryID, let input, _) = sent.value[0]
     else {
       Issue.record("Expected exactly one session launch")
       return
     }
-    #expect(context.workingDirectory == cwd)
+    #expect(directoryID == pickedWorktree.id)
     #expect(input == "pi")
   }
 
@@ -2032,6 +2042,7 @@ struct AppFeatureSessionsTests {
       $0.date.now = Date(timeIntervalSince1970: 1_015)  // 15 s after — cooldown expired
       $0.terminalClient.send = { cmd in
         if case .createTabWithInput = cmd { sent.withValue { $0.append(cmd) } }
+        if case .createTaskTab = cmd { sent.withValue { $0.append(cmd) } }
       }
     }
     store.exhaustivity = .off
@@ -2335,6 +2346,7 @@ struct AppFeatureSessionsTests {
     #expect(
       !sent.value.contains {
         if case .createTabWithInput = $0 { return true }
+        if case .createTaskTab = $0 { return true }
         return false
       })
   }
@@ -2399,6 +2411,7 @@ struct AppFeatureSessionsTests {
     #expect(
       !sent.value.contains {
         if case .createTabWithInput = $0 { return true }
+        if case .createTaskTab = $0 { return true }
         return false
       })
   }
@@ -2837,7 +2850,7 @@ struct AppFeatureSessionsTests {
     var mintedOrResumed: Bool {
       commands.value.contains {
         switch $0 {
-        case .createTab, .createTabWithInput: true
+        case .createTab, .createTabWithInput, .createTaskTab: true
         default: false
         }
       }
@@ -3622,8 +3635,14 @@ struct AppFeatureSessionsTests {
 
   private func launches(_ recorded: Recorded) -> [Launch] {
     recorded.commands.value.compactMap { command in
-      guard case .createTabWithInput(let layoutID, let context, let input, _, _, _, _, _) = command else { return nil }
-      return Launch(layoutID: layoutID, directory: context.worktreeID, input: input)
+      switch command {
+      case .createTabWithInput(let layoutID, let context, let input, _, _, _, _, _):
+        return Launch(layoutID: layoutID, directory: context.worktreeID, input: input)
+      case .createTaskTab(let layoutID, let directoryID, let input?, _):
+        return Launch(layoutID: layoutID, directory: directoryID, input: input)
+      default:
+        return nil
+      }
     }
   }
 
@@ -3953,15 +3972,14 @@ struct AppFeatureSessionsTests {
     await store.receive(\.launchSessionCompleted)
     await store.finish()
 
-    let contexts = recorded.commands.value.compactMap { command -> DirectoryContext? in
-      guard case .createTabWithInput(_, let context, _, _, _, _, _, _) = command else { return nil }
-      return context
-    }
+    // The command carries the directory's identity; the host is resolved
+    // from it when the command lands.
+    let resolved = AppFeature.launchDirectory(remoteID, state: store.state)
     #expect(launches(recorded).map(\.input) == ["pi"])
     #expect(launches(recorded).first?.layoutID != first)
-    #expect(contexts.map(\.worktreeID) == [remoteID])
-    #expect(contexts.map(\.host) == [host])
-    #expect(contexts.map { $0.workingDirectory.path(percentEncoded: false) } == ["/srv/app"])
+    #expect(launches(recorded).map(\.directory) == [remoteID])
+    #expect(resolved?.host == host)
+    #expect(resolved?.workingDirectory.path(percentEncoded: false) == "/srv/app")
     #expect(store.state.pendingSessionLaunch == nil)
   }
 
@@ -4908,16 +4926,13 @@ struct AppFeatureSessionsTests {
     await store.receive(\.launchSessionCompleted)
     await store.finish()
 
-    let contexts = recorded.commands.value.compactMap { command -> DirectoryContext? in
-      guard case .createTabWithInput(_, let context, _, _, _, _, _, _) = command else { return nil }
-      return context
-    }
+    let resolved = AppFeature.launchDirectory(remote.id, state: store.state)
     #expect(launches(recorded).map(\.input) == ["pi"])
     #expect(launches(recorded).map(\.layoutID) == [LayoutID(task: UUID(1))], "a fresh task, not the selected one")
-    #expect(contexts == [DirectoryContext(worktree: remote)])
-    #expect(contexts.map(\.host) == [host])
-    #expect(contexts.map(\.worktreeID) == [remote.id])
-    #expect(contexts.map { $0.workingDirectory.path(percentEncoded: false) } == ["/srv/app"])
+    #expect(launches(recorded).map(\.directory) == [remote.id])
+    #expect(resolved == DirectoryContext(worktree: remote))
+    #expect(resolved?.host == host)
+    #expect(resolved?.workingDirectory.path(percentEncoded: false) == "/srv/app")
     #expect(
       store.state.pendingTaskLaunches == [PendingTaskLaunch(layoutID: LayoutID(task: UUID(1)), directoryID: remote.id)])
   }
@@ -4962,9 +4977,15 @@ struct AppFeatureSessionsTests {
 
   private func shellLaunches(_ recorded: Recorded) -> [ShellLaunch] {
     recorded.commands.value.compactMap { command in
-      guard case .createTab(let layoutID, let context, let runsSetupScript, _, _, _, _) = command else { return nil }
-      return ShellLaunch(
-        layoutID: layoutID, directory: context.worktreeID, host: context.host, runsSetupScript: runsSetupScript)
+      switch command {
+      case .createTab(let layoutID, let context, let runsSetupScript, _, _, _, _):
+        return ShellLaunch(
+          layoutID: layoutID, directory: context.worktreeID, host: context.host, runsSetupScript: runsSetupScript)
+      case .createTaskTab(let layoutID, let directoryID, nil, _):
+        return ShellLaunch(layoutID: layoutID, directory: directoryID, host: nil, runsSetupScript: false)
+      default:
+        return nil
+      }
     }
   }
 
@@ -5053,7 +5074,7 @@ struct AppFeatureSessionsTests {
     case .shell:
       let launch = try #require(shellLaunches(recorded).first)
       #expect(launch.directory == remote.id)
-      #expect(launch.host == remote.host)
+      #expect(AppFeature.launchDirectory(remote.id, state: store.state)?.host == remote.host)
     }
     #expect(
       store.state.pendingTaskLaunches == [PendingTaskLaunch(layoutID: LayoutID(task: UUID(1)), directoryID: remote.id)])
@@ -5169,6 +5190,96 @@ struct AppFeatureSessionsTests {
     #expect(recorded.commands.value.isEmpty)
     #expect(store.state.pendingSessionLaunch == nil)
     #expect(store.state.pendingTaskLaunches.isEmpty)
+  }
+
+  /// The path route (typed path, Tab into a known row, "Choose Folder…")
+  /// ends on the same roster entry as a known row and takes its rule: a
+  /// registered directory archived or winding down is refused here too.
+  @Test(.dependencies, arguments: [GoneCase.archived, .deleting], [NewTaskKind.agent, .shell])
+  func pathRouteRefusesARegisteredDirectoryThatIsArchivedOrTerminating(gone: GoneCase, kind: NewTaskKind)
+    async throws
+  {
+    let directory = try temporaryDirectory(named: "picker-path-\(gone)")
+    var (initial, onDisk) = stateOnDisk(directory)
+    Self.makeGone(gone, directory: onDisk, state: &initial)
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newSessionDirectorySelected(directory, kind: kind))
+    await store.finish()
+
+    #expect(recorded.commands.value.isEmpty)
+    #expect(store.state.pendingSessionLaunch == nil)
+    #expect(store.state.pendingTaskLaunches.isEmpty)
+  }
+
+  /// A folder registered for the launch arrives already archived (its
+  /// curation outlived an earlier registration): the completion launches
+  /// nothing and drops the request instead of leaving it waiting.
+  @Test(.dependencies) func registrationCompletionRefusesAFolderThatArrivedArchived() async throws {
+    let folder = try temporaryDirectory(named: "picker-registered-archived")
+    var initial = mintedTasksOnly([])
+    let folderID = Repository.folderWorktreeID(for: folder)
+    let repoID = RepositoryID(folder.standardizedFileURL.path(percentEncoded: false))
+    initial.repositories.$sidebar.withLock { sidebar in
+      sidebar.sections[repoID] = .init(buckets: [.archived: .init(items: [folderID: .init()])])
+    }
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+    store.exhaustivity = .off
+
+    await store.send(.newSessionDirectorySelected(folder, kind: .shell))
+    await store.receive(\.repositories.registerSessionFolder)
+    await store.receive(\.repositories.delegate.repositoriesChanged)
+    await store.finish()
+
+    #expect(store.state.repositories.isWorktreeArchived(folderID), "the folder registered, archived")
+    #expect(tabCreations(recorded) == 0, "nothing created: \(recorded.commands.value)")
+    #expect(store.state.pendingSessionLaunch == nil)
+    #expect(store.state.pendingTaskLaunches.isEmpty)
+  }
+
+  /// What the manager resolves when a new task's first tab lands: a live
+  /// roster entry, else the recorded directory of a task still on it
+  /// (Cmd-N on an orphan task), else nothing.
+  @Test(.dependencies) func launchDirectoryResolvesLiveRosterOrphanAndNothingElse() throws {
+    var state = sixTasksOnTwoDirectories()
+    #expect(AppFeature.launchDirectory(otherWorktree.id, state: state) == DirectoryContext(worktree: otherWorktree))
+
+    let gone: Worktree.ID = "/gone/checkout"
+    #expect(AppFeature.launchDirectory(gone, state: state) == nil)
+    let orphan = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000C1")!)
+    state.terminals.layouts.append(agentTask(orphan, surface: UUID()))
+    state.terminals.directories[orphan] = TaskRecord.Directory(worktreeID: gone)
+    #expect(AppFeature.launchDirectory(gone, state: state)?.worktreeID == gone)
+    state.terminals.layouts.remove(id: orphan)
+    #expect(AppFeature.launchDirectory(gone, state: state) == nil, "a removed task's directory is gone with it")
+
+    let missing = otherDirectoryMissing()
+    #expect(AppFeature.launchDirectory(otherWorktree.id, state: missing) == nil)
+    for gone in [GoneCase.archived, .deleting] {
+      var state = sixTasksOnTwoDirectories()
+      Self.makeGone(gone, directory: otherWorktree, state: &state)
+      #expect(AppFeature.launchDirectory(otherWorktree.id, state: state) == nil, "\(gone)")
+    }
+  }
+
+  /// Archives or marks as deleting a roster directory, on state.
+  private static func makeGone(_ gone: GoneCase, directory: Worktree, state: inout AppFeature.State) {
+    switch gone {
+    case .archived:
+      let repoID = state.repositories.repositoryID(containing: directory.id)!
+      state.repositories.$sidebar.withLock { sidebar in
+        sidebar.sections[repoID] = .init(buckets: [.archived: .init(items: [directory.id: .init()])])
+      }
+      #expect(state.repositories.isWorktreeArchived(directory.id))
+    case .deleting:
+      state.repositories.reconcileSidebarForTesting()
+      state.repositories.sidebarItems[id: directory.id]?.lifecycle = .deleting
+      #expect(state.repositories.sidebarItems[id: directory.id]?.lifecycle == .deleting)
+    case .notInRoster, .missing:
+      Issue.record("not a change this helper makes")
+    }
   }
 
   @Test(.dependencies) func pickerConfirmDuringAnotherLaunchIsDropped() async {

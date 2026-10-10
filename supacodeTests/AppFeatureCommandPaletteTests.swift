@@ -105,11 +105,12 @@ struct AppFeatureCommandPaletteTests {
     await store.finish()
 
     #expect(sent.value.count == 1)
-    guard case .createTab(_, let context, _, _, _, _, _) = sent.value[0] else {
+    guard case .createTaskTab(_, let directoryID, let input, _) = sent.value[0] else {
       Issue.record("Expected one shell tab on the picked directory, got \(sent.value)")
       return
     }
-    #expect(context.worktreeID == picked.id)
+    #expect(directoryID == picked.id)
+    #expect(input == nil, "a shell: no input")
   }
 
   @Test(.dependencies) func nativePanelCarriesTheKind() async throws {
@@ -144,12 +145,12 @@ struct AppFeatureCommandPaletteTests {
     await store.finish()
     #expect(store.state.repositories.openPanelPurpose == .openRepository)
     #expect(sent.value.count == 1)
-    guard case .createTab(_, let context, let runsSetupScript, _, _, _, _) = sent.value[0] else {
+    guard case .createTaskTab(_, let directoryID, let input, _) = sent.value[0] else {
       Issue.record("Expected one shell tab, got \(sent.value)")
       return
     }
-    #expect(context.workingDirectory == directory)
-    #expect(runsSetupScript == false)
+    #expect(directoryID == worktree.id)
+    #expect(input == nil, "a shell: no input")
 
     // A cancelled panel consumes the kind with the purpose.
     await store.send(.commandPalette(.delegate(.browseOpenNativePanel(.newSession, kind: .shell))))

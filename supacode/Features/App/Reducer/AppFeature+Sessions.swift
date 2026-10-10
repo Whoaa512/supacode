@@ -641,7 +641,11 @@ extension AppFeature {
     // A remote task's directory cannot be checked or registered from here:
     // the launch goes straight to its host.
     if directory == nil, let remote = currentTaskContext(state: state), remote.host != nil {
-      return launchNewSession(in: remote, kind: kind, state: &state)
+      guard let live = launchDirectory(remote.worktreeID, state: state) else {
+        repositoriesLogger.warning("New session: remote directory \(remote.worktreeID.rawValue) is not live")
+        return .none
+      }
+      return launchNewSession(in: live, kind: kind, state: &state)
     }
     let cwd = (directory ?? newSessionCwdFallback(state: state)).standardizedFileURL
     let cwdPath = cwd.path(percentEncoded: false)
@@ -663,13 +667,42 @@ extension AppFeature {
       isNewSession: true,
       kind: kind
     )
+    // A path that names a roster directory takes the row's own rule: one
+    // archived, missing or winding down is refused here as it is from the
+    // picker's known rows.
     if let worktree = worktreeForCwd(cwd, state: state) {
+      guard let directory = launchDirectory(worktree.id, state: state) else {
+        repositoriesLogger.warning("New session: directory \(worktree.id.rawValue) is not a live roster entry")
+        return .none
+      }
       pending.launched = true
       state.pendingSessionLaunch = pending
-      return launchSessionTab(pending, directory: DirectoryContext(worktree: worktree), state: &state)
+      return launchSessionTab(pending, directory: directory, state: &state)
     }
     state.pendingSessionLaunch = pending
     return .send(.repositories(.registerSessionFolder(cwd)))
+  }
+
+  /// The directory a task may start on now, or nil. A roster entry must be
+  /// live: not missing, archived or winding down. A directory the roster no
+  /// longer lists is only the one of a task still open or stored on it (Cmd-N
+  /// on an orphan task), so a directory removed along with its tasks since it
+  /// was offered mints nothing. The manager asks the same question at
+  /// delivery, so what is decided here is only what is sent, never what
+  /// gets created.
+  static func launchDirectory(_ directoryID: Worktree.ID, state: State) -> DirectoryContext? {
+    if let worktree = state.repositories.worktree(for: directoryID) {
+      guard !worktree.isMissing, !state.repositories.isWorktreeArchived(directoryID),
+        state.repositories.sidebarItems[id: directoryID]?.lifecycle.isTerminating != true
+      else { return nil }
+      return DirectoryContext(worktree: worktree)
+    }
+    let open = state.terminals.directories.first { layoutID, directory in
+      directory.worktreeID == directoryID && state.terminals.layouts[id: layoutID] != nil
+    }?.value
+    let recorded = open ?? storedTasks(state: state).first { $0.directory.worktreeID == directoryID }?.directory
+    guard let recorded else { return nil }
+    return DirectoryContext(orphan: recorded)
   }
 
   /// Mints a task on a directory the roster lists, local or remote. Nothing
@@ -680,14 +713,11 @@ extension AppFeature {
     inDirectory directoryID: Worktree.ID, kind: NewTaskKind = .agent, state: inout State
   ) -> Effect<Action> {
     guard state.pendingSessionLaunch == nil else { return .none }
-    guard let worktree = state.repositories.worktree(for: directoryID), !worktree.isMissing,
-      !state.repositories.isWorktreeArchived(directoryID),
-      state.repositories.sidebarItems[id: directoryID]?.lifecycle.isTerminating != true
-    else {
+    guard let directory = launchDirectory(directoryID, state: state) else {
       repositoriesLogger.warning("New task: directory \(directoryID.rawValue) is not a live roster entry")
       return .none
     }
-    return launchNewSession(in: DirectoryContext(worktree: worktree), kind: kind, state: &state)
+    return launchNewSession(in: directory, kind: kind, state: &state)
   }
 
   private static func newTaskCommand(_ kind: NewTaskKind) -> String {
@@ -947,8 +977,16 @@ extension AppFeature {
     state: inout State
   ) -> Effect<Action>? {
     guard let worktree = worktreeForCwd(pending.cwd, state: state) else { return nil }
+    // Registered since the request, but the roster's rule still applies: a
+    // folder that arrived archived or winding down launches nothing, and
+    // the request is dropped rather than left waiting for a roster change.
+    guard let directory = launchDirectory(worktree.id, state: state) else {
+      repositoriesLogger.warning("New session: registered directory \(worktree.id.rawValue) is not live")
+      state.pendingSessionLaunch = nil
+      return .none
+    }
     state.pendingSessionLaunch?.launched = true
-    return launchSessionTab(pending, directory: DirectoryContext(worktree: worktree), state: &state)
+    return launchSessionTab(pending, directory: directory, state: &state)
   }
 
   private static func worktreeForCwd(_ cwd: URL, state: State) -> Worktree? {
@@ -986,14 +1024,16 @@ extension AppFeature {
       PendingTaskLaunch(layoutID: layoutID, directoryID: directory.worktreeID, primary: primary))
     let command = target == nil ? pending.command : resumeInput(pending, in: directory)
     let requestID = pending.requestID
+    // A new task carries its directory's identity only: the manager resolves
+    // the directory again when the command lands and refuses one archived,
+    // removed, missing or winding down since. A resume keeps the context it
+    // was planned with.
     let create: TerminalClient.Command =
-      switch pending.kind {
-      case .agent:
-        .createTabWithInput(
-          layoutID, directory, input: command, runSetupScriptIfNew: false, title: nil, focusing: true, anchor: nil)
-      case .shell:
-        .createTab(layoutID, directory, runSetupScriptIfNew: false, focusing: true)
-      }
+      pending.isNewSession
+      ? .createTaskTab(
+        layoutID, directoryID: directory.worktreeID, input: pending.kind == .agent ? command : nil, focusing: true)
+      : .createTabWithInput(
+        layoutID, directory, input: command, runSetupScriptIfNew: false, title: nil, focusing: true, anchor: nil)
     return .run { send in
       await terminalClient.send(create)
       await send(.launchSessionCompleted(requestID: requestID))
