@@ -362,9 +362,26 @@ struct TerminalsFeatureTransferTests {
     #expect(refusal(changed { $0.layouts[id: Self.destination]?.alert = alert }) == .confirmationPending)
     let remote = TaskRecord.Directory(
       worktreeID: Self.directory.worktreeID, host: RemoteHost(alias: "build-box"))
-    #expect(refusal(ready, on: remote) == .differentMachine)
+    // A merge lands on the destination task as it is, whatever the caller says.
     #expect(refusal(changed { $0.directories[Self.source] = remote }) == .differentMachine)
-    #expect(refusal(changed { $0.directories[Self.source] = remote }, on: remote) == nil)
+    #expect(refusal(changed { $0.directories[Self.source] = remote }, on: remote) == .differentMachine)
+    #expect(refusal(changed { $0.directories[Self.destination] = remote }) == .differentMachine)
+    #expect(refusal(changed { $0.directories[Self.destination] = remote }, on: remote) == .differentMachine)
+    #expect(
+      refusal(
+        changed {
+          $0.directories[Self.source] = remote
+          $0.directories[Self.destination] = remote
+        }, on: remote) == nil)
+    #expect(refusal(ready, on: remote) == .destinationMismatch)
+    #expect(refusal(ready, on: TaskRecord.Directory(worktreeID: "/tmp/elsewhere")) == .destinationMismatch)
+    #expect(refusal(changed { $0.directories.removeValue(forKey: Self.destination) }) == .unknownDestination)
+    // A detach's new task is wherever the caller puts it, on the same machine.
+    #expect(refusal(ready, into: fresh, scope: .tab(first.id, members: []), on: remote) == .differentMachine)
+    #expect(
+      refusal(
+        changed { $0.directories[Self.source] = remote }, into: fresh, scope: .tab(first.id, members: []), on: remote)
+        == nil)
   }
 
   // MARK: - The stored result.

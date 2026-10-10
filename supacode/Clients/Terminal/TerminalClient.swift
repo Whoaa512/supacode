@@ -24,6 +24,8 @@ nonisolated enum TabTransferRefusal: String, Equatable, Sendable {
   /// Either task is asking the user to confirm a close.
   case confirmationPending
   case differentMachine
+  /// A merge named a directory or host that is not the destination task's.
+  case destinationMismatch
   /// A moved tab is running a blocking script, reported under its directory.
   case scriptRunning
   case quitting

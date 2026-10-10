@@ -425,7 +425,9 @@ extension TerminalsFeature.State {
   }
 
   /// Why a transfer cannot run, or nil. Pure: everything the state alone
-  /// decides, in a fixed order.
+  /// decides, in a fixed order. `destination` is the directory the caller
+  /// supplies: the new task's for a detach; for a merge it must spell the
+  /// existing task's, which is what the tabs land on.
   func transferRefusal(
     from: LayoutID, into target: LayoutID, scope: TabTransferScope, destination: TaskRecord.Directory
   ) -> TabTransferRefusal? {
@@ -433,19 +435,26 @@ extension TerminalsFeature.State {
     // Until both loads land, a hydration would re-add what the transfer moved.
     guard layoutsLoaded, storedSessions == .loaded, !layoutsAreReadOnly else { return .notReady }
     guard let source = layouts[id: from] else { return .unknownSource }
+    let landing: TaskRecord.Directory
     switch scope {
     case .all:
-      guard layouts[id: target] != nil else { return .unknownDestination }
+      guard layouts[id: target] != nil, let existing = directories[target] else { return .unknownDestination }
+      landing = existing
     case .tab(let tabID, let moving):
       guard layouts[id: target] == nil else { return .destinationExists }
       guard source.layout.pane(containingTab: tabID) != nil else { return .unknownTab }
       let listed = members[from] ?? []
       guard moving.allSatisfy(listed.contains) else { return .memberNotInSource }
+      landing = destination
     }
     guard source.alert == nil, layouts[id: target]?.alert == nil else { return .confirmationPending }
     // A relaunch rebuilds a tab against its task's host: on another machine
     // its session would be lost, and a close would kill on the wrong side.
-    guard directories[from]?.host == destination.host else { return .differentMachine }
+    guard directories[from]?.host == landing.host else { return .differentMachine }
+    // A merge's host is created from the supplied directory: one that is not
+    // the task's would leave wake, persistence and kills disagreeing on where
+    // the tabs live.
+    guard landing == destination else { return .destinationMismatch }
     return nil
   }
 }
