@@ -3847,3 +3847,25 @@ deviation.
   passed in its sibling process, and the full run below has no such
   entry); build-app 0; full `make test` exit 2 with 4603 tests and only
   the 5 known failures.
+- P1 r2, 2026-10-10, `b14b2f30`. Review of P1 r1 found one P1, held: a
+  known picker row (and the "New task here" button, same receiver) whose
+  repository was removed from the roster while its tasks were kept still
+  minted a task at confirm, because `handleNewTask` went through
+  `launchDirectory`, whose orphan fallback resolved the directory of the
+  surviving task. Brief §3/§4: a removed known row mints nothing. Fix:
+  new `rosterDirectory(_:state:)` (live roster entry, no fallback) gates
+  `handleNewTask`; `launchDirectory` now calls it for the roster case and
+  keeps the orphan fallback for the remote Cmd-N shortcut and for delivery
+  (`WorktreeTerminalManager.createTaskTab`), the documented r1 policy.
+  The path route and `launchPendingSessionIfReady` only reach
+  `launchDirectory` after a `worktreeForCwd` hit, so the fallback was
+  never reachable there; no change. Same class across the slice: picker
+  confirm still carries `Worktree.ID` only and the manager still decides
+  on the roster at delivery; nothing else found. Test (red first on the
+  r1 tree: 1 failed, 188 passed in the suite):
+  `pickedRowRemovedFromTheRosterMintsNothingEvenWithAnOrphanTask` × live /
+  stored orphan, both kinds confirmed, asserting no command, no pending
+  launch, no new layout, while `launchDirectory` still resolves the orphan.
+  Gate (final tree): check 0; `AppFeatureSessionsTests` +
+  `AppFeatureCommandPaletteTests` exit 0 (228 tests); build-app 0; full
+  `make test` exit 2 with 4604 tests and only the 5 known failures.
