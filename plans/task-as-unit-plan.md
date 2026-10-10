@@ -3534,3 +3534,49 @@ deviation.
   exit 0 (291 tests after the two fixes; the last narrow run of the two
   changed suites 55 tests, 0 failed); build-app 0; full `make test` exit 2
   with 4555 tests and only the 5 known failures.
+- M3 r1, 2026-10-10, `6e195190`. Review of M3 found two P1s, both held:
+  the detach's member list and the primary / only-tab / launch-pending
+  checks were decided in the reducer and carried across the effect to the
+  manager, which only re-ran M2's state-level `transferRefusal`. An agent
+  starting on the tab (making it the primary's, Q8), the source's other tab
+  closing (only-tab) or a resume accepted into the source in that window
+  were moved around, not seen.
+  Fix: `TerminalClient.Command.transferTabs` carries a `TabTransferRequest`
+  (`.all` / `.tab(TabID)`), tab identity only. New
+  `AppFeature.transferPlan(from:into:request:destination:state:)` resolves
+  the `TabTransferScope` (members riding on the tab) and every refusal
+  from one state; the manager runs it through `appStore.withState` in the
+  same main-actor turn as the move (`transferTabs(request:)` →
+  `transferTabs(scope:)`, M2's primitive, now internal for its tests), and
+  the app runs the same function up front only to toast without a round
+  trip. `.primaryTab`, `.onlyTab`, `.launchPending` join
+  `TabTransferRefusal` (`AppFeature.TaskTransferRefusal` is gone; the text
+  table is `TabTransferRefusal.message`), so a delivery-time refusal toasts
+  the same text through `.tabsTransferFailed`.
+  Tests (red first on a midpoint that resolved members at delivery but ran
+  no app-level refusal: the three refusal tests failed, 57 passed):
+  `WorktreeTerminalManagerTransferTests` +4 through the real command path
+  with presence reported via `.restoreFromSnapshotChecked`
+  (`detachRequestMovesTheMembersOnTheTabAtDelivery`,
+  `…RefusedWhenThePrimaryStartedOnTheTabMeanwhile`,
+  `…RefusedWhenTheTabBecameTheOnlyOneMeanwhile`,
+  `mergeRequestIsRefusedWhileALaunchIntoTheSourceIsPendingAtDelivery`);
+  `AppFeatureTaskTransferTests` +1
+  (`aPlanResolvedAtDeliverySeesWhatChangedSinceTheRequest`). M2's seven
+  scope-level tests call the primitive directly.
+  Found and left (M2's design, not changed): a `PendingTaskLaunch` into a
+  task that already holds a tab is "ready" and dropped by the next
+  `.terminals` action (T7), so for such a source the launch-pending gate
+  only sees a launch accepted since the last terminals action; a launch
+  that slips past it recreates the source under its old id, which M2
+  supports deliberately (`aSourceCreatedAgainSurvivesTheTransferThatRemovedIt`;
+  the writer clears the forward). Forwarding such a create to the merge
+  target was tried and dropped: it contradicts that decision and would
+  re-stamp the target's directory via `.attachLayout`. The gate therefore
+  holds fully for a dormant source (the tested shape) and is best-effort
+  for one with tabs; no data loss either way.
+  Gate (final tree): check 0; `WorktreeTerminalManagerTransferTests` +
+  `WorktreeTerminalManagerAckTests` + `AppFeatureTaskTransferTests` +
+  `AppFeatureCommandPaletteTests` + `TerminalsFeatureTransferTests` exit 0
+  (151 tests, 0 failed); build-app 0; full `make test` exit 2 with 4560
+  tests and only the 5 known failures.
