@@ -106,7 +106,9 @@ struct RepositoriesFeature {
 
   enum OpenPanelPurpose: Equatable {
     case openRepository
-    case newSession
+    /// The kind rides with the request and is consumed with the purpose, so
+    /// a cancelled panel leaves nothing behind.
+    case newSession(NewTaskKind)
   }
 
   @ObservableState
@@ -784,7 +786,7 @@ struct RepositoriesFeature {
     case settleTask(LayoutID)
     case mergeTask(LayoutID, into: LayoutID)
     case detachTab(LayoutID, tabID: TabID)
-    case newSessionDirectorySelected(URL)
+    case newSessionDirectorySelected(URL, kind: NewTaskKind = .agent)
     /// `layoutID` names the task to show; nil means the directory's active one.
     case selectedWorktreeChanged(Worktree?, layoutID: LayoutID? = nil)
     case repositoriesChanged(IdentifiedArrayOf<Repository>)
@@ -3764,8 +3766,8 @@ struct RepositoriesFeature {
         switch purpose {
         case .openRepository:
           return .send(.openRepositories(urls))
-        case .newSession:
-          return .send(.delegate(.newSessionDirectorySelected(urls[0])))
+        case .newSession(let kind):
+          return .send(.delegate(.newSessionDirectorySelected(urls[0], kind: kind)))
         }
 
       case .requestAddRemoteRepository, .requestEditRemoteRepository, .remoteConnectionForm:

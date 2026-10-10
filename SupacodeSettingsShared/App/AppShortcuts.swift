@@ -239,7 +239,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     case .toggleWindowMode: "Toggle Window Mode"
     case .newTerminalTab: "New Terminal Tab"
     case .newSession: "New Session"
-    case .newSessionInDirectory: "New Session in Directory"
+    case .newSessionInDirectory: "New Task in Directory"
     case .settleSessionAndAdvance: "Settle Session and Advance"
     case .unsettleSession: "Unsettle Session"
     case .nextSessionNeedsMe: "Next Session That Needs Me"

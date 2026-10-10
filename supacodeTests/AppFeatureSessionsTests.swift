@@ -1,6 +1,7 @@
 import ComposableArchitecture
 import DependenciesTestSupport
 import Foundation
+import OrderedCollections
 import Sharing
 import Testing
 
@@ -1185,14 +1186,14 @@ struct AppFeatureSessionsTests {
       $0.date.now = .distantPast
       $0.terminalClient.send = { command in sent.withValue { $0.append(command) } }
     }
-    await store.send(.repositories(.presentOpenPanel(.newSession))) {
+    await store.send(.repositories(.presentOpenPanel(.newSession(.agent)))) {
       $0.repositories.isOpenPanelPresented = true
-      $0.repositories.openPanelPurpose = .newSession
+      $0.repositories.openPanelPurpose = .newSession(.agent)
     }
     await store.send(.repositories(.setOpenPanelPresented(false))) {
       $0.repositories.isOpenPanelPresented = false
     }
-    #expect(store.state.repositories.openPanelPurpose == .newSession)
+    #expect(store.state.repositories.openPanelPurpose == .newSession(.agent))
     store.exhaustivity = .off
     await store.send(.repositories(.openPanelCompleted([cwd])))
     await store.receive(\.repositories.delegate.newSessionDirectorySelected)
@@ -1212,9 +1213,9 @@ struct AppFeatureSessionsTests {
 
   @Test(.dependencies) func nativeSessionPickerCancellationConsumesPurpose() async {
     let store = TestStore(initialState: state()) { AppFeature() }
-    await store.send(.repositories(.presentOpenPanel(.newSession))) {
+    await store.send(.repositories(.presentOpenPanel(.newSession(.agent)))) {
       $0.repositories.isOpenPanelPresented = true
-      $0.repositories.openPanelPurpose = .newSession
+      $0.repositories.openPanelPurpose = .newSession(.agent)
     }
     await store.send(.repositories(.setOpenPanelPresented(false))) {
       $0.repositories.isOpenPanelPresented = false
@@ -4948,6 +4949,368 @@ struct AppFeatureSessionsTests {
     #expect(recorded.commands.value.isEmpty)
     #expect(store.state.pendingSessionLaunch == nil)
     #expect(store.state.pendingTaskLaunches.isEmpty)
+  }
+
+  // MARK: - The new-task picker mints by directory id and kind (A31)
+
+  private struct ShellLaunch: Equatable {
+    let layoutID: LayoutID
+    let directory: Worktree.ID
+    let host: RemoteHost?
+    let runsSetupScript: Bool
+  }
+
+  private func shellLaunches(_ recorded: Recorded) -> [ShellLaunch] {
+    recorded.commands.value.compactMap { command in
+      guard case .createTab(let layoutID, let context, let runsSetupScript, _, _, _, _) = command else { return nil }
+      return ShellLaunch(
+        layoutID: layoutID, directory: context.worktreeID, host: context.host, runsSetupScript: runsSetupScript)
+    }
+  }
+
+  private func tabCreations(_ recorded: Recorded) -> Int {
+    launches(recorded).count + shellLaunches(recorded).count
+  }
+
+  private func remoteRoster(_ state: inout AppFeature.State) throws -> Worktree {
+    let host = try #require(RemoteHost(authority: "me@box"))
+    let remote = Worktree(
+      id: "me@box/srv/app", name: "app", detail: "",
+      workingDirectory: URL(fileURLWithPath: "/srv/app"), repositoryRootURL: URL(fileURLWithPath: "/srv/app"),
+      host: host)
+    state.repositories.repositories.append(
+      Repository(
+        id: "me@box/srv/app", rootURL: remote.repositoryRootURL, name: "app", worktrees: [remote], host: host))
+    return remote
+  }
+
+  @Test(.dependencies) func pickerAgentOnAKnownDirectoryMintsATaskThere() async throws {
+    var initial = mintedTasksOnly([(first, firstSurface)])
+    initial.repositories.repositories.append(
+      Repository(id: "/other", rootURL: otherWorktree.workingDirectory, name: "other", worktrees: [otherWorktree]))
+    initial.terminals.selectedLayoutID = first
+    initial.repositories.selectedTask = .init(id: first, directoryID: worktree.id)
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newTask(inDirectory: otherWorktree.id, kind: .agent))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    let launch = try #require(launches(recorded).first)
+    #expect(tabCreations(recorded) == 1)
+    #expect(launch.layoutID == LayoutID(task: UUID(1)))
+    #expect(launch.directory == otherWorktree.id)
+    #expect(launch.input == "pi")
+    #expect(
+      store.state.pendingTaskLaunches == [PendingTaskLaunch(layoutID: launch.layoutID, directoryID: otherWorktree.id)])
+  }
+
+  @Test(.dependencies) func pickerShellOnAKnownDirectoryMintsAShellOnlyTask() async throws {
+    var initial = mintedTasksOnly([(first, firstSurface)])
+    initial.repositories.repositories.append(
+      Repository(id: "/other", rootURL: otherWorktree.workingDirectory, name: "other", worktrees: [otherWorktree]))
+    let membersBefore = initial.terminals.members
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newTask(inDirectory: otherWorktree.id, kind: .shell))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    let launch = try #require(shellLaunches(recorded).first)
+    #expect(tabCreations(recorded) == 1)
+    #expect(launches(recorded).isEmpty, "a shell task starts with no input")
+    #expect(launch.layoutID == LayoutID(task: UUID(1)))
+    #expect(launch.layoutID != otherWorktree.id.layoutID)
+    #expect(launch.directory == otherWorktree.id)
+    #expect(launch.runsSetupScript == false)
+    #expect(
+      store.state.pendingTaskLaunches == [PendingTaskLaunch(layoutID: launch.layoutID, directoryID: otherWorktree.id)])
+    #expect(store.state.pendingTaskLaunches.first?.primary == nil)
+    #expect(store.state.terminals.members == membersBefore)
+  }
+
+  @Test(.dependencies, arguments: [NewTaskKind.agent, .shell])
+  func pickerOnARemoteDirectoryMintsARemoteTask(kind: NewTaskKind) async throws {
+    var initial = mintedTasksOnly([(first, firstSurface)])
+    let remote = try remoteRoster(&initial)
+    initial.terminals.selectedLayoutID = first
+    initial.repositories.selectedTask = .init(id: first, directoryID: worktree.id)
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newTask(inDirectory: remote.id, kind: kind))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    #expect(tabCreations(recorded) == 1)
+    switch kind {
+    case .agent:
+      let launch = try #require(launches(recorded).first)
+      #expect(launch.directory == remote.id)
+      #expect(launch.input == "pi")
+    case .shell:
+      let launch = try #require(shellLaunches(recorded).first)
+      #expect(launch.directory == remote.id)
+      #expect(launch.host == remote.host)
+    }
+    #expect(
+      store.state.pendingTaskLaunches == [PendingTaskLaunch(layoutID: LayoutID(task: UUID(1)), directoryID: remote.id)])
+    #expect(store.state.pendingSessionLaunch == nil)
+  }
+
+  @Test(.dependencies) func pickerShellOnAPathMintsThere() async throws {
+    let directory = try temporaryDirectory(named: "picker-shell-path")
+    let (initial, onDisk) = stateOnDisk(directory)
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newSessionDirectorySelected(directory, kind: .shell))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    let launch = try #require(shellLaunches(recorded).first)
+    #expect(tabCreations(recorded) == 1)
+    #expect(launch.directory == onDisk.id)
+    #expect(launch.layoutID == LayoutID(task: UUID(1)))
+    #expect(store.state.pendingSessionLaunch == nil)
+  }
+
+  @Test(.dependencies) func pickerShellOnAnUnregisteredFolderWaitsForRegistration() async throws {
+    let folder = try temporaryDirectory(named: "picker-shell-unregistered")
+    let initial = mintedTasksOnly([])
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newSessionDirectorySelected(folder, kind: .shell)) {
+      $0.pendingSessionLaunch = PendingSessionLaunch(
+        key: SessionKey(harness: .pi, sessionID: "new:\(UUID(0).uuidString)"), cwd: folder, command: "",
+        requestID: UUID(0), isNewSession: true, kind: .shell)
+    }
+    await store.receive(\.repositories.registerSessionFolder)
+    await store.receive(\.repositories.delegate.repositoriesChanged)
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    let launch = try #require(shellLaunches(recorded).first)
+    #expect(shellLaunches(recorded).count == 1)
+    #expect(launches(recorded).isEmpty)
+    #expect(launch.directory == Repository.folderWorktreeID(for: folder))
+    #expect(store.state.pendingSessionLaunch == nil)
+  }
+
+  @Test(.dependencies) func shellTaskIsNotSelectedBeforeItsTabExists() async throws {
+    var initial = mintedTasksOnly([(first, firstSurface)])
+    initial.repositories.repositories.append(
+      Repository(id: "/other", rootURL: otherWorktree.workingDirectory, name: "other", worktrees: [otherWorktree]))
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newTask(inDirectory: otherWorktree.id, kind: .shell))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+    let minted = try #require(shellLaunches(recorded).first?.layoutID)
+    #expect(store.state.repositories.selectedTask?.id != minted)
+    #expect(!recorded.commands.value.contains(where: isBootstrap))
+    #expect(recorded.selectedLayouts.isEmpty)
+
+    await store.send(
+      .terminals(
+        .attachLayout(
+          worktreeID: minted, directory: TaskRecord.Directory(worktreeID: otherWorktree.id), titlePrefix: "other")))
+    let filled = agentTask(minted, surface: thirdSurface).layout
+    await store.send(.terminals(.replaceRestoredLayout(worktreeID: minted, layout: filled)))
+    await store.receive(\.repositories.selectTask)
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(store.state.pendingTaskLaunches.isEmpty)
+    #expect(store.state.repositories.selectedTask?.id == minted)
+    #expect(tabCreations(recorded) == 1, "the shell task gets exactly one tab, none from the selection")
+    #expect(
+      !recorded.commands.value.contains {
+        if case .ensureInitialTab = $0 { return true }
+        return false
+      })
+  }
+
+  enum GoneCase: CaseIterable {
+    case notInRoster, missing, archived, deleting
+  }
+
+  @Test(.dependencies, arguments: GoneCase.allCases)
+  func pickedDirectoryGoneAtConfirmMintsNothing(gone: GoneCase) async {
+    var initial: AppFeature.State
+    switch gone {
+    case .notInRoster:
+      initial = mintedTasksOnly([])
+    case .missing:
+      initial = otherDirectoryMissing()
+    case .archived:
+      initial = sixTasksOnTwoDirectories()
+      initial.repositories.$sidebar.withLock { sidebar in
+        sidebar.sections["/other"] = .init(buckets: [.archived: .init(items: [otherWorktree.id: .init()])])
+      }
+      #expect(initial.repositories.isWorktreeArchived(otherWorktree.id))
+    case .deleting:
+      initial = sixTasksOnTwoDirectories()
+      initial.repositories.reconcileSidebarForTesting()
+      initial.repositories.sidebarItems[id: otherWorktree.id]?.lifecycle = .deleting
+      #expect(initial.repositories.sidebarItems[id: otherWorktree.id]?.lifecycle == .deleting)
+    }
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newTask(inDirectory: otherWorktree.id, kind: .shell))
+    await store.send(.newTask(inDirectory: otherWorktree.id, kind: .agent))
+    await store.finish()
+
+    #expect(recorded.commands.value.isEmpty)
+    #expect(store.state.pendingSessionLaunch == nil)
+    #expect(store.state.pendingTaskLaunches.isEmpty)
+  }
+
+  @Test(.dependencies) func pickerConfirmDuringAnotherLaunchIsDropped() async {
+    var initial = mintedTasksOnly([])
+    initial.repositories.repositories.append(
+      Repository(id: "/other", rootURL: otherWorktree.workingDirectory, name: "other", worktrees: [otherWorktree]))
+    let pending = PendingSessionLaunch(
+      key: piKey("pending"), cwd: URL(fileURLWithPath: "/elsewhere"), command: "pi --session pending",
+      requestID: UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000001")!, launched: true)
+    initial.pendingSessionLaunch = pending
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newTask(inDirectory: otherWorktree.id, kind: .shell))
+    await store.finish()
+
+    #expect(recorded.commands.value.isEmpty)
+    #expect(store.state.pendingSessionLaunch == pending)
+    #expect(store.state.pendingTaskLaunches.isEmpty)
+  }
+
+  @Test(.dependencies, arguments: [false, true])
+  func twoPickerLaunchesEachGetTheirOwnTask(latestTabFirst: Bool) async throws {
+    var initial = mintedTasksOnly([])
+    initial.repositories.repositories.append(
+      Repository(id: "/other", rootURL: otherWorktree.workingDirectory, name: "other", worktrees: [otherWorktree]))
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newTask(inDirectory: otherWorktree.id, kind: .shell))
+    await store.receive(\.launchSessionCompleted)
+    await store.send(.newTask(inDirectory: worktree.id, kind: .agent))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    let minted = shellLaunches(recorded).map(\.layoutID) + launches(recorded).map(\.layoutID)
+    try #require(minted.count == 2 && minted[0] != minted[1])
+    #expect(store.state.pendingTaskLaunches.map(\.layoutID) == minted)
+    #expect(store.state.pendingTaskLaunches.map(\.isShown) == [false, true])
+
+    let directories = [otherWorktree.id, worktree.id]
+    let surfaces = [thirdSurface, fourthSurface]
+    for index in latestTabFirst ? [1, 0] : [0, 1] {
+      await store.send(
+        .terminals(
+          .attachLayout(
+            worktreeID: minted[index], directory: TaskRecord.Directory(worktreeID: directories[index]),
+            titlePrefix: "x")))
+      let filled = agentTask(minted[index], surface: surfaces[index]).layout
+      await store.send(.terminals(.replaceRestoredLayout(worktreeID: minted[index], layout: filled)))
+      await store.finish()
+      await store.skipReceivedActions(strict: false)
+    }
+
+    #expect(store.state.repositories.selectedTask?.id == minted[1], "the latest launch is the one shown")
+    #expect(!recorded.selectedLayouts.contains(minted[0]))
+    #expect(store.state.pendingTaskLaunches.isEmpty)
+    #expect(store.state.terminals.members.isEmpty, "a shell launch lists no member")
+  }
+
+  @Test(.dependencies) func pickerMintsNoEmptyTask() async throws {
+    var initial = mintedTasksOnly([])
+    initial.repositories.repositories.append(
+      Repository(id: "/other", rootURL: otherWorktree.workingDirectory, name: "other", worktrees: [otherWorktree]))
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newTask(inDirectory: otherWorktree.id, kind: .shell))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    let minted = try #require(shellLaunches(recorded).first?.layoutID)
+    #expect(!AppFeature.hasTask(minted, state: store.state))
+    #expect(store.state.terminals.members[minted] == nil)
+    #expect(store.state.terminals.layouts[id: minted] == nil)
+    #expect(store.state.repositories.selectedTask == nil)
+    #expect(!recorded.commands.value.contains(where: isBootstrap))
+  }
+
+  @Test(.dependencies) func newTaskDirectoriesListsLiveRosterDirectoriesCurrentFirst() throws {
+    var initial = mintedTasksOnly([(first, firstSurface)])
+    let localB = Worktree(
+      id: "/b", name: "b", detail: "", workingDirectory: URL(fileURLWithPath: "/b"),
+      repositoryRootURL: URL(fileURLWithPath: "/b"))
+    let missing = Worktree(
+      id: "/missing", name: "missing", detail: "", workingDirectory: URL(fileURLWithPath: "/missing"),
+      repositoryRootURL: URL(fileURLWithPath: "/missing"), isMissing: true)
+    let archived = Worktree(
+      id: "/archived", name: "archived", detail: "", workingDirectory: URL(fileURLWithPath: "/archived"),
+      repositoryRootURL: URL(fileURLWithPath: "/archived"))
+    let pending = Worktree(
+      id: "/pending", name: "pending", detail: "", workingDirectory: URL(fileURLWithPath: "/pending"),
+      repositoryRootURL: URL(fileURLWithPath: "/pending"))
+    initial.repositories.repositories.append(
+      Repository(id: "/b", rootURL: localB.workingDirectory, name: "b-repo", worktrees: [localB]))
+    initial.repositories.repositories.append(
+      Repository(id: "/missing", rootURL: missing.workingDirectory, name: "missing", worktrees: [missing]))
+    initial.repositories.repositories.append(
+      Repository(id: "/archived", rootURL: archived.workingDirectory, name: "archived", worktrees: [archived]))
+    initial.repositories.repositories.append(
+      Repository(id: "/pending", rootURL: pending.workingDirectory, name: "pending", worktrees: [pending]))
+    let remote = try remoteRoster(&initial)
+    initial.repositories.$sidebar.withLock { sidebar in
+      sidebar.sections["/archived"] = .init(buckets: [.archived: .init(items: [archived.id: .init()])])
+    }
+    initial.repositories.reconcileSidebarForTesting()
+    initial.repositories.sidebarItems[id: pending.id]?.lifecycle = .pending
+    initial.repositories.worktreeMRU = [localB.id]
+    // The task on screen is remote: its directory leads the list.
+    initial.terminals.directories[first] = TaskRecord.Directory(worktreeID: remote.id, host: remote.host)
+    initial.terminals.selectedLayoutID = first
+    initial.repositories.selectedTask = .init(id: first, directoryID: remote.id)
+
+    let directories = AppFeature.newTaskDirectories(state: initial)
+
+    #expect(directories.map(\.id) == [remote.id, localB.id, worktree.id])
+    #expect(directories.map(\.hostLabel) == [remote.host?.displayAuthority, nil, nil])
+    #expect(directories.map(\.localPath) == [nil, "/b", "/workspace"])
+    #expect(directories.map(\.repositoryName) == ["app", "b-repo", "workspace"])
+    #expect(directories.first?.path == "/srv/app")
+  }
+
+  @Test(.dependencies) func pickerOpensWithTheKnownDirectories() async throws {
+    var initial = mintedTasksOnly([(first, firstSurface)])
+    initial.repositories.repositories.append(
+      Repository(id: "/other", rootURL: otherWorktree.workingDirectory, name: "other", worktrees: [otherWorktree]))
+    initial.repositories.reconcileSidebarForTesting()
+    let expected = AppFeature.newTaskDirectories(state: initial)
+    try #require(expected.count == 2)
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newSessionInDirectory)
+    await store.receive(\.commandPalette.enterBrowseMode)
+    await store.receive(\.commandPalette.browsePathQueryChanged)
+    await store.finish()
+
+    #expect(store.state.commandPalette.browse.purpose == .newSession)
+    #expect(store.state.commandPalette.browse.known == expected)
+    #expect(store.state.commandPalette.browse.listsKnown)
+    #expect(store.state.commandPalette.browse.knownMatches == expected)
   }
 
   // MARK: - Task chord and tab chord (A25)

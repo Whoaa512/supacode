@@ -11,6 +11,9 @@ struct PendingSessionLaunch: Equatable {
   var probing: Bool = false
   /// A brand-new agent rather than the resume of a known session.
   var isNewSession: Bool = false
+  /// What a new task's first tab runs. A shell launch has no command; its key
+  /// only names the launch. Resume never sets it.
+  var kind: NewTaskKind = .agent
   /// The task whose row asked for the resume, whatever directory the
   /// session ran in. Checked again at launch: it may be gone, or no longer
   /// list the session, by then.
@@ -632,13 +635,13 @@ extension AppFeature {
     return .send(.repositories(.delegate(.focusSession(target.location))))
   }
 
-  static func handleNewSession(directory: URL?, state: inout State) -> Effect<Action> {
+  static func handleNewSession(directory: URL?, kind: NewTaskKind = .agent, state: inout State) -> Effect<Action> {
     guard state.pendingSessionLaunch == nil else { return .none }
     @Dependency(\.uuid) var uuid
     // A remote task's directory cannot be checked or registered from here:
     // the launch goes straight to its host.
     if directory == nil, let remote = currentTaskContext(state: state), remote.host != nil {
-      return launchNewSession(in: remote, state: &state)
+      return launchNewSession(in: remote, kind: kind, state: &state)
     }
     let cwd = (directory ?? newSessionCwdFallback(state: state)).standardizedFileURL
     let cwdPath = cwd.path(percentEncoded: false)
@@ -655,9 +658,10 @@ extension AppFeature {
     var pending = PendingSessionLaunch(
       key: SessionKey(harness: .pi, sessionID: "new:\(requestID.uuidString)"),
       cwd: cwd,
-      command: "pi",
+      command: Self.newTaskCommand(kind),
       requestID: requestID,
-      isNewSession: true
+      isNewSession: true,
+      kind: kind
     )
     if let worktree = worktreeForCwd(cwd, state: state) {
       pending.launched = true
@@ -668,26 +672,44 @@ extension AppFeature {
     return .send(.repositories(.registerSessionFolder(cwd)))
   }
 
-  /// Mints a task with the default agent on a directory the roster lists,
-  /// local or remote. Nothing is asked and no path is checked here: the
-  /// directory is the row's own.
-  static func handleNewTask(inDirectory directoryID: Worktree.ID, state: inout State) -> Effect<Action> {
-    guard state.pendingSessionLaunch == nil,
-      let worktree = state.repositories.worktree(for: directoryID), !worktree.isMissing
-    else { return .none }
-    return launchNewSession(in: DirectoryContext(worktree: worktree), state: &state)
+  /// Mints a task on a directory the roster lists, local or remote. Nothing
+  /// is asked and no path is checked here: the directory is the row's own,
+  /// looked up on current state so a row gone, archived or winding down
+  /// since it was offered mints nothing.
+  static func handleNewTask(
+    inDirectory directoryID: Worktree.ID, kind: NewTaskKind = .agent, state: inout State
+  ) -> Effect<Action> {
+    guard state.pendingSessionLaunch == nil else { return .none }
+    guard let worktree = state.repositories.worktree(for: directoryID), !worktree.isMissing,
+      !state.repositories.isWorktreeArchived(directoryID),
+      state.repositories.sidebarItems[id: directoryID]?.lifecycle.isTerminating != true
+    else {
+      repositoriesLogger.warning("New task: directory \(directoryID.rawValue) is not a live roster entry")
+      return .none
+    }
+    return launchNewSession(in: DirectoryContext(worktree: worktree), kind: kind, state: &state)
   }
 
-  private static func launchNewSession(in directory: DirectoryContext, state: inout State) -> Effect<Action> {
+  private static func newTaskCommand(_ kind: NewTaskKind) -> String {
+    switch kind {
+    case .agent: "pi"
+    case .shell: ""
+    }
+  }
+
+  private static func launchNewSession(
+    in directory: DirectoryContext, kind: NewTaskKind, state: inout State
+  ) -> Effect<Action> {
     @Dependency(\.uuid) var uuid
     let requestID = uuid()
     let pending = PendingSessionLaunch(
       key: SessionKey(harness: .pi, sessionID: "new:\(requestID.uuidString)"),
       cwd: directory.workingDirectory,
-      command: "pi",
+      command: Self.newTaskCommand(kind),
       requestID: requestID,
       launched: true,
-      isNewSession: true
+      isNewSession: true,
+      kind: kind
     )
     state.pendingSessionLaunch = pending
     return launchSessionTab(pending, directory: directory, state: &state)
@@ -964,19 +986,58 @@ extension AppFeature {
       PendingTaskLaunch(layoutID: layoutID, directoryID: directory.worktreeID, primary: primary))
     let command = target == nil ? pending.command : resumeInput(pending, in: directory)
     let requestID = pending.requestID
-    return .run { send in
-      await terminalClient.send(
+    let create: TerminalClient.Command =
+      switch pending.kind {
+      case .agent:
         .createTabWithInput(
-          layoutID, directory,
-          input: command,
-          runSetupScriptIfNew: false,
-          title: nil,
-          focusing: true,
-          anchor: nil
-        )
-      )
+          layoutID, directory, input: command, runSetupScriptIfNew: false, title: nil, focusing: true, anchor: nil)
+      case .shell:
+        .createTab(layoutID, directory, runSetupScriptIfNew: false, focusing: true)
+      }
+    return .run { send in
+      await terminalClient.send(create)
       await send(.launchSessionCompleted(requestID: requestID))
     }
+  }
+
+  /// The directories the new-task picker offers: live roster rows, the
+  /// directory of the task on screen first (so ↵ equals Cmd-N, remote
+  /// included), then by MRU, then sidebar order.
+  static func newTaskDirectories(state: State) -> [NewTaskDirectory] {
+    let repositories = state.repositories
+    let currentID = currentTaskContext(state: state)?.worktreeID
+    let mruRank: [Worktree.ID: Int] = Dictionary(
+      repositories.worktreeMRU.enumerated().map { ($1, $0 + 1) },
+      uniquingKeysWith: { first, _ in first }
+    )
+    let live = repositories.orderedSidebarItems()
+      .filter { $0.lifecycle == .idle && !repositories.isWorktreeArchived($0.id) }
+      .compactMap { repositories.worktree(for: $0.id) }
+      .filter { !$0.isMissing }
+    let ranked = live.enumerated().sorted { lhs, rhs in
+      let lhsRank = lhs.element.id == currentID ? 0 : mruRank[lhs.element.id] ?? Int.max
+      let rhsRank = rhs.element.id == currentID ? 0 : mruRank[rhs.element.id] ?? Int.max
+      guard lhsRank == rhsRank else { return lhsRank < rhsRank }
+      return lhs.offset < rhs.offset
+    }
+    return ranked.map { newTaskDirectory($0.element, repositories: repositories) }
+  }
+
+  private static func newTaskDirectory(
+    _ worktree: Worktree, repositories: RepositoriesFeature.State
+  ) -> NewTaskDirectory {
+    let localPath = worktree.localWorkingDirectory?.standardizedFileURL.path(percentEncoded: false)
+    let repositoryName =
+      worktree.isFolder
+      ? nil : repositories.repositoryID(containing: worktree.id).flatMap { repositories.repositoryName(for: $0) }
+    return NewTaskDirectory(
+      id: worktree.id,
+      name: worktree.name,
+      repositoryName: repositoryName,
+      path: localPath.map(BrowsePath.abbreviate) ?? worktree.workingDirectory.path(percentEncoded: false),
+      localPath: localPath,
+      hostLabel: worktree.host?.displayAuthority
+    )
   }
 
   /// The task that lists a session, when it sits on the directory the session

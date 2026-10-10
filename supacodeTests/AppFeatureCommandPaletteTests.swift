@@ -77,8 +77,96 @@ struct AppFeatureCommandPaletteTests {
     await store.send(.commandPalette(.delegate(.browseOpenNativePanel(.newSession))))
     await store.receive(\.repositories.presentOpenPanel) {
       $0.repositories.isOpenPanelPresented = true
-      $0.repositories.openPanelPurpose = .newSession
+      $0.repositories.openPanelPurpose = .newSession(.agent)
     }
+  }
+
+  @Test(.dependencies) func pickedKnownDirectoryRoutesToNewTask() async {
+    let picked = Worktree(
+      id: "/picked", name: "picked", detail: "", workingDirectory: URL(fileURLWithPath: "/picked"),
+      repositoryRootURL: URL(fileURLWithPath: "/picked"))
+    var initial = AppFeature.State()
+    initial.repositories.repositories = [
+      Repository(id: "/picked", rootURL: picked.workingDirectory, name: "picked", worktrees: [picked])
+    ]
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.uuid = .incrementing
+      $0.date.now = .distantPast
+      $0.terminalClient.send = { command in sent.withValue { $0.append(command) } }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.commandPalette(.delegate(.newTaskDirectoryPicked(picked.id, kind: .shell))))
+    await store.receive(\.newTask)
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    #expect(sent.value.count == 1)
+    guard case .createTab(_, let context, _, _, _, _, _) = sent.value[0] else {
+      Issue.record("Expected one shell tab on the picked directory, got \(sent.value)")
+      return
+    }
+    #expect(context.worktreeID == picked.id)
+  }
+
+  @Test(.dependencies) func nativePanelCarriesTheKind() async throws {
+    let directory = try temporaryDirectory(named: "native-shell")
+    let worktree = Worktree(
+      id: Worktree.ID(directory.path(percentEncoded: false)), name: "native", detail: "",
+      workingDirectory: directory, repositoryRootURL: directory)
+    var initial = AppFeature.State()
+    initial.repositories.repositories = [
+      Repository(
+        id: RepositoryID(directory.path(percentEncoded: false)), rootURL: directory, name: "native",
+        worktrees: [worktree])
+    ]
+    let sent = LockIsolated<[TerminalClient.Command]>([])
+    let store = TestStore(initialState: initial) {
+      AppFeature()
+    } withDependencies: {
+      $0.uuid = .incrementing
+      $0.date.now = .distantPast
+      $0.terminalClient.send = { command in sent.withValue { $0.append(command) } }
+    }
+    store.exhaustivity = .off
+
+    await store.send(.commandPalette(.delegate(.browseOpenNativePanel(.newSession, kind: .shell))))
+    await store.receive(\.repositories.presentOpenPanel)
+    #expect(store.state.repositories.openPanelPurpose == .newSession(.shell))
+
+    await store.send(.repositories(.openPanelCompleted([directory])))
+    await store.receive(\.repositories.delegate.newSessionDirectorySelected)
+    await store.receive(\.newSessionDirectorySelected)
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+    #expect(store.state.repositories.openPanelPurpose == .openRepository)
+    #expect(sent.value.count == 1)
+    guard case .createTab(_, let context, let runsSetupScript, _, _, _, _) = sent.value[0] else {
+      Issue.record("Expected one shell tab, got \(sent.value)")
+      return
+    }
+    #expect(context.workingDirectory == directory)
+    #expect(runsSetupScript == false)
+
+    // A cancelled panel consumes the kind with the purpose.
+    await store.send(.commandPalette(.delegate(.browseOpenNativePanel(.newSession, kind: .shell))))
+    await store.receive(\.repositories.presentOpenPanel)
+    await store.send(.repositories(.openPanelCompleted(nil)))
+    #expect(store.state.repositories.openPanelPurpose == .openRepository)
+    await store.send(.commandPalette(.delegate(.browseOpenNativePanel(.newSession, kind: .agent))))
+    await store.receive(\.repositories.presentOpenPanel)
+    await store.finish()
+    #expect(store.state.repositories.openPanelPurpose == .newSession(.agent))
+  }
+
+  private func temporaryDirectory(named name: String) throws -> URL {
+    let url = FileManager.default.temporaryDirectory
+      .appendingPathComponent("supacode-tests-\(UUID().uuidString)-\(name)", isDirectory: true)
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    return url.standardizedFileURL
   }
 
   @Test(.dependencies) func refreshWorktreesDispatchesRefresh() async {

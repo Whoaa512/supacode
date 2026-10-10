@@ -43,13 +43,13 @@ struct TerminalCommands: Commands {
       .disabled(newSessionAction?.isEnabled != true)
       .help("New Session (\(AppShortcuts.newSession.effective(from: overrides)?.display ?? "none"))")
 
-      Button("New Session in Directory…", systemImage: "folder.badge.plus") {
+      Button("New Task in Directory…", systemImage: "folder.badge.plus") {
         newSessionInDirectoryAction?()
       }
       .appKeyboardShortcut(AppShortcuts.newSessionInDirectory.effective(from: overrides))
       .disabled(newSessionInDirectoryAction?.isEnabled != true)
       .help(
-        "New Session in Directory (\(AppShortcuts.newSessionInDirectory.effective(from: overrides)?.display ?? "none"))"
+        "New Task in Directory (\(AppShortcuts.newSessionInDirectory.effective(from: overrides)?.display ?? "none"))"
       )
 
       Divider()

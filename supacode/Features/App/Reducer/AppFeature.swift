@@ -349,13 +349,13 @@ struct AppFeature {
     case newTerminal
     case newSession
     case newSessionInDirectory
-    case newTask(inDirectory: Worktree.ID)
+    case newTask(inDirectory: Worktree.ID, kind: NewTaskKind = .agent)
     /// Moves every tab and session of the first task into the second (D8).
     case mergeTask(LayoutID, into: LayoutID)
     /// Moves one tab, and the sessions on it, into a task minted for it (D8).
     case detachTab(LayoutID, tabID: TabID)
     case detachFocusedTab
-    case newSessionDirectorySelected(URL)
+    case newSessionDirectorySelected(URL, kind: NewTaskKind = .agent)
     case settleSessionAndAdvance
     case unsettleCurrentSession
     case nextSessionNeedsMe
@@ -608,8 +608,8 @@ struct AppFeature {
           return .merge(cancelEffects)
         }
 
-      case .repositories(.delegate(.newSessionDirectorySelected(let url))):
-        return .send(.newSessionDirectorySelected(url))
+      case .repositories(.delegate(.newSessionDirectorySelected(let url, let kind))):
+        return .send(.newSessionDirectorySelected(url, kind: kind))
 
       case .repositories(.delegate(.focusSession(let location))):
         return Self.focusSession(location, state: state)
@@ -1212,8 +1212,8 @@ struct AppFeature {
       case .newSession:
         return Self.handleNewSession(directory: nil, state: &state)
 
-      case .newTask(let directoryID):
-        return Self.handleNewTask(inDirectory: directoryID, state: &state)
+      case .newTask(let directoryID, let kind):
+        return Self.handleNewTask(inDirectory: directoryID, kind: kind, state: &state)
 
       case .mergeTask(let source, let target):
         return Self.mergeTask(source, into: target, state: state)
@@ -1227,12 +1227,14 @@ struct AppFeature {
       case .newSessionInDirectory:
         return .send(
           .commandPalette(
-            .enterBrowseMode(basePath: Self.newSessionCwdFallback(state: state), purpose: .newSession)
+            .enterBrowseMode(
+              basePath: Self.newSessionCwdFallback(state: state), purpose: .newSession,
+              known: Self.newTaskDirectories(state: state))
           )
         )
 
-      case .newSessionDirectorySelected(let url):
-        return Self.handleNewSession(directory: url, state: &state)
+      case .newSessionDirectorySelected(let url, let kind):
+        return Self.handleNewSession(directory: url, kind: kind, state: &state)
 
       case .settleSessionAndAdvance:
         return Self.handleSettleSessionAndAdvance(state: &state)
@@ -2080,15 +2082,18 @@ struct AppFeature {
       case .commandPalette(.delegate(.browseSelectRepository(let url))):
         return .send(.repositories(.openRepositories([url])))
 
-      case .commandPalette(.delegate(.newSessionDirectorySelected(let url))):
-        return .send(.newSessionDirectorySelected(url))
+      case .commandPalette(.delegate(.newSessionDirectorySelected(let url, let kind))):
+        return .send(.newSessionDirectorySelected(url, kind: kind))
 
-      case .commandPalette(.delegate(.browseOpenNativePanel(let purpose))):
+      case .commandPalette(.delegate(.newTaskDirectoryPicked(let directoryID, let kind))):
+        return .send(.newTask(inDirectory: directoryID, kind: kind))
+
+      case .commandPalette(.delegate(.browseOpenNativePanel(let purpose, let kind))):
         switch purpose {
         case .openRepository:
           return .send(.repositories(.presentOpenPanel(.openRepository)))
         case .newSession:
-          return .send(.repositories(.presentOpenPanel(.newSession)))
+          return .send(.repositories(.presentOpenPanel(.newSession(kind))))
         }
 
       case .commandPalette(.delegate(.addRemoteRepository)):
