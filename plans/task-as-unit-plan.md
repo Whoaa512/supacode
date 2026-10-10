@@ -3375,3 +3375,38 @@ deviation.
   Gate (final tree): check 0; `WorktreeTerminalManagerTransferTests` exit 0
   (22 tests); build-app 0; full `make test` exit 2 with 4523 tests and only
   the 5 known failures.
+- M2 r3, 2026-10-10, `9ca909c5`: review fix (P0, held), by
+  redesign rather than a fourth patch. Written by odango, which was cut off
+  after its focused test run; gated, committed and recorded by Fable 5.1.
+  - Every layout write (debounced snapshot, transfer, delete, active-task
+    hint) is built from current state and put on the writer's serial queue
+    in the same main-actor turn, through the new
+    `LayoutsIncrementalWriter.enqueue(records:)` /
+    `enqueue(activeTask:forDirectory:)`. Nothing holding a record waits in
+    a `Task` any more, so queue order is state order and an older record can
+    never land on a newer one. The quit save's `flushSync` runs behind
+    everything already enqueued on the same queue.
+  - Removed as no longer needed: `layoutFlushTasks`, `layoutFlushGeneration`,
+    `removedByTransfer`, `unwrittenTransfers`, `unwrittenRemovals`, and the
+    quit-save stand-ins built from them. `cancelledSaves` stays, now only for
+    debounce timers that had not fired (their task is written as it is now).
+    `saveLayoutsAndScrollback` cancels the timers itself;
+    `persistAndTerminateAllSessions` no longer does it separately.
+  - Only the debounce timer waits, and it carries no record. A quit that
+    cancels it writes the task from current state.
+  Tests (`WorktreeTerminalManagerTransferTests`, 26, +4): the review's exact
+  ordering (`aSaveMadeAfterATransferIsNotUndoneByIt`, with and without quit),
+  a source recreated while the earlier write is stuck
+  (`aSourceCreatedAgainSurvivesTheTransferThatRemovedIt`, with and without
+  quit), quit before later debounces fire, and a seeded interleaving walk
+  over open, merge, debounce, stuck write, release and quit
+  (`noInterleavingOfWritesLosesATab`, 6 seeds); each ends by draining the
+  writer and rehydrating, asserting every tab is stored exactly once and no
+  task is lost.
+  Gate (final tree, Fable 5.1): check 0 (no reformat outside the slice);
+  build-app 0; full `make test` exit 2 with 4528 tests, the 5 known
+  failures only. The xcresult also lists "Issues recorded without an
+  associated test or suite" under `supacodeGitTests`: 27 `@Dependency(\.date)
+  has no test implementation` warnings from
+  `RepositoriesFeature+Sessions.swift:26`, not a test failure and not from
+  this slice; xcodebuild's own failing-tests list names only the 5.
