@@ -3779,3 +3779,71 @@ deviation.
   `CommandPaletteFeatureTests` exit 0 (136 tests); `AppFeatureSessionsTests`
   + `AppFeatureCommandPaletteTests` exit 0 (224 tests); build-app 0; full
   `make test` exit 2 with 4598 tests and only the 5 known failures.
+- P1 r1, 2026-10-10, `522a3e9e`. Review of P1 found two P1s, both held.
+  (1) Eligibility was decided before the boundary: `launchSessionTab`
+  carried a `DirectoryContext` in `createTab` / `createTabWithInput`, the
+  manager wrapped it in another `Task` and `createTabAsync` called
+  `host(for:context:)` unconditionally, so a directory archived, marked
+  missing, removed or set deleting between accept and delivery still got
+  a host, a layout and a tab. (2) The path route (`handleNewSession` on a
+  typed path, Tab into a known row, "Choose Folder…") and
+  `launchPendingSessionIfReady` launched on any `worktreeForCwd` hit
+  without the archive / termination check, so the same directory was
+  refused as a known row and accepted as a path.
+  Fix: new `TerminalClient.Command.createTaskTab(LayoutID, directoryID:,
+  input: String?, focusing:)`, directory identity only (`input` nil is the
+  shell), sent by `launchSessionTab` for every `isNewSession` launch
+  (picker, Cmd-N, "New task here"). The manager's `createTaskTab` runs
+  `AppFeature.launchDirectory(_:state:)` through `appStore.withState` in
+  the turn the command lands and calls `createTabAsync` directly, no
+  further hop; with no store or no live directory nothing is created.
+  `launchDirectory` is the one rule: a roster entry must be live (not
+  missing, archived or terminating) and yields `DirectoryContext(worktree:)`
+  fresh from the roster; a directory the roster does not list yields
+  `DirectoryContext(orphan:)` only while a task is still open or stored on
+  it (Cmd-N on an orphan task, T7 r2), else nil. The same function gates
+  `handleNewTask`, both roster branches of `handleNewSession` (path and
+  the remote `directory == nil` shortcut) and `launchPendingSessionIfReady`
+  (which drops the pending launch rather than wait for a roster change)
+  up front, so nothing is sent that delivery would refuse; delivery stays
+  the authority. Genuinely unregistered readable folders still register
+  and launch. Decision taken (non-destructive, closest to the agreed
+  rule): the no-roster case re-derives from the tasks on the directory
+  rather than carrying a "came from the roster" flag, so a directory
+  removed with its tasks mints nothing while an orphan task's Cmd-N still
+  works; a repository removed from the roster but leaving orphan tasks is
+  treated as the orphan case at delivery too. Resume
+  (`handleResumeSession` → `launchSessionTab`, not `isNewSession`) still
+  carries its planned `DirectoryContext` in `createTabWithInput`: it is
+  T7's path, not P1's, and its own delivery check (target task still
+  present, directory still live) is noted for whoever next touches resume
+  or `host(for:)` (Z1 audit list, with M3 r3's).
+  Tests (red first on a midpoint with the old unguarded bodies: 3 tests
+  failed across their parameter sets, 229 passed): `AppFeatureSessionsTests`
+  +3 (`pathRouteRefusesARegisteredDirectoryThatIsArchivedOrTerminating`
+  ×4, `registrationCompletionRefusesAFolderThatArrivedArchived`,
+  `launchDirectoryResolvesLiveRosterOrphanAndNothingElse`);
+  `WorktreeTerminalManagerTransferTests` +2 on the real store with the
+  app's launch queued and delivered after the change
+  (`aLaunchLandingAfterItsDirectoryChangedCreatesNothing` × archived /
+  deleting / removed × agent / shell, asserting no host, no layout, no tab
+  event, no manager or app selection, nothing persisted;
+  `aLaunchLandingOnALiveDirectoryCreatesItsOneTab` × agent / shell).
+  `launches` / `shellLaunches` helpers and the remote-host assertions now
+  read `createTaskTab` and resolve the host through `launchDirectory`;
+  `AppFeatureCommandPaletteTests` two shell expectations renamed.
+  Same class, audited across the slice: picker confirm (`Worktree.ID`
+  only), native panel (URL + kind), `registerSessionFolder` →
+  `repositoriesChanged` (re-resolves cwd and eligibility),
+  `launchSessionCompleted` (request id), `showLaunchedTaskIfReady` →
+  `.selectTask` → `selectLayout(_, forDirectory:)` (M3 r5). Nothing else
+  found.
+  Gate (final tree): check 0; `AppFeatureSessionsTests` +
+  `AppFeatureCommandPaletteTests` + `AppFeatureSessionsTaskSettleTests` +
+  `WorktreeTerminalManagerTransferTests` + `WorktreeTerminalManagerAckTests`
+  + `CommandPaletteSessionDirectoryTests` 369 tests, 0 test failures (exit
+  2 only from a one-off runner-process crash at
+  `ABI.EncodedEvent.encode` before any test ran in it; every suite ran and
+  passed in its sibling process, and the full run below has no such
+  entry); build-app 0; full `make test` exit 2 with 4603 tests and only
+  the 5 known failures.
