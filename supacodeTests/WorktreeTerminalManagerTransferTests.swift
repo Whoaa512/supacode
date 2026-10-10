@@ -531,6 +531,174 @@ struct WorktreeTerminalManagerTransferTests {
     #expect(file.tasks[kept.persistenceKey]?.layout.allContentIDs == [ContentID(rawValue: staying)])
   }
 
+  // MARK: - Write order: a later state is never overwritten by an earlier one.
+
+  /// Sticks an ordinary save of `source` in the store, the writer's queue
+  /// behind it. Returns nil when the save never got there.
+  private func holdASave(of source: LayoutID, in harness: Harness) async -> (@Sendable () -> Void)? {
+    let release = harness.recorder.holdNextWrite()
+    _ = await open(source, in: harness)
+    await harness.clock.advance(by: .seconds(1))
+    for _ in 0..<10_000 where !harness.recorder.isHolding.value { await Task.yield() }
+    guard harness.recorder.isHolding.value else {
+      release()
+      Issue.record("the earlier save never reached the store")
+      return nil
+    }
+    return release
+  }
+
+  /// Every task with a tab, as the app holds it now.
+  private static func live(_ harness: Harness) -> [String: [ContentID]] {
+    var tasks: [String: [ContentID]] = [:]
+    for layout in harness.terminals.layouts where !layout.layout.allContentIDs.isEmpty {
+      tasks[layout.id.persistenceKey] = layout.layout.allContentIDs
+    }
+    return tasks
+  }
+
+  /// The store holds exactly the app's tasks and tabs, and a relaunch reads
+  /// them back: no tab lost, none twice, no task lost.
+  private func expectStoredMatchesLive(_ harness: Harness, _ note: Comment = "") async {
+    let live = Self.live(harness)
+    let file = harness.recorder.current() ?? TaskLayoutsFile()
+    #expect(file.tasks.mapValues(\.layout.allContentIDs) == live, note)
+    let relaunched = await Self.relaunched(from: file)
+    var reread: [String: [ContentID]] = [:]
+    for layout in relaunched.layouts { reread[layout.id.persistenceKey] = layout.layout.allContentIDs }
+    #expect(reread == live, note)
+    let everyTab = reread.values.flatMap { $0 }
+    #expect(Set(everyTab).count == everyTab.count, note)
+  }
+
+  @Test(.dependencies, arguments: [false, true])
+  func aSaveMadeAfterATransferIsNotUndoneByIt(quit: Bool) async throws {
+    let harness = await makeHarness()
+    let (source, destination) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    _ = await open(source, in: harness)
+    _ = await open(destination, in: harness)
+    await harness.clock.advance(by: .seconds(5))
+    await drainWrites(harness)
+    guard let release = await holdASave(of: source, in: harness) else { return }
+
+    // The transfer is written behind the stuck save; the destination then
+    // gains a tab, and its debounced save is made before the store moves.
+    merge(source, into: destination, in: harness)
+    let later = await open(destination, in: harness)
+    await harness.clock.advance(by: .seconds(5))
+    await Task.megaYield()
+
+    release()
+    if quit { harness.manager.saveAllLayoutSnapshots() }
+    await drainWrites(harness)
+
+    let file = try #require(harness.recorder.current())
+    #expect(file.tasks[destination.persistenceKey]?.layout.allContentIDs.contains(ContentID(rawValue: later)) == true)
+    await expectStoredMatchesLive(harness)
+  }
+
+  @Test(.dependencies, arguments: [false, true])
+  func aSourceCreatedAgainSurvivesTheTransferThatRemovedIt(quit: Bool) async throws {
+    let harness = await makeHarness()
+    let (source, destination) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    _ = await open(source, in: harness)
+    _ = await open(destination, in: harness)
+    await harness.clock.advance(by: .seconds(5))
+    await drainWrites(harness)
+    guard let release = await holdASave(of: source, in: harness) else { return }
+
+    merge(source, into: destination, in: harness)
+    let again = await open(source, in: harness)
+    _ = await open(destination, in: harness)
+    // Both later saves are made while the earlier one is still stuck.
+    await harness.clock.advance(by: .seconds(5))
+    await Task.megaYield()
+
+    release()
+    if quit {
+      harness.manager.cancelPendingLayoutSaves()
+      harness.manager.saveAllLayoutSnapshots()
+    }
+    await drainWrites(harness)
+
+    let file = try #require(harness.recorder.current())
+    #expect(file.tasks[source.persistenceKey]?.layout.allContentIDs == [ContentID(rawValue: again)])
+    #expect(file.mergedTasks.isEmpty, "a task that exists again forwards nowhere")
+    await expectStoredMatchesLive(harness)
+  }
+
+  @Test(.dependencies) func aQuitBeforeTheLaterDebouncesFireStoresWhatIsThereNow() async throws {
+    let harness = await makeHarness()
+    let (source, destination) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    _ = await open(source, in: harness)
+    _ = await open(destination, in: harness)
+    await harness.clock.advance(by: .seconds(5))
+    await drainWrites(harness)
+    guard let release = await holdASave(of: source, in: harness) else { return }
+
+    merge(source, into: destination, in: harness)
+    _ = await open(source, in: harness)
+    _ = await open(destination, in: harness)
+
+    // No suspension after the release: nothing but the quit save follows.
+    release()
+    harness.manager.saveAllLayoutSnapshots()
+    await expectStoredMatchesLive(harness, "right after the quit save")
+
+    // Nothing left over lands on top of it.
+    await harness.clock.advance(by: .seconds(5))
+    await drainWrites(harness)
+    await expectStoredMatchesLive(harness, "after everything drained")
+  }
+
+  /// Seeded walks over opening tabs, merging, debounces firing, a write
+  /// sticking in the store and coming loose, and the quit save.
+  @Test(.dependencies, arguments: [1, 2, 3, 4, 5, 6] as [UInt64])
+  func noInterleavingOfWritesLosesATab(seed: UInt64) async throws {
+    let harness = await makeHarness()
+    let tasks = (0..<3).map { _ in LayoutID(task: UUID()) }
+    var state = seed &* 0x9E37_79B9_7F4A_7C15 | 1
+    func next(_ bound: Int) -> Int {
+      state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+      return Int((state >> 33) % UInt64(bound))
+    }
+    var release: (@Sendable () -> Void)?
+    for step in 0..<30 {
+      switch next(6) {
+      case 0, 1:
+        _ = await open(tasks[next(3)], in: harness)
+      case 2:
+        let (from, into) = (tasks[next(3)], tasks[next(3)])
+        let live = Self.live(harness)
+        guard from != into, live[from.persistenceKey] != nil, live[into.persistenceKey] != nil else { continue }
+        merge(from, into: into, in: harness)
+        let outcome = await harness.events.collect(until: Self.isTransferOutcome)
+        #expect(outcome.contains { if case .tabsTransferred = $0 { true } else { false } }, "step \(step)")
+      case 3:
+        await harness.clock.advance(by: .seconds(1))
+        await Task.megaYield()
+      case 4:
+        if let held = release {
+          held()
+          release = nil
+        } else {
+          release = harness.recorder.holdNextWrite()
+        }
+      default:
+        // The quit save waits for the writer, so the store has to move.
+        release?()
+        release = nil
+        harness.manager.cancelPendingLayoutSaves()
+        harness.manager.saveAllLayoutSnapshots()
+        await expectStoredMatchesLive(harness, "seed \(seed), quit save at step \(step)")
+      }
+    }
+    release?()
+    await harness.clock.advance(by: .seconds(5))
+    await drainWrites(harness)
+    await expectStoredMatchesLive(harness, "seed \(seed), drained")
+  }
+
   /// Lets every queued write task reach the writer and the writer finish it.
   private func drainWrites(_ harness: Harness) async {
     for _ in 0..<5 {

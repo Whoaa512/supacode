@@ -98,6 +98,25 @@ actor LayoutsIncrementalWriter {
     applyAndWriteRecords(changes, synchronize: false)
   }
 
+  /// Puts the write on the serial queue before returning, so writes land in
+  /// the order their callers made them: nothing a caller does afterwards,
+  /// another `enqueue` or the on-quit `flushSync`, can get ahead of it. The
+  /// app writes only through this and `flushSync`; a write that first waits
+  /// in a task could be overtaken by a newer one and then undo it.
+  nonisolated func enqueue(records changes: [LayoutID: RecordChange]) {
+    guard !changes.isEmpty else { return }
+    executorQueue.async { self.applyAndWriteRecords(changes, synchronize: false) }
+  }
+
+  /// As `flush(activeTask:forDirectory:)`, ordered like `enqueue(records:)`.
+  nonisolated func enqueue(activeTask layoutID: LayoutID?, forDirectory directoryID: Worktree.ID) {
+    executorQueue.async {
+      self.update(synchronize: false) { file in
+        file.activeTasks[directoryID.rawValue] = layoutID?.persistenceKey
+      }
+    }
+  }
+
   /// Synchronous variant for the on-quit terminal write, where the run loop is
   /// tearing down and there's no chance to await the actor. Runs on the writer's
   /// serial executor so this terminal write is FIFO-ordered strictly after any

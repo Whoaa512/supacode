@@ -51,8 +51,8 @@ final class SupacodeAppDelegate: NSObject, NSApplicationDelegate {
     // Release the global Carbon registration explicitly rather than leaning on
     // deinit timing.
     globalHotkeyMonitor?.tearDown()
-    // Drop the queued debounce timers; a flush already on the writer's serial
-    // queue still completes, but the terminal write below runs on that same queue
+    // Drop the waiting debounce timers; every write already made is on the
+    // writer's serial queue, and the terminal write below runs on that same queue
     // and is therefore ordered strictly after it, never regressed by a late flush.
     // The on-quit save embeds agent records so badges survive relaunch (agents
     // only emit session_start once per process lifetime), and a second concurrent
