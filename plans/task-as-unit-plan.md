@@ -3410,3 +3410,50 @@ deviation.
   has no test implementation` warnings from
   `RepositoriesFeature+Sessions.swift:26`, not a test failure and not from
   this slice; xcodebuild's own failing-tests list names only the 5.
+- M2 r4, 2026-10-10, `4510c12a`, `3100e854`: review fix (two P1, both
+  held).
+  - The active-task hint was the one layout write still carrying a value
+    through a reducer effect, so two deliveries could land out of order
+    and store a selection the state had moved past, and one pending at
+    quit enqueued behind the quit save, which did not write the hint.
+    Fix: `LayoutChangeObserver.activeTaskChanged` carries only the
+    directory; `handleActiveTaskChanged(directoryID:)` reads
+    `activeTasks` when it runs. `saveAllLayoutSnapshots` writes every
+    known directory's hint with the records
+    (`LayoutsIncrementalWriter.flushSync(records:activeTasks:)`, hints
+    applied before the records so a record removed there still clears a
+    hint at it). A delivery after the quit save re-writes the same value,
+    which the writer drops as unchanged. r2's "Not changed:
+    `handleActiveTaskChanged`'s write is still unguarded" is superseded.
+  - A merge's `differentMachine` check compared the source with the
+    caller's `DirectoryContext`, not the destination task. Fix:
+    `transferRefusal` lands a merge on `directories[target]` (missing:
+    `.unknownDestination`), checks the machine against that, and refuses a
+    supplied directory that is not the task's as the new
+    `TabTransferRefusal.destinationMismatch`, before any host is created.
+    A detach still validates the new task's directory it is given.
+  - Decision taken: refuse a mismatched merge context rather than ignore
+    it and derive the context from the task (the manager has no
+    `DirectoryContext` for a hostless task without a sidebar lookup).
+    M3 passes the destination's own context; `.destinationMismatch` is a
+    programming error signal, not a user-facing state.
+  Tests: `TerminalsFeatureTransferTests.refusalTable` (+9 rows; the old
+  row accepting a remote source into a local task with a remote context
+  now expects `.differentMachine`); `WorktreeTerminalManagerTransferTests`
+  +4: `mergeNamingAnotherDirectoryThanTheDestinationsIsRefused` (hosted
+  destination, no mutation, kill or write),
+  `mergeIntoARemoteTaskIsRefusedWhateverTheCallerSays` (hostless remote
+  destination, local and remote contexts, no host created),
+  `quitSaveStoresTheSelectionWhoseHintHasNotLanded` (select then quit
+  save in one turn), `aHintLandingLateStoresTheCurrentSelection` (guard).
+  Red first, by mutation on the final tree (`landing = destination`, quit
+  save without hints): exactly `refusalTable` and the first three new
+  manager tests failed (49 run, 4 failed); the fourth cannot be made to
+  fail since the API no longer carries a value. `TerminalsFeatureTests`'
+  resolver store now records directories only; the values are asserted
+  on `state.activeTasks` in the same tests.
+  Gate (final tree): check 0; `WorktreeTerminalManagerTransferTests` +
+  `WorktreeTerminalManagerAckTests` + `LayoutsIncrementalWriterTests` +
+  `TerminalsFeatureTransferTests` + `TerminalsFeatureTests` exit 0 (184
+  tests, 0 failed); build-app 0. No full `make test` (narrow suites only,
+  as instructed).
