@@ -2002,9 +2002,12 @@ final class WorktreeTerminalManager {
   /// Persists which task a directory resolves to, so a relaunch reopens the
   /// one last selected. Queued now, in order with the record writes: one
   /// that removes the task also clears this entry, and must not be undone.
-  func handleActiveTaskChanged(directoryID: Worktree.ID, layoutID: LayoutID?) {
-    guard appStore?.withState({ $0.terminals.layoutsAreReadOnly }) != true else { return }
-    layoutsWriter.enqueue(activeTask: layoutID, forDirectory: directoryID)
+  /// The value is read here, not carried from the reducer turn that changed
+  /// it: the reducer's effects can land in any order, and the last one to
+  /// land must store what the state says now.
+  func handleActiveTaskChanged(directoryID: Worktree.ID) {
+    guard let terminals = appStore?.withState(\.terminals), !terminals.layoutsAreReadOnly else { return }
+    layoutsWriter.enqueue(activeTask: terminals.activeTasks[directoryID], forDirectory: directoryID)
   }
 
   /// Upserts the task with its layout and sessions. The writer drops a task
@@ -2621,7 +2624,7 @@ final class WorktreeTerminalManager {
   func saveAllLayoutSnapshots(
     agentsBySurface: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]]? = nil
   ) {
-    guard appStore?.withState({ $0.terminals.layoutsAreReadOnly }) != true else { return }
+    guard let terminals = appStore?.withState(\.terminals), !terminals.layoutsAreReadOnly else { return }
     // This write stands in for every debounced save still waiting. All
     // earlier writes, removals and transfers included, are ahead of it on
     // the writer's queue, so only what is here now is left to store.
@@ -2637,7 +2640,12 @@ final class WorktreeTerminalManager {
       changes[id] = recordChange(for: id, layout: record.layout)
     }
     cancelledSaves.removeAll()
-    layoutsWriter.flushSync(records: changes)
+    // Also stands in for an active-task hint whose effect has not run yet.
+    var activeTasks: [Worktree.ID: LayoutID?] = [:]
+    for directoryID in Set(terminals.directories.values.map(\.worktreeID)) {
+      activeTasks[directoryID] = .some(terminals.activeTasks[directoryID])
+    }
+    layoutsWriter.flushSync(records: changes, activeTasks: activeTasks)
   }
 
   func saveLayoutsAndScrollback(
@@ -2934,8 +2942,8 @@ extension LayoutChangeObserver {
       layoutChanged: { layoutID in
         manager.handleLayoutChanged(for: layoutID)
       },
-      activeTaskChanged: { directoryID, layoutID in
-        manager.handleActiveTaskChanged(directoryID: directoryID, layoutID: layoutID)
+      activeTaskChanged: { directoryID in
+        manager.handleActiveTaskChanged(directoryID: directoryID)
       },
       sessionsChanged: { layoutID in
         manager.markLayoutDirty(worktreeID: layoutID)

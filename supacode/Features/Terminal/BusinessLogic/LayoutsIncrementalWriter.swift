@@ -122,8 +122,10 @@ actor LayoutsIncrementalWriter {
   /// serial executor so this terminal write is FIFO-ordered strictly after any
   /// flush already enqueued at quit, never overtaken and regressed by a late one.
   /// Forces a UserDefaults flush so the last write survives termination.
-  nonisolated func flushSync(records changes: [LayoutID: RecordChange]) {
-    executorQueue.sync { applyAndWriteRecords(changes, synchronize: true) }
+  /// `activeTasks` sets each named directory's hint (`nil` clears it) before
+  /// the records apply, so a record removed here still clears a hint at it.
+  nonisolated func flushSync(records changes: [LayoutID: RecordChange], activeTasks: [Worktree.ID: LayoutID?] = [:]) {
+    executorQueue.sync { applyAndWriteRecords(changes, activeTasks: activeTasks, synchronize: true) }
   }
 
   /// Records which task a directory resolves to; `nil` clears the entry, so
@@ -157,9 +159,16 @@ actor LayoutsIncrementalWriter {
     }
   }
 
-  private nonisolated func applyAndWriteRecords(_ changes: [LayoutID: RecordChange], synchronize: Bool) {
-    guard !changes.isEmpty else { return }
-    update(synchronize: synchronize) { file in Self.apply(changes, to: &file) }
+  private nonisolated func applyAndWriteRecords(
+    _ changes: [LayoutID: RecordChange], activeTasks: [Worktree.ID: LayoutID?] = [:], synchronize: Bool
+  ) {
+    guard !changes.isEmpty || !activeTasks.isEmpty else { return }
+    update(synchronize: synchronize) { file in
+      for (directoryID, layoutID) in activeTasks {
+        file.activeTasks[directoryID.rawValue] = layoutID?.persistenceKey
+      }
+      Self.apply(changes, to: &file)
+    }
   }
 
   private nonisolated func update(synchronize: Bool, _ mutate: (inout TaskLayoutsFile) -> Void) {

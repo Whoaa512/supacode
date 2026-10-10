@@ -841,8 +841,8 @@ struct TerminalsFeatureTests {
     } withDependencies: {
       $0[LayoutChangeObserver.self] = LayoutChangeObserver(
         layoutChanged: { _ in },
-        activeTaskChanged: { directoryID, layoutID in
-          reported.withValue { $0.append("\(directoryID)=\(layoutID?.description ?? "nil")") }
+        activeTaskChanged: { directoryID in
+          reported.withValue { $0.append(directoryID.rawValue) }
         }
       )
     }
@@ -867,19 +867,19 @@ struct TerminalsFeatureTests {
     await store.send(.selectedLayoutChanged(minted))
     await store.finish()
     #expect(store.state.layoutID(forDirectory: directory) == minted)
-    #expect(reported.value == ["/tmp/repo=\(minted)"])
+    #expect(reported.value == ["/tmp/repo"])
 
     // Re-selecting it reports nothing new.
     await store.send(.selectedLayoutChanged(nil))
     await store.send(.selectedLayoutChanged(minted))
     await store.finish()
-    #expect(reported.value == ["/tmp/repo=\(minted)"])
+    #expect(reported.value == ["/tmp/repo"])
 
     await store.send(.selectedLayoutChanged(ownKey))
     await store.finish()
     #expect(store.state.layoutID(forDirectory: directory) == ownKey)
     #expect(store.state.activeTasks.isEmpty)
-    #expect(reported.value == ["/tmp/repo=\(minted)", "/tmp/repo=nil"])
+    #expect(reported.value == ["/tmp/repo", "/tmp/repo"])
   }
 
   @Test(.dependencies) func selectingATaskLeavesOtherDirectoriesResolutionAlone() async {
@@ -948,7 +948,7 @@ struct TerminalsFeatureTests {
     #expect(store.state.layoutID(forDirectory: "/tmp/a") == ownKey)
     #expect(store.state.activeTasks.isEmpty)
     // The stale entry is cleared from the file, or the next launch restores it.
-    #expect(reported.value == ["/tmp/a=nil"])
+    #expect(reported.value == ["/tmp/a"])
   }
 
   @Test(.dependencies) func aSelectionAttachedAfterHydrationOutranksTheStoredTaskOnceTheUserMovedOn() async {
@@ -970,7 +970,7 @@ struct TerminalsFeatureTests {
     await store.finish()
     #expect(store.state.layoutID(forDirectory: "/tmp/a") == selected)
     #expect(store.state.selectedLayoutID == other)
-    #expect(reported.value == ["/tmp/a=\(selected)"])
+    #expect(reported.value == ["/tmp/a"])
   }
 
   @Test(.dependencies) func aSelectionWhoseDirectoryHydrationNamesOutranksTheStoredTask() async {
@@ -987,7 +987,7 @@ struct TerminalsFeatureTests {
     await store.finish()
     #expect(store.state.layoutID(forDirectory: "/tmp/a") == selected)
     // One write for the directory, not a clear racing it.
-    #expect(reported.value == ["/tmp/a=\(selected)"])
+    #expect(reported.value == ["/tmp/a"])
   }
 
   @Test(.dependencies) func aLateAttachNeverOverridesALaterSelectionOnTheSameDirectory() async {
@@ -1002,7 +1002,7 @@ struct TerminalsFeatureTests {
     await store.send(.attachLayout(worktreeID: early, directory: directory, titlePrefix: "a"))
     await store.finish()
     #expect(store.state.layoutID(forDirectory: "/tmp/a") == later)
-    #expect(reported.value == ["/tmp/a=\(later)"])
+    #expect(reported.value == ["/tmp/a"])
   }
 
   @Test(.dependencies) func aLayoutAttachedAfterItsSelectionBecomesItsDirectorysActiveTask() async {
@@ -1016,7 +1016,7 @@ struct TerminalsFeatureTests {
     await store.finish()
     #expect(store.state.directories == [minted: directory])
     #expect(store.state.layoutID(forDirectory: "/tmp/repo") == minted)
-    #expect(reported.value == ["/tmp/repo=\(minted)"])
+    #expect(reported.value == ["/tmp/repo"])
   }
 
   @Test(.dependencies) func attachNeverReplacesAHydratedTasksDirectory() async {

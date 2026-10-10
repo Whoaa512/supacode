@@ -6,9 +6,10 @@ import SupacodeSettingsShared
 /// projection, dormant watchers); the integration layer injects the live hook.
 nonisolated struct LayoutChangeObserver: Sendable {
   var layoutChanged: @MainActor @Sendable (LayoutID) -> Void
-  /// A directory now resolves to another task; `nil` means the task stored
-  /// under the directory's own key.
-  var activeTaskChanged: @MainActor @Sendable (Worktree.ID, LayoutID?) -> Void = { _, _ in }
+  /// A directory now resolves to another task. Carries no value: the hook
+  /// reads `activeTasks` when it runs, so two deliveries landing out of order
+  /// cannot store a selection the state has since moved past.
+  var activeTaskChanged: @MainActor @Sendable (Worktree.ID) -> Void = { _ in }
   /// A task's stored sessions changed; its tabs did not.
   var sessionsChanged: @MainActor @Sendable (LayoutID) -> Void = { _ in }
 }
@@ -337,7 +338,7 @@ struct TerminalsFeature {
           ? .none
           : .run { [staleDirectories] _ in
             for directoryID in staleDirectories {
-              await layoutChangeObserver.activeTaskChanged(directoryID, nil)
+              await layoutChangeObserver.activeTaskChanged(directoryID)
             }
           }
         return .merge(reconcileHibernation(&state), clearStale, activeTask, sessionsChanged(unwritten))
@@ -640,7 +641,7 @@ extension TerminalsFeature {
     let active: LayoutID? = layoutID == State.ownKeyLayoutID(forDirectory: directoryID) ? nil : layoutID
     guard state.activeTasks[directoryID] != active else { return .none }
     state.activeTasks[directoryID] = active
-    return .run { _ in await layoutChangeObserver.activeTaskChanged(directoryID, active) }
+    return .run { _ in await layoutChangeObserver.activeTaskChanged(directoryID) }
   }
 }
 

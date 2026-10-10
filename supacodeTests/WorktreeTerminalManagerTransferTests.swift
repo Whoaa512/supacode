@@ -738,7 +738,8 @@ struct WorktreeTerminalManagerTransferTests {
     _ = await stored(harness) { $0.tasks[source.persistenceKey] == nil }
     await harness.clock.advance(by: .seconds(5))
     // A later write through the same writer: whatever was queued is behind it.
-    harness.manager.handleActiveTaskChanged(directoryID: Self.directory.id, layoutID: destination)
+    harness.manager.handleCommand(.setSelectedLayoutID(destination))
+    harness.manager.handleActiveTaskChanged(directoryID: Self.directory.id)
     _ = await harness.recorder.nextWrite { $0.activeTasks[Self.directory.id.rawValue] == destination.persistenceKey }
 
     #expect(try #require(harness.recorder.current()).tasks.keys.map { $0 } == [destination.persistenceKey])
@@ -810,6 +811,115 @@ struct WorktreeTerminalManagerTransferTests {
       events.filter(Self.isTransferOutcome) == [.tabsTransferFailed(from: source, into: destination, reason: .quitting)]
     )
     #expect(harness.tabIDs(source) == [tab])
+  }
+
+  @Test(.dependencies) func mergeNamingAnotherDirectoryThanTheDestinationsIsRefused() async throws {
+    let harness = await makeHarness()
+    let (sourceDirectory, destinationDirectory) = (Self.worktree("/tmp/repo/wt-x"), Self.worktree("/tmp/repo/wt-y"))
+    let (source, destination) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    let moved = await open(source, on: sourceDirectory, in: harness)
+    let own = await open(destination, on: destinationDirectory, in: harness)
+    _ = await stored(harness) {
+      $0.tasks[source.persistenceKey] != nil && $0.tasks[destination.persistenceKey] != nil
+    }
+    let before = harness.terminals
+    let writes = harness.recorder.everyWrite.value.count
+
+    // The caller says the source's directory; the destination lives elsewhere.
+    merge(source, into: destination, on: sourceDirectory, in: harness)
+    let events = await harness.events.collect(until: Self.isTransferOutcome)
+
+    #expect(
+      events.filter(Self.isTransferOutcome)
+        == [.tabsTransferFailed(from: source, into: destination, reason: .destinationMismatch)])
+    #expect(harness.terminals == before)
+    #expect(harness.tabIDs(source) == [moved])
+    #expect(harness.tabIDs(destination) == [own])
+    #expect(harness.manager.hostIfExists(for: destination)?.worktreeID == destinationDirectory.id)
+    #expect(harness.recorder.localKills.value.isEmpty)
+    await harness.clock.advance(by: .seconds(5))
+    await Task.megaYield()
+    #expect(harness.recorder.everyWrite.value.count == writes)
+  }
+
+  @Test(.dependencies) func mergeIntoARemoteTaskIsRefusedWhateverTheCallerSays() async throws {
+    let harness = await makeHarness()
+    let remote = RemoteHost(alias: "build-box")
+    let (source, destination) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    let tab = await open(source, in: harness)
+    // The destination is stored on another machine and was never opened.
+    let record = TaskRecord(
+      id: destination, directory: TaskRecord.Directory(worktreeID: Self.directory.id, host: remote),
+      createdAt: Date(timeIntervalSince1970: 1))
+    await harness.store.send(
+      .terminals(.layoutsHydrated(TaskLayoutsFile(tasks: [destination.persistenceKey: record])))
+    ).finish()
+    _ = await stored(harness) { $0.tasks[source.persistenceKey] != nil }
+    let before = harness.terminals
+    let writes = harness.recorder.everyWrite.value.count
+
+    // A local context would create a host that disagrees with the stored task.
+    merge(source, into: destination, in: harness)
+    var events = await harness.events.collect(until: Self.isTransferOutcome)
+    #expect(
+      events.filter(Self.isTransferOutcome)
+        == [.tabsTransferFailed(from: source, into: destination, reason: .differentMachine)])
+
+    // A remote context matches the task, but the source is local.
+    merge(
+      source, into: destination, on: RepositoriesFeature.remoteMainWorktree(host: remote, remotePath: "/srv/repo"),
+      in: harness)
+    events = await harness.events.collect(until: Self.isTransferOutcome)
+    #expect(
+      events.filter(Self.isTransferOutcome)
+        == [.tabsTransferFailed(from: source, into: destination, reason: .differentMachine)])
+
+    #expect(harness.terminals == before)
+    #expect(harness.tabIDs(source) == [tab])
+    #expect(harness.manager.hostIfExists(for: destination) == nil, "a refusal creates no host")
+    #expect(harness.recorder.localKills.value.isEmpty)
+    #expect(harness.recorder.remoteKills.value.isEmpty)
+    await harness.clock.advance(by: .seconds(5))
+    await Task.megaYield()
+    #expect(harness.recorder.everyWrite.value.count == writes)
+  }
+
+  // MARK: - The active-task hint.
+
+  @Test(.dependencies) func quitSaveStoresTheSelectionWhoseHintHasNotLanded() async throws {
+    let harness = await makeHarness()
+    let (source, destination) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    _ = await open(source, in: harness)
+    _ = await open(destination, in: harness)
+    harness.manager.handleCommand(.setSelectedLayoutID(source))
+    _ = await harness.recorder.nextWrite { $0.activeTasks[Self.directory.id.rawValue] == source.persistenceKey }
+
+    // No suspension between the two: the selection's hint effect has not run.
+    harness.manager.handleCommand(.setSelectedLayoutID(destination))
+    harness.manager.saveAllLayoutSnapshots()
+
+    let file = try #require(harness.recorder.current())
+    #expect(file.activeTasks[Self.directory.id.rawValue] == destination.persistenceKey)
+    await Task.megaYield()
+    #expect(
+      try #require(harness.recorder.current()).activeTasks[Self.directory.id.rawValue] == destination.persistenceKey)
+  }
+
+  @Test(.dependencies) func aHintLandingLateStoresTheCurrentSelection() async throws {
+    let harness = await makeHarness()
+    let (source, destination) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    _ = await open(source, in: harness)
+    _ = await open(destination, in: harness)
+
+    // Two selections in one turn: whichever hint lands last must store the second.
+    harness.manager.handleCommand(.setSelectedLayoutID(source))
+    harness.manager.handleCommand(.setSelectedLayoutID(destination))
+    _ = await harness.recorder.nextWrite { $0.activeTasks[Self.directory.id.rawValue] == destination.persistenceKey }
+    for _ in 0..<5 { await Task.megaYield() }
+
+    #expect(
+      try #require(harness.recorder.current()).activeTasks[Self.directory.id.rawValue] == destination.persistenceKey)
+    #expect(harness.terminals.activeTasks == [Self.directory.id: destination])
   }
 
   // MARK: - What follows the tab.

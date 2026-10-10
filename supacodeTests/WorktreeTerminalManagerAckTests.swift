@@ -632,7 +632,8 @@ struct WorktreeTerminalManagerAckTests {
     #expect(harness.store.withState { Set($0.terminals.layouts.ids) } == [opened, neverOpened])
     #expect(harness.store.withState { Set($0.terminals.directories.keys) } == [opened, neverOpened])
     // Anything the stale command had queued would land before this write.
-    harness.manager.handleActiveTaskChanged(directoryID: archived.id, layoutID: opened)
+    harness.manager.handleCommand(.setSelectedLayoutID(opened))
+    harness.manager.handleActiveTaskChanged(directoryID: archived.id)
     let written = await recorder.nextWrite { $0.activeTasks[archived.id.rawValue] == opened.persistenceKey }
     #expect(Set(written.tasks.keys) == [opened.persistenceKey, neverOpened.persistenceKey])
     #expect(recorder.localKills.value.isEmpty)
