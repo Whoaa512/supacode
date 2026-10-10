@@ -3708,3 +3708,36 @@ deviation.
   `AppFeatureSessionsTaskSettleTests` + `AppFeatureTaskTransferTests` exit
   0 (245 tests, 0 failed); build-app 0; full `make test` exit 2 with 4570
   tests and only the 5 known failures.
+- M3 r5, 2026-10-10. Review of `109d5b37` found one P1, held: both
+  selection commands decided on `removedLayoutIDs` alone, which accepts two
+  stale shapes. (1) A pick of a directory's own-key task A, A merged into B
+  on the same directory before the pick lands: `selection` kept A because it
+  is the own key, so the removed A was selected over B (occluded, re-recorded
+  in `selectionOrder` / `recentLayoutIDs` / `activeTasks`, `focusedSurfaceID`
+  nil). (2) A pick of A whose only tab then detached while a dormant primary
+  kept A's layout: A is not removed, so either command selected an empty
+  layout over the task that took the tab. Fix: the manager decides by the
+  rule the reducer picked with. `.selectLayout(_, forDirectory:)` keeps the
+  named task only while `AppFeature.taskHoldsTabs(_, onDirectory:)` holds at
+  delivery, else re-resolves `shownTask ?? displayLayoutID`: a tab-holding
+  task when the directory has one, else the landing (own key or an emptied
+  task listing a session), so the r4 own-key seam still holds exactly when
+  the directory has no tab-holding task. `.setSelectedLayoutID` refuses any
+  task that holds no tab (`AppFeature.taskHoldsTabs(_, state:)`, live or
+  stored), which subsumes the removed check; `isRemoved` is gone. Every
+  sender of `.selectTask` names a tab-holding task (a dormant row activates
+  through `resumeSession`), so no legitimate pick of an empty task is lost.
+  Tests (red first on the unfixed manager, both failed; green after):
+  `WorktreeTerminalManagerTransferTests` +2,
+  `aSelectionOfAnOwnKeyTaskMergedAwayLandsOnTheTaskThatTookItsTabs` and
+  `aSelectionLandingAfterTheTasksOnlyTabDetachedLandsWhereTheTabWent` (the
+  stale pick is held back and lands after the app's own show of the new
+  task, the ordering two in-flight effects do not promise); both assert
+  manager and terminal selection, history, a live `focusedSurfaceID` and the
+  stored active task. Same class, audited again: `transferTabs` (re-plans),
+  `showTask` and `focusSurface` (hold-tabs and surface-owner checks), the
+  two selection commands (this fix), `.tabsTransferred` → `focusTask`
+  (re-checks). Nothing else found.
+  Gate (final tree): check 0; `WorktreeTerminalManagerTransferTests` +
+  `WorktreeTerminalManagerAckTests` exit 0 (86 tests, 0 failed); build-app
+  0; full `make test` exit 2 with 4572 tests and only the 5 known failures.
