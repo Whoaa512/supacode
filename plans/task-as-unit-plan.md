@@ -3662,3 +3662,49 @@ deviation.
   `AppFeatureTerminalSetupScriptTests` exit 0 (52 tests, 0 failed);
   build-app 0; full `make test` exit 2 with 4568 tests and only the 5
   known failures.
+- M3 r4, 2026-10-10, `109d5b37`. Review of `c142bca5` found one P1, held:
+  r3 guarded `showTask` but not the `setSelectedLayoutID` sent beside it.
+  A→B landing queued a selection of B; B→C removing B before it landed
+  selected the removed B back over C (occluding C, re-recording B in
+  `selectionOrder` / `recentLayoutIDs` / `activeTasks` that `detachLayout`
+  had cleared, `focusedSurfaceID` nil so `detachFocusedTab` refused). Same
+  for a destination whose last tab left in that window and for the orphan
+  path. The r3 tests asserted `repositories.selectedTaskID` only.
+  Fix: the manager decides a selection at delivery. `.setSelectedLayoutID`
+  (a task, or nil: the orphan path and the manager's tests) refuses a task
+  in `removedLayoutIDs`. The directory path sends the new
+  `TerminalClient.Command.selectLayout(LayoutID?, forDirectory:)`: the
+  reducer's resolved layout plus the directory's identity; at delivery a
+  removed task is replaced by what the directory shows now (`shownTask` ??
+  `displayLayoutID`, the reducer's own rule) so the user's directory is
+  never left unselected, while a removed own key is kept: it is no task,
+  but it is where the directory's first tab lands and the empty state
+  mounts there (the seam the reducer's `landing` branch is). The manager's
+  same-turn selections (`removeTask`, the merge's move to the target) call
+  the body directly: no boundary, nothing to re-decide. Decision taken
+  (non-destructive, closest to the reducer): re-resolve from the directory
+  rather than refuse, since refusing would leave the selection on another
+  directory's task while this one is on screen.
+  Tests (red first on the unfixed tree: the four extended / new stale tests
+  failed on `manager.selectedLayoutID`, everything else passed): the three
+  r3 stale tests now select a task first and assert, through one helper,
+  that the manager's and the terminal state's `selectedLayoutID` are on the
+  survivor and that the removed id is in none of `selectionOrder`,
+  `recentLayoutIDs`, `activeTasks`, plus the stored active task and a live
+  `focusedSurfaceID`; `WorktreeTerminalManagerTransferTests` +2
+  (`anOrphanSelectionLandingAfterTheTaskWasMergedAwaySelectsNothing`, the
+  bare command; `selectingADirectoryWhoseOwnKeyTaskClosedLandsOnTheOwnKey`,
+  the preserved seam, failed before the fix only because its first draft
+  minted the target on the same directory). `AppFeatureSessionsTests` and
+  `AppFeatureTerminalSetupScriptTests` expectations renamed to
+  `.selectLayout(_, forDirectory:)` with the same resolved ids asserted.
+  Same class, audited: `transferTabs` (r1), `showTask` and `focusSurface`
+  (r3), and now both selection commands are every asynchronous boundary
+  the slice sends; `.tabsTransferred` → `focusTask` re-checks at the event
+  and sends only these. Nothing else found.
+  Gate (final tree): check 0; `WorktreeTerminalManagerTransferTests` +
+  `WorktreeTerminalManagerAckTests` exit 0 (95 tests, 0 failed);
+  `AppFeatureSessionsTests` + `AppFeatureTerminalSetupScriptTests` +
+  `AppFeatureSessionsTaskSettleTests` + `AppFeatureTaskTransferTests` exit
+  0 (245 tests, 0 failed); build-app 0; full `make test` exit 2 with 4570
+  tests and only the 5 known failures.
