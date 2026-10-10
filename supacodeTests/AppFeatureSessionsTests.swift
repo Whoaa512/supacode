@@ -5192,6 +5192,35 @@ struct AppFeatureSessionsTests {
     #expect(store.state.pendingTaskLaunches.isEmpty)
   }
 
+  /// A known row leaves the picker as a roster id. Removing its repository
+  /// while keeping its tasks leaves orphan tasks on that directory, which
+  /// `launchDirectory` still resolves for Cmd-N and delivery; the offered
+  /// row itself is void, so confirming it mints nothing.
+  @Test(.dependencies, arguments: [true, false])
+  func pickedRowRemovedFromTheRosterMintsNothingEvenWithAnOrphanTask(liveOrphan: Bool) async {
+    var initial = sixTasksOnTwoDirectories()
+    initial.repositories.repositories.removeAll { $0.id == "/other" }
+    if !liveOrphan {
+      initial.terminals.layouts.remove(id: fifth)
+      initial.terminals.directories[fifth] = nil
+    }
+    #expect(initial.repositories.worktree(for: otherWorktree.id) == nil)
+    #expect(
+      AppFeature.launchDirectory(otherWorktree.id, state: initial)?.worktreeID == otherWorktree.id,
+      "an orphan task keeps the directory resolvable for Cmd-N")
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.newTask(inDirectory: otherWorktree.id, kind: .shell))
+    await store.send(.newTask(inDirectory: otherWorktree.id, kind: .agent))
+    await store.finish()
+
+    #expect(recorded.commands.value.isEmpty)
+    #expect(store.state.pendingSessionLaunch == nil)
+    #expect(store.state.pendingTaskLaunches.isEmpty)
+    #expect(Set(store.state.terminals.layouts.ids) == Set(initial.terminals.layouts.ids))
+  }
+
   /// The path route (typed path, Tab into a known row, "Choose Folder…")
   /// ends on the same roster entry as a known row and takes its rule: a
   /// registered directory archived or winding down is refused here too.

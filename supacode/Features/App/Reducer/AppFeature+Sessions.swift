@@ -691,11 +691,8 @@ extension AppFeature {
   /// delivery, so what is decided here is only what is sent, never what
   /// gets created.
   static func launchDirectory(_ directoryID: Worktree.ID, state: State) -> DirectoryContext? {
-    if let worktree = state.repositories.worktree(for: directoryID) {
-      guard !worktree.isMissing, !state.repositories.isWorktreeArchived(directoryID),
-        state.repositories.sidebarItems[id: directoryID]?.lifecycle.isTerminating != true
-      else { return nil }
-      return DirectoryContext(worktree: worktree)
+    if state.repositories.worktree(for: directoryID) != nil {
+      return rosterDirectory(directoryID, state: state)
     }
     let open = state.terminals.directories.first { layoutID, directory in
       directory.worktreeID == directoryID && state.terminals.layouts[id: layoutID] != nil
@@ -705,15 +702,28 @@ extension AppFeature {
     return DirectoryContext(orphan: recorded)
   }
 
+  /// A live roster entry and nothing else: no orphan fallback. A row the
+  /// picker or a sidebar button offered came from the roster, so once the
+  /// roster no longer lists it the offer is void even while a task is still
+  /// open or stored on that directory.
+  static func rosterDirectory(_ directoryID: Worktree.ID, state: State) -> DirectoryContext? {
+    guard let worktree = state.repositories.worktree(for: directoryID),
+      !worktree.isMissing, !state.repositories.isWorktreeArchived(directoryID),
+      state.repositories.sidebarItems[id: directoryID]?.lifecycle.isTerminating != true
+    else { return nil }
+    return DirectoryContext(worktree: worktree)
+  }
+
   /// Mints a task on a directory the roster lists, local or remote. Nothing
   /// is asked and no path is checked here: the directory is the row's own,
   /// looked up on current state so a row gone, archived or winding down
-  /// since it was offered mints nothing.
+  /// since it was offered mints nothing, even while an orphan task is still
+  /// open or stored on it: that fallback is Cmd-N's, not an offered row's.
   static func handleNewTask(
     inDirectory directoryID: Worktree.ID, kind: NewTaskKind = .agent, state: inout State
   ) -> Effect<Action> {
     guard state.pendingSessionLaunch == nil else { return .none }
-    guard let directory = launchDirectory(directoryID, state: state) else {
+    guard let directory = rosterDirectory(directoryID, state: state) else {
       repositoriesLogger.warning("New task: directory \(directoryID.rawValue) is not a live roster entry")
       return .none
     }
