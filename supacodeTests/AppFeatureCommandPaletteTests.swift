@@ -526,6 +526,33 @@ struct AppFeatureCommandPaletteTests {
       ])
   }
 
+  @Test(.dependencies) func mergeTaskDispatchesTheAppAction() async {
+    let store = TestStore(initialState: AppFeature.State()) {
+      AppFeature()
+    } withDependencies: {
+      // The empty state refuses with a toast, whose dismissal sleeps.
+      $0.continuousClock = TestClock()
+    }
+    store.exhaustivity = .off
+    let source = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!)
+    let target = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A2")!)
+
+    await store.send(.commandPalette(.delegate(.mergeTask(source, into: target))))
+    await store.receive(\.mergeTask)
+  }
+
+  @Test(.dependencies) func detachFocusedTabDispatchesTheAppAction() async {
+    let store = TestStore(initialState: AppFeature.State()) {
+      AppFeature()
+    } withDependencies: {
+      $0.continuousClock = TestClock()
+    }
+    store.exhaustivity = .off
+
+    await store.send(.commandPalette(.delegate(.detachFocusedTab)))
+    await store.receive(\.detachFocusedTab)
+  }
+
   @Test(.dependencies) func closePullRequestDispatchesAction() async {
     let store = TestStore(initialState: AppFeature.State()) {
       AppFeature()

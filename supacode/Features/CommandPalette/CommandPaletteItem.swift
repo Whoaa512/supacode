@@ -100,6 +100,8 @@ struct CommandPaletteItem: Identifiable, Equatable {
     case openFailingCheckDetails(Worktree.ID)
     case runScript(ScriptDefinition)
     case stopScript(UUID, name: String)
+    case mergeTask(LayoutID, into: LayoutID)
+    case detachFocusedTab
     #if DEBUG
       case debugTestToast(RepositoriesFeature.StatusToast)
     #endif
@@ -127,6 +129,8 @@ struct CommandPaletteItem: Identifiable, Equatable {
       true
     case .runScript, .stopScript:
       true
+    case .mergeTask, .detachFocusedTab:
+      false
     #if DEBUG
       case .debugTestToast:
         true
@@ -158,7 +162,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .customizeWorktreeAppearance,
       .forkWorktree:
       false
-    case .runScript, .stopScript:
+    case .runScript, .stopScript, .mergeTask, .detachFocusedTab:
       false
     #if DEBUG
       case .debugTestToast:
@@ -196,7 +200,9 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .customizeRepositoryAppearance,
       .customizeWorktreeAppearance,
       .forkWorktree,
-      .stopScript:
+      .stopScript,
+      .mergeTask,
+      .detachFocusedTab:
       nil
     case .runScript(let definition):
       definition.kind == .run ? AppShortcuts.runScript : nil

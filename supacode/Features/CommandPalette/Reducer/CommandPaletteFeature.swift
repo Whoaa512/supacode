@@ -133,6 +133,8 @@ struct CommandPaletteFeature {
     case rerunFailedJobs(Worktree.ID)
     case openFailingCheckDetails(Worktree.ID)
     case runScript(ScriptDefinition)
+    case mergeTask(LayoutID, into: LayoutID)
+    case detachFocusedTab
     case stopScript(UUID, name: String)
     /// Palette closed without the user activating an item (Esc, outside
     /// tap, programmatic dismiss). AppFeature uses this to refocus the
@@ -633,6 +635,7 @@ struct CommandPaletteFeature {
     }
     items.append(contentsOf: customizeAppearanceItems(from: repositories))
     items.append(contentsOf: toggleCollapseRepositoryItems(from: repositories))
+    items.append(contentsOf: taskTransferItems(from: repositories))
     // Worktree navigation is the ⌘P switcher's job (see `worktreeSwitcherItems`);
     // the ⌘⇧P command palette lists actions only, not worktree rows. Fork
     // worktree remains an action, so it stays here.
@@ -650,6 +653,34 @@ struct CommandPaletteFeature {
           kind: .forkWorktree(row.id, row.repositoryID),
         )
       )
+    }
+    return items
+  }
+
+  /// Merge the selected task into any other task that holds a tab, and detach
+  /// the focused tab when the selected task holds one (the only way to detach
+  /// a plain shell tab: sub-rows list agents only).
+  static func taskTransferItems(from repositories: RepositoriesFeature.State) -> [CommandPaletteItem] {
+    guard let selected = repositories.selectedTaskID, repositories.sessionItems[id: .task(selected)] != nil else {
+      return []
+    }
+    let targets = repositories.sessionsSidebarStructure.mergeTargets
+    var items = targets.filter { $0.id != selected }.map { target in
+      CommandPaletteItem(
+        id: CommandPaletteItemID.mergeTask(into: target.id),
+        title: "Merge Task into: \(target.title)",
+        subtitle: "Move this task's tabs and sessions there",
+        kind: .mergeTask(selected, into: target.id)
+      )
+    }
+    if targets.contains(where: { $0.id == selected }) {
+      items.append(
+        CommandPaletteItem(
+          id: CommandPaletteItemID.detachFocusedTab,
+          title: "Detach Tab into New Task",
+          subtitle: "Move the focused tab out of this task",
+          kind: .detachFocusedTab
+        ))
     }
     return items
   }
@@ -1161,6 +1192,12 @@ private enum CommandPaletteItemID {
     "worktree.\(worktreeID).fork"
   }
 
+  static func mergeTask(into target: LayoutID) -> CommandPaletteItem.ID {
+    "task.\(target.persistenceKey).merge-into"
+  }
+
+  static let detachFocusedTab: CommandPaletteItem.ID = "task.detach-focused-tab"
+
   static func ghosttyCommand(_ command: GhosttyCommand) -> CommandPaletteItem.ID {
     "\(ghosttyPrefix)\(command.action)|\(command.title)"
   }
@@ -1303,6 +1340,10 @@ private func delegateAction(  // swiftlint:disable:this cyclomatic_complexity
     return pullRequestDelegateAction(for: kind)!
   case .runScript, .stopScript:
     return scriptDelegateAction(for: kind)!
+  case .mergeTask(let source, let target):
+    return .mergeTask(source, into: target)
+  case .detachFocusedTab:
+    return .detachFocusedTab
   #if DEBUG
     case .debugTestToast(let toast):
       return .debugTestToast(toast)
@@ -1332,7 +1373,7 @@ private func selectedEntryDelegateAction(
     .viewArchivedWorktrees, .refreshWorktrees, .ghosttyCommand, .toggleCollapseRepository,
     .openPullRequest, .markPullRequestReady, .mergePullRequest,
     .closePullRequest, .copyFailingJobURL, .copyCiFailureLogs, .rerunFailedJobs,
-    .openFailingCheckDetails, .runScript, .stopScript:
+    .openFailingCheckDetails, .runScript, .stopScript, .mergeTask, .detachFocusedTab:
     return nil
   #if DEBUG
     case .debugTestToast:
@@ -1394,7 +1435,9 @@ private func pullRequestDelegateAction(
     .toggleWindowMode,
     .toggleCollapseRepository,
     .runScript,
-    .stopScript:
+    .stopScript,
+    .mergeTask,
+    .detachFocusedTab:
     return nil
   #if DEBUG
     case .debugTestToast:

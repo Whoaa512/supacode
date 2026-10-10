@@ -112,6 +112,61 @@ struct CommandPaletteFeatureTests {
     #expect(splitItem?.title == "Split Right")
   }
 
+  /// The selected task merges into any other task that holds a tab; "Detach
+  /// Tab" is offered only while the selected task itself holds a tab.
+  @Test func commandPaletteItems_mergeAndDetachFollowTheSelectedTask() {
+    let worktree = makeWorktree(id: "/tmp/repo", name: "repo", repoRoot: "/tmp/repo")
+    let repository = makeRepository(rootPath: "/tmp/repo", name: "Repo", worktrees: [worktree])
+    let (first, second, dormant) = (
+      LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!),
+      LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A2")!),
+      LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A3")!)
+    )
+    func key(_ id: String) -> SessionKey { SessionKey(harness: .pi, sessionID: id) }
+    func surface(_ number: Int) -> UUID {
+      UUID(uuidString: String(format: "00000000-0000-0000-0000-0000000000%02d", number))!
+    }
+    func tabs(_ task: LayoutID, on number: Int) -> TaskLiveSnapshot {
+      TaskLiveSnapshot(
+        title: "repo", cwd: "/tmp/repo", createdAt: nil,
+        location: SessionLocation(
+          layoutID: task, directoryID: worktree.id, tabID: TabID(rawValue: surface(number)),
+          surfaceID: surface(number)))
+    }
+    var state = RepositoriesFeature.State(reconciledRepositories: [repository])
+    state.$sessions = Shared(value: [:])
+    state.$persistedLayouts = SharedReader(value: TaskLayoutsFile())
+    state.sessionsStarted = true
+    state.selection = .worktree(worktree.id)
+    state.sessionSummaries = ["a", "b", "c"].map {
+      SessionSummary(
+        harness: .pi, sessionID: $0, createdAt: Date(timeIntervalSince1970: 10), cwd: "/tmp/repo",
+        title: "Title \($0)", messageCount: 1, lastActivity: Date(timeIntervalSince1970: 10))
+    }
+    state.taskSessions = [first: [key("a")], second: [key("b")], dormant: [key("c")]]
+    state.taskSnapshots = [tabs(first, on: 1), tabs(second, on: 2)]
+    state.reconcileSessionItems(now: Date(timeIntervalSince1970: 20))
+    state.recomputeSessionsSidebarStructureIfChanged()
+
+    #expect(CommandPaletteFeature.taskTransferItems(from: state).isEmpty, "no task selected")
+
+    state.selectedTask = SelectedTask(id: first, directoryID: worktree.id)
+    let items = CommandPaletteFeature.taskTransferItems(from: state)
+    #expect(items.map(\.kind) == [.mergeTask(first, into: second), .detachFocusedTab])
+    #expect(items.map(\.title) == ["Merge Task into: Title b", "Detach Tab into New Task"])
+    #expect(items.map(\.id) == ["task.\(second.persistenceKey).merge-into", "task.detach-focused-tab"])
+    #expect(items.allSatisfy { !$0.isGlobal && !$0.isRootAction })
+    #expect(
+      CommandPaletteFeature.commandPaletteItems(from: state).map(\.id).filter { $0.hasPrefix("task.") }
+        == items.map(\.id))
+
+    // A dormant task merges its sessions somewhere, but has no tab to detach.
+    state.selectedTask = SelectedTask(id: dormant, directoryID: worktree.id)
+    #expect(
+      CommandPaletteFeature.taskTransferItems(from: state).map(\.kind)
+        == [.mergeTask(dormant, into: first), .mergeTask(dormant, into: second)])
+  }
+
   @Test func commandPaletteItems_includesRenameBranchOnlyForSelectedWorktree() {
     let rootPath = "/tmp/repo-rename"
     let main = makeWorktree(id: "\(rootPath)/main", name: "main", repoRoot: rootPath)
