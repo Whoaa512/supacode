@@ -6,8 +6,11 @@ import SwiftUI
 @MainActor
 private struct SessionContextMenu: View {
   let store: StoreOf<SessionSidebarItemFeature>
+  /// The other tasks this row's task can merge into; empty for a row that is no task.
+  let mergeTargets: [SessionsSidebarStructure.MergeTarget]
   let onSettle: (SessionKey) -> Void
   let onUnsettle: (SessionKey) -> Void
+  let onMerge: (LayoutID) -> Void
 
   var body: some View {
     // A shell-only task has no session to settle.
@@ -16,6 +19,14 @@ private struct SessionContextMenu: View {
         Button(store.isTask ? "Settle and Close Tabs" : "Settle and Close Tab") { onSettle(key) }
       } else {
         Button("Unsettle") { onUnsettle(key) }
+      }
+    }
+    if !mergeTargets.isEmpty {
+      Menu("Merge into…") {
+        ForEach(mergeTargets) { target in
+          Button(target.title) { onMerge(target.id) }
+            .help("Move this task's tabs and sessions into “\(target.title)”")
+        }
       }
     }
   }
@@ -35,7 +46,8 @@ struct SessionsSidebarListView: View {
       taskID: structure.subRowsTaskID,
       rows: structure.subRows,
       nextTab: AppShortcuts.selectNextTab.effective(from: overrides)?.display,
-      previousTab: AppShortcuts.selectPreviousTab.effective(from: overrides)?.display)
+      previousTab: AppShortcuts.selectPreviousTab.effective(from: overrides)?.display,
+      mergeTargets: structure.mergeTargets)
     if commandKeyObserver.isPressed {
       shortcutHintByID = structure.liveIDs.enumerated().reduce(into: [:]) { dict, pair in
         let (index, rowID) = pair
@@ -85,13 +97,14 @@ struct SessionsSidebarListView: View {
     }
   }
 
-  /// The selected task's sessions, from the cached structure, with the tab
-  /// chords their tooltips name.
+  /// The selected task's sessions and the merge targets, from the cached
+  /// structure, with the tab chords the tooltips name.
   private struct SubRows {
     let taskID: LayoutID?
     let rows: [SessionsSidebarStructure.SubRow]
     let nextTab: String?
     let previousTab: String?
+    let mergeTargets: [SessionsSidebarStructure.MergeTarget]
   }
 
   private func rows(
@@ -99,11 +112,15 @@ struct SessionsSidebarListView: View {
   ) -> some View {
     ForEach(ids, id: \.self) { id in
       if let rowStore = store.scope(state: \.sessionItems[id: id], action: \.sessionItems[id: id]) {
+        // Only a task row merges; an implicit row has no record to move.
+        let mergeTargets: [SessionsSidebarStructure.MergeTarget] =
+          if case .task(let layoutID) = id { subRows.mergeTargets.filter { $0.id != layoutID } } else { [] }
         SessionSidebarRowView(store: rowStore, shortcutHint: shortcutHintByID[id])
           .tag(id)
           .contextMenu {
             SessionContextMenu(
               store: rowStore,
+              mergeTargets: mergeTargets,
               onSettle: { key in
                 if case .task(let layoutID) = id {
                   store.send(.settleTaskRequested(layoutID))
@@ -111,7 +128,10 @@ struct SessionsSidebarListView: View {
                   store.send(.settleSessionRequested(key))
                 }
               },
-              onUnsettle: { store.send(.unsettleSession($0)) }
+              onUnsettle: { store.send(.unsettleSession($0)) },
+              onMerge: { target in
+                if case .task(let layoutID) = id { store.send(.mergeTaskRequested(layoutID, into: target)) }
+              }
             )
           }
       }
@@ -120,6 +140,14 @@ struct SessionsSidebarListView: View {
         ForEach(subRows.rows) { row in
           SessionSubRowView(row: row, nextTab: subRows.nextTab, previousTab: subRows.previousTab) {
             store.send(.activateSessionSubRow(task: layoutID, member: row.id))
+          }
+          .contextMenu {
+            if row.isDetachable, let location = row.location {
+              Button("Detach into New Task") {
+                store.send(.detachTabRequested(location.layoutID, tabID: location.tabID))
+              }
+              .help("Move this session's tab into its own task")
+            }
           }
         }
       }

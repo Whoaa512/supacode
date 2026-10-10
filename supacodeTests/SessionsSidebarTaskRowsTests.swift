@@ -898,6 +898,62 @@ struct SessionsSidebarTaskRowsTests {
     #expect(store.state.sessions.isEmpty, "marking waits for the tabs to close")
   }
 
+  // MARK: - Merge and detach entry points (A28, A29, A35)
+
+  @Test(.dependencies) func mergeTargetsAreTheLiveTasksThatHoldATab() {
+    var state = twoTasksWithMembers()
+    // A dormant task (sessions only), a shell-only task and an implicit row.
+    let dormant = LayoutID(task: surface(7))
+    let shell = LayoutID(task: surface(8))
+    state.sessionSummaries.append(summary("sleepy", created: 2))
+    state.taskSessions[dormant] = [key("sleepy")]
+    state.taskSnapshots.append(tabs(shell, on: 8))
+    state = rebuilt(state)
+
+    let targets = state.sessionsSidebarStructure.mergeTargets
+    let liveTasks = state.sessionsSidebarStructure.liveIDs.compactMap { id -> LayoutID? in
+      if case .task(let layoutID) = id { return layoutID }
+      return nil
+    }
+    #expect(targets.map(\.id) == liveTasks.filter { $0 != dormant }, "tasks with tabs, in live row order")
+    #expect(Set(targets.map(\.id)) == [taskA, shell, taskB])
+    #expect(
+      Dictionary(uniqueKeysWithValues: targets.map { ($0.id, $0.title) }) == [
+        taskA: "Title a", shell: "main", taskB: "Title solo",
+      ])
+    #expect(!state.sessionsSidebarStructure.liveIDs.contains(.task(dormant)))
+    #expect(state.sessionsSidebarStructure.allIDs.contains(.task(dormant)), "listed, but not a target")
+    #expect(state.sessionsSidebarStructure.allIDs.contains(.implicit(key("free"))))
+  }
+
+  @Test(.dependencies) func subRowsMarkOnlyRunningTangentsDetachable() {
+    var state = twoTasksWithMembers()
+    state.selectSessionRow(.task(taskA))
+    #expect(
+      state.sessionsSidebarStructure.subRows.map(\.isDetachable) == [false, false, true],
+      "not the primary, not a dormant tangent")
+
+    // The primary neither indexed nor running: the first shown row is still not the primary.
+    state.sessionSummaries.removeAll { $0.id == key("a") }
+    state.sessionSnapshots.removeAll { $0.sessionRef == "a" }
+    state = rebuilt(state)
+    #expect(state.sessionsSidebarStructure.subRows.map(\.id) == [.session(key("b")), .session(key("c"))])
+    #expect(state.sessionsSidebarStructure.subRows.map(\.isDetachable) == [false, true])
+  }
+
+  @Test(.dependencies) func mergeAndDetachRequestsForwardAsDelegates() async {
+    let store = TestStore(initialState: twoTasksWithMembers()) { RepositoriesFeature() }
+    store.exhaustivity = .off
+
+    await store.send(.mergeTaskRequested(taskA, into: taskB))
+    await store.receive(\.delegate, .mergeTask(taskA, into: taskB))
+    await store.send(.detachTabRequested(taskA, tabID: TabID(rawValue: surface(3))))
+    await store.receive(\.delegate, .detachTab(taskA, tabID: TabID(rawValue: surface(3))))
+    await store.finish()
+
+    #expect(store.state.sessionsSidebarStructure.mergeTargets.map(\.id) == [taskA, taskB], "nothing here changes")
+  }
+
   // MARK: - Session list
 
   @Test(.dependencies) func theSessionListStillNamesEverySessionOfATask() {

@@ -194,6 +194,12 @@ extension RepositoriesFeature {
       case .settleTaskRequested(let layoutID):
         return .send(.delegate(.settleTask(layoutID)))
 
+      case .mergeTaskRequested(let source, let target):
+        return .send(.delegate(.mergeTask(source, into: target)))
+
+      case .detachTabRequested(let source, let tabID):
+        return .send(.delegate(.detachTab(source, tabID: tabID)))
+
       case .unsettleSession(let key):
         state.applyUnsettle(key: key, summaries: state.sessionSummaries, now: date.now)
         return .none

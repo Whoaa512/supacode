@@ -17,8 +17,16 @@ struct SessionsSidebarStructure: Equatable, Sendable {
     var title: String
     var status: SessionClassification.Status?
     var location: SessionLocation?
+    /// A running tangent: its tab can leave for a task of its own (D8, Q8).
+    var isDetachable = false
 
     var isDormant: Bool { location == nil }
+  }
+
+  /// A task another task can merge into: one that holds a tab.
+  struct MergeTarget: Equatable, Identifiable, Sendable {
+    var id: LayoutID
+    var title: String
   }
 
   var sections: [Section] = []
@@ -27,6 +35,9 @@ struct SessionsSidebarStructure: Equatable, Sendable {
   /// selection and for a task of one agent, whose row already is that agent.
   var subRowsTaskID: LayoutID?
   var subRows: [SubRow] = []
+  /// Every live task row whose task holds a tab, in `liveIDs` order; a row's
+  /// menu lists them without reading any row.
+  var mergeTargets: [MergeTarget] = []
   var allIDs: [SessionRowID] { sections.flatMap(\.rowIDs) }
 
   /// Where jump-to-attention lands: the row to highlight and the agent's own surface.
@@ -192,7 +203,8 @@ extension RepositoriesFeature.State {
       // One that is neither running nor on disk cannot be shown or resumed.
       guard agent != nil || title != nil else { return nil }
       return SessionsSidebarStructure.SubRow(
-        id: member, title: title ?? "New session", status: agent?.status, location: agent?.location)
+        id: member, title: title ?? "New session", status: agent?.status, location: agent?.location,
+        isDetachable: agent != nil && member != members.first)
     }
     return rows.count > 1 ? (layoutID, rows) : (nil, [])
   }
@@ -214,8 +226,16 @@ extension RepositoriesFeature.State {
       liveIDs.append(contentsOf: rows.filter(\.isLive).map(\.id))
     }
     let subRows = selectedTaskSubRows()
+    let holdingTabs = Set(taskSnapshots.map(\.location.layoutID))
+    let mergeTargets = liveIDs.compactMap { id -> SessionsSidebarStructure.MergeTarget? in
+      guard case .task(let layoutID) = id, holdingTabs.contains(layoutID), let row = sessionItems[id: id] else {
+        return nil
+      }
+      return SessionsSidebarStructure.MergeTarget(id: layoutID, title: row.title)
+    }
     let structure = SessionsSidebarStructure(
-      sections: sections, liveIDs: liveIDs, subRowsTaskID: subRows.taskID, subRows: subRows.rows)
+      sections: sections, liveIDs: liveIDs, subRowsTaskID: subRows.taskID, subRows: subRows.rows,
+      mergeTargets: mergeTargets)
     if sessionsSidebarStructure != structure { sessionsSidebarStructure = structure }
   }
 

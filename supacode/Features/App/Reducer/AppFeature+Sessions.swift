@@ -265,6 +265,12 @@ extension AppFeature {
       case .repositories(.delegate(.settleTask(let layoutID))):
         return Self.settleTask(layoutID, state: state)
 
+      case .repositories(.delegate(.mergeTask(let source, let target))):
+        return .send(.mergeTask(source, into: target))
+
+      case .repositories(.delegate(.detachTab(let source, let tabID))):
+        return .send(.detachTab(source, tabID: tabID))
+
       case .repositories(.delegate(.resumeSession(let key, let task))):
         return Self.handleResumeSession(key, task: task, state: &state)
 
