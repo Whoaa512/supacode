@@ -614,11 +614,11 @@ final class WorktreeTerminalManager {
     case .toggleWindowModeForFocusedPane(let layoutID):
       toggleWindowModeForFocusedPane(of: layoutID)
     case .setSelectedLayoutID(let id):
-      // Decided here, not when the task was picked: one removed since must
-      // not be selected back over the task that took its tabs, nor re-enter
-      // the selection history its removal cleared.
-      if let id, isRemoved(id) {
-        terminalLogger.info("setSelectedLayoutID: task \(id) was removed; nothing selected.")
+      // Decided here, not when the task was picked: one removed or emptied
+      // since must not be selected back over the task that took its tabs,
+      // nor re-enter the selection history its removal cleared.
+      if let id, appStore?.withState({ AppFeature.taskHoldsTabs(id, state: $0) }) == false {
+        terminalLogger.info("setSelectedLayoutID: task \(id) holds no tab any more; nothing selected.")
         return
       }
       selectLayout(id)
@@ -636,26 +636,26 @@ final class WorktreeTerminalManager {
     }
   }
 
-  /// Whether the task was removed this run and has not come back since.
-  private func isRemoved(_ layoutID: LayoutID) -> Bool {
-    appStore?.withState { $0.terminals.removedLayoutIDs.contains(layoutID) } == true
-  }
-
-  /// The layout a directory's selection means at delivery: the one resolved
-  /// when the directory was picked while it still exists, else what the
-  /// directory shows now. A removed own key is kept: it is no task, but it
-  /// is still where the directory's first tab lands, and the empty state is
-  /// shown there.
+  /// The layout a directory's selection means at delivery, by the rule the
+  /// reducer picked it with: the task named while it still holds a tab on
+  /// the directory, else what the directory shows now, which is a task that
+  /// holds tabs or, when none does, the layout its first tab lands in (the
+  /// own key, or an emptied task that still lists a session). A task that
+  /// lost its tabs since the pick is never selected over the one that took
+  /// them, whether it was removed or kept as a dormant layout.
   private func selection(_ layoutID: LayoutID?, forDirectory directoryID: Worktree.ID) -> LayoutID? {
-    guard let layoutID, isRemoved(layoutID),
-      layoutID != TerminalsFeature.State.ownKeyLayoutID(forDirectory: directoryID)
-    else { return layoutID }
-    let shown = appStore?.withState {
-      $0.shownTask(forDirectory: directoryID) ?? $0.terminals.displayLayoutID(forDirectory: directoryID)
+    guard let appStore else { return layoutID }
+    return appStore.withState { state in
+      if let layoutID, AppFeature.taskHoldsTabs(layoutID, onDirectory: directoryID, state: state) { return layoutID }
+      let shown =
+        state.shownTask(forDirectory: directoryID) ?? state.terminals.displayLayoutID(forDirectory: directoryID)
+      if shown != layoutID {
+        let asked = layoutID?.description ?? "nil"
+        terminalLogger.info(
+          "selectLayout: \(asked) is no task on \(directoryID) any more; it shows \(shown?.description ?? "nothing").")
+      }
+      return shown
     }
-    terminalLogger.info(
-      "selectLayout: task \(layoutID) was removed; \(directoryID) shows \(shown?.description ?? "nothing").")
-    return shown
   }
 
   /// Moves the selection, occluding the layout left and waking the one shown.

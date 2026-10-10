@@ -617,6 +617,93 @@ struct WorktreeTerminalManagerTransferTests {
     #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
   }
 
+  /// The own key is a task while it holds tabs. Picked as one and merged
+  /// into a sibling on the same directory before the pick lands, it is not
+  /// where the directory's first tab lands any more: the directory shows the
+  /// task that took its tabs, and that is what the stale pick selects.
+  @Test(.dependencies) func aSelectionOfAnOwnKeyTaskMergedAwayLandsOnTheTaskThatTookItsTabs() async {
+    let harness = await makeHarness(seed: Self.listDirectory)
+    let ownKey = TerminalsFeature.State.ownKeyLayoutID(forDirectory: Self.directory.id)
+    let destination = LayoutID(task: UUID())
+    _ = await open(ownKey, in: harness)
+    _ = await open(destination, in: harness)
+
+    harness.manager.handleCommand(.setSelectedLayoutID(destination))
+    await harness.store.send(.repositories(.selectTask(ownKey, directory: Self.directory.id))).finish()
+    #expect(harness.store.withState(\.repositories.selectedTaskID) == ownKey)
+    merge(ownKey, into: destination, in: harness)
+    _ = await harness.events.collect(until: Self.isTransferOutcome)
+    #expect(harness.terminals.removedLayoutIDs.contains(ownKey))
+
+    deliverQueuedCommands(in: harness)
+    let after = await harness.events.collect(until: Self.createsATab)
+
+    #expect(harness.manager.hostIfExists(for: ownKey) == nil)
+    #expect(harness.terminals.layouts.map(\.id) == [destination])
+    #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
+    #expect(harness.store.withState(\.repositories.selectedTaskID) != ownKey)
+    expectSelection(on: destination, not: ownKey, in: harness)
+    #expect(
+      harness.store.withState { AppFeature.focusedSurfaceID(state: $0) } != nil,
+      "the surviving task is what the chords act on")
+    let stored = await settledStore(harness)
+    #expect(stored.activeTasks[Self.directory.id.rawValue] == destination.persistenceKey)
+  }
+
+  /// The task picked keeps its layout and a dormant primary, but its only tab
+  /// left for a new task before the pick lands. Selected, it would show an
+  /// empty layout over the tab the user is looking at: the pick lands on the
+  /// task the directory shows now, where the app sent the tab.
+  @Test(.dependencies) func aSelectionLandingAfterTheTasksOnlyTabDetachedLandsWhereTheTabWent() async {
+    let harness = await makeHarness(seed: Self.listDirectory)
+    let (source, sibling, minted) = (LayoutID(task: UUID()), LayoutID(task: UUID()), LayoutID(task: UUID()))
+    let leaving = await open(source, in: harness)
+    _ = await open(sibling, in: harness)
+    let dormant = Self.session("PA")
+    await harness.store.send(.terminals(.membersChanged([source: [.session(dormant)]]))).finish()
+
+    harness.manager.handleCommand(.setSelectedLayoutID(sibling))
+    await harness.store.send(.repositories(.selectTask(source, directory: Self.directory.id))).finish()
+    // Two effects in flight order themselves as they please: here the pick
+    // made first lands last, after the app has shown where the tab went.
+    let stalePick = harness.recorder.queuedCommands.withValue { queued in
+      defer { queued.removeAll() }
+      return queued
+    }
+    #expect(stalePick.contains(.selectLayout(source, forDirectory: Self.directory.id)))
+    detach(leaving, from: source, into: minted, in: harness)
+    let landed = await harness.events.collect(until: Self.isTransferOutcome)
+    guard let completion = landed.last(where: Self.isTransferOutcome) else {
+      Issue.record("no transfer outcome in \(landed)")
+      return
+    }
+    #expect(
+      completion
+        == .tabsTransferred(from: source, into: minted, tabIDs: [TabID(rawValue: leaving)], sourceRemoved: false))
+    #expect(harness.terminals.layouts[id: source]?.layout.panes.isEmpty == true, "the source keeps its empty layout")
+    #expect(harness.terminals.members[source] == [.session(dormant)])
+    // The app shows where the tab went; the stale pick is still ahead of it.
+    await harness.store.send(.terminalEvent(completion)).finish()
+    #expect(harness.store.withState(\.repositories.selectedTaskID) == minted)
+    deliverQueuedCommands(in: harness)
+    #expect(harness.manager.selectedLayoutID == minted)
+
+    for command in stalePick { harness.manager.handleCommand(command) }
+    let after = await harness.events.collect(until: Self.createsATab)
+
+    #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
+    #expect(harness.manager.selectedLayoutID == minted)
+    #expect(harness.terminals.selectedLayoutID == minted)
+    #expect(harness.terminals.selectionOrder.last == minted)
+    #expect(harness.terminals.recentLayoutIDs.first == minted)
+    #expect(harness.terminals.activeTasks[Self.directory.id] == minted)
+    #expect(
+      harness.store.withState { AppFeature.focusedSurfaceID(state: $0) } == leaving,
+      "the moved tab is what the chords act on")
+    let stored = await settledStore(harness)
+    #expect(stored.activeTasks[Self.directory.id.rawValue] == minted.persistenceKey)
+  }
+
   /// A pick that names a task already gone when the reducer sees it is no
   /// pick at all: the directory is shown as it is now.
   @Test(.dependencies) func selectingATaskAlreadyRemovedSelectsNothing() async {
