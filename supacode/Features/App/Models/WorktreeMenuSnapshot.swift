@@ -131,6 +131,7 @@ extension AppFeature.Action {
       .worktreeSettingsLoaded, .openSelectedWorktree, .revealInFinder,
       .openWorktree, .openWorktreeFailed, .openFile, .openFileFromExplorer, .requestQuit,
       .requestTerminateAllTerminalSessions, .newTerminal, .newSession, .newSessionInDirectory, .newTask,
+      .mergeTask, .detachTab, .detachFocusedTab,
       .newSessionDirectorySelected, .settleSessionAndAdvance, .unsettleCurrentSession,
       .nextSessionNeedsMe,
       .renameSelectedTerminalTab,

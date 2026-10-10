@@ -350,6 +350,11 @@ struct AppFeature {
     case newSession
     case newSessionInDirectory
     case newTask(inDirectory: Worktree.ID)
+    /// Moves every tab and session of the first task into the second (D8).
+    case mergeTask(LayoutID, into: LayoutID)
+    /// Moves one tab, and the sessions on it, into a task minted for it (D8).
+    case detachTab(LayoutID, tabID: TabID)
+    case detachFocusedTab
     case newSessionDirectorySelected(URL)
     case settleSessionAndAdvance
     case unsettleCurrentSession
@@ -1203,6 +1208,15 @@ struct AppFeature {
 
       case .newTask(let directoryID):
         return Self.handleNewTask(inDirectory: directoryID, state: &state)
+
+      case .mergeTask(let source, let target):
+        return Self.mergeTask(source, into: target, state: state)
+
+      case .detachTab(let source, let tabID):
+        return Self.detachTab(source, tabID: tabID, state: state)
+
+      case .detachFocusedTab:
+        return Self.detachFocusedTab(state: state)
 
       case .newSessionInDirectory:
         return .send(
@@ -2155,6 +2169,12 @@ struct AppFeature {
       case .commandPalette(.delegate(.runScript(let definition))):
         return .send(.runNamedScript(definition))
 
+      case .commandPalette(.delegate(.mergeTask(let source, let target))):
+        return .send(.mergeTask(source, into: target))
+
+      case .commandPalette(.delegate(.detachFocusedTab)):
+        return .send(.detachFocusedTab)
+
       case .commandPalette(.delegate(.stopScript(let scriptID, _))):
         // If a script was removed from settings while still running,
         // it won't appear here. That is intentional — the terminal
@@ -2383,9 +2403,12 @@ struct AppFeature {
         // The manager already detached the layout; nothing app-level remains.
         return .none
 
-      case .terminalEvent(.tabsTransferred), .terminalEvent(.tabsTransferFailed):
-        // The terminal layer moved the tabs and the members with them.
-        return .none
+      case .terminalEvent(.tabsTransferred(_, let target, _, _)):
+        // The terminal layer moved the tabs and the members; show where they went.
+        return Self.tabsTransferred(into: target, state: state)
+
+      case .terminalEvent(.tabsTransferFailed(_, _, let reason)):
+        return .send(.repositories(.showToast(.info(TaskTransferRefusal.runtime(reason).message))))
 
       case .terminals(.layouts(.element(let worktreeID, .contentRequestedClose(let contentID, let scope)))):
         let ids = closeTargetSurfaceIDs(worktreeID: worktreeID, contentID: contentID, scope: scope, state: state)
