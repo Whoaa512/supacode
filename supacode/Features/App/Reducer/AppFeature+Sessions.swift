@@ -107,18 +107,18 @@ extension AppFeature {
   }
 
   /// Shows a task with whatever it had focused. Only for a task that holds
-  /// tabs, so the bootstrap half of the command never fires.
+  /// tabs; the command carries the task's identity and the manager checks
+  /// again at delivery, so a task removed in between is never bootstrapped.
   static func focusTask(_ layoutID: LayoutID, directoryID: Worktree.ID, state: State) -> Effect<Action> {
     @Dependency(TerminalClient.self) var terminalClient
     // The row may outlive the task's last tab by one snapshot; showing an
-    // emptied task would bootstrap a shell tab in it.
+    // emptied task would be showing nothing.
     guard taskHoldsTabs(layoutID, state: state) else { return .none }
     let context = directoryContext(forTask: layoutID, directoryID: directoryID, state: state)
     return .concatenate(
       .send(.repositories(.selectTask(layoutID, directory: directoryID))),
       .run { _ in
-        await terminalClient.send(
-          .ensureInitialTab(layoutID, context, runSetupScriptIfNew: false, focusing: true))
+        await terminalClient.send(.showTask(layoutID, context, focusing: true))
       }
     )
   }

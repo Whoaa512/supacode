@@ -625,8 +625,13 @@ struct AppFeature {
         }
         return .none
 
-      case .repositories(.delegate(.selectedWorktreeChanged(let worktree, let taskID))):
+      case .repositories(.delegate(.selectedWorktreeChanged(let worktree, let askedTaskID))):
         let lastFocusedWorktreeID = worktree?.id
+        // The request that named the task may have outlived it (merged away
+        // or closed since): decided here, a task that no longer exists is no
+        // pick, and the directory shows whatever it shows now.
+        let taskID = askedTaskID.flatMap { Self.hasTask($0, state: state) ? $0 : nil }
+        if askedTaskID != nil, taskID == nil { state.repositories.selectedTask = nil }
         guard let worktree else {
           state.loadedRepoScripts = nil
           // Selecting the archived list must NOT overwrite the last
@@ -711,10 +716,9 @@ struct AppFeature {
             await terminalClient.send(.setSelectedLayoutID(layoutID))
           },
           .run { _ in
-            // The task holds its tabs already, so this only carries the focus.
-            await terminalClient.send(
-              .ensureInitialTab(
-                layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: wantsFocus))
+            // The task holds its tabs already, so this only shows it and
+            // carries the focus; the manager re-checks at delivery.
+            await terminalClient.send(.showTask(layoutID, DirectoryContext(worktree: worktree), focusing: wantsFocus))
           },
           directoryEffects
         )

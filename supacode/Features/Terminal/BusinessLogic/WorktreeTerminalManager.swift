@@ -379,6 +379,8 @@ final class WorktreeTerminalManager {
       if focusing {
         host(for: layoutID, context: context).focusSelectedTab()
       }
+    case .showTask(let layoutID, let context, let focusing):
+      showTask(layoutID, context: context, focusing: focusing)
     case .stopRunScript(let layoutID, let context, let focusing):
       stopBlockingScripts(in: layoutID, context: context) { host in
         self.closeBlockingTabs(in: layoutID, context: context, host: host, focusing: focusing) { $0.isRunKind }
@@ -415,21 +417,7 @@ final class WorktreeTerminalManager {
     case .selectRelativeTab(let layoutID, let forward):
       selectRelativeTab(forward: forward, in: layoutID)
     case .focusSurface(let layoutID, let context, let tabID, let surfaceID, let input):
-      let host = host(for: layoutID, context: context)
-      // Surface-first: the tab ID is a hint; the surface's actual owner wins.
-      guard let owningTab = host.tabID(containing: surfaceID) ?? presentTab(tabID, in: layoutID) else {
-        terminalLogger.warning("focusSurface: surface \(surfaceID) not found in worktree \(layoutID).")
-        break
-      }
-      sendLayout(layoutID, .wakeTab(id: owningTab))
-      sendLayout(layoutID, .selectTab(id: owningTab))
-      host.liveSurface(surfaceID)?.requestFocus()
-      // A hibernated or not yet mounted surface has nothing to ask: latch the
-      // request so it lands once the renderer is live and its window is key.
-      host.focusSelectedTab()
-      if let input, !input.isEmpty {
-        host.focusAndInsertText(input + "\r")
-      }
+      focusSurface(in: layoutID, context: context, tabID: tabID, surfaceID: surfaceID, input: input)
     case .splitSurface(
       let layoutID, let context, let tabID, let surfaceID, let direction, let input, let id, let focusing
     ):
@@ -531,7 +519,8 @@ final class WorktreeTerminalManager {
       host(for: layoutID, context: context).navigateSearchOnFocusedSurface(.next)
     case .navigateSearchPrevious(let layoutID, let context):
       host(for: layoutID, context: context).navigateSearchOnFocusedSurface(.previous)
-    case .createTab, .createTabWithInput, .openFileWithScript, .ensureInitialTab, .stopRunScript, .stopScript,
+    case .createTab, .createTabWithInput, .openFileWithScript, .ensureInitialTab, .showTask, .stopRunScript,
+      .stopScript,
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .performBindingAction,
       .performBindingActionOnSurface, .selectTab, .selectTabAtIndex, .selectRelativeTab, .focusSurface, .splitSurface,
       .destroyTab, .destroySurface, .renameTab, .setImagePasteAgents, .prune, .removeLayouts,
@@ -581,7 +570,8 @@ final class WorktreeTerminalManager {
       host(for: layoutID, context: context).performBindingAction(action, onSurfaceID: surfaceID)
     case .setImagePasteAgents(let surfaceID, let agents):
       setImagePasteAgents(agents, onSurfaceID: surfaceID)
-    case .createTab, .createTabWithInput, .openFileWithScript, .ensureInitialTab, .stopRunScript, .stopScript,
+    case .createTab, .createTabWithInput, .openFileWithScript, .ensureInitialTab, .showTask, .stopRunScript,
+      .stopScript,
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .startSearch, .searchSelection,
       .navigateSearchNext, .navigateSearchPrevious, .selectTab, .selectTabAtIndex, .selectRelativeTab,
       .focusSurface, .splitSurface, .destroyTab, .destroySurface, .renameTab, .prune, .removeLayouts,
@@ -640,7 +630,8 @@ final class WorktreeTerminalManager {
       // event fires; refresh here or the window keeps the previous tint.
       refreshFocusedSurfaceBackground()
       terminalLogger.info("Selected layout \(id?.description ?? "nil")")
-    case .createTab, .createTabWithInput, .openFileWithScript, .ensureInitialTab, .stopRunScript, .stopScript,
+    case .createTab, .createTabWithInput, .openFileWithScript, .ensureInitialTab, .showTask, .stopRunScript,
+      .stopScript,
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .performBindingAction,
       .performBindingActionOnSurface, .setImagePasteAgents, .startSearch, .searchSelection, .navigateSearchNext,
       .navigateSearchPrevious, .selectTab, .selectTabAtIndex, .selectRelativeTab, .focusSurface,
@@ -1475,6 +1466,52 @@ final class WorktreeTerminalManager {
     }
     createTabAsync(
       in: layoutID, context: context, runSetupScriptIfNew: runSetupScriptIfNew, focusing: focusing, isInitialTab: true)
+  }
+
+  private func focusSurface(
+    in layoutID: LayoutID, context: DirectoryContext, tabID: TabID, surfaceID: UUID, input: String?
+  ) {
+    // Decided here, not when the row was activated: a task removed since
+    // must not come back as an empty layout with a host.
+    guard taskHoldsTabs(layoutID) else {
+      terminalLogger.warning("focusSurface: task \(layoutID) holds no tab any more.")
+      return
+    }
+    let host = host(for: layoutID, context: context)
+    // Surface-first: the tab ID is a hint; the surface's actual owner wins.
+    guard let owningTab = host.tabID(containing: surfaceID) ?? presentTab(tabID, in: layoutID) else {
+      terminalLogger.warning("focusSurface: surface \(surfaceID) not found in worktree \(layoutID).")
+      return
+    }
+    sendLayout(layoutID, .wakeTab(id: owningTab))
+    sendLayout(layoutID, .selectTab(id: owningTab))
+    host.liveSurface(surfaceID)?.requestFocus()
+    // A hibernated or not yet mounted surface has nothing to ask: latch the
+    // request so it lands once the renderer is live and its window is key.
+    host.focusSelectedTab()
+    if let input, !input.isEmpty {
+      host.focusAndInsertText(input + "\r")
+    }
+  }
+
+  /// Whether the task still owns a tab, read from the store now.
+  private func taskHoldsTabs(_ layoutID: LayoutID) -> Bool {
+    layoutState(for: layoutID)?.layout.panes.contains { !$0.tabs.isEmpty } == true
+  }
+
+  /// Shows a task that holds tabs: attaches its host when the task was not
+  /// opened this run and carries the focus, nothing more. The check runs at
+  /// delivery, so a task merged away, closed or emptied since the request
+  /// gets no host, no layout and no tab; `ensureInitialTab` is the
+  /// bootstrap for a fresh directory and never a way to show a task.
+  private func showTask(_ layoutID: LayoutID, context: DirectoryContext, focusing: Bool) {
+    guard taskHoldsTabs(layoutID) else {
+      terminalLogger.info("showTask: task \(layoutID) holds no tab any more; nothing shown.")
+      return
+    }
+    let host = host(for: layoutID, context: context)
+    guard focusing else { return }
+    host.focusSelectedTab()
   }
 
   /// Emits the right failure event for a refused tab creation: the initial-tab

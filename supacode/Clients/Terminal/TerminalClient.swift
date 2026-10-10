@@ -140,6 +140,10 @@ struct TerminalClient {
     /// command; the manager picks placement (tab in the zoomed/top-right pane, or a split).
     case openFileWithScript(LayoutID, DirectoryContext, input: String)
     case ensureInitialTab(LayoutID, DirectoryContext, runSetupScriptIfNew: Bool, focusing: Bool)
+    /// Shows a task that holds tabs, attaching its host when it was not
+    /// opened this run. Decided at delivery: a task that was removed or
+    /// emptied since gets nothing, never a host, layout or tab.
+    case showTask(LayoutID, DirectoryContext, focusing: Bool)
     case stopRunScript(LayoutID, DirectoryContext, focusing: Bool = true)
     case stopScript(LayoutID, DirectoryContext, definitionID: UUID, focusing: Bool = true)
     case runBlockingScript(LayoutID, DirectoryContext, kind: BlockingScriptKind, script: String, focusing: Bool = true)

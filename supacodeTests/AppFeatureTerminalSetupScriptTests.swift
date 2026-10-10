@@ -481,8 +481,7 @@ struct AppFeatureTerminalSetupScriptTests {
     // The activation command carries the focus intent so the host claims focus.
     #expect(
       sent.value.contains(
-        .ensureInitialTab(
-          worktree.id.layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: true)
+        .showTask(worktree.id.layoutID, DirectoryContext(worktree: worktree), focusing: true)
       ))
   }
 

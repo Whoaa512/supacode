@@ -220,8 +220,45 @@ struct WorktreeTerminalManagerAckTests {
     #expect(events.first == .tabCreated(layoutID: harness.worktree.id.layoutID))
   }
 
-  /// Activating a shell-only task row sends this command for a task that
-  /// already holds tabs, on a directory the roster may no longer list.
+  /// Showing a task that holds tabs attaches its host and carries the focus
+  /// in, on a directory the roster may no longer list; it makes no tab.
+  @Test(.dependencies) func showTaskOnAPopulatedOrphanTaskRequestsFocusWithoutATab() async {
+    let harness = makeHarness()
+    let pump = CreationEvents(harness.manager)
+    let layoutID = LayoutID(task: UUID())
+    let context = DirectoryContext(orphan: TaskRecord.Directory(worktreeID: "/gone/checkout"))
+    let tabID = UUID()
+    harness.manager.handleCommand(
+      .createTab(layoutID, context, runSetupScriptIfNew: false, id: tabID, focusing: false))
+    _ = await pump.next(2)
+    let before = harness.store.withState { $0.terminals.layouts[id: layoutID]?.layout }
+    #expect(harness.manager.hostIfExists(for: layoutID)?.pendingFocusClaim == false)
+
+    harness.manager.handleCommand(.showTask(layoutID, context, focusing: true))
+    await Task.megaYield()
+
+    // No surface is mounted in a test, so the request is held until one is.
+    #expect(harness.manager.hostIfExists(for: layoutID)?.pendingFocusClaim == true)
+    let after = harness.store.withState { $0.terminals.layouts[id: layoutID]?.layout }
+    #expect(after == before, "no tab is made and the selected tab is kept")
+    #expect(after?.panes.first?.selectedTabID == TabID(rawValue: tabID))
+  }
+
+  /// A show request that lands after the task is gone attaches nothing: no
+  /// host, no layout, no tab. Only `ensureInitialTab` bootstraps.
+  @Test(.dependencies) func showTaskOnAnUnknownTaskAttachesNothing() async {
+    let harness = makeHarness()
+    let layoutID = LayoutID(task: UUID())
+    let context = DirectoryContext(orphan: TaskRecord.Directory(worktreeID: "/gone/checkout"))
+
+    harness.manager.handleCommand(.showTask(layoutID, context, focusing: true))
+    await Task.megaYield()
+
+    #expect(harness.manager.hostIfExists(for: layoutID) == nil)
+    #expect(harness.store.withState { $0.terminals.layouts[id: layoutID] } == nil)
+  }
+
+  /// A hydrated or restored task keeps its bootstrap for the worktree-new ack.
   @Test(.dependencies) func ensureInitialTabOnAPopulatedOrphanTaskRequestsFocusWithoutATab() async {
     let harness = makeHarness()
     let pump = CreationEvents(harness.manager)

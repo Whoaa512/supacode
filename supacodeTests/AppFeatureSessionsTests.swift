@@ -2817,7 +2817,7 @@ struct AppFeatureSessionsTests {
       commands.value.filter {
         switch $0 {
         case .setSelectedLayoutID: false
-        case .ensureInitialTab(_, _, runSetupScriptIfNew: false, focusing: _): false
+        case .showTask: false
         default: true
         }
       }
@@ -3048,7 +3048,7 @@ struct AppFeatureSessionsTests {
     #expect(recorded.focused.value.isEmpty, "the task keeps the focus it had")
     #expect(
       recorded.commands.value.contains(
-        .ensureInitialTab(second, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: true)))
+        .showTask(second, DirectoryContext(worktree: worktree), focusing: true)))
     // The directory half reruns with the directory it already had, which the
     // watcher ignores; it is never pointed at another one.
     #expect(recorded.watcher.value.allSatisfy { $0 == .setSelectedWorktreeID(self.worktree.id) })
@@ -3096,8 +3096,7 @@ struct AppFeatureSessionsTests {
     #expect(recorded.focused.value.isEmpty, "the anchor tab is not forced into focus")
     #expect(
       recorded.commands.value.contains(
-        .ensureInitialTab(
-          fourth, DirectoryContext(worktree: otherWorktree), runSetupScriptIfNew: false, focusing: true)))
+        .showTask(fourth, DirectoryContext(worktree: otherWorktree), focusing: true)))
     #expect(!recorded.mintedOrResumed)
   }
 
@@ -3136,8 +3135,7 @@ struct AppFeatureSessionsTests {
     #expect(recorded.selectedLayouts == [orphanShell])
     #expect(
       recorded.commands.value.contains(
-        .ensureInitialTab(
-          orphanShell, DirectoryContext(orphan: goneDirectory), runSetupScriptIfNew: false, focusing: true)))
+        .showTask(orphanShell, DirectoryContext(orphan: goneDirectory), focusing: true)))
     #expect(recorded.watcher.value == [.setSelectedWorktreeID(nil)])
     #expect(!recorded.mintedOrResumed)
   }
@@ -3156,8 +3154,7 @@ struct AppFeatureSessionsTests {
     #expect(recorded.selectedLayouts == [orphanAgent])
     #expect(
       recorded.commands.value.contains(
-        .ensureInitialTab(
-          orphanAgent, DirectoryContext(orphan: goneDirectory), runSetupScriptIfNew: false, focusing: true)))
+        .showTask(orphanAgent, DirectoryContext(orphan: goneDirectory), focusing: true)))
     #expect(!recorded.mintedOrResumed)
   }
 
@@ -3791,7 +3788,7 @@ struct AppFeatureSessionsTests {
     #expect(store.state.terminals.layouts.isEmpty)
     #expect(store.state.terminals.members.isEmpty)
     #expect(store.state.repositories.selectedTask == nil)
-    #expect(!recorded.commands.value.contains { if case .ensureInitialTab = $0 { true } else { false } })
+    #expect(!recorded.commands.value.contains(where: isBootstrap))
   }
 
   @Test(.dependencies) func aLaunchedTaskIsShownOnlyOnceItHoldsATab() async {
@@ -4649,9 +4646,12 @@ struct AppFeatureSessionsTests {
     return state
   }
 
+  /// Anything that shows or bootstraps a task.
   private func isBootstrap(_ command: TerminalClient.Command) -> Bool {
-    if case .ensureInitialTab = command { return true }
-    return false
+    switch command {
+    case .ensureInitialTab, .showTask: true
+    default: false
+    }
   }
 
   @Test(.dependencies) func selectingADirectoryWithNoTaskMintsNothing() async {
@@ -4682,7 +4682,7 @@ struct AppFeatureSessionsTests {
     #expect(recorded.selectedLayouts == [first], "not the own-key layout, which does not exist")
     #expect(
       recorded.commands.value.filter(isBootstrap) == [
-        .ensureInitialTab(first, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: false)
+        .showTask(first, DirectoryContext(worktree: worktree), focusing: false)
       ])
     #expect(!recorded.mintedOrResumed)
     #expect(store.state.repositories.selectedWorktreeID == worktree.id)
@@ -4782,7 +4782,7 @@ struct AppFeatureSessionsTests {
       #expect(store.state.repositories.selectedTask == nil, "the pick ends once the directory shows another task")
       #expect(
         bootstraps == [
-          .ensureInitialTab(second, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: false)
+          .showTask(second, DirectoryContext(worktree: worktree), focusing: false)
         ])
     } else {
       #expect(bootstraps.isEmpty, "an empty task gets no shell tab from a selection")
@@ -5046,7 +5046,7 @@ struct AppFeatureSessionsTests {
     #expect(!recorded.selectedLayouts.contains(second))
     #expect(
       !recorded.commands.value.contains {
-        if case .ensureInitialTab(self.second, _, _, _) = $0 { true } else { false }
+        if case .showTask(self.second, _, _) = $0 { true } else { false }
       })
     #expect(store.state.repositories.selectedTask?.id != second)
     #expect(!recorded.mintedOrResumed)

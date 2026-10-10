@@ -116,7 +116,9 @@ extension AppFeature {
   }
 
   /// The moved tabs' task is the one to show: the merge target, or the task
-  /// a detach minted. It holds tabs now, so nothing is bootstrapped into it.
+  /// a detach minted. Only its identity crosses to the manager, which checks
+  /// at delivery that it still holds tabs; a second transfer or a close in
+  /// between leaves it alone.
   static func tabsTransferred(into target: LayoutID, state: State) -> Effect<Action> {
     guard let directory = state.terminals.directories[target] else { return .none }
     return focusTask(target, directoryID: directory.worktreeID, state: state)

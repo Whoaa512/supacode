@@ -95,7 +95,7 @@ struct AppFeatureTaskTransferTests {
     }
     var shown: [LayoutID] {
       commands.value.compactMap {
-        guard case .ensureInitialTab(let layoutID, _, _, _) = $0 else { return nil }
+        guard case .showTask(let layoutID, _, _) = $0 else { return nil }
         return layoutID
       }
     }
