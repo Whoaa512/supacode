@@ -3607,3 +3607,58 @@ deviation.
   Gate (final tree): check 0; `CommandPaletteFeatureTests` exit 0 (121
   tests, 0 failed); full `make test` exit 2 with 4562 tests and only the 5
   known failures; build-app 0.
+- M3 r3, 2026-10-10, `c142bca5`. Review of M3 found one P1, held: showing
+  a task (transfer completion through `focusTask`, and every `.selectTask`
+  through `.selectedWorktreeChanged`) sent `ensureInitialTab`, a bootstrap
+  that attaches a host (`.attachLayout` re-adds a removed layout) and
+  creates a shell in an empty layout. The "holds tabs" check ran in the
+  reducer, before the effect, so A→B followed by B→C before the show
+  landed, or the destination's last tab leaving in that window, brought B
+  back as a selected, persisted task with a fresh shell.
+  Fix: `TerminalClient.Command.showTask(LayoutID, DirectoryContext,
+  focusing:)`, identity only. The manager checks at delivery that the task
+  still holds a tab and otherwise does nothing: no host, no layout, no tab;
+  for a task that holds tabs it attaches the host when the task was not
+  opened this run (that is showing, not bootstrapping) and carries the
+  focus. `focusTask` and the `.selectedWorktreeChanged` task path send it;
+  `ensureInitialTab` is sent only by `.worktreeCreated` now (the one
+  genuine bootstrap; Cmd-N goes through `createTab`). Same class, fixed
+  alongside: `focusSurface` (S2's live sub-row path) called `host(for:)`
+  before checking the task, so a stale request re-attached a removed task;
+  it now checks first. `.selectedWorktreeChanged` naming a task that
+  `hasTask` no longer knows drops the pick and shows the directory as it is
+  now, so a stale `.selectTask` leaves no removed task selected until the
+  next terminals action. Audited and left: `selectTab`, `closeFocusedTab`,
+  `beginTabRename`, `destroySurface`, the search and binding commands also
+  reach `host(for:)` without a check, but each acts on the user's current
+  view, none follows a transfer or a selection, and none is sent by this
+  slice; noted for Z1 or whoever next touches `host(for:)`.
+  Tests (red first with `showTask` mutated to the old `ensureInitialTab`
+  body: the five new tests failed on the resurrected host / `.tabCreated`,
+  everything else passed): `WorktreeTerminalManagerTransferTests` +4 on
+  the real store with the app's commands queued and delivered after the
+  change (`aShowOfTheDestinationLandingAfterItWasMergedAwayShowsNothing`,
+  `aShowOfADestinationEmptiedBeforeItLandsShowsNothing`,
+  `aSelectionLandingAfterTheTaskWasMergedAwayShowsNothing`,
+  `selectingATaskAlreadyRemovedSelectsNothing`), each asserting no host, no
+  layout, no tab event, no selection of the removed task and nothing
+  persisted for it; `WorktreeTerminalManagerAckTests` +2 (`showTask` on a
+  populated task holds the focus claim and makes no tab; on an unknown task
+  attaches nothing). The emptied-destination test empties it by detach,
+  not close: a close's `killConfirmed` lands on the removed layout after
+  the fact and TCA records a missing-element issue in the parallel run
+  (pre-existing shape, seen once in the first full run); the removal is
+  the same. Existing `ensureInitialTab` expectations on select / focus
+  paths became `showTask` (`AppFeatureSessionsTests`,
+  `AppFeatureSessionsTaskSettleTests`, `AppFeatureTaskTransferTests`,
+  `AppFeatureTerminalSetupScriptTests`); `worktreeCreated` expectations
+  unchanged. Correction to the M3 "Left for later" note above: `focusTask`
+  no longer sends `ensureInitialTab` at all; the two sends are now
+  `showTask`, still compared as `Set(shown)`.
+  Gate (final tree): check 0; `WorktreeTerminalManagerTransferTests` +
+  `WorktreeTerminalManagerAckTests` + `AppFeatureTaskTransferTests` +
+  `AppFeatureSessionsTaskSettleTests` + `AppFeatureSessionsTests` exit 0
+  (313 tests, 0 failed), `WorktreeTerminalManagerTransferTests` +
+  `AppFeatureTerminalSetupScriptTests` exit 0 (52 tests, 0 failed);
+  build-app 0; full `make test` exit 2 with 4568 tests and only the 5
+  known failures.
