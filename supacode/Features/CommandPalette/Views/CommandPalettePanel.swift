@@ -260,6 +260,7 @@ final class CommandPalettePanelHostView: NSView {
   private static func browseKeyAction(for event: NSEvent) -> CommandPaletteFeature.Action? {
     let modifiers = Self.coreModifiers(of: event)
     if event.keyCode == 48, modifiers.isEmpty { return .browseAutocomplete }
+    if event.keyCode == 48, modifiers == .shift { return .browseToggleKind }
     guard modifiers == .command else { return nil }
     if event.keyCode == 36 || event.keyCode == 76 { return .browseForceOpen }
     if event.keyCode == 126 { return .browseNavigateUp }

@@ -44,15 +44,38 @@ struct CommandPaletteFeature {
     /// Derived from `pathQuery` and cached: resolving it touches the filesystem, and the
     /// view reads it on every body pass. Always mutate the pair through `setPathQuery`.
     var directoryURL = BrowsePath.directoryURL(of: "")
+    /// Roster directories the `.newSession` picker offers, set once on entry.
+    var known: [NewTaskDirectory] = []
+    /// What the list renders in known mode; empty in path mode.
+    var knownMatches: [NewTaskDirectory] = []
+    var kind: NewTaskKind = .agent
 
     mutating func setPathQuery(_ query: String) {
       pathQuery = query
       directoryURL = BrowsePath.directoryURL(of: query)
     }
 
+    /// Known mode lists the roster, not the filesystem: slash-less text is a
+    /// fuzzy query over `known`; a `/` anywhere, or bare `~`, is a path and uses
+    /// the browser untouched. The reducer keeps `filteredEntries` empty in known
+    /// mode and `knownMatches` empty in path mode; `selectedIndex` indexes the
+    /// active list.
+    var listsKnown: Bool {
+      guard purpose == .newSession, !known.isEmpty else { return false }
+      let text = pathQuery.trimmingCharacters(in: .whitespaces)
+      return !text.contains("/") && text != "~"
+    }
+
+    var rowCount: Int { listsKnown ? knownMatches.count : filteredEntries.count }
+
     var selectedEntry: DirectoryEntry? {
       guard let selectedIndex, filteredEntries.indices.contains(selectedIndex) else { return nil }
       return filteredEntries[selectedIndex]
+    }
+
+    var selectedKnown: NewTaskDirectory? {
+      guard listsKnown, let selectedIndex, knownMatches.indices.contains(selectedIndex) else { return nil }
+      return knownMatches[selectedIndex]
     }
   }
 
@@ -88,7 +111,7 @@ struct CommandPaletteFeature {
     case moveSelection(SelectionMove, itemsCount: Int)
     case branchesLoaded([Repository.ID: [String]])
     case pruneRecency([CommandPaletteItem.ID])
-    case enterBrowseMode(basePath: URL?, purpose: BrowsePurpose = .openRepository)
+    case enterBrowseMode(basePath: URL?, purpose: BrowsePurpose = .openRepository, known: [NewTaskDirectory] = [])
     case browsePathQueryChanged(String)
     case browseDirectoryLoaded(directory: URL, entries: [DirectoryEntry])
     case browseSearchResultsLoaded(directory: URL, query: String, results: [DirectoryEntry])
@@ -101,6 +124,9 @@ struct CommandPaletteFeature {
     case browseMoveSelection(SelectionMove)
     case browseSelectRepository(URL)
     case browseOpenNativePanel
+    case browseSelectKnown(Worktree.ID)
+    case browseToggleKind
+    case browseKindChanged(NewTaskKind)
     case delegate(Delegate)
   }
 
@@ -142,8 +168,9 @@ struct CommandPaletteFeature {
     /// focus" invariant.
     case dismissedWithoutSelection
     case browseSelectRepository(URL)
-    case newSessionDirectorySelected(URL)
-    case browseOpenNativePanel(BrowsePurpose)
+    case newSessionDirectorySelected(URL, kind: NewTaskKind = .agent)
+    case browseOpenNativePanel(BrowsePurpose, kind: NewTaskKind = .agent)
+    case newTaskDirectoryPicked(Worktree.ID, kind: NewTaskKind)
     #if DEBUG
       case debugTestToast(RepositoriesFeature.StatusToast)
     #endif
@@ -263,13 +290,21 @@ struct CommandPaletteFeature {
 
       // MARK: - Browse mode
 
-      case .enterBrowseMode(let basePath, let purpose):
+      case .enterBrowseMode(let basePath, let purpose, let known):
         state.isPresented = true
         state.mode = .browse
         state.query = ""
         state.selectedIndex = nil
         state.browse = BrowseState()
         state.browse.purpose = purpose
+        if purpose == .newSession {
+          state.browse.known = known
+        }
+        // The picker opens on the roster when it has one; with an empty roster
+        // it browses from the base path as before.
+        if state.browse.listsKnown {
+          return .send(.browsePathQueryChanged(""))
+        }
         // No base path means the home directory, which `~/` already denotes.
         let query = basePath.map {
           BrowsePath.descending(into: $0.path(percentEncoded: false), from: "~/")
@@ -278,6 +313,14 @@ struct CommandPaletteFeature {
 
       case .browsePathQueryChanged(let query):
         state.browse.setPathQuery(query)
+        if state.browse.listsKnown {
+          state.browse.isLoading = false
+          state.browse.entries = []
+          state.browse.searchResults = []
+          state.browse.loadedDirectory = nil
+          Self.refreshBrowseRows(&state.browse)
+          return .merge(.cancel(id: CancelID.browseLoad), .cancel(id: CancelID.browseSearch))
+        }
         let directory = state.browse.directoryURL
         let leaf = BrowsePath.leaf(of: query)
 
@@ -336,7 +379,7 @@ struct CommandPaletteFeature {
 
       case .browseDirectoryLoaded(let directory, let entries):
         // A slower earlier load can still land after the user moved on; ignore it.
-        guard directory == state.browse.directoryURL else { return .none }
+        guard !state.browse.listsKnown, directory == state.browse.directoryURL else { return .none }
         state.browse.isLoading = false
         state.browse.loadedDirectory = directory
         state.browse.entries = entries
@@ -344,7 +387,8 @@ struct CommandPaletteFeature {
         return .none
 
       case .browseSearchResultsLoaded(let directory, let query, let results):
-        guard directory == state.browse.directoryURL,
+        guard !state.browse.listsKnown,
+          directory == state.browse.directoryURL,
           query == BrowsePath.leaf(of: state.browse.pathQuery)
         else { return .none }
         state.browse.searchResults = results
@@ -365,12 +409,19 @@ struct CommandPaletteFeature {
         return .send(.browseSelectRepository(URL(fileURLWithPath: entry.fullPath)))
 
       case .browseNavigateUp:
-        guard let parent = BrowsePath.parent(of: state.browse.pathQuery) else { return .none }
+        guard !state.browse.listsKnown,
+          let parent = BrowsePath.parent(of: state.browse.pathQuery)
+        else { return .none }
         return .send(.browsePathQueryChanged(parent))
 
       // Tab completes the highlighted entry into the path without opening it, even when
-      // that entry is a git repository.
+      // that entry is a git repository. On a known row it browses from that directory;
+      // a remote row has no local path to browse.
       case .browseAutocomplete:
+        if state.browse.listsKnown {
+          guard let localPath = state.browse.selectedKnown?.localPath else { return .none }
+          return .send(.browsePathQueryChanged(BrowsePath.descending(into: localPath, from: "~/")))
+        }
         guard let entry = state.browse.selectedEntry else { return .none }
         return .send(
           .browsePathQueryChanged(
@@ -379,6 +430,10 @@ struct CommandPaletteFeature {
         )
 
       case .browseSubmit:
+        if state.browse.listsKnown {
+          guard let known = state.browse.selectedKnown else { return .none }
+          return .send(.browseSelectKnown(known.id))
+        }
         guard let entry = state.browse.selectedEntry else {
           // A typed leaf with no match has no target, so Enter does nothing rather than
           // silently opening the directory the user was only filtering. ⌘↩ still does.
@@ -390,13 +445,17 @@ struct CommandPaletteFeature {
       // ⌘↩ opens what's highlighted (or the directory the path points at) regardless of
       // whether it is a git repository.
       case .browseForceOpen:
+        if state.browse.listsKnown {
+          guard let known = state.browse.selectedKnown else { return .none }
+          return .send(.browseSelectKnown(known.id))
+        }
         guard let entry = state.browse.selectedEntry else {
           return .send(.browseSelectRepository(state.browse.directoryURL))
         }
         return .send(.browseOpenEntry(entry))
 
       case .browseMoveSelection(let direction):
-        let count = state.browse.filteredEntries.count
+        let count = state.browse.rowCount
         guard count > 0 else {
           state.browse.selectedIndex = nil
           return .none
@@ -420,20 +479,41 @@ struct CommandPaletteFeature {
 
       case .browseSelectRepository(let url):
         let purpose = state.browse.purpose
+        let kind = state.browse.kind
         state.isPresented = false
         state.resetForDismiss()
         switch purpose {
         case .openRepository:
           return .send(.delegate(.browseSelectRepository(url)))
         case .newSession:
-          return .send(.delegate(.newSessionDirectorySelected(url)))
+          return .send(.delegate(.newSessionDirectorySelected(url, kind: kind)))
         }
 
       case .browseOpenNativePanel:
         let purpose = state.browse.purpose
+        let kind = state.browse.kind
         state.isPresented = false
         state.resetForDismiss()
-        return .send(.delegate(.browseOpenNativePanel(purpose)))
+        return .send(.delegate(.browseOpenNativePanel(purpose, kind: kind)))
+
+      // The row's id is all that leaves the picker: the app looks the directory
+      // up in the roster at confirm time.
+      case .browseSelectKnown(let id):
+        guard state.browse.purpose == .newSession else { return .none }
+        let kind = state.browse.kind
+        state.isPresented = false
+        state.resetForDismiss()
+        return .send(.delegate(.newTaskDirectoryPicked(id, kind: kind)))
+
+      case .browseToggleKind:
+        guard state.browse.purpose == .newSession else { return .none }
+        state.browse.kind = state.browse.kind == .agent ? .shell : .agent
+        return .none
+
+      case .browseKindChanged(let kind):
+        guard state.browse.purpose == .newSession else { return .none }
+        state.browse.kind = kind
+        return .none
 
       case .delegate:
         return .none
@@ -485,6 +565,11 @@ struct CommandPaletteFeature {
   /// highlighted when that entry survives. Late search results must never move the
   /// selection out from under an in-flight arrow-key-then-Enter.
   private static func refreshBrowseRows(_ browse: inout BrowseState) {
+    if browse.listsKnown {
+      refreshKnownRows(&browse)
+      return
+    }
+    browse.knownMatches = []
     let previouslySelectedID = browse.selectedEntry?.id
     browse.filteredEntries = browseRows(
       entries: browse.entries,
@@ -497,6 +582,27 @@ struct CommandPaletteFeature {
     }
     let survivingIndex = previouslySelectedID.flatMap { id in
       browse.filteredEntries.firstIndex { $0.id == id }
+    }
+    browse.selectedIndex = survivingIndex ?? 0
+  }
+
+  /// Known mode: an empty query lists the roster in the order it was given
+  /// (the current task's directory first), typed text ranks it.
+  private static func refreshKnownRows(_ browse: inout BrowseState) {
+    let previouslySelectedID = browse.selectedKnown?.id
+    browse.filteredEntries = []
+    let query = browse.pathQuery.trimmingCharacters(in: .whitespaces)
+    let matches =
+      query.isEmpty
+      ? browse.known
+      : BrowseFuzzyMatch.ranked(browse.known, query: query, path: \.searchText)
+    browse.knownMatches = Array(matches.prefix(browseRowLimit))
+    guard !browse.knownMatches.isEmpty else {
+      browse.selectedIndex = nil
+      return
+    }
+    let survivingIndex = previouslySelectedID.flatMap { id in
+      browse.knownMatches.firstIndex { $0.id == id }
     }
     browse.selectedIndex = survivingIndex ?? 0
   }

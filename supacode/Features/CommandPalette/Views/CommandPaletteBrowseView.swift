@@ -5,6 +5,7 @@ struct CommandPaletteBrowseView: View {
   @Bindable var store: StoreOf<CommandPaletteFeature>
   @FocusState private var isPathFocused: Bool
   @State private var hoveredID: DirectoryEntry.ID?
+  @State private var hoveredKnownID: Worktree.ID?
   @State private var blurDismissTask: Task<Void, Never>?
 
   /// Focus can only be asserted once the field is mounted, and an outgoing query field can
@@ -18,6 +19,16 @@ struct CommandPaletteBrowseView: View {
   private static let keyboardHintsHelp = """
     ↵ opens a repository or enters a folder · ⇥ completes the path · \
     ⌘↵ opens the folder itself · ⌘↑ goes up one level
+    """
+  private static let newTaskPathHints = "↵ open · ⇥ complete · ⌘↵ start here · ⌘↑ up · ⇧⇥ agent/shell"
+  private static let newTaskPathHintsHelp = """
+    ↵ starts a task in a repository or enters a folder · ⇥ completes the path · \
+    ⌘↵ starts a task in the folder itself · ⌘↑ goes up one level · ⇧⇥ toggles agent or shell
+    """
+  private static let newTaskKnownHints = "↵ start · ⇥ browse from here · ⇧⇥ agent/shell"
+  private static let newTaskKnownHintsHelp = """
+    ↵ starts a task in the highlighted directory · ⇥ browses the filesystem from it · \
+    ⇧⇥ toggles agent or shell
     """
 
   var body: some View {
@@ -65,7 +76,7 @@ struct CommandPaletteBrowseView: View {
 
       HStack(spacing: 8) {
         TextField(
-          "~/path/to/project",
+          store.browse.purpose == .newSession ? "Directory, or ~/path" : "~/path/to/project",
           text: Binding(
             get: { store.browse.pathQuery },
             set: { store.send(.browsePathQueryChanged($0)) },
@@ -135,7 +146,9 @@ struct CommandPaletteBrowseView: View {
 
   private var browseList: some View {
     Group {
-      if store.browse.filteredEntries.isEmpty && !store.browse.isLoading {
+      if store.browse.listsKnown {
+        knownList
+      } else if store.browse.filteredEntries.isEmpty && !store.browse.isLoading {
         VStack(spacing: 8) {
           Text("No directories found")
             .foregroundStyle(.secondary)
@@ -174,6 +187,46 @@ struct CommandPaletteBrowseView: View {
     }
   }
 
+  private var knownList: some View {
+    Group {
+      if store.browse.knownMatches.isEmpty {
+        VStack(spacing: 8) {
+          Text("No matching directory. Type ~/ or / to browse.")
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 200)
+      } else {
+        ScrollViewReader { proxy in
+          ScrollView {
+            VStack(alignment: .leading, spacing: 4) {
+              ForEach(Array(store.browse.knownMatches.enumerated()), id: \.element.id) { index, directory in
+                KnownDirectoryRow(
+                  directory: directory,
+                  isSelected: store.browse.selectedIndex == index,
+                  isHovered: hoveredKnownID == directory.id,
+                  onActivate: { store.send(.browseSelectKnown(directory.id)) },
+                )
+                .id(directory.id)
+                .onHover { hovering in
+                  hoveredKnownID = hovering ? directory.id : nil
+                }
+              }
+            }
+            .padding(10)
+          }
+          .frame(height: 200)
+          .onChange(of: store.browse.selectedIndex) { _, newValue in
+            guard let index = newValue,
+              store.browse.knownMatches.indices.contains(index)
+            else { return }
+            proxy.scrollTo(store.browse.knownMatches[index].id)
+          }
+        }
+      }
+    }
+  }
+
   /// Nested search hits live below the browsed directory, so show where they came from.
   /// `nil` for direct children, whose name already says everything.
   private static func relativeParent(of entry: DirectoryEntry) -> String? {
@@ -193,15 +246,47 @@ struct CommandPaletteBrowseView: View {
       .foregroundStyle(.secondary)
       .help("Fall back to the native macOS open panel to pick a folder")
 
+      if store.browse.purpose == .newSession {
+        Picker(
+          "Start with",
+          selection: Binding(
+            get: { store.browse.kind },
+            set: { store.send(.browseKindChanged($0)) },
+          )
+        ) {
+          Text("Agent").tag(NewTaskKind.agent)
+          Text("Shell").tag(NewTaskKind.shell)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(.small)
+        .fixedSize()
+        .help("Start the default agent (pi) or a plain shell (⇧⇥)")
+      }
+
       Spacer()
 
-      Text(Self.keyboardHints)
+      Text(keyboardHints)
         .font(.caption2)
         .foregroundStyle(.quaternary)
-        .help(Self.keyboardHintsHelp)
+        .help(keyboardHintsHelp)
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 8)
+  }
+
+  private var keyboardHints: String {
+    switch store.browse.purpose {
+    case .openRepository: Self.keyboardHints
+    case .newSession: store.browse.listsKnown ? Self.newTaskKnownHints : Self.newTaskPathHints
+    }
+  }
+
+  private var keyboardHintsHelp: String {
+    switch store.browse.purpose {
+    case .openRepository: Self.keyboardHintsHelp
+    case .newSession: store.browse.listsKnown ? Self.newTaskKnownHintsHelp : Self.newTaskPathHintsHelp
+    }
   }
 
   private var windowColorScheme: ColorScheme {
@@ -254,6 +339,68 @@ private struct BrowseEntryRow: View {
     }
     .buttonStyle(.plain)
     .help(entry.isGitRepo ? "Open \(entry.name) as a repository" : "Browse \(entry.name) (⌘↵ to open it)")
+  }
+
+  private var rowBackground: some View {
+    Group {
+      if isSelected {
+        Color(nsColor: .selectedContentBackgroundColor)
+      } else if isHovered {
+        Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
+      } else {
+        Color.clear
+      }
+    }
+  }
+}
+
+private struct KnownDirectoryRow: View {
+  let directory: NewTaskDirectory
+  let isSelected: Bool
+  let isHovered: Bool
+  let onActivate: () -> Void
+
+  var body: some View {
+    Button(action: onActivate) {
+      HStack(spacing: 8) {
+        Image(systemName: directory.repositoryName == nil ? "folder" : "arrow.triangle.branch")
+          .foregroundStyle(directory.repositoryName == nil ? .secondary : .primary)
+          .font(.subheadline.weight(.medium))
+          .frame(width: 16, height: 16, alignment: .center)
+          .accessibilityHidden(true)
+
+        Text(directory.name)
+          .fontWeight(.medium)
+
+        if let repositoryName = directory.repositoryName {
+          Text(repositoryName)
+            .foregroundStyle(.secondary)
+        }
+
+        Text(directory.path)
+          .font(.caption.monospaced())
+          .foregroundStyle(.tertiary)
+          .lineLimit(1)
+          .truncationMode(.head)
+
+        Spacer()
+
+        if let hostLabel = directory.hostLabel {
+          Text(hostLabel)
+            .font(.caption2.weight(.medium))
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+            .foregroundStyle(Color.accentColor)
+        }
+      }
+      .padding(8)
+      .contentShape(Rectangle())
+      .background(rowBackground)
+      .clipShape(.rect(cornerRadius: 5))
+    }
+    .buttonStyle(.plain)
+    .help("Start a task in \(directory.name) (↵)")
   }
 
   private var rowBackground: some View {
