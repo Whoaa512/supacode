@@ -2816,17 +2816,20 @@ struct AppFeatureSessionsTests {
     var nonFocusCommands: [TerminalClient.Command] {
       commands.value.filter {
         switch $0 {
-        case .setSelectedLayoutID: false
+        case .setSelectedLayoutID, .selectLayout: false
         case .showTask: false
         default: true
         }
       }
     }
 
+    /// The layouts the reducer resolved a selection to, by either command.
     var selectedLayouts: [LayoutID] {
       commands.value.compactMap {
-        if case .setSelectedLayoutID(let id?) = $0 { return id }
-        return nil
+        switch $0 {
+        case .setSelectedLayoutID(let id?), .selectLayout(let id?, _): id
+        default: nil
+        }
       }
     }
 
@@ -4824,7 +4827,7 @@ struct AppFeatureSessionsTests {
     await store.send(.repositories(.delegate(.selectedWorktreeChanged(worktree))))
     await store.finish()
 
-    #expect(recorded.commands.value.contains(.setSelectedLayoutID(nil)))
+    #expect(recorded.commands.value.contains(.selectLayout(nil, forDirectory: worktree.id)))
     #expect(recorded.selectedLayouts.isEmpty)
     #expect(!recorded.commands.value.contains(where: isBootstrap))
     #expect(!recorded.mintedOrResumed)

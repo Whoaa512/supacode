@@ -706,14 +706,16 @@ struct AppFeature {
           // that id is another directory's task.
           return .merge(
             .run { _ in
-              await terminalClient.send(.setSelectedLayoutID(landing))
+              await terminalClient.send(.selectLayout(landing, forDirectory: worktree.id))
             },
             directoryEffects
           )
         }
         return .merge(
           .run { _ in
-            await terminalClient.send(.setSelectedLayoutID(layoutID))
+            // Resolved here from what the directory shows; the manager
+            // re-resolves at delivery should the task be gone by then.
+            await terminalClient.send(.selectLayout(layoutID, forDirectory: worktree.id))
           },
           .run { _ in
             // The task holds its tabs already, so this only shows it and

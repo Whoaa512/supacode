@@ -524,7 +524,8 @@ final class WorktreeTerminalManager {
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .performBindingAction,
       .performBindingActionOnSurface, .selectTab, .selectTabAtIndex, .selectRelativeTab, .focusSurface, .splitSurface,
       .destroyTab, .destroySurface, .renameTab, .setImagePasteAgents, .prune, .removeLayouts,
-      .setNotificationsEnabled, .enforceNotificationRetentionLimit, .setSelectedLayoutID, .beginTabRename,
+      .setNotificationsEnabled, .enforceNotificationRetentionLimit, .setSelectedLayoutID, .selectLayout,
+      .beginTabRename,
       .setTerminalHibernationEnabled, .toggleWindowModeForFocusedPane,
       .splitFocusedPane, .focusSplit, .focusRelativePane, .toggleSplitZoom, .equalizeSplits,
       .splitPane, .focusPane, .closePane, .toggleZoomPane, .toggleWindowModeForPane, .moveTabToSplit,
@@ -575,7 +576,8 @@ final class WorktreeTerminalManager {
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .startSearch, .searchSelection,
       .navigateSearchNext, .navigateSearchPrevious, .selectTab, .selectTabAtIndex, .selectRelativeTab,
       .focusSurface, .splitSurface, .destroyTab, .destroySurface, .renameTab, .prune, .removeLayouts,
-      .setNotificationsEnabled, .enforceNotificationRetentionLimit, .setSelectedLayoutID, .beginTabRename,
+      .setNotificationsEnabled, .enforceNotificationRetentionLimit, .setSelectedLayoutID, .selectLayout,
+      .beginTabRename,
       .setTerminalHibernationEnabled, .toggleWindowModeForFocusedPane, .transferTabs:
       return false
     }
@@ -612,24 +614,16 @@ final class WorktreeTerminalManager {
     case .toggleWindowModeForFocusedPane(let layoutID):
       toggleWindowModeForFocusedPane(of: layoutID)
     case .setSelectedLayoutID(let id):
-      guard id != selectedLayoutID else { return }
-      if let previousID = selectedLayoutID, let previousHost = hosts[previousID] {
-        rememberFocusedZoom(of: previousHost)
-        previousHost.setAllSurfacesOccluded()
-        previousHost.forgetLastEmittedFocus()
-        previousHost.setWorktreeSelected(false)
-        lastEmittedCoalescable.removeValue(forKey: .focus(previousID))
-        markLayoutDirty(worktreeID: previousID)
+      // Decided here, not when the task was picked: one removed since must
+      // not be selected back over the task that took its tabs, nor re-enter
+      // the selection history its removal cleared.
+      if let id, isRemoved(id) {
+        terminalLogger.info("setSelectedLayoutID: task \(id) was removed; nothing selected.")
+        return
       }
-      selectedLayoutID = id
-      id.flatMap { hosts[$0] }?.setWorktreeSelected(true)
-      // Deselecting arms grace timers, selecting wakes the visible tabs; the
-      // reducer owns both through the selection action.
-      sendTerminals(.selectedLayoutChanged(id))
-      // A sidebar click never hands AppKit focus to the terminal, so no focus
-      // event fires; refresh here or the window keeps the previous tint.
-      refreshFocusedSurfaceBackground()
-      terminalLogger.info("Selected layout \(id?.description ?? "nil")")
+      selectLayout(id)
+    case .selectLayout(let id, let directoryID):
+      selectLayout(selection(id, forDirectory: directoryID))
     case .createTab, .createTabWithInput, .openFileWithScript, .ensureInitialTab, .showTask, .stopRunScript,
       .stopScript,
       .runBlockingScript, .closeFocusedTab, .closeFocusedSurface, .performBindingAction,
@@ -640,6 +634,50 @@ final class WorktreeTerminalManager {
       .splitPane, .focusPane, .closePane, .toggleZoomPane, .toggleWindowModeForPane, .moveTabToSplit:
       assertionFailure("Unhandled terminal command reached management handler: \(command)")
     }
+  }
+
+  /// Whether the task was removed this run and has not come back since.
+  private func isRemoved(_ layoutID: LayoutID) -> Bool {
+    appStore?.withState { $0.terminals.removedLayoutIDs.contains(layoutID) } == true
+  }
+
+  /// The layout a directory's selection means at delivery: the one resolved
+  /// when the directory was picked while it still exists, else what the
+  /// directory shows now. A removed own key is kept: it is no task, but it
+  /// is still where the directory's first tab lands, and the empty state is
+  /// shown there.
+  private func selection(_ layoutID: LayoutID?, forDirectory directoryID: Worktree.ID) -> LayoutID? {
+    guard let layoutID, isRemoved(layoutID),
+      layoutID != TerminalsFeature.State.ownKeyLayoutID(forDirectory: directoryID)
+    else { return layoutID }
+    let shown = appStore?.withState {
+      $0.shownTask(forDirectory: directoryID) ?? $0.terminals.displayLayoutID(forDirectory: directoryID)
+    }
+    terminalLogger.info(
+      "selectLayout: task \(layoutID) was removed; \(directoryID) shows \(shown?.description ?? "nothing").")
+    return shown
+  }
+
+  /// Moves the selection, occluding the layout left and waking the one shown.
+  private func selectLayout(_ id: LayoutID?) {
+    guard id != selectedLayoutID else { return }
+    if let previousID = selectedLayoutID, let previousHost = hosts[previousID] {
+      rememberFocusedZoom(of: previousHost)
+      previousHost.setAllSurfacesOccluded()
+      previousHost.forgetLastEmittedFocus()
+      previousHost.setWorktreeSelected(false)
+      lastEmittedCoalescable.removeValue(forKey: .focus(previousID))
+      markLayoutDirty(worktreeID: previousID)
+    }
+    selectedLayoutID = id
+    id.flatMap { hosts[$0] }?.setWorktreeSelected(true)
+    // Deselecting arms grace timers, selecting wakes the visible tabs; the
+    // reducer owns both through the selection action.
+    sendTerminals(.selectedLayoutChanged(id))
+    // A sidebar click never hands AppKit focus to the terminal, so no focus
+    // event fires; refresh here or the window keeps the previous tint.
+    refreshFocusedSurfaceBackground()
+    terminalLogger.info("Selected layout \(id?.description ?? "nil")")
   }
 
   /// Toggles window mode for the worktree's focused pane. A key pane window
@@ -920,7 +958,7 @@ final class WorktreeTerminalManager {
     emitHasAnyTerminalSurfaceIfNeeded()
     // The directory is still on screen: show what it resolves to now.
     if selectedLayoutID == layoutID {
-      handleManagementCommand(.setSelectedLayoutID(self.layoutID(forDirectory: directoryID)))
+      selectLayout(self.layoutID(forDirectory: directoryID))
     }
     refreshFocusedSurfaceBackground()
     terminalLogger.info("Removed task \(layoutID): its last tab closed and it lists no session")
@@ -1032,7 +1070,7 @@ final class WorktreeTerminalManager {
       }
       lastEmittedCoalescable.removeValue(forKey: .focus(from))
       if selectedLayoutID == from {
-        handleManagementCommand(.setSelectedLayoutID(target))
+        selectLayout(target)
       }
     } else {
       // The sweep finds nothing missing: the host already forgot the tabs.

@@ -206,7 +206,13 @@ struct TerminalClient {
     case transferTabs(from: LayoutID, into: LayoutID, DirectoryContext, request: TabTransferRequest)
     case setNotificationsEnabled(Bool)
     case enforceNotificationRetentionLimit
+    /// Selects a task, or nothing. Decided at delivery: a task removed since
+    /// the request (merged away, its last tab gone) selects nothing.
     case setSelectedLayoutID(LayoutID?)
+    /// Selects what a directory shows: the task its row shows, or where its
+    /// first tab lands when it has none. Decided at delivery: a task removed
+    /// since is replaced by what the directory shows now, never selected.
+    case selectLayout(LayoutID?, forDirectory: Worktree.ID)
     /// Fans a hibernation Beta-flag flip into every worktree state: enabling
     /// re-arms grace timers for hidden tabs, disabling cancels pending ones.
     case setTerminalHibernationEnabled(Bool)

@@ -438,6 +438,19 @@ struct WorktreeTerminalManagerTransferTests {
     }
   }
 
+  /// The selection, both the manager's and the terminal state's, stays on
+  /// the task that survived, and the removed one is in no selection history.
+  private func expectSelection(
+    on surviving: LayoutID?, not removed: LayoutID, in harness: Harness,
+    sourceLocation: SourceLocation = #_sourceLocation
+  ) {
+    #expect(harness.manager.selectedLayoutID == surviving, sourceLocation: sourceLocation)
+    #expect(harness.terminals.selectedLayoutID == surviving, sourceLocation: sourceLocation)
+    #expect(!harness.terminals.selectionOrder.contains(removed), sourceLocation: sourceLocation)
+    #expect(!harness.terminals.recentLayoutIDs.contains(removed), sourceLocation: sourceLocation)
+    #expect(!harness.terminals.activeTasks.values.contains(removed), sourceLocation: sourceLocation)
+  }
+
   /// A→B lands and the app asks to show B; before that reaches the manager,
   /// B→C removes B. The stale request must not bring B back as a host, a
   /// layout or a shell tab, nor leave it selected or stored.
@@ -447,6 +460,7 @@ struct WorktreeTerminalManagerTransferTests {
     _ = await open(first, in: harness)
     _ = await open(second, in: harness)
     _ = await open(third, in: harness)
+    harness.manager.handleCommand(.setSelectedLayoutID(first))
     merge(first, into: second, in: harness)
     let landed = await harness.events.collect(until: Self.isTransferOutcome)
     guard let completion = landed.last(where: Self.isTransferOutcome) else {
@@ -470,9 +484,14 @@ struct WorktreeTerminalManagerTransferTests {
     #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
     #expect(harness.terminals.layouts.map(\.id) == [third])
     #expect(harness.store.withState(\.repositories.selectedTaskID) != second, "a removed task is not selected")
+    expectSelection(on: third, not: second, in: harness)
+    #expect(
+      harness.store.withState { AppFeature.focusedSurfaceID(state: $0) } != nil,
+      "the surviving task is what the chords act on")
     let stored = await settledStore(harness)
     #expect(stored.tasks[second.persistenceKey] == nil, "nothing persisted for the removed task")
     #expect(Array(stored.tasks.keys) == [third.persistenceKey])
+    #expect(stored.activeTasks[Self.directory.id.rawValue] != second.persistenceKey)
   }
 
   /// The destination loses its last tab between the completion and the show.
@@ -484,6 +503,7 @@ struct WorktreeTerminalManagerTransferTests {
     let (source, destination) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
     let moved = await open(source, in: harness)
     let own = await open(destination, in: harness)
+    harness.manager.handleCommand(.setSelectedLayoutID(source))
     merge(source, into: destination, in: harness)
     let landed = await harness.events.collect(until: Self.isTransferOutcome)
     guard let completion = landed.last(where: Self.isTransferOutcome) else {
@@ -496,11 +516,13 @@ struct WorktreeTerminalManagerTransferTests {
     _ = await harness.events.collect(until: Self.isTransferOutcome)
     // The app refuses to detach a task's only tab; the primitive is the
     // shape a close of that tab leaves behind.
+    let last = LayoutID(task: UUID())
     harness.manager.transferTabs(
-      from: destination, into: LayoutID(task: UUID()), context: DirectoryContext(worktree: Self.directory),
+      from: destination, into: last, context: DirectoryContext(worktree: Self.directory),
       scope: .tab(TabID(rawValue: own), members: []))
     _ = await harness.events.collect(until: Self.isTransferOutcome)
     #expect(harness.terminals.layouts[id: destination] == nil, "a shell-only task with no tab is gone")
+    #expect(harness.manager.selectedLayoutID == last, "the emptied selection moved to where its last tab went")
 
     deliverQueuedCommands(in: harness)
     let after = await harness.events.collect(until: Self.createsATab)
@@ -510,6 +532,7 @@ struct WorktreeTerminalManagerTransferTests {
     #expect(harness.terminals.layouts.count == 2, "only the two tasks the tabs went to")
     #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
     #expect(harness.store.withState(\.repositories.selectedTaskID) != destination)
+    expectSelection(on: last, not: destination, in: harness)
     let stored = await settledStore(harness)
     #expect(stored.tasks[destination.persistenceKey] == nil, "nothing persisted for the removed task")
     #expect(stored.tasks.count == 2)
@@ -523,6 +546,7 @@ struct WorktreeTerminalManagerTransferTests {
     _ = await open(source, in: harness)
     _ = await open(destination, in: harness)
 
+    harness.manager.handleCommand(.setSelectedLayoutID(destination))
     await harness.store.send(.repositories(.selectTask(source, directory: Self.directory.id))).finish()
     #expect(harness.store.withState(\.repositories.selectedTaskID) == source)
     merge(source, into: destination, in: harness)
@@ -537,8 +561,60 @@ struct WorktreeTerminalManagerTransferTests {
     #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
     #expect(harness.terminals.layouts.map(\.id) == [destination])
     #expect(harness.store.withState(\.repositories.selectedTaskID) != source)
+    expectSelection(on: destination, not: source, in: harness)
     let stored = await settledStore(harness)
     #expect(Array(stored.tasks.keys) == [destination.persistenceKey])
+  }
+
+  /// The same pick on a directory the roster does not list: the task is
+  /// selected with no directory beside it, and the stale selection lands
+  /// through the bare command rather than the directory's path.
+  @Test(.dependencies) func anOrphanSelectionLandingAfterTheTaskWasMergedAwaySelectsNothing() async {
+    let harness = await makeHarness()
+    let (source, destination) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    _ = await open(source, in: harness)
+    _ = await open(destination, in: harness)
+
+    harness.manager.handleCommand(.setSelectedLayoutID(destination))
+    await harness.store.send(.repositories(.selectTask(source, directory: Self.directory.id))).finish()
+    #expect(harness.store.withState(\.repositories.orphanTaskID) == source)
+    merge(source, into: destination, in: harness)
+    _ = await harness.events.collect(until: Self.isTransferOutcome)
+
+    deliverQueuedCommands(in: harness)
+    let after = await harness.events.collect(until: Self.createsATab)
+
+    #expect(harness.manager.hostIfExists(for: source) == nil)
+    #expect(harness.terminals.layouts.map(\.id) == [destination])
+    #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
+    expectSelection(on: destination, not: source, in: harness)
+  }
+
+  /// A removed task's own key is not a task, but it is still where the
+  /// directory's next tab lands: selecting the directory after its only task
+  /// closed shows the empty state there, as before.
+  @Test(.dependencies) func selectingADirectoryWhoseOwnKeyTaskClosedLandsOnTheOwnKey() async {
+    let harness = await makeHarness(seed: Self.listDirectory)
+    let ownKey = TerminalsFeature.State.ownKeyLayoutID(forDirectory: Self.directory.id)
+    let (elsewhere, other) = (Self.worktree("/tmp/repo/wt-other"), LayoutID(task: UUID()))
+    _ = await open(ownKey, in: harness)
+    _ = await open(other, on: elsewhere, in: harness)
+    harness.manager.handleCommand(.setSelectedLayoutID(other))
+    // The only tab leaves for a task on another directory: this one is bare.
+    harness.manager.transferTabs(
+      from: ownKey, into: LayoutID(task: UUID()), context: DirectoryContext(worktree: elsewhere),
+      scope: .tab(TabID(rawValue: harness.tabIDs(ownKey)[0]), members: []))
+    _ = await harness.events.collect(until: Self.isTransferOutcome)
+    #expect(harness.terminals.removedLayoutIDs.contains(ownKey))
+
+    await harness.store.send(.repositories(.delegate(.selectedWorktreeChanged(Self.directory)))).finish()
+    deliverQueuedCommands(in: harness)
+    let after = await harness.events.collect(until: Self.createsATab)
+
+    #expect(harness.manager.selectedLayoutID == ownKey)
+    #expect(harness.terminals.selectedLayoutID == ownKey)
+    #expect(harness.manager.hostIfExists(for: ownKey) == nil, "an empty directory attaches no host")
+    #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
   }
 
   /// A pick that names a task already gone when the reducer sees it is no

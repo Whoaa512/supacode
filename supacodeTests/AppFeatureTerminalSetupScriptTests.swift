@@ -420,7 +420,7 @@ struct AppFeatureTerminalSetupScriptTests {
 
     await store.send(.repositories(.delegate(.selectedWorktreeChanged(worktree))))
     await store.finish()
-    #expect(sent.value == [.setSelectedLayoutID(worktree.id.layoutID)])
+    #expect(sent.value == [.selectLayout(worktree.id.layoutID, forDirectory: worktree.id)])
 
     await store.send(.repositories(.delegate(.worktreeCreated(worktree))))
     await store.finish()
