@@ -3741,3 +3741,41 @@ deviation.
   Gate (final tree): check 0; `WorktreeTerminalManagerTransferTests` +
   `WorktreeTerminalManagerAckTests` exit 0 (86 tests, 0 failed); build-app
   0; full `make test` exit 2 with 4572 tests and only the 5 known failures.
+- P1, 2026-10-09, `350675d8`, `e3bf5ab2`. Picker (⌘⌥⇧N, menu item now "New
+  Task in Directory…"): the `.newSession` browse mode takes `known:
+  [NewTaskDirectory]` on entry. A slash-less query lists and fuzzy-filters
+  the roster (`BrowseState.listsKnown`, `knownMatches`); a `/` anywhere or
+  bare `~` is a path and runs the existing browser unchanged. ⇧⇥ or a
+  segmented control toggles `BrowseState.kind` (Agent / Shell, default
+  Agent, reset on dismiss). Every confirm carries the kind in its payload
+  (`newTaskDirectoryPicked(id, kind:)`, `newSessionDirectorySelected(url,
+  kind:)`, `browseOpenNativePanel(purpose, kind:)`,
+  `OpenPanelPurpose.newSession(kind)`, `PendingSessionLaunch.kind`); no
+  "pending kind" state anywhere. A known row leaves the picker as a
+  `Worktree.ID` only; `handleNewTask(inDirectory:kind:)` re-reads the
+  roster at confirm and mints nothing for a row that is gone, missing,
+  archived or terminating. A shell task reuses `launchSessionTab` with
+  `.createTab` (no input) and the same fresh id / `PendingTaskLaunch` /
+  select-when-the-tab-exists rule. `newTaskDirectories(state:)`: idle,
+  non-missing, non-archived rows; the shown task's directory first (remote
+  included), then MRU, then sidebar order. Brief followed as written; the
+  source had not moved. Decisions: the `directory == nil` remote shortcut
+  in `handleNewSession` passes the kind through (Cmd-N still sends
+  `.agent`) rather than hardcoding it. Chords not rebound (brief §8).
+  `350675d8` alone does not compile (the app side lands in `e3bf5ab2`);
+  one slice, two commits by layer. Left for later slices: none named. The
+  "resume in the task's own directory starts in the focused tab's pwd"
+  follow-up is untouched: a picker-minted task has a fresh layout, so its
+  first tab cannot inherit a pwd. Live UI only: focus and preselection on
+  open; row legibility and head truncation; ⇧⇥ and the segmented control
+  without losing field focus or tripping the blur dismiss; known↔path
+  switching without flicker; a shell task appears as a directory-titled
+  row with exactly one tab and goes when that tab closes; remote agent and
+  shell start on the host; "Choose Folder…" honours the kind; tooltips
+  (A35). Tests: `CommandPaletteSessionDirectoryTests` +12 (bundle
+  `supacodeTests`), `AppFeatureSessionsTests` +12 (A31 and the risk cases,
+  `supacodeFeatureTests`), `AppFeatureCommandPaletteTests` +2.
+  Gate (final tree): check 0; `CommandPaletteSessionDirectoryTests` +
+  `CommandPaletteFeatureTests` exit 0 (136 tests); `AppFeatureSessionsTests`
+  + `AppFeatureCommandPaletteTests` exit 0 (224 tests); build-app 0; full
+  `make test` exit 2 with 4598 tests and only the 5 known failures.
