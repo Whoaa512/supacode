@@ -3457,3 +3457,80 @@ deviation.
   `TerminalsFeatureTransferTests` + `TerminalsFeatureTests` exit 0 (184
   tests, 0 failed); build-app 0. No full `make test` (narrow suites only,
   as instructed).
+- M3, 2026-10-10, `2a737db9` (app actions), `f4755645` (sidebar menus and
+  structure), `456767fb` (palette). Merge and detach reach the user; phase
+  M closes. Built to `plans/briefs/M3.md` where it still applied: the brief
+  predates M2, and M2 landed most of its §2.1–2.4 and §3 (membership moves
+  inside the reducer's `.transferTabs`, the state-level refusal table, the
+  single two-record flush, the emptied source removed as `.mergedInto`).
+  Nothing was added to `TerminalsFeature`, `TaskRecord`, the writer, the
+  manager or `TerminalClient`; M3 is `AppFeature`, the sidebar and the
+  palette only.
+  What landed:
+  - `AppFeature.Action` `.mergeTask(_, into:)`, `.detachTab(_, tabID:)`,
+    `.detachFocusedTab`; logic in new `AppFeature+TaskTransfer.swift`.
+    Merge sends M2's `.transferTabs(from:into:<target's context>, scope:
+    .all)`; detach mints `LayoutID(task: uuid())`, passes the source's
+    directory context and `scope: .tab(tabID, members:)`.
+  - Members riding on a detached tab (brief §8.5): `.session(k)` for every
+    session presence reports on the tab's surface now, plus a
+    `.provisional(_, surfaceID)` waiting there, in member order; sessions
+    replaced earlier on that tab stay with the source. Read in the same
+    reducer pass as the command is built.
+  - App-level refusals, toasted before any command: `.primaryTab` (the
+    moving members include `members.first`, Q8), `.onlyTab` (the source's
+    one tab and no `.session` would be kept), `.launchPending`
+    (`pendingTaskLaunches` names the source). M2's `transferRefusal` is
+    also run first so its refusals toast without a round trip; a
+    `.tabsTransferFailed` event (e.g. `.scriptRunning`, decided at the
+    host) toasts the same text table.
+  - `.tabsTransferred(into:)` → `focusTask(into)` for both operations
+    (selects and shows the target or the minted task; `focusTask` already
+    refuses a task with no tab, so a failed detach never bootstraps a
+    shell). `.tabsTransferFailed` → toast, no selection change.
+  - `RepositoriesFeature` `.mergeTaskRequested` / `.detachTabRequested`
+    forward as `Delegate.mergeTask` / `.detachTab` (non-invalidating).
+  - `SessionsSidebarStructure.mergeTargets` (live `.task` rows whose task
+    holds a tab, `liveIDs` order, titles from the rows) and
+    `SubRow.isDetachable` (running, and not the task's first member by the
+    full member list). Views: `Menu("Merge into…")` on task rows only, with
+    a per-target tooltip; `Button("Detach into New Task")` on a detachable
+    sub-row. No hotkey exists for either, so tooltips name none.
+  - Palette: `Kind.mergeTask` / `.detachFocusedTab`, items from
+    `taskTransferItems(from:)` (one merge item per other target; detach
+    only while the selected task holds a tab), category "Task".
+  Differences from the brief: no `storedLayoutsLoaded` (M2's
+  `layoutsLoaded` is it); no `TransferRefusal` on `TerminalsFeature` (M2's
+  `TabTransferRefusal` plus the app's `TaskTransferRefusal` wrapper); no
+  `.taskMergeFinished` / `.taskDetachFinished` (M2's two events carry the
+  outcome); no `.targetHasNoTab` (an empty destination layout gains a pane,
+  and a dormant target is `.unknownDestination`); `.unknownTab` toasts as
+  "That task is no longer available." Brief §5 tests 1–3, 6–8 and 9–19 were
+  M2's or are covered by its suites; 20–35 landed as
+  `AppFeatureTaskTransferTests` (18), `SessionsSidebarTaskRowsTests` (+3),
+  `CommandPaletteFeatureTests` (+1), `AppFeatureCommandPaletteTests` (+2).
+  Red first: not run (the tests name new symbols; no mutation run).
+  Decisions taken (non-destructive side, cj to veto): a dormant source
+  with an empty live layout merges its sessions; a task whose record never
+  loaded as a layout cannot be merged (`.unknownSource`); the merged or
+  minted task is selected and focused after the move; the toast for a
+  refusal is the only feedback, no alert.
+  Left for later:
+  - P1 / Z1: nothing from here. `focusTask` sends `ensureInitialTab` twice
+    (once itself, once via `selectTask` → `selectedWorktreeChanged`), as
+    before M3; tests compare `Set(shown)` like the settle tests.
+  - A detached tab's shell still names its source task (M2 note, unchanged).
+  Only the live UI can confirm (cj, A35): the brief's §7 list in full:
+  a merged agent keeps running with scrollback in the target's focused pane,
+  the source row goes and the target shows the merged sub-rows; windowed,
+  hibernated and editing tabs survive; detach without a closed-tab flicker
+  and the new row selected; "Merge into…" titles and the absent detach item
+  on the primary; toast texts; relaunch reattaches merged and detached
+  tasks; a remote task merges with a same-host task and refuses a local one.
+  Gate (final tree): check 0; `AppFeatureTaskTransferTests` +
+  `AppFeatureSessionsTaskSettleTests` + `AppFeatureCommandPaletteTests` +
+  `SessionsSidebarTaskRowsTests` + `CommandPaletteFeatureTests` +
+  `RepositoriesFeatureSessionsScaleTests` + `TerminalsFeatureTransferTests`
+  exit 0 (291 tests after the two fixes; the last narrow run of the two
+  changed suites 55 tests, 0 failed); build-app 0; full `make test` exit 2
+  with 4555 tests and only the 5 known failures.
