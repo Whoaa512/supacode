@@ -49,7 +49,8 @@ struct WorktreeTerminalManagerTransferTests {
   /// as the app wires them.
   private func makeHarness(
     liveSurfaces: GhosttyRuntime? = nil,
-    listSessions: @escaping @Sendable () async -> [ZmxSessionListParser.Entry]? = { nil }
+    listSessions: @escaping @Sendable () async -> [ZmxSessionListParser.Entry]? = { nil },
+    seed: (inout AppFeature.State) -> Void = { _ in }
   ) async -> Harness {
     let recorder = Recorder()
     let clock = TestClock()
@@ -66,9 +67,9 @@ struct WorktreeTerminalManagerTransferTests {
     } operation: {
       WorktreeTerminalManager(runtime: GhosttyRuntime(), clock: clock)
     }
-    let store = Store(
-      initialState: AppFeature.State(repositories: RepositoriesFeature.State(), settings: SettingsFeature.State())
-    ) {
+    var initial = AppFeature.State(repositories: RepositoriesFeature.State(), settings: SettingsFeature.State())
+    seed(&initial)
+    let store = Store(initialState: initial) {
       AppFeature()
     } withDependencies: {
       $0.uuid = .incrementing
@@ -111,7 +112,7 @@ struct WorktreeTerminalManagerTransferTests {
     on directory: Worktree = WorktreeTerminalManagerTransferTests.directory, in harness: Harness
   ) {
     harness.manager.handleCommand(
-      .transferTabs(from: source, into: destination, DirectoryContext(worktree: directory), scope: .all))
+      .transferTabs(from: source, into: destination, DirectoryContext(worktree: directory), request: .all))
   }
 
   /// The first matching write, with the save debounce driven until it lands.
@@ -126,6 +127,31 @@ struct WorktreeTerminalManagerTransferTests {
   }
 
   private static func session(_ ref: String) -> SessionKey { SessionKey(harness: .pi, sessionID: ref) }
+
+  /// An agent reports its session on a surface; the link reducer lists it
+  /// under the task that holds the surface.
+  /// Not awaited to completion: the restore starts clock-driven work that
+  /// never finishes under the test clock. Waits for the listing instead.
+  private func report(_ ref: String, on surfaceID: UUID, pid: pid_t, in harness: Harness) async {
+    let key = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surfaceID)
+    harness.store.send(
+      .agentPresence(
+        .restoreFromSnapshotChecked(
+          records: [key: AgentPresenceFeature.RestoredRecord(alivePids: [pid], activity: .idle, sessionRef: ref)],
+          resumeCandidates: [:])))
+    let listed = Self.session(ref)
+    for _ in 0..<500 where !harness.terminals.members.values.contains(where: { $0.contains(.session(listed)) }) {
+      await Task.yield()
+    }
+  }
+
+  /// The app's request, as the effect delivers it: tab identity only.
+  private func detach(_ tabID: UUID, from source: LayoutID, into minted: LayoutID, in harness: Harness) {
+    harness.manager.handleCommand(
+      .transferTabs(
+        from: source, into: minted, DirectoryContext(worktree: Self.directory), request: .tab(TabID(rawValue: tabID))
+      ))
+  }
 
   private static func isTransferOutcome(_ event: TerminalClient.Event) -> Bool {
     switch event {
@@ -223,6 +249,102 @@ struct WorktreeTerminalManagerTransferTests {
 
   // MARK: - Detach.
 
+  /// What moves is read when the request lands, not when it was made: the
+  /// tangent that reported on the tab after the menu opened goes with it.
+  @Test(.dependencies) func detachRequestMovesTheMembersOnTheTabAtDelivery() async {
+    let harness = await makeHarness()
+    let (source, minted) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    let staying = await open(source, in: harness)
+    let leaving = await open(source, in: harness)
+    await report("PA", on: staying, pid: 101, in: harness)
+    await report("TA", on: leaving, pid: 102, in: harness)
+    let (primary, tangent) = (Self.session("PA"), Self.session("TA"))
+    #expect(harness.terminals.members[source] == [.session(primary), .session(tangent)])
+
+    detach(leaving, from: source, into: minted, in: harness)
+    let events = await harness.events.collect(until: Self.isTransferOutcome)
+
+    #expect(
+      events.filter(Self.isTransferOutcome) == [
+        .tabsTransferred(from: source, into: minted, tabIDs: [TabID(rawValue: leaving)], sourceRemoved: false)
+      ])
+    #expect(harness.tabIDs(source) == [staying])
+    #expect(harness.tabIDs(minted) == [leaving])
+    #expect(harness.terminals.members == [source: [.session(primary)], minted: [.session(tangent)]])
+  }
+
+  /// A shell tab was asked to detach; by delivery an agent started on it and
+  /// is the task's primary (Q8). Nothing moves, nothing is minted.
+  @Test(.dependencies) func detachRequestIsRefusedWhenThePrimaryStartedOnTheTabMeanwhile() async {
+    let harness = await makeHarness()
+    let (source, minted) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    let staying = await open(source, in: harness)
+    let leaving = await open(source, in: harness)
+    await report("PA", on: leaving, pid: 101, in: harness)
+    #expect(harness.terminals.members[source] == [.session(Self.session("PA"))])
+    let before = harness.terminals
+
+    detach(leaving, from: source, into: minted, in: harness)
+    let events = await harness.events.collect(until: Self.isTransferOutcome)
+
+    #expect(
+      events.filter(Self.isTransferOutcome) == [.tabsTransferFailed(from: source, into: minted, reason: .primaryTab)])
+    #expect(harness.terminals == before)
+    #expect(harness.tabIDs(source) == [staying, leaving])
+    #expect(harness.manager.hostIfExists(for: minted) == nil, "a refusal creates no host")
+  }
+
+  /// The source's other tab closed before the request landed: detaching the
+  /// one left would leave a task with nothing. Refused at delivery.
+  @Test(.dependencies) func detachRequestIsRefusedWhenTheTabBecameTheOnlyOneMeanwhile() async {
+    let harness = await makeHarness()
+    let (source, minted) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    let closing = await open(source, in: harness)
+    let leaving = await open(source, in: harness)
+    await harness.store.send(
+      .terminals(.layouts(.element(id: source, action: .closeTab(id: TabID(rawValue: closing)))))
+    ).finish()
+    _ = await harness.events.collect { $0 == .surfacesClosed(layoutID: source, [closing]) }
+    #expect(harness.tabIDs(source) == [leaving])
+    let before = harness.terminals
+
+    detach(leaving, from: source, into: minted, in: harness)
+    let events = await harness.events.collect(until: Self.isTransferOutcome)
+
+    #expect(
+      events.filter(Self.isTransferOutcome) == [.tabsTransferFailed(from: source, into: minted, reason: .onlyTab)])
+    #expect(harness.terminals == before)
+    #expect(harness.manager.hostIfExists(for: minted) == nil)
+  }
+
+  /// A resume into a dormant source was accepted after the merge request and
+  /// its tab has not appeared. Moving the source out from under it would let
+  /// the launch recreate the removed task: refused at delivery.
+  @Test(.dependencies) func mergeRequestIsRefusedWhileALaunchIntoTheSourceIsPendingAtDelivery() async {
+    let (source, destination) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
+    let harness = await makeHarness { state in
+      state.pendingTaskLaunches = [PendingTaskLaunch(layoutID: source, directoryID: Self.directory.id)]
+    }
+    let record = TaskRecord(
+      id: source, directory: TaskRecord.Directory(worktreeID: Self.directory.id),
+      sessions: [Self.session("PA")], createdAt: Date(timeIntervalSince1970: 1))
+    let seeded = TaskLayoutsFile(tasks: [source.persistenceKey: record])
+    await harness.store.send(.terminals(.storedSessions(.file(seeded)))).finish()
+    await harness.store.send(.terminals(.layoutsHydrated(seeded))).finish()
+    _ = await open(destination, in: harness)
+    #expect(harness.store.withState(\.pendingTaskLaunches).map(\.layoutID) == [source], "no tab yet: still pending")
+    let before = harness.terminals
+
+    merge(source, into: destination, in: harness)
+    let events = await harness.events.collect(until: Self.isTransferOutcome)
+
+    #expect(
+      events.filter(Self.isTransferOutcome)
+        == [.tabsTransferFailed(from: source, into: destination, reason: .launchPending)])
+    #expect(harness.terminals == before)
+    #expect(harness.terminals.members[source] == [.session(Self.session("PA"))])
+  }
+
   @Test(.dependencies) func detachLeavesTheSourceRunning() async {
     let harness = await makeHarness()
     let (source, minted) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
@@ -231,10 +353,9 @@ struct WorktreeTerminalManagerTransferTests {
     let (primary, tangent) = (Self.session("PA"), Self.session("TA"))
     await harness.store.send(.terminals(.membersChanged([source: [.session(primary), .session(tangent)]]))).finish()
 
-    harness.manager.handleCommand(
-      .transferTabs(
-        from: source, into: minted, DirectoryContext(worktree: Self.directory),
-        scope: .tab(TabID(rawValue: leaving), members: [.session(tangent)])))
+    harness.manager.transferTabs(
+      from: source, into: minted, context: DirectoryContext(worktree: Self.directory),
+      scope: .tab(TabID(rawValue: leaving), members: [.session(tangent)]))
     let events = await harness.events.collect(until: Self.isTransferOutcome)
 
     #expect(
@@ -258,10 +379,9 @@ struct WorktreeTerminalManagerTransferTests {
     let (source, minted) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
     let only = await open(source, in: harness)
 
-    harness.manager.handleCommand(
-      .transferTabs(
-        from: source, into: minted, DirectoryContext(worktree: Self.directory),
-        scope: .tab(TabID(rawValue: only), members: [])))
+    harness.manager.transferTabs(
+      from: source, into: minted, context: DirectoryContext(worktree: Self.directory),
+      scope: .tab(TabID(rawValue: only), members: []))
     let events = await harness.events.collect(until: Self.isTransferOutcome)
 
     #expect(
@@ -326,10 +446,9 @@ struct WorktreeTerminalManagerTransferTests {
     await harness.store.send(.terminals(.membersChanged([source: [.session(primary), .session(tangent)]]))).finish()
     _ = await stored(harness) { $0.tasks[source.persistenceKey]?.sessions == [primary, tangent] }
 
-    harness.manager.handleCommand(
-      .transferTabs(
-        from: source, into: minted, DirectoryContext(worktree: Self.directory),
-        scope: .tab(TabID(rawValue: leaving), members: [.session(tangent)])))
+    harness.manager.transferTabs(
+      from: source, into: minted, context: DirectoryContext(worktree: Self.directory),
+      scope: .tab(TabID(rawValue: leaving), members: [.session(tangent)]))
     let written = await stored(harness) { $0.tasks[minted.persistenceKey] != nil }
 
     // The one way a stored session leaves a record that stays.
@@ -373,10 +492,9 @@ struct WorktreeTerminalManagerTransferTests {
     _ = await stored(harness) { $0.tasks[source.persistenceKey]?.sessions == [primary, tangent] }
 
     // No suspension between the two: the transfer's own write has not run.
-    harness.manager.handleCommand(
-      .transferTabs(
-        from: source, into: minted, DirectoryContext(worktree: Self.directory),
-        scope: .tab(TabID(rawValue: leaving), members: [.session(tangent)])))
+    harness.manager.transferTabs(
+      from: source, into: minted, context: DirectoryContext(worktree: Self.directory),
+      scope: .tab(TabID(rawValue: leaving), members: [.session(tangent)]))
     harness.manager.saveAllLayoutSnapshots()
 
     let file = try #require(harness.recorder.current())
@@ -414,10 +532,9 @@ struct WorktreeTerminalManagerTransferTests {
     await harness.store.send(.terminals(.layoutsHydrated(seeded))).finish()
 
     // No suspension between the two: the transfer's own write has not run.
-    harness.manager.handleCommand(
-      .transferTabs(
-        from: source, into: minted, DirectoryContext(worktree: Self.directory),
-        scope: .tab(TabID(rawValue: leaving), members: [.session(tangent)])))
+    harness.manager.transferTabs(
+      from: source, into: minted, context: DirectoryContext(worktree: Self.directory),
+      scope: .tab(TabID(rawValue: leaving), members: [.session(tangent)]))
     harness.manager.saveAllLayoutSnapshots()
 
     #expect(harness.manager.hostIfExists(for: source) == nil)
@@ -445,10 +562,9 @@ struct WorktreeTerminalManagerTransferTests {
     _ = await stored(harness) { $0.tasks[source.persistenceKey]?.sessions == [primary, tangent] }
 
     // Out and straight back, then quit: neither transfer's write has run.
-    harness.manager.handleCommand(
-      .transferTabs(
-        from: source, into: minted, DirectoryContext(worktree: Self.directory),
-        scope: .tab(TabID(rawValue: leaving), members: [.session(tangent)])))
+    harness.manager.transferTabs(
+      from: source, into: minted, context: DirectoryContext(worktree: Self.directory),
+      scope: .tab(TabID(rawValue: leaving), members: [.session(tangent)]))
     merge(minted, into: source, in: harness)
     harness.manager.saveAllLayoutSnapshots()
 
@@ -762,10 +878,9 @@ struct WorktreeTerminalManagerTransferTests {
     let before = harness.terminals
     let writes = harness.recorder.everyWrite.value.count
 
-    harness.manager.handleCommand(
-      .transferTabs(
-        from: source, into: destination, DirectoryContext(worktree: Self.directory),
-        scope: .tab(TabID(rawValue: tab), members: [])))
+    harness.manager.transferTabs(
+      from: source, into: destination, context: DirectoryContext(worktree: Self.directory),
+      scope: .tab(TabID(rawValue: tab), members: []))
     let events = await harness.events.collect(until: Self.isTransferOutcome)
 
     #expect(

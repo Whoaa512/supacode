@@ -2,7 +2,15 @@ import ComposableArchitecture
 import Foundation
 import SupacodeSettingsShared
 
-/// What a transfer between two tasks moves.
+/// What the user asked to move. Carries tab identity only: the members that
+/// ride on a tab are read from the state in the turn that moves it, never
+/// carried across the effect that delivers the request.
+nonisolated enum TabTransferRequest: Equatable, Sendable {
+  case all
+  case tab(TabID)
+}
+
+/// What a transfer between two tasks moves, resolved from current state.
 nonisolated enum TabTransferScope: Equatable, Sendable {
   /// Merge: every tab and every member; the source task is removed.
   case all
@@ -12,7 +20,7 @@ nonisolated enum TabTransferScope: Equatable, Sendable {
 }
 
 /// Why a transfer was refused. A refused transfer changes nothing.
-nonisolated enum TabTransferRefusal: String, Equatable, Sendable {
+nonisolated enum TabTransferRefusal: String, Error, Equatable, Sendable {
   case sameTask
   /// The stored layouts or sessions have not loaded, or cannot be written.
   case notReady
@@ -21,6 +29,12 @@ nonisolated enum TabTransferRefusal: String, Equatable, Sendable {
   case destinationExists
   case unknownTab
   case memberNotInSource
+  /// The tab the task's primary session runs on (Q8: merge the other way).
+  case primaryTab
+  /// The task's only tab, with no session that would keep the task.
+  case onlyTab
+  /// A launch into the source whose tab has not appeared yet.
+  case launchPending
   /// Either task is asking the user to confirm a close.
   case confirmationPending
   case differentMachine
@@ -182,9 +196,10 @@ struct TerminalClient {
     case removeLayouts(forDirectory: Worktree.ID, remoteHost: RemoteHost?)
     /// Moves live tabs from one task to another without closing them: no
     /// session is killed and nothing reports them closed. The context is the
-    /// destination's directory. Answered by `tabsTransferred` or
-    /// `tabsTransferFailed`.
-    case transferTabs(from: LayoutID, into: LayoutID, DirectoryContext, scope: TabTransferScope)
+    /// destination's directory. What moves is decided from the state at
+    /// delivery (`AppFeature.transferPlan`). Answered by `tabsTransferred`
+    /// or `tabsTransferFailed`.
+    case transferTabs(from: LayoutID, into: LayoutID, DirectoryContext, request: TabTransferRequest)
     case setNotificationsEnabled(Bool)
     case enforceNotificationRetentionLimit
     case setSelectedLayoutID(LayoutID?)

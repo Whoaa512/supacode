@@ -2408,7 +2408,7 @@ struct AppFeature {
         return Self.tabsTransferred(into: target, state: state)
 
       case .terminalEvent(.tabsTransferFailed(_, _, let reason)):
-        return .send(.repositories(.showToast(.info(TaskTransferRefusal.runtime(reason).message))))
+        return .send(.repositories(.showToast(.info(reason.message))))
 
       case .terminals(.layouts(.element(let worktreeID, .contentRequestedClose(let contentID, let scope)))):
         let ids = closeTargetSurfaceIDs(worktreeID: worktreeID, contentID: contentID, scope: scope, state: state)

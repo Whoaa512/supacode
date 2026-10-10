@@ -138,8 +138,15 @@ struct AppFeatureTaskTransferTests {
   }
 
   /// What the terminal layer does when it accepts the command.
+  /// What the terminal layer does when it accepts the command: resolves the
+  /// request against the state at delivery, as the manager does.
   private func simulateTransfer(_ command: TerminalClient.Command, in store: TestStoreOf<AppFeature>) async {
-    guard case .transferTabs(let from, let into, let context, let scope) = command else { return }
+    guard case .transferTabs(let from, let into, let context, let request) = command else { return }
+    let destination = TaskRecord.Directory(worktreeID: context.worktreeID, host: context.host)
+    guard
+      case .success(let scope) = AppFeature.transferPlan(
+        from: from, into: into, request: request, destination: destination, state: store.state)
+    else { return }
     if scope != .all {
       await send(
         .terminals(
@@ -169,8 +176,8 @@ struct AppFeatureTaskTransferTests {
     await send(.mergeTask(task, into: otherTask), to: store)
 
     let command = try #require(recorded.transfers.first)
-    guard case .transferTabs(let from, let into, let context, let scope) = command else { return }
-    #expect(from == task && into == otherTask && scope == .all)
+    guard case .transferTabs(let from, let into, let context, let request) = command else { return }
+    #expect(from == task && into == otherTask && request == .all)
     #expect(context.worktreeID == worktree.id && context.host == nil)
     #expect(recorded.transfers.count == 1)
 
@@ -289,11 +296,11 @@ struct AppFeatureTaskTransferTests {
     await send(.detachTab(task, tabID: TabID(rawValue: secondSurface)), to: store)
 
     let command = try #require(recorded.transfers.first)
-    guard case .transferTabs(let from, let minted, let context, let scope) = command else { return }
+    guard case .transferTabs(let from, let minted, let context, let request) = command else { return }
     #expect(from == task)
     #expect(minted != task && minted != otherTask, "a fresh id")
     #expect(context.worktreeID == worktree.id, "the source's directory")
-    #expect(scope == .tab(TabID(rawValue: secondSurface), members: [.session(key("b"))]))
+    #expect(request == .tab(TabID(rawValue: secondSurface)), "tab identity only; members are read at delivery")
 
     await simulateTransfer(command, in: store)
 
@@ -313,9 +320,14 @@ struct AppFeatureTaskTransferTests {
     let store = store(state(second: live(nil, pid: 12)), recorded: recorded)
     await send(.detachTab(task, tabID: TabID(rawValue: secondSurface)), to: store)
     let command = try #require(recorded.transfers.first)
-    guard case .transferTabs(_, _, _, let scope) = command else { return }
+    guard case .transferTabs(_, let minted, let context, let request) = command else { return }
+    let plan = AppFeature.transferPlan(
+      from: task, into: minted, request: request,
+      destination: TaskRecord.Directory(worktreeID: context.worktreeID, host: context.host), state: store.state)
     #expect(
-      scope == .tab(TabID(rawValue: secondSurface), members: [.provisional(harness: .pi, surfaceID: secondSurface)]))
+      plan
+        == .success(
+          .tab(TabID(rawValue: secondSurface), members: [.provisional(harness: .pi, surfaceID: secondSurface)])))
   }
 
   @Test(.dependencies) func detachOfAShellTabMakesAShellOnlyTask() async throws {
@@ -323,8 +335,8 @@ struct AppFeatureTaskTransferTests {
     let store = store(state(), recorded: recorded)
     await send(.detachTab(task, tabID: TabID(rawValue: secondSurface)), to: store)
     let command = try #require(recorded.transfers.first)
-    guard case .transferTabs(_, let minted, _, let scope) = command else { return }
-    #expect(scope == .tab(TabID(rawValue: secondSurface), members: []))
+    guard case .transferTabs(_, let minted, _, let request) = command else { return }
+    #expect(request == .tab(TabID(rawValue: secondSurface)))
 
     await simulateTransfer(command, in: store)
 
@@ -382,9 +394,9 @@ struct AppFeatureTaskTransferTests {
     let store = store(initial, recorded: recorded)
     await send(.detachFocusedTab, to: store)
     let command = try #require(recorded.transfers.first)
-    guard case .transferTabs(let from, _, _, let scope) = command else { return }
+    guard case .transferTabs(let from, _, _, let request) = command else { return }
     #expect(from == task)
-    #expect(scope == .tab(TabID(rawValue: secondSurface), members: [.session(key("b"))]))
+    #expect(request == .tab(TabID(rawValue: secondSurface)))
   }
 
   @Test(.dependencies) func detachFocusedTabWithNoShownTaskToasts() async {
@@ -395,6 +407,40 @@ struct AppFeatureTaskTransferTests {
     await store.send(.detachFocusedTab)
     await expectToast("That task is no longer available.", in: store)
     #expect(recorded.transfers.isEmpty)
+  }
+
+  /// The request carries the tab only; the plan the terminal layer resolves
+  /// at delivery sees what changed since the user asked.
+  @Test(.dependencies) func aPlanResolvedAtDeliverySeesWhatChangedSinceTheRequest() async throws {
+    let recorded = Recorded()
+    var initial = state()
+    initial.agentPresence.records[.init(agent: .pi, surfaceID: primarySurface)] = nil
+    initial.terminals.members[task] = nil
+    let store = store(initial, recorded: recorded)
+    await send(.detachTab(task, tabID: TabID(rawValue: secondSurface)), to: store)
+    let command = try #require(recorded.transfers.first)
+    guard case .transferTabs(_, let minted, let context, let request) = command else { return }
+    let destination = TaskRecord.Directory(worktreeID: context.worktreeID, host: context.host)
+    func plan(_ state: AppFeature.State) -> Result<TabTransferScope, TabTransferRefusal> {
+      AppFeature.transferPlan(from: task, into: minted, request: request, destination: destination, state: state)
+    }
+    #expect(plan(store.state) == .success(.tab(TabID(rawValue: secondSurface), members: [])))
+
+    var agentStarted = store.state
+    agentStarted.agentPresence.records[.init(agent: .pi, surfaceID: secondSurface)] = live("b", pid: 12)
+    agentStarted.terminals.members[task] = [.session(key("b"))]
+    #expect(plan(agentStarted) == .failure(.primaryTab), "the shell tab became the primary's tab")
+
+    var otherTabClosed = store.state
+    otherTabClosed.terminals.layouts[id: task]?.layout.panes[0].tabs.remove(id: TabID(rawValue: primarySurface))
+    #expect(plan(otherTabClosed) == .failure(.onlyTab))
+
+    var resumeAccepted = store.state
+    resumeAccepted.pendingTaskLaunches = [PendingTaskLaunch(layoutID: task, directoryID: worktree.id)]
+    #expect(plan(resumeAccepted) == .failure(.launchPending))
+    let merge = AppFeature.transferPlan(
+      from: task, into: otherTask, request: .all, destination: destination, state: resumeAccepted)
+    #expect(merge == .failure(.launchPending))
   }
 
   @Test(.dependencies) func aSessionReportedAfterTheMenuOpenedMovesWithItsTab() {

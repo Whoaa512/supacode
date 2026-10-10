@@ -611,8 +611,8 @@ final class WorktreeTerminalManager {
         archivedDirectories: archivedDirectories.intersection(stillArchived))
     case .removeLayouts(let directoryID, let remoteHost):
       removeLayouts(forDirectory: directoryID, remoteHost: remoteHost)
-    case .transferTabs(let from, let target, let context, let scope):
-      transferTabs(from: from, into: target, context: context, scope: scope)
+    case .transferTabs(let from, let target, let context, let request):
+      transferTabs(from: from, into: target, context: context, request: request)
     case .setNotificationsEnabled(let enabled):
       setNotificationsEnabled(enabled)
     case .enforceNotificationRetentionLimit:
@@ -937,16 +937,41 @@ final class WorktreeTerminalManager {
 
   // MARK: - Tabs moving between tasks.
 
+  private func refuseTransfer(from: LayoutID, into target: LayoutID, _ reason: TabTransferRefusal) {
+    terminalLogger.warning("Refused to move tabs from \(from) to \(target): \(reason.rawValue)")
+    emit(.tabsTransferFailed(from: from, into: target, reason: reason))
+  }
+
+  /// Resolves a request against the app state as it is now, in the same turn
+  /// that moves the tabs: the members riding on the tab, the primary and
+  /// only-tab rules and a launch pending into the source are all read here,
+  /// not where the request was made. The effect that delivered the request
+  /// may have been overtaken by an agent starting, a tab closing or a resume.
+  private func transferTabs(
+    from: LayoutID, into target: LayoutID, context: DirectoryContext, request: TabTransferRequest
+  ) {
+    guard !isEndingAllSessions else { return refuseTransfer(from: from, into: target, .quitting) }
+    let destination = TaskRecord.Directory(worktreeID: context.worktreeID, host: context.host)
+    guard
+      let plan = appStore?.withState({
+        AppFeature.transferPlan(from: from, into: target, request: request, destination: destination, state: $0)
+      })
+    else { return refuseTransfer(from: from, into: target, .notReady) }
+    switch plan {
+    case .failure(let reason): refuseTransfer(from: from, into: target, reason)
+    case .success(let scope): transferTabs(from: from, into: target, context: context, scope: scope)
+    }
+  }
+
   /// Moves tabs from one task to another without closing them. One turn on
   /// the main actor: the source host forgets the tabs before the store moves
   /// them, so no sweep finds them missing and nothing reports them closed.
   /// Kills no session and tombstones no content; the runtime holds the same
-  /// content objects before and after. A refusal changes nothing.
-  private func transferTabs(from: LayoutID, into target: LayoutID, context: DirectoryContext, scope: TabTransferScope) {
-    func refuse(_ reason: TabTransferRefusal) {
-      terminalLogger.warning("Refused to move tabs from \(from) to \(target): \(reason.rawValue)")
-      emit(.tabsTransferFailed(from: from, into: target, reason: reason))
-    }
+  /// content objects before and after. A refusal changes nothing. `scope`
+  /// is trusted as resolved from the current state; `transferTabs(request:)`
+  /// is the way in for anything that crossed an effect.
+  func transferTabs(from: LayoutID, into target: LayoutID, context: DirectoryContext, scope: TabTransferScope) {
+    func refuse(_ reason: TabTransferRefusal) { refuseTransfer(from: from, into: target, reason) }
     guard !isEndingAllSessions else { return refuse(.quitting) }
     guard let terminals = appStore?.withState(\.terminals) else { return refuse(.notReady) }
     let destination = TaskRecord.Directory(worktreeID: context.worktreeID, host: context.host)
