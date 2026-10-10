@@ -64,6 +64,16 @@ Measured on cj-main at 47b3b515. Line numbers drift; re-`rg` before editing.
 - **Resolver seam**: every app-layer "worktree → which layout" lookup goes
   through one function (`layoutID(forDirectory:)`). Under the alias it is the
   identity; in T3 it becomes "that directory's most recently selected task".
+- **Decide at delivery, carry identity (added 2026-10-10)**: a command or
+  effect that crosses an asynchronous boundary (a `.run` effect, a
+  `terminalClient.send`, a debounce, a transfer completion) carries only
+  identities: layout, tab, surface, directory ids. It never carries a list,
+  a plan, a record or a verdict computed before the boundary. The receiver
+  re-derives from current state at delivery and applies every refusal
+  there. A command sent to focus or show an existing task must not be one
+  that can create a host, a layout or a tab (`ensureInitialTab` is a
+  bootstrap, not a focus). This is the rule behind the M2 write queue; M2
+  and M3 each burned three review rounds on violations of it.
 - **External contracts unchanged**: `SUPACODE_WORKTREE_ID`, `-w`, and
   worktree deeplinks stay path-based. `SUPACODE_TASK_ID` is added.
 
