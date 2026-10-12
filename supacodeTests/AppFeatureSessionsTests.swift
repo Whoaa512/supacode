@@ -3755,7 +3755,9 @@ struct AppFeatureSessionsTests {
     await store.receive(\.launchSessionCompleted)
     await store.finish()
 
-    #expect(launches(recorded).map(\.directory) == [onDisk.id])
+    // Cmd-N names the task, not a directory; the task's directory is what resolves.
+    #expect(launches(recorded).map(\.source) == [.task(first)])
+    #expect(AppFeature.launchDirectory(for: .task(first), state: store.state)?.worktreeID == onDisk.id)
     #expect(launches(recorded).first?.layoutID != first)
   }
 
@@ -3773,7 +3775,8 @@ struct AppFeatureSessionsTests {
     await store.receive(\.launchSessionCompleted)
     await store.finish()
 
-    #expect(launches(recorded).map(\.directory) == [onDisk.id])
+    #expect(launches(recorded).map(\.source) == [.task(first)])
+    #expect(AppFeature.launchDirectory(for: .task(first), state: store.state)?.worktreeID == onDisk.id)
   }
 
   @Test(.dependencies) func newSessionWithNoTaskOnScreenStillFollowsTheSelectedHistoryRow() async throws {

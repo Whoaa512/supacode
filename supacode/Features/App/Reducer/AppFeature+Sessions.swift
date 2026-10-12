@@ -652,11 +652,14 @@ extension AppFeature {
   static func handleNewSession(directory: URL?, kind: NewTaskKind = .agent, state: inout State) -> Effect<Action> {
     guard state.pendingSessionLaunch == nil else { return .none }
     @Dependency(\.uuid) var uuid
-    // A remote task's directory cannot be checked or registered from here:
-    // the launch goes straight to its host.
-    if directory == nil, let task = currentTaskID(state: state), taskContext(task, state: state)?.host != nil {
+    // Cmd-N names the task on screen, local or remote: its directory is
+    // re-read when the launch lands, so a task closed or merged away by
+    // then gets no sibling, and an orphan keeps its recorded directory
+    // without being registered again. Nothing is checked on disk: a remote
+    // directory cannot be, and a local one is the task's own already.
+    if directory == nil, let task = currentTaskID(state: state) {
       guard let live = launchDirectory(for: .task(task), state: state) else {
-        repositoriesLogger.warning("New session: remote task \(task.persistenceKey) has no live directory")
+        repositoriesLogger.warning("New session: task \(task.persistenceKey) has no live directory")
         return .none
       }
       return launchNewSession(in: live, source: .task(task), kind: kind, state: &state)

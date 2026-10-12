@@ -3917,3 +3917,42 @@ deviation.
   `AppFeatureSessionsTests` + `AppFeatureCommandPaletteTests` +
   `CommandPaletteSessionDirectoryTests` exit 0 (289 tests); build-app 0;
   full `make test` exit 2 with 4606 tests and only the 5 known failures.
+- P1 r4, 2026-10-12. Review of P1 r3 found one P1, held: Cmd-N carried
+  the task's identity only for a remote task. On a local task
+  `handleNewSession` (`directory == nil`) fell through to
+  `newSessionCwdFallback` and the path route, so the launch went out as
+  `.roster(directory)`: a task closed or merged away before delivery
+  still got a sibling (the roster row was live), and Cmd-N on a local
+  orphan task re-registered its directory as a folder instead of using
+  the task's recorded one. Revised (replaces the r3 line "Local Cmd-N
+  still goes by path to the roster (unchanged)"): Cmd-N with a task on
+  screen sends `.task(currentTaskID)` on every host; `launchDirectory(for:
+  .task)` gates it up front and the manager re-derives at delivery. The
+  path route (typed path, native panel, Tab into a known row) and Cmd-N
+  with no task on screen (focused history row, selected worktree, home)
+  are unchanged. Decision taken: no `FileManager` check for the task
+  route; the directory is the task's own already, a remote one cannot be
+  checked, and delivery is the authority. Same class across the slice,
+  re-audited: picker confirm (`Worktree.ID` + kind), native panel (URL +
+  kind, re-checked in `handleNewSession`), `registerSessionFolder` →
+  `repositoriesChanged` (`launchPendingSessionIfReady` re-resolves and
+  applies the roster rule), `createTaskTab` (source identity, both
+  routes), `launchSessionCompleted` (request id), `selectTask` (M3 r5).
+  Nothing else found.
+  Tests (red first on the unfixed reducer: 4 failed, 233 passed across
+  the two suites, the manager tests showing the sibling hosted, laid
+  out, selected and persisted, and the orphan's directory registered):
+  `WorktreeTerminalManagerTransferTests` +2, app-to-manager on a real
+  on-disk directory, `aLocalCmdNLandingAfterItsTaskWentCreatesNothing`
+  × closed / merged (the queued `.newSession` carries `.task`; the task
+  goes while its roster row stays live; delivery creates no host,
+  layout or tab, selects nothing it did not create, persists nothing)
+  and `aLocalOrphanCmdNStartsASiblingWithoutRegisteringItsDirectory`
+  (roster empty; one tab on the recorded directory, roster still empty,
+  no pending launch). `AppFeatureSessionsTests`: the two shown-task
+  Cmd-N tests now assert `.task(first)` and resolve the directory
+  through `launchDirectory`.
+  Gate (final tree): check 0; `WorktreeTerminalManagerTransferTests` +
+  `AppFeatureSessionsTests` + `AppFeatureCommandPaletteTests` exit 0
+  (276 tests); build-app 0; full `make test` exit 2 with 4608 tests and
+  only the 5 known failures.

@@ -1604,6 +1604,119 @@ struct WorktreeTerminalManagerTransferTests {
     #expect(stored.tasks[late.persistenceKey] == nil)
   }
 
+  enum TaskRemoval: CaseIterable {
+    case closed, merged
+  }
+
+  /// A roster worktree on a directory that exists on disk, as a path route
+  /// would require of it.
+  private func onDiskWorktree(named name: String) throws -> Worktree {
+    let url = FileManager.default.temporaryDirectory
+      .appendingPathComponent("supacode-tests-\(UUID().uuidString)-\(name)", isDirectory: true)
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    return Self.worktree(url.standardizedFileURL.path(percentEncoded: false))
+  }
+
+  private static func listDirectory(_ directory: Worktree, in state: inout AppFeature.State) {
+    state.repositories.repositories = [
+      Repository(
+        id: RepositoryID(directory.repositoryRootURL.path), rootURL: directory.repositoryRootURL, name: "repo",
+        worktrees: [directory])
+    ]
+    state.repositories.isInitialLoadComplete = true
+  }
+
+  private func removeTask(_ task: LayoutID, _ removal: TaskRemoval, ownTab: UUID, in harness: Harness) async {
+    switch removal {
+    case .closed:
+      await harness.store.send(
+        .terminals(.layouts(.element(id: task, action: .closeTab(id: TabID(rawValue: ownTab)))))
+      ).finish()
+    case .merged:
+      let destination = LayoutID(task: UUID())
+      _ = await open(destination, in: harness)
+      merge(task, into: destination, in: harness)
+      _ = await harness.events.collect(until: Self.isTransferOutcome)
+    }
+    for _ in 0..<50 where harness.store.withState({ AppFeature.hasTask(task, state: $0) }) { await Task.megaYield() }
+    #expect(!harness.store.withState { AppFeature.hasTask(task, state: $0) }, "the task is gone (\(removal))")
+  }
+
+  /// Cmd-N on a local task, through the app: the launch names the task,
+  /// not its directory. The task is closed or merged away before the launch
+  /// lands; its directory is still a live roster row, and still nothing is
+  /// created, selected or stored.
+  @Test(.dependencies, arguments: TaskRemoval.allCases)
+  func aLocalCmdNLandingAfterItsTaskWentCreatesNothing(removal: TaskRemoval) async throws {
+    let directory = try onDiskWorktree(named: "cmd-n-\(removal)")
+    let harness = await makeHarness { state in
+      Self.listDirectory(directory, in: &state)
+      state.repositories.reconcileSidebarForTesting()
+    }
+    let task = LayoutID(task: UUID())
+    let own = await open(task, on: directory, in: harness)
+    await harness.store.send(.repositories(.selectTask(task, directory: directory.id))).finish()
+    #expect(harness.store.withState { AppFeature.currentTaskID(state: $0) } == task)
+
+    await harness.store.send(.newSession).finish()
+    let queued = harness.recorder.queuedCommands.value
+    #expect(queued.count(where: Self.isTaskLaunch) == 1, "the launch is in flight: \(queued)")
+    guard case .createTaskTab(let minted, let source, let input, _)? = queued.first(where: Self.isTaskLaunch)
+    else { return }
+    #expect(source == .task(task), "a local Cmd-N carries the task, as a remote one does")
+    #expect(input == "pi")
+
+    await removeTask(task, removal, ownTab: own, in: harness)
+    #expect(
+      harness.store.withState { AppFeature.rosterDirectory(directory.id, state: $0) } != nil,
+      "the directory itself stays live; only the task is gone")
+    deliverQueuedCommands(in: harness)
+    let after = await harness.events.collect(until: Self.createsATab)
+
+    #expect(harness.manager.hostIfExists(for: minted) == nil, "no host for a sibling of a task that is gone")
+    #expect(harness.terminals.layouts[id: minted] == nil)
+    #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
+    // The removal itself lands the directory on its own layout; the
+    // delivery must not select the task it did not create.
+    #expect(harness.manager.selectedLayoutID != minted)
+    #expect(harness.store.withState(\.repositories.selectedTaskID) != minted)
+    #expect(harness.store.withState(\.terminals.selectedLayoutID) != minted)
+    let stored = await settledStore(harness)
+    #expect(stored.tasks[minted.persistenceKey] == nil, "nothing persisted for the task")
+    #expect(stored.activeTasks[directory.id.rawValue] != minted.persistenceKey)
+  }
+
+  /// Cmd-N on a local orphan task (its directory in no roster entry), through
+  /// the app: the sibling starts on the task's recorded directory and the
+  /// directory is not registered as a folder to get there.
+  @Test(.dependencies) func aLocalOrphanCmdNStartsASiblingWithoutRegisteringItsDirectory() async throws {
+    let directory = try onDiskWorktree(named: "cmd-n-orphan")
+    let harness = await makeHarness { state in state.repositories.isInitialLoadComplete = true }
+    let orphan = LayoutID(task: UUID())
+    _ = await open(orphan, on: directory, in: harness)
+    await harness.store.send(.repositories(.selectTask(orphan, directory: directory.id))).finish()
+    #expect(harness.store.withState { AppFeature.currentTaskID(state: $0) } == orphan)
+    #expect(harness.store.withState { $0.repositories.worktree(for: directory.id) } == nil)
+
+    await harness.store.send(.newSession).finish()
+    let queued = harness.recorder.queuedCommands.value
+    #expect(queued.count(where: Self.isTaskLaunch) == 1, "the launch is in flight: \(queued)")
+    guard case .createTaskTab(let minted, let source, _, _)? = queued.first(where: Self.isTaskLaunch)
+    else { return }
+    #expect(source == .task(orphan))
+    #expect(
+      harness.store.withState { $0.repositories.worktree(for: directory.id) } == nil,
+      "the orphan's directory is not registered to start a sibling")
+    #expect(harness.store.withState(\.pendingSessionLaunch) == nil, "the launch went out, not into registration")
+
+    deliverQueuedCommands(in: harness)
+    let created = await harness.events.collect(until: Self.createsATab)
+    #expect(created.count(where: Self.createsATab) == 1, "one tab for the orphan's sibling: \(created)")
+    #expect(harness.tabIDs(minted).count == 1)
+    #expect(harness.terminals.directories[minted]?.worktreeID == directory.id)
+    #expect(harness.store.withState { $0.repositories.worktree(for: directory.id) } == nil)
+  }
+
   /// A record for `layoutID` on the fixture directory, never opened: stored,
   /// no layout, no host.
   private func seedStoredTask(_ layoutID: LayoutID, in harness: Harness) async {
