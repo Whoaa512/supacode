@@ -1495,9 +1495,9 @@ struct WorktreeTerminalManagerTransferTests {
     await harness.store.send(.newTask(inDirectory: Self.directory.id, kind: kind)).finish()
     let queued = harness.recorder.queuedCommands.value
     #expect(queued.count(where: Self.isTaskLaunch) == 1, "the launch is in flight: \(queued)")
-    guard case .createTaskTab(let minted, let directoryID, let input, _)? = queued.first(where: Self.isTaskLaunch)
+    guard case .createTaskTab(let minted, let source, let input, _)? = queued.first(where: Self.isTaskLaunch)
     else { return }
-    #expect(directoryID == Self.directory.id)
+    #expect(source == .roster(Self.directory.id))
     #expect(input == (kind == .agent ? "pi" : nil))
 
     await self.change(change, in: harness)
@@ -1515,6 +1515,120 @@ struct WorktreeTerminalManagerTransferTests {
     #expect(stored.activeTasks[Self.directory.id.rawValue] != minted.persistenceKey)
   }
 
+  /// A roster launch carries the row's identity, never "the directory":
+  /// when its repository leaves the roster but a task on that directory
+  /// survives, open or stored, the orphan does not stand in for the row.
+  /// Nothing is created, selected or persisted.
+  @Test(.dependencies, arguments: [true, false], [NewTaskKind.agent, .shell])
+  func aRosterLaunchLandingAfterItsRepositoryLeftCreatesNothingDespiteAnOrphanTask(liveOrphan: Bool, kind: NewTaskKind)
+    async
+  {
+    let harness = await makeHarness { state in
+      Self.listDirectory(&state)
+      state.repositories.reconcileSidebarForTesting()
+    }
+    let orphan = LayoutID(task: UUID())
+    if liveOrphan {
+      _ = await open(orphan, in: harness)
+    } else {
+      await seedStoredTask(orphan, in: harness)
+    }
+    await harness.store.send(.repositories(.selectTask(orphan, directory: Self.directory.id))).finish()
+    await harness.store.send(.newTask(inDirectory: Self.directory.id, kind: kind)).finish()
+    guard
+      case .createTaskTab(let minted, let source, _, _)? = harness.recorder.queuedCommands.value.first(
+        where: Self.isTaskLaunch)
+    else {
+      Issue.record("no launch queued")
+      return
+    }
+    #expect(source == .roster(Self.directory.id))
+
+    await change(.removed, in: harness)
+    #expect(harness.store.withState { AppFeature.hasTask(orphan, state: $0) }, "the orphan task survives the removal")
+    // The removal itself may move the selection; the delivery must not.
+    let selectedBefore = (
+      harness.manager.selectedLayoutID, harness.store.withState(\.repositories.selectedTaskID),
+      harness.store.withState(\.terminals.selectedLayoutID)
+    )
+    deliverQueuedCommands(in: harness)
+    let after = await harness.events.collect(until: Self.createsATab)
+
+    #expect(harness.manager.hostIfExists(for: minted) == nil, "no host for a row the roster no longer lists")
+    #expect(harness.terminals.layouts[id: minted] == nil)
+    #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
+    #expect(harness.manager.selectedLayoutID == selectedBefore.0)
+    #expect(harness.store.withState(\.repositories.selectedTaskID) == selectedBefore.1)
+    #expect(harness.store.withState(\.terminals.selectedLayoutID) == selectedBefore.2)
+    let stored = await settledStore(harness)
+    #expect(stored.tasks[minted.persistenceKey] == nil, "nothing persisted for the task")
+    #expect(stored.activeTasks[Self.directory.id.rawValue] != minted.persistenceKey)
+  }
+
+  /// Cmd-N on a task carries the task's identity: its directory is re-read
+  /// when the launch lands. An orphan task (its repository gone from the
+  /// roster) still gets its sibling; once the task itself is gone, nothing
+  /// is created.
+  @Test(.dependencies, arguments: [NewTaskKind.agent, .shell])
+  func aTaskLaunchLandsWhileItsTaskExistsAndNotAfter(kind: NewTaskKind) async {
+    let harness = await makeHarness { state in
+      Self.listDirectory(&state)
+      state.repositories.reconcileSidebarForTesting()
+    }
+    let orphan = LayoutID(task: UUID())
+    let own = await open(orphan, in: harness)
+    await change(.removed, in: harness)
+    #expect(harness.store.withState { AppFeature.launchDirectory(for: .task(orphan), state: $0) } != nil)
+    let input = kind == .agent ? "pi" : nil
+
+    let sibling = LayoutID(task: UUID())
+    harness.manager.handleCommand(.createTaskTab(sibling, source: .task(orphan), input: input, focusing: true))
+    let created = await harness.events.collect(until: Self.createsATab)
+    #expect(created.count(where: Self.createsATab) == 1, "one tab for the orphan's sibling: \(created)")
+    #expect(harness.tabIDs(sibling).count == 1)
+    #expect(harness.terminals.directories[sibling]?.worktreeID == Self.directory.id)
+
+    // The task goes; a launch that named it lands after.
+    await harness.store.send(
+      .terminals(.layouts(.element(id: orphan, action: .closeTab(id: TabID(rawValue: own)))))
+    ).finish()
+    for _ in 0..<50 where harness.store.withState({ AppFeature.hasTask(orphan, state: $0) }) { await Task.megaYield() }
+    #expect(!harness.store.withState { AppFeature.hasTask(orphan, state: $0) }, "the orphan task is gone")
+    let late = LayoutID(task: UUID())
+    harness.manager.handleCommand(.createTaskTab(late, source: .task(orphan), input: input, focusing: true))
+    let after = await harness.events.collect(until: Self.createsATab)
+    #expect(harness.manager.hostIfExists(for: late) == nil, "no host for a sibling of a task that is gone")
+    #expect(harness.terminals.layouts[id: late] == nil)
+    #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
+    let stored = await settledStore(harness)
+    #expect(stored.tasks[late.persistenceKey] == nil)
+  }
+
+  /// A record for `layoutID` on the fixture directory, never opened: stored,
+  /// no layout, no host.
+  private func seedStoredTask(_ layoutID: LayoutID, in harness: Harness) async {
+    let (paneID, dormant) = (PaneID(), UUID())
+    let layout = PaneLayout(
+      tree: SplitTree(view: paneID),
+      panes: [
+        Pane(
+          id: paneID,
+          tabs: [
+            TabItem(
+              id: TabID(rawValue: dormant), title: "Tab",
+              content: ContentSnapshot(
+                id: ContentID(rawValue: dormant), state: .terminal(TerminalContentState(workingDirectory: nil))))
+          ], selectedTabID: TabID(rawValue: dormant))
+      ], focusedPaneID: paneID)
+    let record = TaskRecord(
+      id: layoutID, directory: TaskRecord.Directory(worktreeID: Self.directory.id), layout: layout,
+      sessions: [Self.session("PA")], createdAt: Date(timeIntervalSince1970: 1))
+    harness.recorder.seed([record])
+    await harness.store.send(
+      .terminals(.layoutsHydrated(TaskLayoutsFile(tasks: [layoutID.persistenceKey: record])))
+    ).finish()
+  }
+
   /// The same launch on a directory still live: one tab, in the minted
   /// task, from the roster's current directory.
   @Test(.dependencies, arguments: [NewTaskKind.agent, .shell])
@@ -1525,7 +1639,8 @@ struct WorktreeTerminalManagerTransferTests {
     }
     await harness.store.send(.newTask(inDirectory: Self.directory.id, kind: kind)).finish()
     guard
-      case .createTaskTab(let minted, _, _, _)? = harness.recorder.queuedCommands.value.first(where: Self.isTaskLaunch)
+      case .createTaskTab(let minted, .roster, _, _)? = harness.recorder.queuedCommands.value.first(
+        where: Self.isTaskLaunch)
     else {
       Issue.record("no launch queued")
       return

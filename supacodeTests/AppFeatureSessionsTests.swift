@@ -1212,12 +1212,12 @@ struct AppFeatureSessionsTests {
     await store.finish()
     #expect(store.state.repositories.openPanelPurpose == .openRepository)
     #expect(sent.value.count == 1)
-    guard case .createTaskTab(_, let directoryID, let input, _) = sent.value[0]
+    guard case .createTaskTab(_, let source, let input, _) = sent.value[0]
     else {
       Issue.record("Expected exactly one session launch")
       return
     }
-    #expect(directoryID == pickedWorktree.id)
+    #expect(source == .roster(pickedWorktree.id))
     #expect(input == "pi")
   }
 
@@ -3629,8 +3629,23 @@ struct AppFeatureSessionsTests {
 
   private struct Launch {
     let layoutID: LayoutID
-    let directory: Worktree.ID
+    /// The roster directory the launch names; nil for a launch that names
+    /// a task (`source`) or a resume's planned context.
+    let directory: Worktree.ID?
+    let source: NewTaskSource?
     let input: String
+
+    init(layoutID: LayoutID, directory: Worktree.ID?, source: NewTaskSource? = nil, input: String) {
+      self.layoutID = layoutID
+      self.directory = directory
+      self.source = source
+      self.input = input
+    }
+  }
+
+  private static func rosterDirectory(_ source: NewTaskSource) -> Worktree.ID? {
+    if case .roster(let directoryID) = source { return directoryID }
+    return nil
   }
 
   private func launches(_ recorded: Recorded) -> [Launch] {
@@ -3638,8 +3653,8 @@ struct AppFeatureSessionsTests {
       switch command {
       case .createTabWithInput(let layoutID, let context, let input, _, _, _, _, _):
         return Launch(layoutID: layoutID, directory: context.worktreeID, input: input)
-      case .createTaskTab(let layoutID, let directoryID, let input?, _):
-        return Launch(layoutID: layoutID, directory: directoryID, input: input)
+      case .createTaskTab(let layoutID, let source, let input?, _):
+        return Launch(layoutID: layoutID, directory: Self.rosterDirectory(source), source: source, input: input)
       default:
         return nil
       }
@@ -3972,12 +3987,13 @@ struct AppFeatureSessionsTests {
     await store.receive(\.launchSessionCompleted)
     await store.finish()
 
-    // The command carries the directory's identity; the host is resolved
-    // from it when the command lands.
-    let resolved = AppFeature.launchDirectory(remoteID, state: store.state)
+    // The command carries the task's identity; the host is resolved from
+    // the task's current directory when the command lands.
+    let resolved = AppFeature.launchDirectory(for: .task(first), state: store.state)
     #expect(launches(recorded).map(\.input) == ["pi"])
     #expect(launches(recorded).first?.layoutID != first)
-    #expect(launches(recorded).map(\.directory) == [remoteID])
+    #expect(launches(recorded).map(\.source) == [.task(first)])
+    #expect(resolved?.worktreeID == remoteID)
     #expect(resolved?.host == host)
     #expect(resolved?.workingDirectory.path(percentEncoded: false) == "/srv/app")
     #expect(store.state.pendingSessionLaunch == nil)
@@ -4926,7 +4942,7 @@ struct AppFeatureSessionsTests {
     await store.receive(\.launchSessionCompleted)
     await store.finish()
 
-    let resolved = AppFeature.launchDirectory(remote.id, state: store.state)
+    let resolved = AppFeature.launchDirectory(for: .roster(remote.id), state: store.state)
     #expect(launches(recorded).map(\.input) == ["pi"])
     #expect(launches(recorded).map(\.layoutID) == [LayoutID(task: UUID(1))], "a fresh task, not the selected one")
     #expect(launches(recorded).map(\.directory) == [remote.id])
@@ -4970,7 +4986,8 @@ struct AppFeatureSessionsTests {
 
   private struct ShellLaunch: Equatable {
     let layoutID: LayoutID
-    let directory: Worktree.ID
+    let directory: Worktree.ID?
+    var source: NewTaskSource?
     let host: RemoteHost?
     let runsSetupScript: Bool
   }
@@ -4981,8 +4998,10 @@ struct AppFeatureSessionsTests {
       case .createTab(let layoutID, let context, let runsSetupScript, _, _, _, _):
         return ShellLaunch(
           layoutID: layoutID, directory: context.worktreeID, host: context.host, runsSetupScript: runsSetupScript)
-      case .createTaskTab(let layoutID, let directoryID, nil, _):
-        return ShellLaunch(layoutID: layoutID, directory: directoryID, host: nil, runsSetupScript: false)
+      case .createTaskTab(let layoutID, let source, nil, _):
+        return ShellLaunch(
+          layoutID: layoutID, directory: Self.rosterDirectory(source), source: source, host: nil,
+          runsSetupScript: false)
       default:
         return nil
       }
@@ -5074,7 +5093,7 @@ struct AppFeatureSessionsTests {
     case .shell:
       let launch = try #require(shellLaunches(recorded).first)
       #expect(launch.directory == remote.id)
-      #expect(AppFeature.launchDirectory(remote.id, state: store.state)?.host == remote.host)
+      #expect(AppFeature.launchDirectory(for: .roster(remote.id), state: store.state)?.host == remote.host)
     }
     #expect(
       store.state.pendingTaskLaunches == [PendingTaskLaunch(layoutID: LayoutID(task: UUID(1)), directoryID: remote.id)])
@@ -5194,7 +5213,7 @@ struct AppFeatureSessionsTests {
 
   /// A known row leaves the picker as a roster id. Removing its repository
   /// while keeping its tasks leaves orphan tasks on that directory, which
-  /// `launchDirectory` still resolves for Cmd-N and delivery; the offered
+  /// Cmd-N on such a task still resolves by the task's identity; the offered
   /// row itself is void, so confirming it mints nothing.
   @Test(.dependencies, arguments: [true, false])
   func pickedRowRemovedFromTheRosterMintsNothingEvenWithAnOrphanTask(liveOrphan: Bool) async {
@@ -5206,8 +5225,10 @@ struct AppFeatureSessionsTests {
     }
     #expect(initial.repositories.worktree(for: otherWorktree.id) == nil)
     #expect(
-      AppFeature.launchDirectory(otherWorktree.id, state: initial)?.worktreeID == otherWorktree.id,
-      "an orphan task keeps the directory resolvable for Cmd-N")
+      AppFeature.launchDirectory(for: .task(liveOrphan ? fifth : fourth), state: initial)?.worktreeID
+        == otherWorktree.id,
+      "an orphan task keeps its directory resolvable for Cmd-N")
+    #expect(AppFeature.launchDirectory(for: .roster(otherWorktree.id), state: initial) == nil)
     let recorded = Recorded()
     let store = mintingStore(initial, recorded: recorded)
 
@@ -5268,28 +5289,40 @@ struct AppFeatureSessionsTests {
     #expect(store.state.pendingTaskLaunches.isEmpty)
   }
 
-  /// What the manager resolves when a new task's first tab lands: a live
-  /// roster entry, else the recorded directory of a task still on it
-  /// (Cmd-N on an orphan task), else nothing.
-  @Test(.dependencies) func launchDirectoryResolvesLiveRosterOrphanAndNothingElse() throws {
+  /// What the manager resolves when a new task's first tab lands, by the
+  /// launch's source. A roster row: a live roster entry and nothing else, no
+  /// task on the directory stands in for it. A task (Cmd-N): the task's own
+  /// directory as it is now, its recorded one once the roster no longer
+  /// lists it, nothing once the task is gone.
+  @Test(.dependencies) func launchDirectoryResolvesEachSourceByItsOwnRule() throws {
     var state = sixTasksOnTwoDirectories()
-    #expect(AppFeature.launchDirectory(otherWorktree.id, state: state) == DirectoryContext(worktree: otherWorktree))
+    #expect(
+      AppFeature.launchDirectory(for: .roster(otherWorktree.id), state: state)
+        == DirectoryContext(worktree: otherWorktree))
+    #expect(
+      AppFeature.launchDirectory(for: .task(fifth), state: state) == DirectoryContext(worktree: otherWorktree),
+      "a task on a listed directory starts on the roster's directory")
 
     let gone: Worktree.ID = "/gone/checkout"
-    #expect(AppFeature.launchDirectory(gone, state: state) == nil)
+    #expect(AppFeature.launchDirectory(for: .roster(gone), state: state) == nil)
     let orphan = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000C1")!)
     state.terminals.layouts.append(agentTask(orphan, surface: UUID()))
     state.terminals.directories[orphan] = TaskRecord.Directory(worktreeID: gone)
-    #expect(AppFeature.launchDirectory(gone, state: state)?.worktreeID == gone)
+    #expect(AppFeature.launchDirectory(for: .task(orphan), state: state)?.worktreeID == gone)
+    #expect(
+      AppFeature.launchDirectory(for: .roster(gone), state: state) == nil,
+      "an orphan task never stands in for a roster row")
     state.terminals.layouts.remove(id: orphan)
-    #expect(AppFeature.launchDirectory(gone, state: state) == nil, "a removed task's directory is gone with it")
+    #expect(AppFeature.launchDirectory(for: .task(orphan), state: state) == nil, "a removed task launches nothing")
 
     let missing = otherDirectoryMissing()
-    #expect(AppFeature.launchDirectory(otherWorktree.id, state: missing) == nil)
+    #expect(AppFeature.launchDirectory(for: .roster(otherWorktree.id), state: missing) == nil)
+    #expect(AppFeature.launchDirectory(for: .task(fifth), state: missing) == nil)
     for gone in [GoneCase.archived, .deleting] {
       var state = sixTasksOnTwoDirectories()
       Self.makeGone(gone, directory: otherWorktree, state: &state)
-      #expect(AppFeature.launchDirectory(otherWorktree.id, state: state) == nil, "\(gone)")
+      #expect(AppFeature.launchDirectory(for: .roster(otherWorktree.id), state: state) == nil, "\(gone)")
+      #expect(AppFeature.launchDirectory(for: .task(fifth), state: state) == nil, "\(gone)")
     }
   }
 

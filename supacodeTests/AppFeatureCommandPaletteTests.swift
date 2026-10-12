@@ -105,11 +105,11 @@ struct AppFeatureCommandPaletteTests {
     await store.finish()
 
     #expect(sent.value.count == 1)
-    guard case .createTaskTab(_, let directoryID, let input, _) = sent.value[0] else {
+    guard case .createTaskTab(_, let source, let input, _) = sent.value[0] else {
       Issue.record("Expected one shell tab on the picked directory, got \(sent.value)")
       return
     }
-    #expect(directoryID == picked.id)
+    #expect(source == .roster(picked.id))
     #expect(input == nil, "a shell: no input")
   }
 
@@ -145,11 +145,11 @@ struct AppFeatureCommandPaletteTests {
     await store.finish()
     #expect(store.state.repositories.openPanelPurpose == .openRepository)
     #expect(sent.value.count == 1)
-    guard case .createTaskTab(_, let directoryID, let input, _) = sent.value[0] else {
+    guard case .createTaskTab(_, let source, let input, _) = sent.value[0] else {
       Issue.record("Expected one shell tab, got \(sent.value)")
       return
     }
-    #expect(directoryID == worktree.id)
+    #expect(source == .roster(worktree.id))
     #expect(input == nil, "a shell: no input")
 
     // A cancelled panel consumes the kind with the purpose.

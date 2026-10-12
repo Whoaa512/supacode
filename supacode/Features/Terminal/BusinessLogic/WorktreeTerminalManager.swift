@@ -358,13 +358,14 @@ final class WorktreeTerminalManager {
   }
 
   /// Decided here, in the turn the command lands, not when the directory was
-  /// picked: the roster is read again and a directory archived, removed,
-  /// missing or winding down since gets nothing, no host, layout or tab. No
+  /// picked: the source is resolved again by its own rule (a roster row must
+  /// still be a live roster entry, a task's directory is re-read while the
+  /// task exists) and anything else gets nothing, no host, layout or tab. No
   /// further hop follows, so nothing can change between this check and the
   /// creation. With no store to ask, nothing is created.
-  private func createTaskTab(in layoutID: LayoutID, directoryID: Worktree.ID, input: String?, focusing: Bool) {
-    guard let context = appStore?.withState({ AppFeature.launchDirectory(directoryID, state: $0) }) else {
-      terminalLogger.info("createTaskTab: directory \(directoryID.rawValue) is not live any more; nothing created.")
+  private func createTaskTab(in layoutID: LayoutID, source: NewTaskSource, input: String?, focusing: Bool) {
+    guard let context = appStore?.withState({ AppFeature.launchDirectory(for: source, state: $0) }) else {
+      terminalLogger.info("createTaskTab: \(String(describing: source)) is not live any more; nothing created.")
       return
     }
     createTabAsync(in: layoutID, context: context, runSetupScriptIfNew: false, initialInput: input, focusing: focusing)
@@ -383,8 +384,8 @@ final class WorktreeTerminalManager {
       scheduleTabCreation(
         in: layoutID, context: context, runSetupScriptIfNew: runSetupScriptIfNew, input: input,
         tabID: id, customTitle: title, focusing: focusing, anchor: anchor)
-    case .createTaskTab(let layoutID, let directoryID, let input, let focusing):
-      createTaskTab(in: layoutID, directoryID: directoryID, input: input, focusing: focusing)
+    case .createTaskTab(let layoutID, let source, let input, let focusing):
+      createTaskTab(in: layoutID, source: source, input: input, focusing: focusing)
     case .openFileWithScript(let layoutID, let context, let input):
       openFileWithScript(in: layoutID, context: context, input: input)
     case .ensureInitialTab(let layoutID, let context, let runSetupScriptIfNew, let focusing):

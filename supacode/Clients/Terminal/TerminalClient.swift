@@ -137,12 +137,11 @@ struct TerminalClient {
       anchor: UUID? = nil
     )
     /// The first tab of a new task, minted by the picker, Cmd-N or "New task
-    /// here": directory identity only. Decided at delivery: the manager
-    /// resolves the directory from the roster (or the recorded directory of an
-    /// orphan task) and refuses one archived, missing, removed or winding down
-    /// since the request, creating no host, layout or tab. `input` nil is a
-    /// plain shell.
-    case createTaskTab(LayoutID, directoryID: Worktree.ID, input: String?, focusing: Bool)
+    /// here": the source's identity only. Decided at delivery: the manager
+    /// resolves the directory by the source's rule (a roster row must still be
+    /// live; a task's directory is re-read while the task exists) and refuses
+    /// otherwise, creating no host, layout or tab. `input` nil is a plain shell.
+    case createTaskTab(LayoutID, source: NewTaskSource, input: String?, focusing: Bool)
     /// Runs the resolved open-file script for a File Explorer file. `input` is the ready shell
     /// command; the manager picks placement (tab in the zoomed/top-right pane, or a split).
     case openFileWithScript(LayoutID, DirectoryContext, input: String)

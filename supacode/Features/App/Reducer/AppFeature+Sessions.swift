@@ -491,8 +491,22 @@ extension AppFeature {
   /// that task may run elsewhere (a tangent); the task's directory is still
   /// where its next sibling starts.
   static func currentTaskContext(state: State) -> DirectoryContext? {
+    guard let layoutID = currentTaskID(state: state) else { return nil }
+    return taskContext(layoutID, state: state)
+  }
+
+  /// The task on screen, while it exists.
+  static func currentTaskID(state: State) -> LayoutID? {
     guard let layoutID = state.repositories.selectedTaskID ?? state.terminals.selectedLayoutID,
-      hasTask(layoutID, state: state),
+      hasTask(layoutID, state: state)
+    else { return nil }
+    return layoutID
+  }
+
+  /// A task's directory as it is now, remote host included; nil once the task
+  /// is gone.
+  static func taskContext(_ layoutID: LayoutID, state: State) -> DirectoryContext? {
+    guard hasTask(layoutID, state: state),
       let directoryID = state.terminals.directories[layoutID]?.worktreeID
         ?? storedTask(layoutID, state: state)?.directory.worktreeID
         ?? state.worktree(forLayout: layoutID)?.id
@@ -640,12 +654,12 @@ extension AppFeature {
     @Dependency(\.uuid) var uuid
     // A remote task's directory cannot be checked or registered from here:
     // the launch goes straight to its host.
-    if directory == nil, let remote = currentTaskContext(state: state), remote.host != nil {
-      guard let live = launchDirectory(remote.worktreeID, state: state) else {
-        repositoriesLogger.warning("New session: remote directory \(remote.worktreeID.rawValue) is not live")
+    if directory == nil, let task = currentTaskID(state: state), taskContext(task, state: state)?.host != nil {
+      guard let live = launchDirectory(for: .task(task), state: state) else {
+        repositoriesLogger.warning("New session: remote task \(task.persistenceKey) has no live directory")
         return .none
       }
-      return launchNewSession(in: live, kind: kind, state: &state)
+      return launchNewSession(in: live, source: .task(task), kind: kind, state: &state)
     }
     let cwd = (directory ?? newSessionCwdFallback(state: state)).standardizedFileURL
     let cwdPath = cwd.path(percentEncoded: false)
@@ -671,35 +685,34 @@ extension AppFeature {
     // archived, missing or winding down is refused here as it is from the
     // picker's known rows.
     if let worktree = worktreeForCwd(cwd, state: state) {
-      guard let directory = launchDirectory(worktree.id, state: state) else {
+      guard let directory = rosterDirectory(worktree.id, state: state) else {
         repositoriesLogger.warning("New session: directory \(worktree.id.rawValue) is not a live roster entry")
         return .none
       }
       pending.launched = true
       state.pendingSessionLaunch = pending
-      return launchSessionTab(pending, directory: directory, state: &state)
+      return launchSessionTab(pending, directory: directory, source: .roster(worktree.id), state: &state)
     }
     state.pendingSessionLaunch = pending
     return .send(.repositories(.registerSessionFolder(cwd)))
   }
 
-  /// The directory a task may start on now, or nil. A roster entry must be
-  /// live: not missing, archived or winding down. A directory the roster no
-  /// longer lists is only the one of a task still open or stored on it (Cmd-N
-  /// on an orphan task), so a directory removed along with its tasks since it
-  /// was offered mints nothing. The manager asks the same question at
-  /// delivery, so what is decided here is only what is sent, never what
-  /// gets created.
-  static func launchDirectory(_ directoryID: Worktree.ID, state: State) -> DirectoryContext? {
-    if state.repositories.worktree(for: directoryID) != nil {
+  /// The directory a new task may start on now, by its source's rule, or nil.
+  /// A roster row must still be a live roster entry: a directory the roster no
+  /// longer lists is refused even while a task is still open or stored on it.
+  /// Cmd-N on a task re-reads that task's own directory while the task
+  /// exists (an orphan task keeps its recorded one; a roster directory must be
+  /// live). The manager asks the same question at delivery, so what is
+  /// decided here is only what is sent, never what gets created.
+  static func launchDirectory(for source: NewTaskSource, state: State) -> DirectoryContext? {
+    switch source {
+    case .roster(let directoryID):
       return rosterDirectory(directoryID, state: state)
+    case .task(let layoutID):
+      guard let context = taskContext(layoutID, state: state) else { return nil }
+      guard state.repositories.worktree(for: context.worktreeID) != nil else { return context }
+      return rosterDirectory(context.worktreeID, state: state)
     }
-    let open = state.terminals.directories.first { layoutID, directory in
-      directory.worktreeID == directoryID && state.terminals.layouts[id: layoutID] != nil
-    }?.value
-    let recorded = open ?? storedTasks(state: state).first { $0.directory.worktreeID == directoryID }?.directory
-    guard let recorded else { return nil }
-    return DirectoryContext(orphan: recorded)
   }
 
   /// A live roster entry and nothing else: no orphan fallback. A row the
@@ -727,7 +740,7 @@ extension AppFeature {
       repositoriesLogger.warning("New task: directory \(directoryID.rawValue) is not a live roster entry")
       return .none
     }
-    return launchNewSession(in: directory, kind: kind, state: &state)
+    return launchNewSession(in: directory, source: .roster(directoryID), kind: kind, state: &state)
   }
 
   private static func newTaskCommand(_ kind: NewTaskKind) -> String {
@@ -738,7 +751,7 @@ extension AppFeature {
   }
 
   private static func launchNewSession(
-    in directory: DirectoryContext, kind: NewTaskKind, state: inout State
+    in directory: DirectoryContext, source: NewTaskSource, kind: NewTaskKind, state: inout State
   ) -> Effect<Action> {
     @Dependency(\.uuid) var uuid
     let requestID = uuid()
@@ -752,7 +765,7 @@ extension AppFeature {
       kind: kind
     )
     state.pendingSessionLaunch = pending
-    return launchSessionTab(pending, directory: directory, state: &state)
+    return launchSessionTab(pending, directory: directory, source: source, state: &state)
   }
 
   private static func handleResumeSession(
@@ -990,13 +1003,13 @@ extension AppFeature {
     // Registered since the request, but the roster's rule still applies: a
     // folder that arrived archived or winding down launches nothing, and
     // the request is dropped rather than left waiting for a roster change.
-    guard let directory = launchDirectory(worktree.id, state: state) else {
+    guard let directory = rosterDirectory(worktree.id, state: state) else {
       repositoriesLogger.warning("New session: registered directory \(worktree.id.rawValue) is not live")
       state.pendingSessionLaunch = nil
       return .none
     }
     state.pendingSessionLaunch?.launched = true
-    return launchSessionTab(pending, directory: directory, state: &state)
+    return launchSessionTab(pending, directory: directory, source: .roster(worktree.id), state: &state)
   }
 
   private static func worktreeForCwd(_ cwd: URL, state: State) -> Worktree? {
@@ -1012,8 +1025,11 @@ extension AppFeature {
   /// is created by its first tab, so no launch leaves an empty one behind.
   /// `target` is a task the caller already checked (`taskDirectory`): the
   /// tab goes there and nowhere else, starting in the session's own directory.
+  /// `source` is what a new task's launch carries across the boundary; a
+  /// resume has none and keeps its planned context.
   private static func launchSessionTab(
-    _ pending: PendingSessionLaunch, directory: DirectoryContext, into target: LayoutID? = nil, state: inout State
+    _ pending: PendingSessionLaunch, directory: DirectoryContext, source: NewTaskSource? = nil,
+    into target: LayoutID? = nil, state: inout State
   ) -> Effect<Action> {
     @Dependency(TerminalClient.self) var terminalClient
     @Dependency(\.uuid) var uuid
@@ -1034,16 +1050,18 @@ extension AppFeature {
       PendingTaskLaunch(layoutID: layoutID, directoryID: directory.worktreeID, primary: primary))
     let command = target == nil ? pending.command : resumeInput(pending, in: directory)
     let requestID = pending.requestID
-    // A new task carries its directory's identity only: the manager resolves
-    // the directory again when the command lands and refuses one archived,
-    // removed, missing or winding down since. A resume keeps the context it
-    // was planned with.
+    // A new task carries its source's identity only: the manager resolves
+    // the directory again when the command lands, by the source's rule, and
+    // refuses what is not live then. A resume keeps the context it was
+    // planned with.
     let create: TerminalClient.Command =
-      pending.isNewSession
-      ? .createTaskTab(
-        layoutID, directoryID: directory.worktreeID, input: pending.kind == .agent ? command : nil, focusing: true)
-      : .createTabWithInput(
-        layoutID, directory, input: command, runSetupScriptIfNew: false, title: nil, focusing: true, anchor: nil)
+      switch source {
+      case .some(let source):
+        .createTaskTab(layoutID, source: source, input: pending.kind == .agent ? command : nil, focusing: true)
+      case .none:
+        .createTabWithInput(
+          layoutID, directory, input: command, runSetupScriptIfNew: false, title: nil, focusing: true, anchor: nil)
+      }
     return .run { send in
       await terminalClient.send(create)
       await send(.launchSessionCompleted(requestID: requestID))

@@ -3869,3 +3869,51 @@ deviation.
   Gate (final tree): check 0; `AppFeatureSessionsTests` +
   `AppFeatureCommandPaletteTests` exit 0 (228 tests); build-app 0; full
   `make test` exit 2 with 4604 tests and only the 5 known failures.
+- P1 r3, 2026-10-12. Review of P1 r2 found one P1, held: the removal
+  refusal still failed at delivery. `createTaskTab` carried a
+  `directoryID` alone and the manager resolved it through
+  `launchDirectory`, whose orphan fallback applied to every route, so a
+  roster launch (picker row, "New task here", path) confirmed live, then
+  landing after its repository left the roster with an open or stored
+  task still on that directory, got the surviving task's directory, a
+  host, a layout and a tab. The r2 guard only covered the app side.
+  Fix: the two routes are separated by identity. New
+  `NewTaskSource { roster(Worktree.ID), task(LayoutID) }`
+  (`Domain/NewTaskPicker.swift`) rides in
+  `TerminalClient.Command.createTaskTab(_, source:, input:, focusing:)`
+  in place of the directory id. `launchDirectory(for:)` decides by
+  route: `.roster` is `rosterDirectory` and nothing else (no fallback);
+  `.task` re-derives that task's current directory (`taskContext`) while
+  the task exists, a listed directory having to be live, an orphan
+  keeping its recorded one, nil once the task is gone. Picker, "New task
+  here", the typed path and the registration completion send `.roster`;
+  the remote Cmd-N shortcut (`handleNewSession`, `directory == nil`)
+  sends `.task(currentTaskID)`. Local Cmd-N still goes by path to the
+  roster (unchanged). The manager calls `launchDirectory(for:)` with the
+  source at delivery; the up-front guards use the same per-route rule.
+  Same class across the slice, re-audited: picker confirm (`Worktree.ID`
+  + kind), native panel (URL + kind, re-checked in `handleNewSession`),
+  `registerSessionFolder` → `repositoriesChanged` (re-resolves),
+  `createTaskTab` (source identity), `launchSessionCompleted` (request
+  id), `selectTask` (M3 r5). Resume still carries its planned
+  `DirectoryContext` (T7's path, Z1 audit list, as noted in r1).
+  Tests (red first on a midpoint that kept the old fallback under the
+  `.roster` case: 1 test failed across its 4 parameter sets, 45 passed in
+  the suite): `WorktreeTerminalManagerTransferTests`
+  `aRosterLaunchLandingAfterItsRepositoryLeftCreatesNothingDespiteAnOrphanTask`
+  × live / stored orphan × agent / shell (queue, remove the repository,
+  deliver: no host, layout, tab, selection change or persisted record)
+  and `aTaskLaunchLandsWhileItsTaskExistsAndNotAfter` × agent / shell
+  (the `.task` route on an orphan task creates its one tab; after the
+  task's last tab closes, the same command creates nothing).
+  `AppFeatureSessionsTests`
+  `launchDirectoryResolvesEachSourceByItsOwnRule` replaces
+  `launchDirectoryResolvesLiveRosterOrphanAndNothingElse`; the r2 test
+  now asserts the roster route refuses while the task route resolves;
+  `launches` / `shellLaunches` carry the source; the remote Cmd-N test
+  asserts `.task(first)`. `AppFeatureCommandPaletteTests` two payload
+  matches updated.
+  Gate (final tree): check 0; `WorktreeTerminalManagerTransferTests` +
+  `AppFeatureSessionsTests` + `AppFeatureCommandPaletteTests` +
+  `CommandPaletteSessionDirectoryTests` exit 0 (289 tests); build-app 0;
+  full `make test` exit 2 with 4606 tests and only the 5 known failures.
