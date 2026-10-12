@@ -1195,18 +1195,15 @@ struct AppFeature {
         }
 
       case .newTerminal:
-        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID),
-          !worktree.isMissing
-        else {
-          return .none
-        }
+        guard let shown = state.shownTerminal else { return .none }
         analyticsClient.capture("terminal_tab_created", nil)
+        // Nil for an orphan: no roster row, so no setup script.
         let shouldRunSetupScript =
-          state.repositories.sidebarItems[id: worktree.id]?.lifecycle == .pending
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+          state.repositories.sidebarItems[id: shown.directory.worktreeID]?.lifecycle == .pending
+        let layoutID = shown.layoutID ?? state.layoutID(forDirectory: shown.directory.worktreeID)
         return .run { _ in
           await terminalClient.send(
-            .createTab(layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: shouldRunSetupScript))
+            .createTab(layoutID, shown.directory, runSetupScriptIfNew: shouldRunSetupScript))
         }
 
       case .newSession:
@@ -1246,15 +1243,11 @@ struct AppFeature {
         return Self.handleNextSessionNeedsMe(state: &state)
 
       case .renameSelectedTerminalTab:
-        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID),
-          !worktree.isMissing,
-          let tabID = terminalClient.selectedTabID(state.layoutID(forDirectory: worktree.id))
-        else {
-          return .none
-        }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        guard let shown = state.shownTerminal, let layoutID = shown.layoutID,
+          let tabID = terminalClient.selectedTabID(layoutID)
+        else { return .none }
         return .run { _ in
-          await terminalClient.send(.beginTabRename(layoutID, DirectoryContext(worktree: worktree), tabID: tabID))
+          await terminalClient.send(.beginTabRename(layoutID, shown.directory, tabID: tabID))
         }
 
       case .selectTerminalTabAtIndex(let tabNumber):
@@ -1279,67 +1272,37 @@ struct AppFeature {
         }
 
       case .splitTerminal(let direction):
-        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID),
-          !worktree.isMissing
-        else {
-          return .none
-        }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        guard let layoutID = state.shownTerminal?.layoutID else { return .none }
         return .run { _ in
           await terminalClient.send(.splitFocusedPane(layoutID, direction: direction))
         }
 
       case .toggleWindowModeForFocusedPane:
-        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID),
-          !worktree.isMissing
-        else {
-          return .none
-        }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        guard let layoutID = state.shownTerminal?.layoutID else { return .none }
         return .run { _ in
           await terminalClient.send(.toggleWindowModeForFocusedPane(layoutID))
         }
 
       case .toggleSplitZoom:
-        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID),
-          !worktree.isMissing
-        else {
-          return .none
-        }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        guard let layoutID = state.shownTerminal?.layoutID else { return .none }
         return .run { _ in
           await terminalClient.send(.toggleSplitZoom(layoutID))
         }
 
       case .equalizeSplits:
-        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID),
-          !worktree.isMissing
-        else {
-          return .none
-        }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        guard let layoutID = state.shownTerminal?.layoutID else { return .none }
         return .run { _ in
           await terminalClient.send(.equalizeSplits(layoutID))
         }
 
       case .focusSplit(let direction):
-        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID),
-          !worktree.isMissing
-        else {
-          return .none
-        }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        guard let layoutID = state.shownTerminal?.layoutID else { return .none }
         return .run { _ in
           await terminalClient.send(.focusSplit(layoutID, direction: direction))
         }
 
       case .focusRelativePane(let forward):
-        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID),
-          !worktree.isMissing
-        else {
-          return .none
-        }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        guard let layoutID = state.shownTerminal?.layoutID else { return .none }
         return .run { _ in
           await terminalClient.send(.focusRelativePane(layoutID, forward: forward))
         }
@@ -1542,58 +1505,40 @@ struct AppFeature {
         }
 
       case .closeTab:
-        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) else {
-          return .none
-        }
+        guard let shown = state.shownTerminal, let layoutID = shown.layoutID else { return .none }
         analyticsClient.capture("terminal_tab_closed", nil)
-        let layoutID = state.layoutID(forDirectory: worktree.id)
         return .run { _ in
-          await terminalClient.send(.closeFocusedTab(layoutID, DirectoryContext(worktree: worktree)))
+          await terminalClient.send(.closeFocusedTab(layoutID, shown.directory))
         }
 
       case .closeSurface:
-        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) else {
-          return .none
-        }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        guard let shown = state.shownTerminal, let layoutID = shown.layoutID else { return .none }
         return .run { _ in
-          await terminalClient.send(.closeFocusedSurface(layoutID, DirectoryContext(worktree: worktree)))
+          await terminalClient.send(.closeFocusedSurface(layoutID, shown.directory))
         }
 
       case .startSearch:
-        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) else {
-          return .none
-        }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        guard let shown = state.shownTerminal, let layoutID = shown.layoutID else { return .none }
         return .run { _ in
-          await terminalClient.send(.startSearch(layoutID, DirectoryContext(worktree: worktree)))
+          await terminalClient.send(.startSearch(layoutID, shown.directory))
         }
 
       case .searchSelection:
-        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) else {
-          return .none
-        }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        guard let shown = state.shownTerminal, let layoutID = shown.layoutID else { return .none }
         return .run { _ in
-          await terminalClient.send(.searchSelection(layoutID, DirectoryContext(worktree: worktree)))
+          await terminalClient.send(.searchSelection(layoutID, shown.directory))
         }
 
       case .navigateSearchNext:
-        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) else {
-          return .none
-        }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        guard let shown = state.shownTerminal, let layoutID = shown.layoutID else { return .none }
         return .run { _ in
-          await terminalClient.send(.navigateSearchNext(layoutID, DirectoryContext(worktree: worktree)))
+          await terminalClient.send(.navigateSearchNext(layoutID, shown.directory))
         }
 
       case .navigateSearchPrevious:
-        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) else {
-          return .none
-        }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        guard let shown = state.shownTerminal, let layoutID = shown.layoutID else { return .none }
         return .run { _ in
-          await terminalClient.send(.navigateSearchPrevious(layoutID, DirectoryContext(worktree: worktree)))
+          await terminalClient.send(.navigateSearchPrevious(layoutID, shown.directory))
         }
 
       case .settings(.repositorySettings(.delegate(.settingsChanged(let rootURL, let host)))):
@@ -2130,24 +2075,19 @@ struct AppFeature {
         return .send(.repositories(.repositoryExpansionChanged(repositoryID, isExpanded: !isExpanded)))
 
       case .commandPalette(.delegate(.ghosttyCommand(let action))):
-        guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) else {
-          return .none
-        }
+        guard let shown = state.shownTerminal, let layoutID = shown.layoutID else { return .none }
         // Ghostty void actions emit bare tag names; no colon.
-        let layoutID = state.layoutID(forDirectory: worktree.id)
         let command: TerminalClient.Command
         if action == "prompt_surface_title" || action == "prompt_tab_title" {
-          // Skip missing worktrees so the palette matches the rename shortcut's guard.
-          guard !worktree.isMissing else { return .none }
           // Capture the focused tab synchronously so a fast tab switch between dispatch
           // and effect execution can't redirect the rename to the wrong tab.
-          let tabID = terminalClient.selectedTabID(state.layoutID(forDirectory: worktree.id))
-          command = .beginTabRename(layoutID, DirectoryContext(worktree: worktree), tabID: tabID)
-        } else if let surfaceID = terminalClient.selectedSurfaceID(state.layoutID(forDirectory: worktree.id)) {
+          let tabID = terminalClient.selectedTabID(layoutID)
+          command = .beginTabRename(layoutID, shown.directory, tabID: tabID)
+        } else if let surfaceID = terminalClient.selectedSurfaceID(layoutID) {
           command = .performBindingActionOnSurface(
-            layoutID, DirectoryContext(worktree: worktree), surfaceID: surfaceID, action: action)
+            layoutID, shown.directory, surfaceID: surfaceID, action: action)
         } else {
-          command = .performBindingAction(layoutID, DirectoryContext(worktree: worktree), action: action)
+          command = .performBindingAction(layoutID, shown.directory, action: action)
         }
         return .run { _ in
           await terminalClient.send(command)
@@ -4624,16 +4564,28 @@ extension AppFeature.State {
     return picked ?? terminals.task(forDirectory: worktreeID)
   }
 
+  /// The terminal on screen, for commands that have no id of their own: the
+  /// shown task (an orphan's included), with its directory. Nil when nothing
+  /// is on screen that a terminal command can act on: no selection, a
+  /// multi-selection, or a roster directory gone from disk.
+  var shownTerminal: ShownTerminal? {
+    if let orphan = repositories.orphanTaskID, let picked = repositories.selectedTask,
+      AppFeature.hasTask(orphan, state: self)
+    {
+      return ShownTerminal(
+        directory: AppFeature.directoryContext(forTask: orphan, directoryID: picked.directoryID, state: self),
+        layoutID: orphan)
+    }
+    guard let worktree = repositories.worktree(for: repositories.selectedWorktreeID), !worktree.isMissing
+    else { return nil }
+    return ShownTerminal(
+      directory: DirectoryContext(worktree: worktree), layoutID: commandLayoutID(forDirectory: worktree.id))
+  }
+
   /// The layout the tab-selection chords act on: the task on screen. A task
   /// on a directory outside the roster or gone from disk is still on screen.
   var tabChordLayoutID: LayoutID? {
-    if let orphan = repositories.orphanTaskID {
-      return AppFeature.hasTask(orphan, state: self) ? orphan : nil
-    }
-    if let shown = taskOnMissingDirectory { return shown }
-    guard let worktree = repositories.worktree(for: repositories.selectedWorktreeID), !worktree.isMissing
-    else { return nil }
-    return shownTask(forDirectory: worktree.id) ?? layoutID(forDirectory: worktree.id)
+    taskOnMissingDirectory ?? shownTerminal?.layoutID
   }
 
   /// The layout the detail view mounts for a selected directory, and the one
@@ -4698,6 +4650,13 @@ extension AppFeature.State {
     }
     return nil
   }
+}
+
+/// The terminal on screen, for commands that have no id of their own.
+struct ShownTerminal: Equatable {
+  let directory: DirectoryContext
+  /// Nil when the directory is shown with no task (its empty state).
+  let layoutID: LayoutID?
 }
 
 /// Hands the seam above to views that only hold a repositories store, so they

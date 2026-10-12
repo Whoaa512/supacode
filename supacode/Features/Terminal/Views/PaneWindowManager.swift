@@ -290,10 +290,7 @@ final class PaneWindowManager {
       Self.logger.error("Pane window \(paneID.rawValue) has no pane in \(worktreeID); passing the chord through.")
       return false
     }
-    let isWorktreeSelected =
-      terminalManager.appStore?.withState { state in
-        state.repositories.selectedWorktreeID.map(state.layoutID(forDirectory:))
-      } == worktreeID
+    let isWorktreeSelected = terminalManager.appStore?.withState { $0.shownTerminal?.layoutID } == worktreeID
     let intent = PaneWindowShortcut.intent(
       for: event,
       pane: pane,

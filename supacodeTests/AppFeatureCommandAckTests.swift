@@ -532,8 +532,9 @@ struct AppFeatureCommandAckTests {
     #expect(readPipeJSON(readFD)?["ok"] as? Bool == false)
   }
 
-  @Test func hasFocusedTabTracksTheSelectedWorktreesFocusedPane() {
-    let worktreeID = Worktree.ID("/tmp/wt-focus")
+  @Test func hasFocusedTabTracksTheShownTerminalsFocusedPane() {
+    let worktree = makeWorktree()
+    let task = LayoutID(task: UUID())
     let paneID = PaneID()
     let tab = TabItem(
       id: TabID(), title: "shell",
@@ -541,16 +542,22 @@ struct AppFeatureCommandAckTests {
     let populated = PaneLayout(
       tree: SplitTree(view: paneID), panes: [Pane(id: paneID, tabs: [tab], selectedTabID: tab.id)],
       focusedPaneID: paneID)
-    var state = AppFeature.State(repositories: RepositoriesFeature.State(), settings: SettingsFeature.State())
-    state.terminals.layouts = [LayoutFeature.State(id: worktreeID.layoutID, layout: populated)]
+    var repositories = RepositoriesFeature.State()
+    repositories.repositories = [
+      Repository(id: "/tmp/repo", rootURL: URL(fileURLWithPath: "/tmp/repo"), name: "repo", worktrees: [worktree])
+    ]
+    var state = AppFeature.State(repositories: repositories, settings: SettingsFeature.State())
+    state.terminals.layouts = [LayoutFeature.State(id: task, layout: populated)]
+    state.terminals.directories[task] = TaskRecord.Directory(worktreeID: worktree.id)
 
-    #expect(WorktreeDetailView.hasFocusedTab(in: state, worktreeID: worktreeID))
-    #expect(!WorktreeDetailView.hasFocusedTab(in: state, worktreeID: nil))
-    #expect(!WorktreeDetailView.hasFocusedTab(in: state, worktreeID: Worktree.ID("/tmp/other")))
+    // Nothing selected: nothing shown.
+    #expect(!WorktreeDetailView.hasFocusedTab(in: state))
+    state.repositories.selection = .worktree(worktree.id)
+    #expect(WorktreeDetailView.hasFocusedTab(in: state))
 
     // An emptied layout has no tab to close, so Cmd-W cedes to Close Window.
-    state.terminals.layouts = [LayoutFeature.State(id: worktreeID.layoutID, layout: PaneLayout())]
-    #expect(!WorktreeDetailView.hasFocusedTab(in: state, worktreeID: worktreeID))
+    state.terminals.layouts = [LayoutFeature.State(id: task, layout: PaneLayout())]
+    #expect(!WorktreeDetailView.hasFocusedTab(in: state))
   }
 
   // MARK: - confirmation timeout.

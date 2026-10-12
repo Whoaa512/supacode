@@ -357,12 +357,12 @@ struct WorktreeDetailView: View {
     }
   }
 
-  /// Whether the selected worktree has a focused tab to act on, so Close Tab /
+  /// Whether the shown terminal has a focused tab to act on, so Close Tab /
   /// Close Surface don't hold Cmd-W on an emptied layout and steal it from Close
   /// Window.
-  static func hasFocusedTab(in state: AppFeature.State, worktreeID: Worktree.ID?) -> Bool {
-    guard let worktreeID,
-      let layout = state.terminals.layouts[id: state.layoutID(forDirectory: worktreeID)]?.layout,
+  static func hasFocusedTab(in state: AppFeature.State) -> Bool {
+    guard let layoutID = state.shownTerminal?.layoutID,
+      let layout = state.terminals.layouts[id: layoutID]?.layout,
       let focusedPaneID = layout.focusedPaneID
     else { return false }
     return layout.panes[id: focusedPaneID]?.selectedTab != nil
@@ -375,9 +375,11 @@ struct WorktreeDetailView: View {
     canRevealLocally: Bool,
     resolvedSelection: OpenWorktreeAction?
   ) -> some View {
+    // An orphan task on screen has a terminal to act on, no directory chrome.
+    let hasShownTerminal = hasActiveWorktree || state.repositories.orphanTaskID != nil
     // Reading the layout re-runs this body on its churn, but the FocusedAction
     // (isEnabled, token) dedup keeps AppKit from rebuilding the menu.
-    let hasFocusedTab = Self.hasFocusedTab(in: state, worktreeID: state.repositories.selectedWorktreeID)
+    let hasFocusedTab = Self.hasFocusedTab(in: state)
     let hasRunningRunScript = state.hasRunningRunScript
     return
       content
@@ -393,7 +395,7 @@ struct WorktreeDetailView: View {
       .focusedSceneAction(\.toggleInspectorPaneAction, enabled: hasActiveWorktree) { pane in
         store.send(.repositories(.toggleInspectorPane(pane)))
       }
-      .focusedSceneAction(\.newTerminalAction, enabled: hasActiveWorktree) {
+      .focusedSceneAction(\.newTerminalAction, enabled: hasShownTerminal) {
         store.send(.newTerminal)
       }
       .focusedSceneAction(\.newSessionAction, enabled: true) {
@@ -412,43 +414,43 @@ struct WorktreeDetailView: View {
         store.send(.nextSessionNeedsMe)
       }
       // Lock and validity are enforced by the terminal model, so this only gates on an active worktree.
-      .focusedSceneAction(\.renameTabAction, enabled: hasActiveWorktree) {
+      .focusedSceneAction(\.renameTabAction, enabled: hasShownTerminal) {
         store.send(.renameSelectedTerminalTab)
       }
-      .focusedAction(\.splitTerminalAction, enabled: hasActiveWorktree) { direction in
+      .focusedAction(\.splitTerminalAction, enabled: hasShownTerminal) { direction in
         store.send(.splitTerminal(direction))
       }
-      .focusedSceneAction(\.toggleWindowModeAction, enabled: hasActiveWorktree) {
+      .focusedSceneAction(\.toggleWindowModeAction, enabled: hasShownTerminal) {
         store.send(.toggleWindowModeForFocusedPane)
       }
-      .focusedAction(\.toggleSplitZoomAction, enabled: hasActiveWorktree) {
+      .focusedAction(\.toggleSplitZoomAction, enabled: hasShownTerminal) {
         store.send(.toggleSplitZoom)
       }
-      .focusedAction(\.equalizeSplitsAction, enabled: hasActiveWorktree) {
+      .focusedAction(\.equalizeSplitsAction, enabled: hasShownTerminal) {
         store.send(.equalizeSplits)
       }
-      .focusedAction(\.focusSplitAction, enabled: hasActiveWorktree) { direction in
+      .focusedAction(\.focusSplitAction, enabled: hasShownTerminal) { direction in
         store.send(.focusSplit(direction))
       }
-      .focusedAction(\.focusRelativePaneAction, enabled: hasActiveWorktree) { forward in
+      .focusedAction(\.focusRelativePaneAction, enabled: hasShownTerminal) { forward in
         store.send(.focusRelativePane(forward: forward))
       }
-      .focusedAction(\.closeTabAction, enabled: hasActiveWorktree && hasFocusedTab) {
+      .focusedAction(\.closeTabAction, enabled: hasShownTerminal && hasFocusedTab) {
         store.send(.closeTab)
       }
-      .focusedAction(\.closeSurfaceAction, enabled: hasActiveWorktree && hasFocusedTab) {
+      .focusedAction(\.closeSurfaceAction, enabled: hasShownTerminal && hasFocusedTab) {
         store.send(.closeSurface)
       }
-      .focusedSceneAction(\.startSearchAction, enabled: hasActiveWorktree) {
+      .focusedSceneAction(\.startSearchAction, enabled: hasShownTerminal) {
         store.send(.startSearch)
       }
-      .focusedSceneAction(\.searchSelectionAction, enabled: hasActiveWorktree) {
+      .focusedSceneAction(\.searchSelectionAction, enabled: hasShownTerminal) {
         store.send(.searchSelection)
       }
-      .focusedSceneAction(\.navigateSearchNextAction, enabled: hasActiveWorktree) {
+      .focusedSceneAction(\.navigateSearchNextAction, enabled: hasShownTerminal) {
         store.send(.navigateSearchNext)
       }
-      .focusedSceneAction(\.navigateSearchPreviousAction, enabled: hasActiveWorktree) {
+      .focusedSceneAction(\.navigateSearchPreviousAction, enabled: hasShownTerminal) {
         store.send(.navigateSearchPrevious)
       }
       .focusedSceneAction(\.runScriptAction, enabled: hasActiveWorktree) {
