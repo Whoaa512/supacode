@@ -84,3 +84,38 @@ they are decisions now and need no further change.
   orphans until settled by hand.
 - The real-data migration checkpoint (A34) is deferred to one test at the
   end, by cj's choice.
+
+## Chords: rebind to D3 (cj, 2026-10-10) — do in Z1
+
+P1 left the chords as found because ⌘N was New Worktree. cj chose D3's
+literal chords. ⌘⌥N (his first pick for New Worktree) is taken by
+`toggleNotificationsInspector`, so New Worktree takes the slot the picker
+vacates. Change the three defaults in `AppShortcuts` and `SessionShortcutTests`
+(including the Ghostty unbind lines), menu titles/help, the CLI reference
+and docs:
+
+| action | was | now |
+|---|---|---|
+| `newSession` (new task, default agent) | ⌘⇧N | ⌘N |
+| `newSessionInDirectory` (picker) | ⌘⌥⇧N | ⌘⇧N |
+| `newWorktree` | ⌘N | ⌘⌥⇧N |
+
+User overrides of any of the three are kept as they are.
+
+## Decide-at-delivery sweep of older paths — do in Z1
+
+The final audit of 2026-10-10 found three paths from earlier slices that
+carry precomputed state across an asynchronous boundary. Fix under the rule
+in the plan's fixed-design section, with a stale-delivery test each:
+- `removeLayouts(forDirectory:remoteHost:)`: the app precomputes the remote
+  host and the manager does not re-check that the directory is still being
+  deleted; a queued deletion can hit tasks created or re-registered on that
+  directory id since.
+- Commands that reach `host(for:context:)` (select, focus, rename, search,
+  close, binding actions) attach a layout unconditionally, so a stale one
+  against a task removed by transfer re-attaches it. Non-creating commands
+  must use a lookup that cannot attach.
+- Resume carries a precomputed `DirectoryContext` and target through
+  `createTabWithInput` to `createTabAsync` with no eligibility check at
+  delivery; a target merged, removed or archived before delivery can be
+  resurrected.
