@@ -289,9 +289,9 @@ struct AppShortcutsTests {
       modifiers: [.command]
     )
     let lines = AppShortcuts.ghosttyKeybindConfigLines(from: [.newWorktree: override])
-    // The override should produce an unbind for super+k instead of super+n.
+    // The override should produce an unbind for super+k instead of alt+shift+super+n.
     #expect(lines.contains("keybind = super+k=unbind"))
-    #expect(!lines.contains("keybind = super+n=unbind"))
+    #expect(!lines.contains("keybind = alt+shift+super+n=unbind"))
   }
 
   // MARK: - Groups.

@@ -509,7 +509,7 @@ public enum AppShortcuts {
     id: .collapseAllSidebarGroups, key: "[", modifiers: [.command, .control]
   )
 
-  public static let newWorktree = AppShortcut(id: .newWorktree, key: "n", modifiers: .command)
+  public static let newWorktree = AppShortcut(id: .newWorktree, key: "n", modifiers: [.command, .option, .shift])
   public static let refreshWorktrees = AppShortcut(id: .refreshWorktrees, key: "r", modifiers: [.command, .shift])
   public static let archivedWorktrees = AppShortcut(id: .archivedWorktrees, key: "a", modifiers: [.command, .control])
   public static let archiveWorktree = AppShortcut(
@@ -580,9 +580,9 @@ public enum AppShortcuts {
   public static let renameTab = AppShortcut(id: .renameTab, key: "r", modifiers: [.control, .shift])
   public static let toggleWindowMode = AppShortcut(id: .toggleWindowMode, key: "m", modifiers: [.command, .shift])
   public static let newTerminalTab = AppShortcut(id: .newTerminalTab, key: "t", modifiers: .command)
-  public static let newSession = AppShortcut(id: .newSession, key: "n", modifiers: [.command, .shift])
+  public static let newSession = AppShortcut(id: .newSession, key: "n", modifiers: .command)
   public static let newSessionInDirectory = AppShortcut(
-    id: .newSessionInDirectory, key: "n", modifiers: [.command, .option, .shift]
+    id: .newSessionInDirectory, key: "n", modifiers: [.command, .shift]
   )
   // ⌘⌃E and ⌘⌃U are free in both Supacode defaults and Ghostty defaults.
   public static let settleSessionAndAdvance = AppShortcut(

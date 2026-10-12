@@ -5,8 +5,8 @@ import Testing
 @Suite
 struct SessionShortcutTests {
   @Test func newSessionDefaultChordsAreRegisteredAndUnique() {
-    #expect(AppShortcuts.newSession.display == "⌘⇧N")
-    #expect(AppShortcuts.newSessionInDirectory.display == "⌘⇧⌥N")
+    #expect(AppShortcuts.newSession.display == "⌘N")
+    #expect(AppShortcuts.newSessionInDirectory.display == "⌘⇧N")
     #expect(AppShortcuts.all.contains { $0.id == .newSession })
     #expect(AppShortcuts.all.contains { $0.id == .newSessionInDirectory })
 
@@ -24,12 +24,16 @@ struct SessionShortcutTests {
       "super+shift+down", "super+shift+open_bracket", "super+shift+close_bracket",
     ])
 
-    #expect(AppShortcuts.newSession.ghosttyKeybind == "shift+super+n")
-    #expect(AppShortcuts.newSessionInDirectory.ghosttyKeybind == "alt+shift+super+n")
-    #expect(AppShortcuts.newSession.ghosttyUnbindConfigLine == "keybind = shift+super+n=unbind")
-    #expect(AppShortcuts.newSessionInDirectory.ghosttyUnbindConfigLine == "keybind = alt+shift+super+n=unbind")
-    #expect(!ghosttyDefaults.contains(AppShortcuts.newSession.ghosttyKeybind))
+    #expect(AppShortcuts.newSession.ghosttyKeybind == "super+n")
+    #expect(AppShortcuts.newSessionInDirectory.ghosttyKeybind == "shift+super+n")
+    #expect(AppShortcuts.newSession.ghosttyUnbindConfigLine == "keybind = super+n=unbind")
+    #expect(AppShortcuts.newSessionInDirectory.ghosttyUnbindConfigLine == "keybind = shift+super+n=unbind")
+    // ⌘N is Ghostty's own new-window chord; the app unbinds it so the task chord wins (D3).
+    #expect(ghosttyDefaults.contains(AppShortcuts.newSession.ghosttyKeybind))
+    #expect(AppShortcuts.ghosttyKeybindConfigLines(from: [:]).contains(AppShortcuts.newSession.ghosttyUnbindConfigLine))
     #expect(!ghosttyDefaults.contains(AppShortcuts.newSessionInDirectory.ghosttyKeybind))
+    #expect(AppShortcuts.newWorktree.display == "⌘⌥⇧N")
+    #expect(AppShortcuts.newWorktree.ghosttyKeybind == "alt+shift+super+n")
   }
 
   @Test func settleAndUnsettleDefaultChordsAreRegisteredAndUnique() {
