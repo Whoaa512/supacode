@@ -30,9 +30,9 @@ struct SessionShortcutTests {
     #expect(AppShortcuts.newSessionInDirectory.ghosttyUnbindConfigLine == "keybind = shift+super+n=unbind")
     // ⌘N is Ghostty's own new-window chord; the app unbinds it so the task chord wins (D3).
     #expect(ghosttyDefaults.contains(AppShortcuts.newSession.ghosttyKeybind))
-    #expect(AppShortcuts.ghosttyKeybindConfigLines(from: [:]).contains(AppShortcuts.newSession.ghosttyUnbindConfigLine))
+    #expect(AppShortcuts.ghosttyKeybindConfigLines(from: [:]).contains("keybind = super+n=unbind"))
     #expect(!ghosttyDefaults.contains(AppShortcuts.newSessionInDirectory.ghosttyKeybind))
-    #expect(AppShortcuts.newWorktree.display == "⌘⌥⇧N")
+    #expect(AppShortcuts.newWorktree.display == "⌘⇧⌥N")
     #expect(AppShortcuts.newWorktree.ghosttyKeybind == "alt+shift+super+n")
   }
 
