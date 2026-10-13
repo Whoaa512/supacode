@@ -9,8 +9,10 @@ Control Supacode from the terminal. The `supacode` command is available in all S
 
 A **task** owns a layout: a split tree of **panes**; each pane holds a strip of
 **tabs**; each tab is one terminal. Split a pane to grow the tree; add a tab to
-a pane to stack terminals in the same split. A worktree can hold several tasks
-(each agent session is its own task); pane and tab commands act on one task,
+a pane to stack terminals in the same split. A worktree can hold several tasks;
+an indexed agent session without a task record appears as an implicit
+one-member task, while an agent started inside an existing task's tab joins
+that task. Pane and tab commands act on one task,
 by default the one the terminal you run them in belongs to (`$SUPACODE_TASK_ID`),
 or the task the worktree shows when run from outside. `--task <id>` names
 another; a tab, pane, or surface id always finds its own task.
