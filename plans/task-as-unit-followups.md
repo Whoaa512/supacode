@@ -45,6 +45,8 @@ with no source as positively unreadable), so absence can release the hold.
 
 ## Agent commands cannot tell two same-harness agents on one directory apart (T11, 2026-10-09)
 
+**Folded into Z1 (2026-10-12)**: `149fbdc6`. See the Z1 Progress entry.
+
 `supacode agent prompt|send-keys|resume|read` address `(worktree, agent
 kind)` and take the first live record of that kind across every task on the
 directory. T11 made them reach that surface through the task that holds it,
@@ -87,6 +89,8 @@ they are decisions now and need no further change.
 
 ## Chords: rebind to D3 (cj, 2026-10-10) — do in Z1
 
+**Folded into Z1 (2026-10-12)**: `08cab125`, `5a59be35`. See the Z1 Progress entry.
+
 P1 left the chords as found because ⌘N was New Worktree. cj chose D3's
 literal chords. ⌘⌥N (his first pick for New Worktree) is taken by
 `toggleNotificationsInspector`, so New Worktree takes the slot the picker
@@ -103,6 +107,8 @@ and docs:
 User overrides of any of the three are kept as they are.
 
 ## Decide-at-delivery sweep of older paths — do in Z1
+
+**Folded into Z1 (2026-10-12)**: `c4e71f9d`. See the Z1 Progress entry.
 
 The final audit of 2026-10-10 found three paths from earlier slices that
 carry precomputed state across an asynchronous boundary. Fix under the rule

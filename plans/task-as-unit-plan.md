@@ -3956,3 +3956,92 @@ deviation.
   `AppFeatureSessionsTests` + `AppFeatureCommandPaletteTests` exit 0
   (276 tests); build-app 0; full `make test` exit 2 with 4608 tests and
   only the 5 known failures.
+- Z1, 2026-10-12, `08cab125`, `5a59be35`, `0537950f`, `a2f8b3d9`,
+  `149fbdc6`, `c4e71f9d`, `6b8b061e`, `143234ed`. Brief
+  `plans/briefs/Z1.md` followed; the source had moved since it was
+  written (P1's `createTaskTab`, `NewTaskSource`, `launchDirectory`), so
+  the mint reuses P1's route instead of a second one. (a) Chords: ⌘N new
+  task, ⌘⇧N picker, ⌘⌥⇧N new worktree (`AppShortcuts`); menu titles, help
+  and the Ghostty unbind lines derive from the shortcut, the CLI reference
+  names no chord, so nothing else moved; the rebind's display expectation
+  was corrected to `⌘⇧⌥N` (the order `KeyboardShortcut` renders).
+  (Z1a) Menu terminal commands resolve one `ShownTerminal` (`AppFeature.
+  State.shownTerminal`): the orphan task with `DirectoryContext(orphan:)`,
+  else the roster directory's `commandLayoutID` (the just-selected task
+  included); `tabChordLayoutID` and `PaneWindowManager` share it; menu
+  items enable on `hasShownTerminal`; directory features stay on
+  `selectedWorktreeID` (open question 13). (Z1c) The own-key fallback is
+  gone: `TerminalsFeature.State.layoutID/recordedLayoutID/ownKeyLayoutID/
+  displayLayoutID` deleted, `landingLayoutID` and `isOwnKey` (a key
+  comparison, never a constructed id) added, `isTask` needs a record,
+  `commandLayoutID` and the app seam are optional; `layoutID(forDirectory:
+  holding:)` never falls back to another layout. A first tab on a task-less
+  directory mints a task (`firstTabLayoutID`, `PendingTaskLaunch.
+  followsDirectory`): Cmd-T sends `createTaskTab(.roster(dir),
+  runSetupScriptIfNew:)` (identity, decided at delivery); `worktreeCreated`,
+  scripts, the `$EDITOR` tab and deeplink `tab new`/`run`/`run --script`
+  keep their existing command shapes with the minted id. The mint follows
+  the still-selected directory (`setSelectedLayoutID`) and never selects a
+  task; `worktreeNewAckDirectory` and `initialTabCreationFailed` match
+  through `firstTabLayoutIDIfAny`. Deeplinks: `WorktreeAction.taskNeed`
+  (`mints` / `none` / `required`); the directory's own actions
+  (`directoryActionEffect`) need no task; a confirmation on a task-less
+  directory holds the mint, is refused once a task appears, and cancel,
+  timeout, dismiss or supersede drop it (`dropUnconfirmedFirstTab`).
+  `LayoutID(persistenceKey:)` reads a stored id back (the merged-task map);
+  `legacyWorktreeKey` is constructed by `LayoutsMigrator` alone.
+  `removeLayouts` walks the stored records of the directory
+  (`removeStoredLayouts`, `fromStoredRecord`) instead of the seam's guess.
+  (Z1b) Agent routes take `agent/<wt>/task/<id>/<kind>/<action>`;
+  `agentRead`/`agentExplain` take `taskID`; one resolver
+  `AppFeature.agentSurfaceIDs(worktreeID:task:state:)` narrows the surfaces
+  (shown task first with none named; "Task not found." for an unknown or
+  other-directory task); the whole family (`agentPresenceKey`, prompt,
+  send-keys, resume, metadata, rename) goes through it. Rows carry `taskID`
+  (`AgentQueryResponse`, resume candidates); CLI `--task` on Rename, Wait,
+  Prompt, SendKeys, Read, Explain, Resume, ReportMetadata; `resolve` /
+  `resolveCandidate` narrow by task, tie-break on `$SUPACODE_TASK_ID` only
+  when exactly one candidate is on it, else `ambiguous` listing `--task`;
+  every agent URL builder takes a `WorktreeTarget`; `terminal wait-output`
+  resolves through the same path. (Sweep) `removeLayouts(forDirectory:)`
+  carries the id only; the manager refuses while the roster lists the
+  directory live and reads each task's host from its record. Non-creating
+  commands (select, rename, search, close, binding actions, surface and
+  pane splits) attach through `existingHost` (task must hold tabs now).
+  A resume sends `createTaskTab(.task(target))` (or `.roster` when it
+  mints); `createTabWithInput` is no longer sent by `launchSessionTab`.
+  The prune primitive intersects with `archivedDirectories` itself; the
+  handler only forwards. (Z1d) `surfaceScreenText` (no callers) deleted;
+  the `rg` gates: `legacyWorktreeKey` only `LayoutID.swift` +
+  `LayoutsMigrator.swift`; A3 only `DirectoryContext(worktree:)`; A2 only
+  directory-facing ids. No rename of `WorktreeTerminalManager`.
+  Decisions taken: the first-tab commands other than Cmd-T keep their
+  pre-existing shapes (`ensureInitialTab`, `runBlockingScript`,
+  `createTabWithInput`, `openFileWithScript`) with the minted id, since
+  converting them is outside the three listed paths and `ensureInitialTab`
+  owns the worktree-new ack semantics; a failed `.run`/`.runScript` on a
+  task-less directory can leave one inert pending mint, reused by the next
+  first tab; non-creating deeplink actions on a task-less directory answer
+  "Task not found." (not their own not-found alert); `createTaskTab` gained
+  `runSetupScriptIfNew` so Cmd-T on a creating worktree still arms the
+  setup script; `deleteLayoutSnapshot(onlyIfStoredOn:)` kept as the
+  second lock. Test fixtures: `seedTask` / `seedOwnKeyTask` /
+  `AppFeature.State.seeded` (`WorktreeTestSupport.swift`) replace layouts
+  seeded under a path with no record; `TerminalsFeatureTests` records take
+  `withTab`. Only the live UI can confirm: brief §7 (orphan task chords and
+  menu state; Cmd-T on an empty Worktrees-tab directory shows the shell
+  with focus and a Sessions row, no flicker; new worktree first tab and
+  setup script once; `agent prompt … --task` and the bare form from inside
+  a task; archive at launch before layouts restore). Tests:
+  `AppFeatureShownTerminalTests` (new, 5), `AppFeatureFirstTabTests` (new,
+  9), `AppFeatureDeeplinkTaskTests` +4, `TerminalsFeatureTests` +4 and
+  rewrites, `AppFeatureAgentTaskTests` +6, `DeeplinkClientTests` +1,
+  `AgentCLITests` +6, `AgentQueryResponseTaskTests` (new, 2),
+  `WorktreeTerminalManagerAckTests` +3 (stored-record removal ×2, prune
+  primitive recheck), `WorktreeTerminalManagerTransferTests` +3 (deletion
+  landing after the directory came back, stale non-creating commands,
+  resume landing after its task went). Gate (final tree): check 0;
+  narrow suites exit 0 (FeatureTests bundle 1283 with only the 2 baseline
+  failures; `WorktreeTerminalManagerAckTests` 46; Transfer + Sessions 240;
+  agent suites 153; `AppFeatureSessionsTaskSettleTests` 39); build-app 0;
+  full `make test` exit 2 with 4649 tests and only the 5 known failures.
