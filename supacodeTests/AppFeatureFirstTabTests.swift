@@ -115,7 +115,7 @@ struct AppFeatureFirstTabTests {
     let (store, sent) = makeStore(state(selected: worktree))
     await store.send(.newTerminal)
     await host(minted, on: worktree.id, in: store)
-    #expect(sent.value.contains(.setSelectedLayoutID(minted)))
+    #expect(sent.value.contains(.followFirstTab(minted, forDirectory: worktree.id)))
     #expect(store.state.pendingTaskLaunches.isEmpty)
     #expect(store.state.repositories.selectedTask == nil)
     #expect(store.state.layoutID(forDirectory: worktree.id) == minted)
@@ -127,7 +127,7 @@ struct AppFeatureFirstTabTests {
     await store.send(.repositories(.selectWorktree(sibling.id)))
     await store.finish()
     await host(minted, on: worktree.id, in: store)
-    #expect(!sent.value.contains(.setSelectedLayoutID(minted)))
+    #expect(!sent.value.contains(.followFirstTab(minted, forDirectory: worktree.id)))
     #expect(store.state.pendingTaskLaunches.isEmpty)
     #expect(store.state.repositories.selectedWorktreeID == sibling.id)
   }
@@ -141,7 +141,7 @@ struct AppFeatureFirstTabTests {
     await store.send(.repositories(.selectTask(picked, directory: sibling.id)))
     await store.finish()
     await host(minted, on: worktree.id, in: store)
-    #expect(!sent.value.contains(.setSelectedLayoutID(minted)))
+    #expect(!sent.value.contains(.followFirstTab(minted, forDirectory: worktree.id)))
     #expect(store.state.pendingTaskLaunches.isEmpty)
     #expect(store.state.repositories.selectedTaskID == picked)
   }

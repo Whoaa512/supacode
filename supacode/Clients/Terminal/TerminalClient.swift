@@ -218,6 +218,11 @@ struct TerminalClient {
     /// Selects a task, or nothing. Decided at delivery: a task removed since
     /// the request (merged away, its last tab gone) selects nothing.
     case setSelectedLayoutID(LayoutID?)
+    /// The first tab minted for a directory that had none exists: show it
+    /// where that directory is on screen. Decided at delivery: the directory
+    /// must still be the selection, with no task picked since, and the task
+    /// must hold a tab on it; otherwise nothing moves.
+    case followFirstTab(LayoutID, forDirectory: Worktree.ID)
     /// Selects what a directory shows: the task its row shows, or where its
     /// first tab lands when it has none. Decided at delivery: a task removed
     /// since is replaced by what the directory shows now, never selected.
