@@ -376,10 +376,13 @@ final class WorktreeTerminalManager {
   /// mint it was asked for must still name a live roster row. Every first
   /// tab the app sends is minted, so a layout the app never heard of (no
   /// task, no mint, not removed) has nothing current to decide against and
-  /// is created from the carried context. Nil refuses: no host, layout or
-  /// tab.
+  /// is created from the carried context. A blocking script names its kind:
+  /// the delete and archive scripts run inside the row phase a plain creation
+  /// would refuse as terminating, so they are permitted in exactly that phase
+  /// and refused in any other. Nil refuses: no host, layout or tab.
   private func deliveryContext(
-    for layoutID: LayoutID, carried: DirectoryContext, creating: Bool, command: StaticString
+    for layoutID: LayoutID, carried: DirectoryContext, creating: Bool, script: BlockingScriptKind? = nil,
+    command: StaticString
   ) -> DirectoryContext? {
     guard let appStore else {
       terminalLogger.info("\(command): no store to decide \(layoutID) against; nothing attached.")
@@ -388,12 +391,14 @@ final class WorktreeTerminalManager {
     let context: DirectoryContext? = appStore.withState { state in
       guard !state.terminals.removedLayoutIDs.contains(layoutID) else { return nil }
       if AppFeature.hasTask(layoutID, state: state) {
+        if let script { return AppFeature.scriptTaskDirectory(layoutID, kind: script, state: state) }
         if creating { return AppFeature.liveTaskDirectory(layoutID, state: state) }
         guard taskHoldsTabs(layoutID) else { return nil }
         return AppFeature.taskContext(layoutID, state: state)
       }
       guard creating else { return nil }
       if let pending = state.pendingTaskLaunches.first(where: { $0.layoutID == layoutID }) {
+        if let script { return AppFeature.scriptDirectory(pending.directoryID, kind: script, state: state) }
         return AppFeature.rosterDirectory(pending.directoryID, state: state)
       }
       return carried
@@ -1690,7 +1695,8 @@ final class WorktreeTerminalManager {
     focusing: Bool
   ) {
     guard
-      let context = deliveryContext(for: layoutID, carried: context, creating: true, command: "runBlockingScript")
+      let context = deliveryContext(
+        for: layoutID, carried: context, creating: true, script: kind, command: "runBlockingScript")
     else { return }
     let host = host(for: layoutID, context: context)
     // User-script dedup: a still-running script keeps its tab.
@@ -2027,22 +2033,24 @@ final class WorktreeTerminalManager {
   /// never selected has none). Roster prune reaches a hostless layout only on
   /// a directory named as archived, since one merely missing from the kept
   /// set could belong to a repository that failed to load. Decided here, in
-  /// the turn the command lands: a directory the roster lists live again (a
-  /// worktree re-created or re-registered under the same id since the
-  /// deletion was queued) keeps every task on it, and each task's remote host
-  /// is its own record's, not one computed before the boundary. With no store
-  /// to ask, nothing is removed.
+  /// the turn the command lands: the deletion is done only once the roster no
+  /// longer lists the directory, so a directory the roster lists (re-created
+  /// or re-registered under the same id since the deletion was queued) keeps
+  /// every task on it whatever its row's phase; `.deletingScript` in
+  /// particular is a running delete script, which keeps all tasks (A12), not
+  /// a finished one. Each task's remote host is its own record's, not one
+  /// computed before the boundary. With no store to ask, nothing is removed.
   func removeLayouts(forDirectory directoryID: Worktree.ID) {
     guard let appStore else {
       terminalLogger.warning("removeLayouts: no store to confirm \(directoryID) is gone; nothing removed.")
       return
     }
-    let stillLive = appStore.withState { state in
-      state.repositories.worktree(for: directoryID) != nil
-        && state.repositories.sidebarItems[id: directoryID]?.lifecycle.isTerminating != true
+    let listedPhase: SidebarItemFeature.State.Lifecycle? = appStore.withState { state in
+      guard state.repositories.worktree(for: directoryID) != nil else { return nil }
+      return state.repositories.sidebarItems[id: directoryID]?.lifecycle ?? .idle
     }
-    guard !stillLive else {
-      terminalLogger.info("removeLayouts: \(directoryID) is a live roster entry again; its tasks stay.")
+    if let listedPhase {
+      terminalLogger.info("removeLayouts: \(directoryID) is a roster entry again (\(listedPhase)); its tasks stay.")
       return
     }
     for layoutID in layoutIDs(onDirectory: directoryID) {

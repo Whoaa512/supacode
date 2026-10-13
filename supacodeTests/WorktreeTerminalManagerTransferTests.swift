@@ -2333,6 +2333,193 @@ struct WorktreeTerminalManagerTransferTests {
     #expect(harness.terminals.directories[minted]?.worktreeID == Self.directory.id)
   }
 
+  // MARK: - Wind-down scripts run inside their own phase.
+
+  /// The two wind-down scripts and the row phase each runs in.
+  enum WindDownScript: CaseIterable {
+    case delete, archive
+
+    var kind: BlockingScriptKind {
+      switch self {
+      case .delete: .delete
+      case .archive: .archive
+      }
+    }
+
+    var phase: SidebarItemFeature.State.Lifecycle {
+      switch self {
+      case .delete: .deletingScript
+      case .archive: .archiving
+      }
+    }
+  }
+
+  private static let repositoryID = RepositoryID(directory.repositoryRootURL.path)
+
+  /// Confirms the wind-down through the reducer, which publishes the phase
+  /// and queues the script launch; the launch is left in the queue.
+  private func confirmWindDown(_ script: WindDownScript, in harness: Harness) async {
+    switch script {
+    case .delete:
+      await harness.store.send(.repositories(.deleteSidebarItemConfirmed(Self.directory.id, Self.repositoryID)))
+        .finish()
+    case .archive:
+      await harness.store.send(.repositories(.archiveWorktreeConfirmed(Self.directory.id, Self.repositoryID)))
+        .finish()
+    }
+    #expect(harness.store.withState { $0.repositories.sidebarItems[id: Self.directory.id]?.lifecycle } == script.phase)
+    #expect(harness.recorder.queuedCommands.value.contains(where: Self.runsAScript), "the launch is queued")
+  }
+
+  private static func runsAScript(_ command: TerminalClient.Command) -> Bool {
+    if case .runBlockingScript = command { return true }
+    return false
+  }
+
+  private static func isScriptCompletion(_ event: TerminalClient.Event) -> Bool {
+    if case .blockingScriptCompleted = event { return true }
+    return false
+  }
+
+  /// The delete and archive scripts run while their row is `.deletingScript`
+  /// or `.archiving`: that phase is the operation itself, not a reason to
+  /// refuse the launch. On a directory with a task the script tab joins that
+  /// task; on a task-less one it is the minted first tab. Either way the
+  /// script is tracked and its finish reaches the app as a completion.
+  @Test(.dependencies, arguments: WindDownScript.allCases, [true, false])
+  func aWindDownScriptRunsToCompletionInItsOwnPhase(script: WindDownScript, hasTask: Bool) async {
+    @Shared(.repositorySettings(Self.directory.repositoryRootURL)) var repositorySettings
+    $repositorySettings.withLock {
+      $0.deleteScript = "echo cleaning"
+      $0.archiveScript = "echo syncing"
+    }
+    defer { $repositorySettings.withLock { $0 = .default } }
+    let harness = await makeHarness { state in
+      Self.listDirectory(&state)
+      state.repositories.reconcileSidebarForTesting()
+    }
+    var own: UUID?
+    let existing = LayoutID(task: UUID())
+    if hasTask { own = await open(existing, in: harness) }
+    harness.recorder.queuedCommands.withValue { $0.removeAll() }
+
+    await confirmWindDown(script, in: harness)
+    guard
+      case .runBlockingScript(let target, _, _, _, _)? = harness.recorder.queuedCommands.value.first(
+        where: Self.runsAScript)
+    else {
+      Issue.record("no script launch queued")
+      return
+    }
+    #expect(hasTask ? target == existing : target != existing)
+    deliverQueuedCommands(in: harness)
+
+    guard let host = harness.manager.hostIfExists(for: target),
+      let scriptTab = host.trackedBlockingScriptTab(for: script.kind)
+    else {
+      Issue.record("the \(script) script was not launched (\(hasTask ? "task" : "task-less") directory)")
+      return
+    }
+    #expect(harness.tabIDs(target).count == (hasTask ? 2 : 1))
+    if let own { #expect(harness.tabIDs(target).contains(own), "the task keeps its own tab") }
+
+    host.handleBlockingScriptCommandFinished(tabID: scriptTab, exitCode: 0)
+    let after = await harness.events.collect(until: Self.isScriptCompletion)
+    #expect(
+      after.contains(
+        .blockingScriptCompleted(worktreeID: Self.directory.id, kind: script.kind, exitCode: 0, tabId: scriptTab)),
+      "the finish reaches the app: \(after)")
+  }
+
+  /// A wind-down script launch lands after its row left the phase (the
+  /// operation was torn down or finished another way meanwhile). The phase
+  /// is the permission; a row in any other state gets no script tab.
+  @Test(.dependencies, arguments: WindDownScript.allCases)
+  func aWindDownScriptLandingAfterItsPhaseEndedIsRefused(script: WindDownScript) async {
+    @Shared(.repositorySettings(Self.directory.repositoryRootURL)) var repositorySettings
+    $repositorySettings.withLock {
+      $0.deleteScript = "echo cleaning"
+      $0.archiveScript = "echo syncing"
+    }
+    defer { $repositorySettings.withLock { $0 = .default } }
+    let harness = await makeHarness { state in
+      Self.listDirectory(&state)
+      state.repositories.reconcileSidebarForTesting()
+    }
+    let task = LayoutID(task: UUID())
+    let own = await open(task, in: harness)
+    harness.recorder.queuedCommands.withValue { $0.removeAll() }
+
+    await confirmWindDown(script, in: harness)
+    await harness.store.send(
+      .repositories(.sidebarItems(.element(id: Self.directory.id, action: .lifecycleChanged(.idle))))
+    ).finish()
+    deliverQueuedCommands(in: harness)
+
+    let host = harness.manager.hostIfExists(for: task)
+    #expect(host?.trackedBlockingScriptTab(for: script.kind) == nil, "no script runs outside its phase")
+    #expect(harness.tabIDs(task) == [own])
+  }
+
+  /// A deletion was queued, then the directory came back and began a new
+  /// delete script of its own. The old removal lands during that phase: a
+  /// `.deletingScript` directory keeps every task (A12), so nothing is torn
+  /// down, nothing stored is deleted and no session is killed; the running
+  /// script keeps its tab.
+  @Test(.dependencies) func aDeletionLandingDuringANewDeleteScriptPhaseRemovesNothing() async {
+    @Shared(.repositorySettings(Self.directory.repositoryRootURL)) var repositorySettings
+    $repositorySettings.withLock { $0.deleteScript = "echo cleaning" }
+    defer { $repositorySettings.withLock { $0 = .default } }
+    let harness = await makeHarness { state in
+      Self.listDirectory(&state)
+      state.repositories.reconcileSidebarForTesting()
+    }
+    await harness.store.send(
+      .repositories(
+        .worktreeDeleted(
+          Self.directory.id, repositoryID: Self.repositoryID, selectionWasRemoved: false, nextSelection: nil))
+    ).finish()
+    #expect(harness.recorder.queuedCommands.value.contains(.removeLayouts(forDirectory: Self.directory.id)))
+    let queuedRemoval = harness.recorder.queuedCommands.withValue { queued in
+      defer { queued.removeAll() }
+      return queued
+    }
+
+    await harness.store.send(
+      .repositories(
+        .repositoriesLoaded(
+          [
+            Repository(
+              id: Self.repositoryID, rootURL: Self.directory.repositoryRootURL, name: "repo",
+              worktrees: [Self.directory])
+          ], failures: [], roots: [Self.directory.repositoryRootURL], animated: false))
+    ).finish()
+    let task = LayoutID(task: UUID())
+    let own = await open(task, in: harness)
+    let storedBefore = await settledStore(harness)
+    #expect(storedBefore.tasks[task.persistenceKey] != nil)
+    harness.recorder.queuedCommands.withValue { $0.removeAll() }
+    await confirmWindDown(.delete, in: harness)
+    deliverQueuedCommands(in: harness)
+    guard let host = harness.manager.hostIfExists(for: task),
+      let scriptTab = host.trackedBlockingScriptTab(for: .delete)
+    else {
+      Issue.record("the new delete script did not start")
+      return
+    }
+
+    for command in queuedRemoval { harness.manager.handleCommand(command) }
+    await Task.megaYield()
+
+    #expect(harness.manager.hostIfExists(for: task) === host, "the task keeps its host")
+    #expect(Set(harness.tabIDs(task)) == [own, scriptTab.rawValue], "the script tab and the task's own tab stay")
+    #expect(host.trackedBlockingScriptTab(for: .delete) == scriptTab, "the running script is still tracked")
+    #expect(!harness.terminals.removedLayoutIDs.contains(task))
+    #expect(harness.recorder.localKills.value.isEmpty, "no session killed")
+    let storedAfter = await settledStore(harness)
+    #expect(storedAfter.tasks[task.persistenceKey] != nil, "nothing persisted is deleted")
+  }
+
   // MARK: - Live surfaces.
 
   @Test(.dependencies) func liveSurfaceIsRewiredToTheDestination() async throws {

@@ -46,6 +46,18 @@ enum BlockingScriptKind: Sendable {
     }
   }
 
+  /// The row phase a wind-down script runs inside: the delete script while
+  /// the row is `.deletingScript`, the archive script while `.archiving`.
+  /// That phase is the launch's permission, not a reason to refuse it; a
+  /// user script has none and needs a live directory instead.
+  var windDownPhase: SidebarItemFeature.State.Lifecycle? {
+    switch self {
+    case .script: nil
+    case .archive: .archiving
+    case .delete: .deletingScript
+    }
+  }
+
   /// `true` when this is a `.run`-kind script — the only kind
   /// stopped by the global Stop action (Cmd+.), since Stop is
   /// the semantic counterpart of Run.

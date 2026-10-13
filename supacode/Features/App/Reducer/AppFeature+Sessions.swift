@@ -732,6 +732,37 @@ extension AppFeature {
     return rosterDirectory(context.worktreeID, state: state)
   }
 
+  /// A task's directory while a blocking script of `kind` may launch on it. A
+  /// user script follows `liveTaskDirectory`. A wind-down script (delete,
+  /// archive) runs inside its own row phase, which `liveTaskDirectory` would
+  /// refuse as terminating: its roster row must be in exactly that phase; an
+  /// orphan has no row and so no phase.
+  static func scriptTaskDirectory(_ layoutID: LayoutID, kind: BlockingScriptKind, state: State) -> DirectoryContext? {
+    guard let phase = kind.windDownPhase else { return liveTaskDirectory(layoutID, state: state) }
+    guard let context = taskContext(layoutID, state: state) else { return nil }
+    return scriptDirectory(context.worktreeID, phase: phase, state: state)
+  }
+
+  /// A roster directory while a blocking script of `kind` may launch on it;
+  /// the first-tab counterpart of `scriptTaskDirectory`.
+  static func scriptDirectory(_ directoryID: Worktree.ID, kind: BlockingScriptKind, state: State) -> DirectoryContext? {
+    guard let phase = kind.windDownPhase else { return rosterDirectory(directoryID, state: state) }
+    return scriptDirectory(directoryID, phase: phase, state: state)
+  }
+
+  /// The roster row in exactly `phase`, decided on current state: a row that
+  /// left the phase since the launch was queued (torn down, cancelled or
+  /// finished another way) gets no script tab. An archived row may still be
+  /// deleted, so only the roster listing and the phase are checked.
+  private static func scriptDirectory(
+    _ directoryID: Worktree.ID, phase: SidebarItemFeature.State.Lifecycle, state: State
+  ) -> DirectoryContext? {
+    guard let worktree = state.repositories.worktree(for: directoryID), !worktree.isMissing,
+      state.repositories.sidebarItems[id: directoryID]?.lifecycle == phase
+    else { return nil }
+    return DirectoryContext(worktree: worktree)
+  }
+
   /// A live roster entry and nothing else: no orphan fallback. A row the
   /// picker or a sidebar button offered came from the roster, so once the
   /// roster no longer lists it the offer is void even while a task is still
