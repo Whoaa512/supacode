@@ -2,8 +2,8 @@
 
 **A native macOS command center for running coding agents in parallel.**
 
-Run several coding agents side by side from one window: each task gets its own git worktree and
-its own real terminal. Sessions persist in the background, so quitting the app or dropping an SSH
+Run several coding agents side by side from one window: each task gets its own real terminal,
+and git worktrees keep tasks that need isolation out of each other's way. Sessions persist in the background, so quitting the app or dropping an SSH
 connection loses nothing.
 
 [supacode.sh](https://supacode.sh)
@@ -34,10 +34,11 @@ Both refuse across machines, while a blocking script runs on a moved tab, while 
 confirmation is pending on either task, while the layouts store is unreadable or read-only,
 and while Supacode is quitting.
 
-### Worktree-first workflow
+### Worktrees
 
-Each task gets its own git worktree and terminal, so agents run in parallel without colliding.
-Create one from the sidebar, a hotkey, the command palette, the CLI, or a deeplink. The sidebar
+A worktree is optional directory isolation: create one when agents must not collide, and start
+as many tasks in it as you like. Starting a task never creates a worktree; ⌘⌥⇧N, the sidebar,
+the command palette, the CLI, or a deeplink does. The sidebar
 refreshes branch, file, and pull request state live, nests rows by branch, and hoists the
 worktrees that need you (an agent awaiting input, a running script) to the top. Pin, archive,
 auto-delete after N days, and jump to any with ⌃1 to ⌃9.
