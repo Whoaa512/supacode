@@ -4045,3 +4045,75 @@ deviation.
   failures; `WorktreeTerminalManagerAckTests` 46; Transfer + Sessions 240;
   agent suites 153; `AppFeatureSessionsTaskSettleTests` 39); build-app 0;
   full `make test` exit 2 with 4649 tests and only the 5 known failures.
+- Z1 r1, 2026-10-12, `0f76607e`, `fc2e3e19`, `b520c9eb`, `37bd29b1`,
+  `7600e186`, `205c3957`. Review of Z1 found five P1 and one P2, all
+  held. Revised (replaces the Z1 line "the first-tab commands other than
+  Cmd-T keep their pre-existing shapes ... with the minted id" as a
+  decision to exempt them, and the Z1 line "Non-creating commands ...
+  attach through `existingHost` (task must hold tabs now)"): every
+  tab-creating and host-attaching command is decided in the turn it
+  runs, after any scheduled `Task` hop, by one manager gate
+  (`deliveryContext(for:carried:creating:command:)`). A task that exists
+  answers with its own directory as it is now (`taskContext`); a
+  non-creating command also needs it to hold a tab; a creating command on
+  a layout that is no task yet is a first tab, so its pending mint must
+  still name a live roster row (`rosterDirectory`); a removed id
+  (`removedLayoutIDs`) is refused outright. The `DirectoryContext` the
+  command carries is never read for directory or host: it is used only
+  for a layout the app never asked for (no task, no mint, not removed),
+  which only test harnesses send since every app first tab is minted.
+  Refused creations emit `surfaceCreationFailed` /
+  `initialTabCreationFailed` so a waiting CLI or worktree-new ack fails
+  instead of stranding. Decision taken: the command shapes keep their
+  `DirectoryContext` parameter rather than being retyped to identities
+  (some twenty cases across every terminal test); the payload is inert
+  at delivery, which is the rule's substance. The transfer destination
+  keeps M2's own check (`transferRefusal` compares the carried directory
+  with the destination's record at delivery), not this gate. The
+  first-tab follow is a distinct command, `followFirstTab(_:forDirectory:)`,
+  decided at delivery: the directory must still be `selectedWorktreeID`
+  with `selectedTaskID == nil` and the task must hold a tab on it. A
+  resume into a task sends `NewTaskSource.resume(into:_:)` carrying the
+  `SessionKey`; `launchDirectory` rechecks `taskDirectory(_:listing:)` at
+  delivery, so a tangent detached while its source survives types
+  nothing into the old task (the resume input is still built up front:
+  it depends only on the task's own directory, which never changes).
+  `agentSurfaceIDs` resolves a named task through `mergedTasks` first, as
+  `commandLayoutID` does. Agent rows (`agents`, `agentResumeCandidates`)
+  carry `surfaceID`; the CLI's `WorktreeTarget` carries it from the
+  resolved row into every agent URL (`?surface=<id>`) and the read /
+  explain queries (`surfaceID`); the app narrows to that surface only
+  when it is one the task holds now ("Agent not found." otherwise), so a
+  name-addressed command reaches exactly that agent among same-kind
+  siblings in one task (D5). `terminal wait-output` on a resolved row
+  reads that row's surface. Same class across the slice, re-audited:
+  `createTab`, `createTabWithInput`, `ensureInitialTab`, `runBlockingScript`,
+  `openFileWithScript`, `focusSurface`, `showTask`, every `existingHost`
+  site (gate); `createTaskTab` (source identity, three routes);
+  `transferTabs` (M2 check); `removeLayouts`, `prune`, `selectLayout`,
+  `setSelectedLayoutID` (already identity, decided at delivery);
+  `destroyTab`/`renameTab` (read the layout at delivery). Nothing else
+  found. Tests (red first on the unfixed tree: the Cmd-T and bootstrap
+  manager tests hung on `open` or hosted the removed task; the agent
+  alias and surface tests alerted; the resume-detached and follow tests
+  typed or selected): `WorktreeTerminalManagerTransferTests` +5
+  (`aCmdTTabLandingAfterItsTaskWentCreatesNothing` × closed / merged,
+  `aFirstTabBootstrapLandingAfterItsDirectoryChangedCreatesNothing` ×
+  archived / terminating / removed, `aStaleContextOnANonCreatingCommandNeverRestampsTheTask`,
+  `aFirstTabFollowLandingAfterANewerPickShowsNothing` × pick / no pick,
+  `aResumeLandingAfterItsSessionLeftTheTaskCreatesNothing`); the three
+  writer tests that re-create a merged-away source now drive the reducer
+  (`open` on a removed id), since the manager refuses that command;
+  `AppFeatureAgentTaskTests` +2 (merged-away alias; two same-kind agents
+  in one task by surface, refusal of a surface outside the task);
+  `AgentCLITests` +1 (resolved row carries its surface into prompt,
+  rename, metadata, read; task-only stays ambiguous); `DeeplinkClientTests`
+  +1 (`surface` query, unparsable fails); `AgentQueryResponseTaskTests`
+  rows carry `surfaceID`; `AppFeatureFirstTabTests`, `AppFeatureSessionsTests`,
+  `AppFeatureSessionsTaskSettleTests` match the new command and source
+  shapes. Gate (final tree): check 0; narrow suites exit 0
+  (FeatureTests agent/first-tab/sessions/deeplink/ack suites, `AgentCLITests`,
+  `AgentQueryResponseTaskTests`, `DeeplinkClientTests`, Transfer + Ack
+  manager suites: 141 + 39 + the FeatureTests run); build-app 0; full
+  `make test` exit 2 with 4658 tests and only the 5 known failures (see
+  the final run below).
