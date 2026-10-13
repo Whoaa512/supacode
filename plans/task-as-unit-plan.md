@@ -4117,3 +4117,47 @@ deviation.
   manager suites: 141 + 39 + the FeatureTests run); build-app 0; full
   `make test` exit 2 with 4658 tests and only the 5 known failures (see
   the final run below).
+- Z1 r2, 2026-10-12, `e9aff28f`. Review of Z1 r1 found four P1, all
+  held; one commit closes them. Revised (sharpens the r1 line "A task
+  that exists answers with its own directory as it is now"): for a
+  creating command the gate answers with `liveTaskDirectory`, the rule a
+  new task's launch applies, so a tab queued on an existing task lands
+  only while its roster directory is live (not archived, missing or
+  terminating); an orphan keeps its recorded directory; non-creating
+  commands keep `taskContext` (closing or renaming a tab on an archived
+  directory's task still works). `createTaskTab` decides its destination
+  too: a layout in `removedLayoutIDs` is refused (two Cmd-Ts on an empty
+  directory queue two first tabs for one mint; the second no longer
+  resurrects the shell task the first made once it was closed), and an
+  existing destination must be on the source's directory and host; a
+  fresh mint has no record and is created. `openFileWithScript` on a
+  minted task with no layout yet bootstraps the editor as its first tab
+  through `createTabAsync` instead of dropping the open. `launchSessionTab`
+  derives the launch source from `owner` (the named target or the task
+  found listing the session), so an untargeted resume carries
+  `.resume(into:_:)` and the manager's membership recheck applies to it;
+  the resume input is built with `resumeInput` for an inferred owner as
+  well (equal to the bare command there, since the owner is on the
+  session's own directory). Decision taken: surface and pane splits stay
+  on the non-creating gate (task must hold a tab, directory as recorded);
+  the host's own Cmd-D split never passes the manager, so refusing only
+  the CLI's split on an archived directory would make the two disagree.
+  Same class re-audited across the slice after these: every `Task` hop
+  in the manager re-reads its target (`scheduleTabCreation`,
+  `openFileWithScript` through the gate; `handleUnexpectedZmxClose`
+  through `owningLayoutID`); `launchSessionTab`'s five callers all pass
+  through the one `launchSource`. Nothing else found. Tests (red first on
+  the unfixed source, exactly these six cases): `WorktreeTerminalManagerTransferTests`
+  +4 (`aQueuedFirstTabLandingAfterTheMintedTaskClosedCreatesNothing`,
+  `aTabOnAnExistingTaskLandingAfterItsDirectoryStoppedBeingLiveCreatesNothing`
+  × archived / deleting / missing, with Cmd-T, `createTabWithInput` and
+  `runBlockingScript` queued; `anUntargetedResumeLandingAfterItsSessionLeftTheTaskCreatesNothing`;
+  `anEditorOpenOnATaskLessDirectoryBootstrapsItsFirstTab`, app to manager
+  through `.openFileFromExplorer` with the global editor script). Gate
+  (final tree): check 0; Transfer suite exit 0; Sessions, TaskSettle,
+  CommandPalette, FirstTab, OpenFile, DeeplinkTask + Ack suites exit 0
+  (388 tests); build-app 0; full `make test` exit 2 with 4662 tests, the
+  5 known failures plus one parallel-run flake outside this slice,
+  `WorktreeTerminalManagerReaperTests/terminateKillsTrackedEvenWithLiveClientsButSparesUntrackedInUse`
+  (the tracked session killed twice; the test has no app store so none of
+  the changed paths are reachable; passes 4/4 when its suite runs alone).
