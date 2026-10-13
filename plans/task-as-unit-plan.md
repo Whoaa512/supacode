@@ -4237,3 +4237,16 @@ deviation.
   `~/.pi/agent/skills/supacode-cli` is the user's; not touched. Decision
   recorded in the decisions memory (cj-private, 2026-10). Gate: check 0,
   build-app 0; no test touched, none run.
+- Z2 r1, 2026-10-12, `e0fba103`, `eb2c5b36`, `f4a11e21` + this commit.
+  Review of `7a8a87ef..66b717a2` raised three P2s, all held. Skill
+  `supacode-cli.md` said "each agent session is its own task", against D5:
+  now an implicit one-member task only for a recordless indexed session,
+  agents started in a task's tab join it. README tagline and the
+  "Worktree-first workflow" section kept "each task gets its own git
+  worktree", against D9/D10 (⌘N reuses the current task's directory,
+  nothing mints worktrees): section renamed "Worktrees", described as
+  optional isolation shared by several tasks. README refusal list gained
+  the only-tab rule (detach, unless a session stays), tasks still loading
+  (`notReady`, both loads and writable store) and a session still starting
+  in the source (`launchPending`). Gate: check 0, build-app 0; docs only,
+  no test touched, none run.
