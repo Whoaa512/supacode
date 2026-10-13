@@ -724,7 +724,9 @@ extension AppFeature {
     }
   }
 
-  private static func liveTaskDirectory(_ layoutID: LayoutID, state: State) -> DirectoryContext? {
+  /// A task's directory as it is now, live: a roster row must not be
+  /// archived, missing or terminating; an orphan keeps its recorded one.
+  static func liveTaskDirectory(_ layoutID: LayoutID, state: State) -> DirectoryContext? {
     guard let context = taskContext(layoutID, state: state) else { return nil }
     guard state.repositories.worktree(for: context.worktreeID) != nil else { return context }
     return rosterDirectory(context.worktreeID, state: state)
@@ -1064,15 +1066,16 @@ extension AppFeature {
     for index in state.pendingTaskLaunches.indices { state.pendingTaskLaunches[index].isShown = false }
     state.pendingTaskLaunches.append(
       PendingTaskLaunch(layoutID: layoutID, directoryID: directory.worktreeID, primary: primary))
-    let command = target == nil ? pending.command : resumeInput(pending, in: directory)
+    let command = owner == nil ? pending.command : resumeInput(pending, in: directory)
     let requestID = pending.requestID
     // Identity only crosses the boundary: the manager resolves the directory
     // again when the command lands, by the source's rule, and refuses what
-    // is not live then. A resume into a task names that task, so one merged,
-    // removed or archived by delivery gets no tab; a resume that mints names
-    // the roster directory it resumes in.
+    // is not live then. A resume into a task names that task, whether the
+    // caller named it or the task was found listing the session, so one
+    // merged, removed, archived or no longer listing the session by delivery
+    // gets no tab; a resume that mints names the roster directory it resumes in.
     let launchSource =
-      source ?? target.map { NewTaskSource.resume(into: $0, pending.key) } ?? .roster(directory.worktreeID)
+      owner.map { NewTaskSource.resume(into: $0, pending.key) } ?? source ?? .roster(directory.worktreeID)
     let create: TerminalClient.Command = .createTaskTab(
       layoutID, source: launchSource, input: pending.kind == .agent ? command : nil, focusing: true)
     return .run { send in

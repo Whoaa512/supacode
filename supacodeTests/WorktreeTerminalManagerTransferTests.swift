@@ -1482,6 +1482,11 @@ struct WorktreeTerminalManagerTransferTests {
     case archived, deleting, removed
   }
 
+  /// The roster still lists the directory, but it is no longer live.
+  enum LiveDirectoryLoss: CaseIterable {
+    case archived, deleting, missing
+  }
+
   /// The roster changes after the launch was accepted, before it lands.
   private func change(_ change: DirectoryChange, in harness: Harness) async {
     let directory = Self.directory
@@ -1503,6 +1508,28 @@ struct WorktreeTerminalManagerTransferTests {
       ).finish()
       #expect(harness.store.withState { $0.repositories.worktree(for: directory.id) } == nil)
     }
+  }
+
+  private func lose(_ loss: LiveDirectoryLoss, in harness: Harness) async {
+    switch loss {
+    case .archived: await change(.archived, in: harness)
+    case .deleting: await change(.deleting, in: harness)
+    case .missing:
+      let directory = Self.directory
+      let missing = Worktree(
+        id: directory.id, name: directory.name, detail: directory.detail,
+        workingDirectory: directory.workingDirectory, repositoryRootURL: directory.repositoryRootURL,
+        isMissing: true)
+      let repoID = RepositoryID(directory.repositoryRootURL.path)
+      await harness.store.send(
+        .repositories(
+          .repositoriesLoaded(
+            [Repository(id: repoID, rootURL: directory.repositoryRootURL, name: "repo", worktrees: [missing])],
+            failures: [], roots: [directory.repositoryRootURL], animated: false))
+      ).finish()
+      #expect(harness.store.withState { $0.repositories.worktree(for: directory.id)?.isMissing } == true)
+    }
+    #expect(harness.store.withState { AppFeature.rosterDirectory(Self.directory.id, state: $0) } == nil)
   }
 
   private static func isTaskLaunch(_ command: TerminalClient.Command) -> Bool {
@@ -1869,6 +1896,92 @@ struct WorktreeTerminalManagerTransferTests {
       "the bootstrap fails rather than strands its ack: \(after)")
   }
 
+  /// Cmd-T twice on a directory with no task queues two first tabs for the
+  /// one mint. The first lands and the shell-only task it made is closed
+  /// before the second lands. The destination is decided then: a removed id
+  /// is not brought back by a sibling queued for it, however live its
+  /// directory still is.
+  @Test(.dependencies) func aQueuedFirstTabLandingAfterTheMintedTaskClosedCreatesNothing() async {
+    let harness = await makeHarness { state in
+      Self.listDirectory(&state)
+      state.repositories.reconcileSidebarForTesting()
+      state.repositories.selection = .worktree(Self.directory.id)
+    }
+    await harness.store.send(.newTerminal).finish()
+    await harness.store.send(.newTerminal).finish()
+    guard let minted = harness.store.withState({ $0.pendingFirstTab(forDirectory: Self.directory.id) }) else {
+      Issue.record("Cmd-T minted nothing")
+      return
+    }
+    let launches = harness.recorder.queuedCommands.withValue { queued in
+      defer { queued.removeAll() }
+      return queued.filter(Self.isTaskLaunch)
+    }
+    #expect(launches.count == 2, "both Cmd-Ts are in flight for the one mint: \(launches)")
+    guard launches.count == 2 else { return }
+    for case .createTaskTab(let into, _, _, _, _) in launches { #expect(into == minted) }
+
+    harness.manager.handleCommand(launches[0])
+    _ = await harness.events.collect(until: Self.createsATab)
+    guard let own = harness.tabIDs(minted).first else {
+      Issue.record("the first Cmd-T made no tab")
+      return
+    }
+    await removeTask(minted, .closed, ownTab: own, in: harness)
+    #expect(harness.terminals.removedLayoutIDs.contains(minted))
+    #expect(
+      harness.store.withState { AppFeature.rosterDirectory(Self.directory.id, state: $0) } != nil,
+      "the directory itself stays live; only the task is gone")
+
+    harness.manager.handleCommand(launches[1])
+    let after = await harness.events.collect(until: Self.createsATab)
+
+    #expect(harness.manager.hostIfExists(for: minted) == nil, "no host for a task that is gone")
+    #expect(harness.terminals.layouts[id: minted] == nil, "the closed task is not resurrected")
+    #expect(harness.terminals.removedLayoutIDs.contains(minted))
+    #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
+    let stored = await settledStore(harness)
+    #expect(stored.tasks[minted.persistenceKey] == nil, "nothing persisted for the closed task")
+  }
+
+  /// Cmd-T on a shown task queues a tab for it; before the tab lands the
+  /// task's directory is archived, winding down or missing on disk while
+  /// the task itself still exists. A tab on an existing task is decided by
+  /// the same live-directory rule as a new task's launch: nothing is created.
+  @Test(.dependencies, arguments: LiveDirectoryLoss.allCases)
+  func aTabOnAnExistingTaskLandingAfterItsDirectoryStoppedBeingLiveCreatesNothing(loss: LiveDirectoryLoss) async {
+    let harness = await makeHarness { state in
+      Self.listDirectory(&state)
+      state.repositories.reconcileSidebarForTesting()
+      state.repositories.selection = .worktree(Self.directory.id)
+    }
+    let task = LayoutID(task: UUID())
+    let own = await open(task, in: harness)
+    await harness.store.send(.repositories(.selectTask(task, directory: Self.directory.id))).finish()
+    harness.recorder.queuedCommands.withValue { $0.removeAll() }
+
+    await harness.store.send(.newTerminal).finish()
+    let context = DirectoryContext(worktree: Self.directory)
+    let queued = harness.recorder.queuedCommands.value
+    guard case .createTab(let into, _, _, _, _, _, _)? = queued.first(where: Self.createsATabCommand) else {
+      Issue.record("Cmd-T queued no tab: \(queued)")
+      return
+    }
+    #expect(into == task)
+    harness.recorder.queuedCommands.withValue {
+      $0.append(.createTabWithInput(task, context, input: "echo hi", runSetupScriptIfNew: false))
+      $0.append(.runBlockingScript(task, context, kind: .archive, script: "echo run", focusing: true))
+    }
+
+    await lose(loss, in: harness)
+    #expect(harness.store.withState { AppFeature.hasTask(task, state: $0) }, "the task itself survives")
+    deliverQueuedCommands(in: harness)
+    let after = await harness.events.collect(until: Self.createsATab)
+
+    #expect(!after.contains(where: Self.createsATab), "no tab created (\(loss)): \(after)")
+    #expect(harness.tabIDs(task) == [own], "the task keeps only its own tab")
+  }
+
   /// A non-creating command carries a context computed before it was queued.
   /// At delivery the task's own directory decides; the stale context never
   /// restamps the task's record.
@@ -2077,6 +2190,96 @@ struct WorktreeTerminalManagerTransferTests {
 
     #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
     #expect(harness.tabIDs(task) == [own], "the task keeps only its own tab")
+  }
+
+  /// A resume with no task named: the task is found by the session it
+  /// lists, and the launch must carry that task as its source, not the
+  /// directory. The tangent is detached before the launch lands; a source
+  /// still naming the directory would type the resume into the old task.
+  @Test(.dependencies) func anUntargetedResumeLandingAfterItsSessionLeftTheTaskCreatesNothing() async throws {
+    let directory = try onDiskWorktree(named: "resume-untargeted")
+    let key = Self.session("tangent")
+    let harness = await makeHarness { state in
+      Self.listDirectory(directory, in: &state)
+      state.repositories.reconcileSidebarForTesting()
+      state.repositories.sessionSummaries = [
+        SessionSummary(
+          harness: .pi, sessionID: "tangent", createdAt: .distantPast,
+          cwd: directory.workingDirectory.path(percentEncoded: false), title: "t", messageCount: 2,
+          lastActivity: .distantPast)
+      ]
+      state.repositories.sessionsStarted = true
+    }
+    let task = LayoutID(task: UUID())
+    let own = await open(task, on: directory, in: harness)
+    await harness.store.send(
+      .terminals(.membersChanged([task: [.session(Self.session("PA")), .session(key)]], agents: []))
+    )
+    .finish()
+
+    await harness.store.send(.repositories(.delegate(.resumeSession(key, task: nil)))).finish()
+    for _ in 0..<50 where !harness.recorder.queuedCommands.value.contains(where: Self.isTaskLaunch) {
+      await Task.megaYield()
+    }
+    guard
+      case .createTaskTab(let into, let source, _, _, _)? = harness.recorder.queuedCommands.value.first(
+        where: Self.isTaskLaunch)
+    else {
+      Issue.record("the resume is in flight as a task launch")
+      return
+    }
+    #expect(into == task, "the task listing the session is the owner")
+    #expect(source == .resume(into: task, key), "an inferred owner is carried like a named one")
+
+    await harness.store.send(.terminals(.membersChanged([task: [.session(Self.session("PA"))]], agents: []))).finish()
+    #expect(harness.store.withState { AppFeature.hasTask(task, state: $0) })
+    deliverQueuedCommands(in: harness)
+    let after = await harness.events.collect(until: Self.createsATab)
+
+    #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
+    #expect(harness.tabIDs(task) == [own], "nothing was typed into the old owner")
+  }
+
+  /// Opening a file with an editor script on a live directory with no task,
+  /// through the app: the open mints a task, and when it lands the editor
+  /// tab is that task's first tab, carrying the script input.
+  @Test(.dependencies) func anEditorOpenOnATaskLessDirectoryBootstrapsItsFirstTab() async {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.openFileScript = "code \"$SUPACODE_FILE_PATH\"" }
+    let harness = await makeHarness { state in
+      Self.listDirectory(&state)
+      state.repositories.reconcileSidebarForTesting()
+      state.repositories.selection = .worktree(Self.directory.id)
+    }
+    #expect(harness.store.withState { $0.layoutID(forDirectory: Self.directory.id) } == nil)
+
+    let file = Self.directory.workingDirectory.appendingPathComponent("main.swift")
+    await harness.store.send(.openFileFromExplorer(file)).finish()
+    let queued = harness.recorder.queuedCommands.value
+    guard case .openFileWithScript(let minted, _, let input)? = queued.first(where: Self.isEditorOpen) else {
+      Issue.record("the open is not in flight as an editor tab: \(queued)")
+      return
+    }
+    #expect(minted == harness.store.withState { $0.pendingFirstTab(forDirectory: Self.directory.id) })
+    #expect(input.contains("code \"$SUPACODE_FILE_PATH\""))
+
+    deliverQueuedCommands(in: harness)
+    let after = await harness.events.collect(until: Self.createsATab)
+
+    #expect(after.contains(where: Self.createsATab), "the editor tab is created: \(after)")
+    #expect(harness.tabIDs(minted).count == 1, "one tab, the editor's")
+    #expect(harness.terminals.directories[minted]?.worktreeID == Self.directory.id)
+    let launch = harness.terminals.layouts[id: minted]?.layout.panes.first?.tabs.first.flatMap {
+      tab -> LaunchOverride? in
+      if case .terminal(let state) = tab.content.state { return state.launch }
+      return nil
+    }
+    #expect(launch?.initialInput?.contains("code \"$SUPACODE_FILE_PATH\"") == true, "the tab carries the input")
+  }
+
+  private static func isEditorOpen(_ command: TerminalClient.Command) -> Bool {
+    if case .openFileWithScript = command { return true }
+    return false
   }
 
   /// A record for `layoutID` on the fixture directory, never opened: stored,

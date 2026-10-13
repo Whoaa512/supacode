@@ -368,8 +368,11 @@ final class WorktreeTerminalManager {
   /// What a command's layout is when the command lands, read from the store
   /// now, never from the context the command carried (that was computed
   /// before the boundary). A task that exists answers with its own directory
-  /// as it is now; a non-creating command also needs it to hold a tab. A
-  /// creating command on a layout that is no task yet is a first tab: the
+  /// as it is now; a non-creating command also needs it to hold a tab, and a
+  /// creating one needs that directory to still be live when the roster lists
+  /// it (an archived, missing or terminating row gets no new tab; an orphan
+  /// keeps its recorded directory), the same rule a new task's launch applies.
+  /// A creating command on a layout that is no task yet is a first tab: the
   /// mint it was asked for must still name a live roster row. Every first
   /// tab the app sends is minted, so a layout the app never heard of (no
   /// task, no mint, not removed) has nothing current to decide against and
@@ -385,7 +388,8 @@ final class WorktreeTerminalManager {
     let context: DirectoryContext? = appStore.withState { state in
       guard !state.terminals.removedLayoutIDs.contains(layoutID) else { return nil }
       if AppFeature.hasTask(layoutID, state: state) {
-        guard creating || taskHoldsTabs(layoutID) else { return nil }
+        if creating { return AppFeature.liveTaskDirectory(layoutID, state: state) }
+        guard taskHoldsTabs(layoutID) else { return nil }
         return AppFeature.taskContext(layoutID, state: state)
       }
       guard creating else { return nil }
@@ -403,14 +407,29 @@ final class WorktreeTerminalManager {
   /// Decided here, in the turn the command lands, not when the directory was
   /// picked: the source is resolved again by its own rule (a roster row must
   /// still be a live roster entry, a task's directory is re-read while the
-  /// task exists) and anything else gets nothing, no host, layout or tab. No
-  /// further hop follows, so nothing can change between this check and the
-  /// creation. With no store to ask, nothing is created.
+  /// task exists) and anything else gets nothing, no host, layout or tab.
+  /// The destination is decided too: a layout removed since the command was
+  /// sent (a minted first tab closed before its sibling landed) is never
+  /// brought back, and a task that exists takes the tab only on its own
+  /// directory. A fresh mint has no record and is created. No further hop
+  /// follows, so nothing can change between this check and the creation.
+  /// With no store to ask, nothing is created.
   private func createTaskTab(
     in layoutID: LayoutID, source: NewTaskSource, input: String?, runSetupScriptIfNew: Bool, focusing: Bool
   ) {
-    guard let context = appStore?.withState({ AppFeature.launchDirectory(for: source, state: $0) }) else {
-      terminalLogger.info("createTaskTab: \(String(describing: source)) is not live any more; nothing created.")
+    let context: DirectoryContext? = appStore?.withState { state in
+      guard !state.terminals.removedLayoutIDs.contains(layoutID),
+        let context = AppFeature.launchDirectory(for: source, state: state)
+      else { return nil }
+      guard AppFeature.hasTask(layoutID, state: state) else { return context }
+      guard let own = AppFeature.taskContext(layoutID, state: state),
+        own.worktreeID == context.worktreeID, own.host == context.host
+      else { return nil }
+      return context
+    }
+    guard let context else {
+      terminalLogger.info(
+        "createTaskTab: \(String(describing: source)) into \(layoutID) is not live any more; nothing created.")
       return
     }
     createTabAsync(
@@ -1501,7 +1520,8 @@ final class WorktreeTerminalManager {
         let context = deliveryContext(for: layoutID, carried: carried, creating: true, command: "openFileWithScript")
       else { return }
       guard let layout = layoutState(for: layoutID)?.layout else {
-        terminalLogger.warning("openFileWithScript: no layout for worktree \(layoutID); dropping open.")
+        // A minted task with no tab yet: the editor is its first tab.
+        createTabAsync(in: layoutID, context: context, runSetupScriptIfNew: false, initialInput: input, anchor: nil)
         return
       }
       let zoomedLeaf: PaneID?
