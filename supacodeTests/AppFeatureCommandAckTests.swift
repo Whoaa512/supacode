@@ -1903,7 +1903,7 @@ struct AppFeatureCommandAckTests {
     return (store, readFD)
   }
 
-  @Test(.dependencies) func worktreeDeletedRemovesItsLayoutWithTheResolvedRemoteHost() async {
+  @Test(.dependencies) func worktreeDeletedRemovesItsLayoutsByDirectoryIdentityOnly() async {
     let host = RemoteHost(alias: "build-box")
     let worktree = makeWorktree()
     let repository = Repository(
@@ -1939,15 +1939,10 @@ struct AppFeatureCommandAckTests {
     )
     await store.finish()
 
-    // The row is read before the repositories scope drops the worktree, so
-    // the remote host must resolve; nil would strand the host-side session.
-    let removal = sent.value.contains {
-      if case .removeLayouts(let worktreeID, let remoteHost) = $0 {
-        return worktreeID == worktree.id && remoteHost == host
-      }
-      return false
-    }
-    #expect(removal)
+    // Identity only: the manager re-reads the roster and each task's own host
+    // at delivery, so nothing computed here can be stale by then.
+    #expect(sent.value.contains(.removeLayouts(forDirectory: worktree.id)))
+    _ = host
   }
 
   @Test(.dependencies) func archivingAWorktreeKeepsItsLayout() async {

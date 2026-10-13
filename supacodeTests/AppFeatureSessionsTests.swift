@@ -4082,7 +4082,9 @@ struct AppFeatureSessionsTests {
     await store.finish()
 
     #expect(launches(recorded).map(\.layoutID) == [first], "the task that was clicked, not one minted elsewhere")
-    #expect(launches(recorded).map(\.directory) == [onDisk.id])
+    // The launch names the task; the manager re-reads its directory at delivery.
+    #expect(launches(recorded).map(\.source) == [.task(first)])
+    #expect(AppFeature.launchDirectory(for: .task(first), state: store.state)?.worktreeID == onDisk.id)
     let quoted = ZmxAttach.shellQuote(elsewhere.path)
     #expect(launches(recorded).map(\.input) == ["cd \(quoted) && pi --session tangent"])
     #expect(store.state.repositories.repositories.count == 1, "its directory is not registered for it")
@@ -4130,7 +4132,8 @@ struct AppFeatureSessionsTests {
     await store.finish()
 
     #expect(launches(recorded).map(\.layoutID) == [first], "the stored task, not one minted for the session")
-    #expect(launches(recorded).map(\.directory) == [onDisk.id])
+    #expect(launches(recorded).map(\.source) == [.task(first)])
+    #expect(AppFeature.launchDirectory(for: .task(first), state: store.state)?.worktreeID == onDisk.id)
     #expect(launches(recorded).map(\.input) == ["cd \(ZmxAttach.shellQuote(elsewhere.path)) && pi --session tangent"])
     #expect(store.state.pendingTaskLaunches == [PendingTaskLaunch(layoutID: first, directoryID: onDisk.id)])
     #expect(store.state.repositories.repositories == roster, "no folder is registered for the session")
@@ -4316,7 +4319,8 @@ struct AppFeatureSessionsTests {
     await store.finish()
 
     #expect(launches(recorded).map(\.layoutID) == [first])
-    #expect(launches(recorded).map(\.directory) == ["/gone/checkout"])
+    #expect(launches(recorded).map(\.source) == [.task(first)])
+    #expect(AppFeature.launchDirectory(for: .task(first), state: store.state)?.worktreeID == "/gone/checkout")
     #expect(launches(recorded).first?.input.hasPrefix("cd ") == true)
     #expect(store.state.repositories.repositories == roster, "no folder is registered for the session")
   }

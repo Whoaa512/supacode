@@ -205,8 +205,11 @@ struct TerminalClient {
       keepingDirectories: Set<Worktree.ID>, protectingRepositoryIDs: Set<Repository.ID>,
       archivedDirectories: Set<Worktree.ID> = [])
     /// Explicitly deleted worktree: every layout on that directory goes, with
-    /// its sessions and persisted record, host or no host.
-    case removeLayouts(forDirectory: Worktree.ID, remoteHost: RemoteHost?)
+    /// its sessions and persisted record, host or no host. Identity only;
+    /// decided at delivery: the manager checks the roster no longer lists the
+    /// directory live (a row re-registered since keeps its tasks) and reads
+    /// each task's own host from its record.
+    case removeLayouts(forDirectory: Worktree.ID)
     /// Moves live tabs from one task to another without closing them: no
     /// session is killed and nothing reports them closed. The context is the
     /// destination's directory. What moves is decided from the state at

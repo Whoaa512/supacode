@@ -415,11 +415,13 @@ final class WorktreeTerminalManager {
     case .runBlockingScript(let layoutID, let context, let kind, let script, let focusing):
       runBlockingScript(in: layoutID, context: context, kind: kind, script: script, focusing: focusing)
     case .closeFocusedTab(let layoutID, let context), .closeFocusedSurface(let layoutID, let context):
-      guard let tab = host(for: layoutID, context: context).focusedTab else { break }
+      guard let tab = existingHost(for: layoutID, context: context, command: "close")?.focusedTab else { break }
       markUserCloseIntent(worktreeID: layoutID, surfaceIDs: [tab.content.id.rawValue])
       sendLayout(layoutID, .contentRequestedClose(content: tab.content.id, scope: .tab))
     case .beginTabRename(let layoutID, let context, let tabID):
-      guard let target = tabID ?? host(for: layoutID, context: context).focusedTab?.id else { break }
+      guard let host = existingHost(for: layoutID, context: context, command: "beginTabRename"),
+        let target = tabID ?? host.focusedTab?.id
+      else { break }
       sendLayout(layoutID, .beginTabRename(id: target))
     case .renameTab(let layoutID, let tabID, let title):
       let tab = layoutState(for: layoutID)?.layout.pane(containingTab: tabID)?.tabs[id: tabID]
@@ -429,9 +431,10 @@ final class WorktreeTerminalManager {
       }
       emit(.tabRenamed(layoutID: layoutID, tabID: tabID, applied: applied))
     case .selectTab(let layoutID, let context, let tabID):
+      guard let host = existingHost(for: layoutID, context: context, command: "selectTab") else { break }
       sendLayout(layoutID, .wakeTab(id: tabID))
       sendLayout(layoutID, .selectTab(id: tabID))
-      host(for: layoutID, context: context).focusSelectedTab()
+      host.focusSelectedTab()
     case .selectTabAtIndex(let layoutID, let index):
       selectTab(atIndex: index, in: layoutID)
     case .selectRelativeTab(let layoutID, let forward):
@@ -456,7 +459,7 @@ final class WorktreeTerminalManager {
       sendLayout(layoutID, .closeTab(id: tabID))
       emit(.tabRemoved(layoutID: layoutID, tabID: tabID))
     case .destroySurface(let layoutID, let context, let tabID, let surfaceID, let focusing):
-      let host = host(for: layoutID, context: context)
+      guard let host = existingHost(for: layoutID, context: context, command: "destroySurface") else { break }
       // Surface-first: the surface's actual owner wins over the tab hint.
       guard let owningTab = host.tabID(containing: surfaceID) ?? presentTab(tabID, in: layoutID) else {
         terminalLogger.warning("destroySurface: surface \(surfaceID) not found in worktree \(layoutID).")
@@ -532,13 +535,17 @@ final class WorktreeTerminalManager {
   private func handleSearchCommand(_ command: TerminalClient.Command) -> Bool {
     switch command {
     case .startSearch(let layoutID, let context):
-      host(for: layoutID, context: context).performBindingActionOnFocusedSurface("start_search")
+      existingHost(for: layoutID, context: context, command: "startSearch")?
+        .performBindingActionOnFocusedSurface("start_search")
     case .searchSelection(let layoutID, let context):
-      host(for: layoutID, context: context).performBindingActionOnFocusedSurface("search_selection")
+      existingHost(for: layoutID, context: context, command: "searchSelection")?
+        .performBindingActionOnFocusedSurface("search_selection")
     case .navigateSearchNext(let layoutID, let context):
-      host(for: layoutID, context: context).navigateSearchOnFocusedSurface(.next)
+      existingHost(for: layoutID, context: context, command: "navigateSearchNext")?
+        .navigateSearchOnFocusedSurface(.next)
     case .navigateSearchPrevious(let layoutID, let context):
-      host(for: layoutID, context: context).navigateSearchOnFocusedSurface(.previous)
+      existingHost(for: layoutID, context: context, command: "navigateSearchPrevious")?
+        .navigateSearchOnFocusedSurface(.previous)
     case .createTab, .createTabWithInput, .createTaskTab, .openFileWithScript, .ensureInitialTab, .showTask,
       .stopRunScript,
       .stopScript,
@@ -587,9 +594,11 @@ final class WorktreeTerminalManager {
     case .moveTabToSplit(let layoutID, let tabID, let direction, let focusing):
       moveTabToSplit(in: layoutID, tabID: tabID, direction: direction, focusing: focusing)
     case .performBindingAction(let layoutID, let context, let action):
-      host(for: layoutID, context: context).performBindingActionOnFocusedSurface(action)
+      existingHost(for: layoutID, context: context, command: "performBindingAction")?
+        .performBindingActionOnFocusedSurface(action)
     case .performBindingActionOnSurface(let layoutID, let context, let surfaceID, let action):
-      host(for: layoutID, context: context).performBindingAction(action, onSurfaceID: surfaceID)
+      existingHost(for: layoutID, context: context, command: "performBindingActionOnSurface")?
+        .performBindingAction(action, onSurfaceID: surfaceID)
     case .setImagePasteAgents(let surfaceID, let agents):
       setImagePasteAgents(agents, onSurfaceID: surfaceID)
     case .createTab, .createTabWithInput, .createTaskTab, .openFileWithScript, .ensureInitialTab, .showTask,
@@ -615,16 +624,11 @@ final class WorktreeTerminalManager {
   private func handleManagementCommand(_ command: TerminalClient.Command) {
     switch command {
     case .prune(let ids, let protectedRepositoryIDs, let archivedDirectories):
-      // The command was computed in an effect, before it got here: an
-      // archive reversed in between must not cost the directory its tasks.
-      // Only what is still archived now goes, and with no store to ask,
-      // nothing does.
-      let stillArchived = appStore?.withState { $0.archivedDirectories } ?? []
       prune(
         keepingDirectories: ids, protectingRepositoryIDs: protectedRepositoryIDs,
-        archivedDirectories: archivedDirectories.intersection(stillArchived))
-    case .removeLayouts(let directoryID, let remoteHost):
-      removeLayouts(forDirectory: directoryID, remoteHost: remoteHost)
+        archivedDirectories: archivedDirectories)
+    case .removeLayouts(let directoryID):
+      removeLayouts(forDirectory: directoryID)
     case .transferTabs(let from, let target, let context, let request):
       transferTabs(from: from, into: target, context: context, request: request)
     case .setNotificationsEnabled(let enabled):
@@ -814,6 +818,22 @@ final class WorktreeTerminalManager {
 
   func hostIfExists(for worktreeID: LayoutID) -> WorktreeContentHost? {
     hosts[worktreeID]
+  }
+
+  /// The host of a task that holds tabs now, attached if the task was never
+  /// shown this run. For the commands that act on what exists (select, focus,
+  /// rename, search, close, binding actions, splits of a surface or pane):
+  /// decided at delivery, so a task removed by transfer or close since the
+  /// command was sent gets no host, layout or tab back. The creating commands
+  /// keep `host(for:context:)`.
+  private func existingHost(
+    for layoutID: LayoutID, context: DirectoryContext, command: StaticString
+  ) -> WorktreeContentHost? {
+    guard taskHoldsTabs(layoutID) else {
+      terminalLogger.info("\(command): task \(layoutID) holds no tab any more; nothing attached.")
+      return nil
+    }
+    return host(for: layoutID, context: context)
   }
 
   /// The worktree's cross-feature host, created and wired on first use. Also
@@ -1707,7 +1727,12 @@ final class WorktreeTerminalManager {
     id: UUID?,
     focusing: Bool
   ) {
-    let host = host(for: layoutID, context: context)
+    guard let host = existingHost(for: layoutID, context: context, command: "splitSurface") else {
+      if let id {
+        emit(.surfaceCreationFailed(layoutID: layoutID, attemptedID: id, message: "Task not found."))
+      }
+      return
+    }
     // Surface-first: the surface's actual owner wins over the tab hint.
     guard let owningTab = host.tabID(containing: surfaceID) ?? presentTab(tabID, in: layoutID) else {
       terminalLogger.warning("splitSurface: surface \(surfaceID) not found in worktree \(layoutID).")
@@ -1795,12 +1820,15 @@ final class WorktreeTerminalManager {
     id: UUID?,
     focusing: Bool
   ) {
-    _ = host(for: layoutID, context: context)
     func fail() {
       guard let id else { return }
       emit(
         .surfaceCreationFailed(
           layoutID: layoutID, attemptedID: id, message: "Could not split the pane."))
+    }
+    guard existingHost(for: layoutID, context: context, command: "splitPane") != nil else {
+      fail()
+      return
     }
     // Panes are never empty, so a resolved pane always has a selected content.
     guard let paneID = resolvePane(paneToken, in: layoutID),
@@ -1922,13 +1950,39 @@ final class WorktreeTerminalManager {
   /// its sessions, whether or not a host exists (a hydrated worktree the user
   /// never selected has none). Roster prune reaches a hostless layout only on
   /// a directory named as archived, since one merely missing from the kept
-  /// set could belong to a repository that failed to load.
-  func removeLayouts(forDirectory directoryID: Worktree.ID, remoteHost: RemoteHost?) {
-    for layoutID in layoutIDs(onDirectory: directoryID) {
-      removeLayout(layoutID, directoryID: directoryID, remoteHost: remoteHost)
+  /// set could belong to a repository that failed to load. Decided here, in
+  /// the turn the command lands: a directory the roster lists live again (a
+  /// worktree re-created or re-registered under the same id since the
+  /// deletion was queued) keeps every task on it, and each task's remote host
+  /// is its own record's, not one computed before the boundary. With no store
+  /// to ask, nothing is removed.
+  func removeLayouts(forDirectory directoryID: Worktree.ID) {
+    guard let appStore else {
+      terminalLogger.warning("removeLayouts: no store to confirm \(directoryID) is gone; nothing removed.")
+      return
     }
-    removeStoredLayouts(forDirectory: directoryID, remoteHost: remoteHost)
+    let stillLive = appStore.withState { state in
+      state.repositories.worktree(for: directoryID) != nil
+        && state.repositories.sidebarItems[id: directoryID]?.lifecycle.isTerminating != true
+    }
+    guard !stillLive else {
+      terminalLogger.info("removeLayouts: \(directoryID) is a live roster entry again; its tasks stay.")
+      return
+    }
+    for layoutID in layoutIDs(onDirectory: directoryID) {
+      removeLayout(layoutID, directoryID: directoryID, remoteHost: remoteHost(of: layoutID))
+    }
+    removeStoredLayouts(forDirectory: directoryID)
     pendingSetupScriptDirectories.remove(directoryID)
+  }
+
+  /// The host a task's directory lives on, from its own record: the hosted
+  /// context, else the hydrated or stored task record.
+  private func remoteHost(of layoutID: LayoutID) -> RemoteHost? {
+    if let host = hosts[layoutID] { return host.context.host }
+    return appStore?.withState { state in
+      state.terminals.directories[layoutID]?.host ?? AppFeature.storedTask(layoutID, state: state)?.directory.host
+    }
   }
 
   /// Tasks the stored file puts on this directory that nothing at runtime
@@ -1936,14 +1990,15 @@ final class WorktreeTerminalManager {
   /// record, never guessed from the directory: a key shaped like this
   /// directory's path whose record names another directory is that
   /// directory's task and stays.
-  private func removeStoredLayouts(forDirectory directoryID: Worktree.ID, remoteHost: RemoteHost?) {
+  private func removeStoredLayouts(forDirectory directoryID: Worktree.ID) {
     let known = Set(layoutIDs(onDirectory: directoryID))
     let stored =
       appStore?.withState { state in
-        AppFeature.storedTasks(state: state).filter { $0.directory.worktreeID == directoryID }.map(\.id)
+        AppFeature.storedTasks(state: state).filter { $0.directory.worktreeID == directoryID }
       } ?? []
-    for layoutID in stored.sorted(by: { $0.persistenceKey < $1.persistenceKey }) where !known.contains(layoutID) {
-      removeLayout(layoutID, directoryID: directoryID, remoteHost: remoteHost, fromStoredRecord: true)
+    for record in stored.sorted(by: { $0.id.persistenceKey < $1.id.persistenceKey })
+    where !known.contains(record.id) {
+      removeLayout(record.id, directoryID: directoryID, remoteHost: record.directory.host, fromStoredRecord: true)
     }
   }
 
@@ -2012,8 +2067,12 @@ final class WorktreeTerminalManager {
     // was computed before this command was delivered, so absence from it
     // proves nothing: a task attached in between, one on a directory deleted
     // outside the app or one whose repository left the roster is an orphan
-    // and keeps its sessions.
-    let prunable = archivedDirectories.subtracting(directoryIDs)
+    // and keeps its sessions. The archived set was computed before delivery
+    // too: an archive reversed in between must not cost the directory its
+    // tasks, so only what the store still calls archived now goes, and with
+    // no store to ask, nothing does.
+    let stillArchived = appStore?.withState { $0.archivedDirectories } ?? []
+    let prunable = archivedDirectories.intersection(stillArchived).subtracting(directoryIDs)
     let shouldKeep: (WorktreeContentHost) -> Bool = { host in
       !prunable.contains(host.worktreeID) || protectedRepositoryIDs.contains(host.repositoryID)
     }

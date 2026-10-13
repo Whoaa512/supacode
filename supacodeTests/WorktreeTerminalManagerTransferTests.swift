@@ -92,6 +92,8 @@ struct WorktreeTerminalManagerTransferTests {
       $0.terminalClient.send = { command in recorder.queuedCommands.withValue { $0.append(command) } }
       $0.worktreeInfoWatcher.send = { _ in }
       $0.settingsFileStorage = .inMemory()
+      // A resume probes the branch before it launches; the fixture has none.
+      $0.gitClient.branchName = { _ in nil }
     }
     manager.appStore = store
     let events = EventLog(manager)
@@ -958,7 +960,10 @@ struct WorktreeTerminalManagerTransferTests {
   }
 
   @Test(.dependencies) func aRemovalCancelledByQuitIsCarriedByTheQuitSave() async throws {
-    let harness = await makeHarness()
+    let harness = await makeHarness { state in
+      Self.listDirectory(&state)
+      state.repositories.reconcileSidebarForTesting()
+    }
     let (gone, kept) = (LayoutID(task: UUID()), LayoutID(task: UUID()))
     let elsewhere = Self.worktree("/tmp/repo/wt-transfer-kept")
     _ = await open(gone, in: harness)
@@ -966,6 +971,7 @@ struct WorktreeTerminalManagerTransferTests {
     _ = await stored(harness) { $0.tasks[gone.persistenceKey] != nil && $0.tasks[kept.persistenceKey] != nil }
     await harness.clock.advance(by: .seconds(5))
     await drainWrites(harness)
+    await change(.archived, in: harness)
 
     // No suspension between the three: the removal's own write has not run.
     harness.manager.prune(keepingDirectories: [elsewhere.id], archivedDirectories: [Self.directory.id])
@@ -1380,13 +1386,15 @@ struct WorktreeTerminalManagerTransferTests {
     _ = await harness.events.collect(until: Self.isTransferOutcome)
 
     // The directory the tab came from goes: the tab is another directory's now.
+    // (Neither directory is in the roster, so the prune is a no-op by the
+    // delivery rule and the deletion does the removing.)
     harness.manager.prune(keepingDirectories: [destinationDirectory.id], archivedDirectories: [sourceDirectory.id])
-    harness.manager.removeLayouts(forDirectory: sourceDirectory.id, remoteHost: nil)
+    harness.manager.removeLayouts(forDirectory: sourceDirectory.id)
     await Task.megaYield()
     #expect(harness.recorder.localKills.value.isEmpty)
     #expect(harness.tabIDs(destination) == [own, moved])
 
-    harness.manager.removeLayouts(forDirectory: destinationDirectory.id, remoteHost: nil)
+    harness.manager.removeLayouts(forDirectory: destinationDirectory.id)
     for _ in 0..<50 where harness.recorder.localKills.value.count < 2 { await Task.megaYield() }
     #expect(Set(harness.recorder.localKills.value) == Set([own, moved].map(ZmxSessionID.make(surfaceID:))))
   }
@@ -1715,6 +1723,145 @@ struct WorktreeTerminalManagerTransferTests {
     #expect(harness.tabIDs(minted).count == 1)
     #expect(harness.terminals.directories[minted]?.worktreeID == directory.id)
     #expect(harness.store.withState { $0.repositories.worktree(for: directory.id) } == nil)
+  }
+
+  // MARK: - Decide at delivery: the older paths.
+
+  /// A deletion is queued for a directory, and before it lands the roster
+  /// lists that directory live again (re-created or re-registered). The
+  /// delivery removes nothing: the command carried the directory id only, and
+  /// the manager re-reads the roster. A second delivery after the row is gone
+  /// again removes the tasks, each with its own record's host.
+  @Test(.dependencies) func aDeletionLandingAfterTheDirectoryCameBackRemovesNothing() async {
+    let harness = await makeHarness { state in
+      Self.listDirectory(&state)
+      state.repositories.reconcileSidebarForTesting()
+    }
+    let task = LayoutID(task: UUID())
+    let own = await open(task, in: harness)
+    let repoID = RepositoryID(Self.directory.repositoryRootURL.path)
+
+    await harness.store.send(
+      .repositories(
+        .worktreeDeleted(Self.directory.id, repositoryID: repoID, selectionWasRemoved: false, nextSelection: nil))
+    ).finish()
+    #expect(harness.store.withState { $0.repositories.worktree(for: Self.directory.id) } == nil)
+    #expect(harness.recorder.queuedCommands.value.contains(.removeLayouts(forDirectory: Self.directory.id)))
+
+    // The same directory is back as a live roster entry before the deletion lands.
+    await harness.store.send(
+      .repositories(
+        .repositoriesLoaded(
+          [
+            Repository(
+              id: repoID, rootURL: Self.directory.repositoryRootURL, name: "repo", worktrees: [Self.directory])
+          ], failures: [], roots: [Self.directory.repositoryRootURL], animated: false))
+    ).finish()
+    #expect(harness.store.withState { $0.repositories.worktree(for: Self.directory.id) } != nil)
+    deliverQueuedCommands(in: harness)
+
+    #expect(harness.manager.hostIfExists(for: task) != nil, "a live directory keeps its tasks")
+    #expect(harness.tabIDs(task) == [own])
+    #expect(harness.recorder.localKills.value.isEmpty)
+    #expect(!harness.terminals.removedLayoutIDs.contains(task))
+
+    // Gone again: the deletion goes through, killing the task's own session.
+    await change(.removed, in: harness)
+    harness.manager.handleCommand(.removeLayouts(forDirectory: Self.directory.id))
+    #expect(harness.manager.hostIfExists(for: task) == nil)
+    #expect(harness.terminals.removedLayoutIDs.contains(task))
+    for _ in 0..<50 where harness.recorder.localKills.value.isEmpty { await Task.megaYield() }
+    #expect(harness.recorder.localKills.value == [ZmxSessionID.make(surfaceID: own)])
+  }
+
+  /// Commands that act on what exists (select, rename, search, close, binding
+  /// actions) were queued against a task, and the task is merged away before
+  /// they land. None attaches a host or brings the layout back.
+  @Test(.dependencies) func staleNonCreatingCommandsNeverReattachARemovedTask() async {
+    let harness = await makeHarness(seed: Self.listDirectory)
+    let source = LayoutID(task: UUID())
+    let destination = LayoutID(task: UUID())
+    let own = await open(source, in: harness)
+    _ = await open(destination, in: harness)
+    let context = DirectoryContext(worktree: Self.directory)
+    let stale: [TerminalClient.Command] = [
+      .selectTab(source, context, tabID: TabID(rawValue: own)),
+      .beginTabRename(source, context, tabID: nil),
+      .startSearch(source, context),
+      .searchSelection(source, context),
+      .navigateSearchNext(source, context),
+      .navigateSearchPrevious(source, context),
+      .closeFocusedTab(source, context),
+      .closeFocusedSurface(source, context),
+      .performBindingAction(source, context, action: "copy_to_clipboard"),
+      .performBindingActionOnSurface(source, context, surfaceID: own, action: "copy_to_clipboard"),
+      .destroySurface(source, context, tabID: TabID(rawValue: own), surfaceID: own),
+      .splitSurface(source, context, tabID: TabID(rawValue: own), surfaceID: own, direction: .horizontal, input: nil),
+      .splitPane(source, context, paneToken: own, direction: .horizontal, input: nil),
+    ]
+
+    merge(source, into: destination, in: harness)
+    _ = await harness.events.collect(until: Self.isTransferOutcome)
+    #expect(harness.terminals.removedLayoutIDs.contains(source))
+    #expect(harness.manager.hostIfExists(for: source) == nil)
+
+    for command in stale { harness.manager.handleCommand(command) }
+    let after = await harness.events.collect(until: Self.createsATab)
+
+    #expect(harness.manager.hostIfExists(for: source) == nil, "nothing attached a host for the removed task")
+    #expect(harness.terminals.layouts[id: source] == nil, "no layout came back")
+    #expect(harness.terminals.directories[source] == nil)
+    #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
+    #expect(harness.tabIDs(destination).count == 2, "the moved tab stays where it went")
+  }
+
+  /// A resume into a task, through the app: the launch names the task, and
+  /// the task is merged away before the launch lands (closing its tab would
+  /// keep it: it lists a session). Nothing is created, nothing is stored.
+  @Test(.dependencies) func aResumeLandingAfterItsTaskWentCreatesNothing() async throws {
+    let removal = TaskRemoval.merged
+    let directory = try onDiskWorktree(named: "resume-merged")
+    let key = Self.session("tangent")
+    let harness = await makeHarness { state in
+      Self.listDirectory(directory, in: &state)
+      state.repositories.reconcileSidebarForTesting()
+      state.repositories.sessionSummaries = [
+        SessionSummary(
+          harness: .pi, sessionID: "tangent", createdAt: .distantPast,
+          cwd: directory.workingDirectory.path(percentEncoded: false), title: "t", messageCount: 2,
+          lastActivity: .distantPast)
+      ]
+      state.repositories.sessionsStarted = true
+    }
+    let task = LayoutID(task: UUID())
+    let own = await open(task, on: directory, in: harness)
+    let members: [LayoutID: [TaskMember]] = [task: [.session(key)]]
+    await harness.store.send(.terminals(.membersChanged(members, agents: []))).finish()
+    #expect(harness.store.withState { AppFeature.taskDirectory(task, listing: key, state: $0) } != nil)
+
+    await harness.store.send(.repositories(.delegate(.resumeSession(key, task: task)))).finish()
+    for _ in 0..<50 where !harness.recorder.queuedCommands.value.contains(where: Self.isTaskLaunch) {
+      await Task.megaYield()
+    }
+    let queued = harness.recorder.queuedCommands.value
+    guard case .createTaskTab(let into, let source, let input, _, _)? = queued.first(where: Self.isTaskLaunch)
+    else {
+      Issue.record("the resume is in flight as a task launch: \(queued)")
+      return
+    }
+    #expect(into == task)
+    #expect(source == .task(task), "a resume carries the task it goes into, not a planned directory")
+    #expect(input == "pi --session tangent")
+
+    await removeTask(task, removal, ownTab: own, in: harness)
+    deliverQueuedCommands(in: harness)
+    let after = await harness.events.collect(until: Self.createsATab)
+
+    #expect(harness.manager.hostIfExists(for: task) == nil, "no host for a task that is gone")
+    #expect(harness.terminals.layouts[id: task] == nil, "the removed task is not resurrected")
+    #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
+    let stored = await settledStore(harness)
+    #expect(stored.tasks[task.persistenceKey] == nil)
   }
 
   /// A record for `layoutID` on the fixture directory, never opened: stored,

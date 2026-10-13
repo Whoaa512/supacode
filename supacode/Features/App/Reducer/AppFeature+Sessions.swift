@@ -1033,7 +1033,8 @@ extension AppFeature {
   /// `target` is a task the caller already checked (`taskDirectory`): the
   /// tab goes there and nowhere else, starting in the session's own directory.
   /// `source` is what a new task's launch carries across the boundary; a
-  /// resume has none and keeps its planned context.
+  /// resume carries the target task's identity, or the roster directory's
+  /// when it mints, and the manager re-derives the directory at delivery.
   private static func launchSessionTab(
     _ pending: PendingSessionLaunch, directory: DirectoryContext, source: NewTaskSource? = nil,
     into target: LayoutID? = nil, state: inout State
@@ -1057,18 +1058,14 @@ extension AppFeature {
       PendingTaskLaunch(layoutID: layoutID, directoryID: directory.worktreeID, primary: primary))
     let command = target == nil ? pending.command : resumeInput(pending, in: directory)
     let requestID = pending.requestID
-    // A new task carries its source's identity only: the manager resolves
-    // the directory again when the command lands, by the source's rule, and
-    // refuses what is not live then. A resume keeps the context it was
-    // planned with.
-    let create: TerminalClient.Command =
-      switch source {
-      case .some(let source):
-        .createTaskTab(layoutID, source: source, input: pending.kind == .agent ? command : nil, focusing: true)
-      case .none:
-        .createTabWithInput(
-          layoutID, directory, input: command, runSetupScriptIfNew: false, title: nil, focusing: true, anchor: nil)
-      }
+    // Identity only crosses the boundary: the manager resolves the directory
+    // again when the command lands, by the source's rule, and refuses what
+    // is not live then. A resume into a task names that task, so one merged,
+    // removed or archived by delivery gets no tab; a resume that mints names
+    // the roster directory it resumes in.
+    let launchSource = source ?? target.map(NewTaskSource.task) ?? .roster(directory.worktreeID)
+    let create: TerminalClient.Command = .createTaskTab(
+      layoutID, source: launchSource, input: pending.kind == .agent ? command : nil, focusing: true)
     return .run { send in
       await terminalClient.send(create)
       await send(.launchSessionCompleted(requestID: requestID))

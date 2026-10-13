@@ -1820,15 +1820,15 @@ struct AppFeature {
         // Deleting a worktree deletes its layout, sessions, and persisted
         // record, host or no host; roster prune cannot reach a hostless
         // layout without risking a merely-unloaded repository's records.
-        let remoteHost = state.repositories.repositories[id: repositoryID]?.host
+        // The directory id alone crosses: the manager re-checks the roster
+        // and reads each task's host at delivery.
         return .merge(
           resolveCommandAcks(ok: true, state: &state) { match in
             if case .worktreeRemoved(let ackWorktree) = match { return ackWorktree == worktreeID }
             return false
           },
           .run { _ in
-            await terminalClient.send(
-              .removeLayouts(forDirectory: worktreeID, remoteHost: remoteHost))
+            await terminalClient.send(.removeLayouts(forDirectory: worktreeID))
           }
         )
 

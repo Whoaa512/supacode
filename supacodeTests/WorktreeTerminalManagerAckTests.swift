@@ -361,7 +361,7 @@ struct WorktreeTerminalManagerAckTests {
     #expect(harness.store.withState { $0.terminals.layouts[id: harness.worktree.id.layoutID] } != nil)
 
     harness.manager.handleCommand(
-      .removeLayouts(forDirectory: harness.worktree.id, remoteHost: nil))
+      .removeLayouts(forDirectory: harness.worktree.id))
 
     // The in-memory layout detaches AND the persisted record goes with it;
     // this hostless-hydrated case is exactly the one roster prune cannot reach.
@@ -383,7 +383,7 @@ struct WorktreeTerminalManagerAckTests {
           TaskLayoutsFile(oneTaskPerDirectory: LayoutsFile(worktrees: [harness.worktree.id.rawValue: record])))))
 
     harness.manager.handleCommand(
-      .removeLayouts(forDirectory: harness.worktree.id, remoteHost: nil))
+      .removeLayouts(forDirectory: harness.worktree.id))
 
     // The prune must retract the surface so AppFeature clears its agent presence.
     var closed: (worktreeID: LayoutID, ids: Set<UUID>)?
@@ -402,23 +402,15 @@ struct WorktreeTerminalManagerAckTests {
       killSignal.yield((host.alias, session))
     })
     let contentID = UUID()
+    // The task's own record names its host; the command carries no host.
+    let record = TaskRecord(
+      id: harness.worktree.layoutID,
+      directory: .init(worktreeID: harness.worktree.id, host: RemoteHost(alias: "build-box")),
+      layout: singleTabLayout(contentID: contentID), createdAt: Date(timeIntervalSince1970: 1))
     harness.store.send(
-      .terminals(
-        .layoutsHydrated(
-          TaskLayoutsFile(
-            oneTaskPerDirectory: LayoutsFile(
-              worktrees: [
-                harness.worktree.id.rawValue: LayoutRecord(layout: singleTabLayout(contentID: contentID))
-              ]
-            )
-          )
-        )
-      )
-    )
+      .terminals(.layoutsHydrated(TaskLayoutsFile(tasks: [record.id.persistenceKey: record]))))
 
-    harness.manager.handleCommand(
-      .removeLayouts(
-        forDirectory: harness.worktree.id, remoteHost: RemoteHost(alias: "build-box")))
+    harness.manager.handleCommand(.removeLayouts(forDirectory: harness.worktree.id))
 
     var kills = remoteKills.makeAsyncIterator()
     let kill = await kills.next()
@@ -441,9 +433,9 @@ struct WorktreeTerminalManagerAckTests {
   }
 
   @Test(.dependencies) func pruneDecidesByTheHostsDirectoryNotItsKey() async {
-    let harness = makeHarness()
-    let pump = CreationEvents(harness.manager)
     let directory = makeWorktree(id: "/tmp/repo/wt-directory")
+    let harness = makeHarness(repositories: roster([directory]))
+    let pump = CreationEvents(harness.manager)
     let layoutID = LayoutID(legacyWorktreeKey: "/tmp/repo/wt-layout-key")
     _ = await openLayout(layoutID, on: directory, in: harness, pump: pump)
 
@@ -459,6 +451,7 @@ struct WorktreeTerminalManagerAckTests {
     #expect(harness.manager.hostIfExists(for: layoutID) != nil)
 
     // Keeping the key alone protects nothing once the directory is archived.
+    archive(directory, in: harness)
     harness.manager.prune(
       keepingDirectories: ["/tmp/repo/wt-layout-key"], protectingRepositoryIDs: [],
       archivedDirectories: [directory.id])
@@ -479,7 +472,7 @@ struct WorktreeTerminalManagerAckTests {
     _ = await openLayout(other.id.layoutID, on: other, in: harness, pump: pump)
     var iterator = harness.manager.eventStream().makeAsyncIterator()
 
-    harness.manager.handleCommand(.removeLayouts(forDirectory: directory.id, remoteHost: nil))
+    harness.manager.handleCommand(.removeLayouts(forDirectory: directory.id))
 
     #expect(harness.manager.hostIfExists(for: first) == nil)
     #expect(harness.manager.hostIfExists(for: second) == nil)
@@ -521,10 +514,10 @@ struct WorktreeTerminalManagerAckTests {
   }
 
   @Test(.dependencies) func archivingADirectoryPrunesEveryTaskOnItAndNoOther() async {
-    let harness = makeHarness()
-    let pump = CreationEvents(harness.manager)
     let archived = makeWorktree(id: "/tmp/repo/wt-archived")
     let other = makeWorktree(id: "/tmp/repo/wt-other")
+    let harness = makeHarness(repositories: roster(archiving: archived, beside: other))
+    let pump = CreationEvents(harness.manager)
     let first = LayoutID(task: UUID())
     let second = LayoutID(task: UUID())
     let kept = LayoutID(task: UUID())
@@ -543,12 +536,13 @@ struct WorktreeTerminalManagerAckTests {
 
   @Test(.dependencies) func aTaskAttachedAfterThePruneWasComputedKeepsItsHostRecordAndSessions() async throws {
     let recorder = TeardownRecorder()
-    let harness = makeHarness(
-      defaults: recorder.defaults, killSession: recorder.killSession, killRemoteSession: recorder.killRemoteSession)
-    let pump = CreationEvents(harness.manager)
     let listed = makeWorktree(id: "/tmp/repo/wt-listed")
     let archived = makeWorktree(id: "/tmp/repo/wt-archived")
     let gone = makeWorktree(id: "/tmp/gone")
+    let harness = makeHarness(
+      defaults: recorder.defaults, killSession: recorder.killSession, killRemoteSession: recorder.killRemoteSession,
+      repositories: roster([listed, archived]))
+    let pump = CreationEvents(harness.manager)
     let listedTask = LayoutID(task: UUID())
     let archivedTask = LayoutID(task: UUID())
     let orphanTask = LayoutID(task: UUID())
@@ -583,6 +577,7 @@ struct WorktreeTerminalManagerAckTests {
 
     // A later, positively archived directory is the only thing that goes. Its
     // delete and kill land after anything the stale command could have queued.
+    archive(archived, in: harness)
     harness.manager.prune(
       keepingDirectories: [listed.id], protectingRepositoryIDs: [], archivedDirectories: [archived.id])
 
@@ -596,6 +591,27 @@ struct WorktreeTerminalManagerAckTests {
 
   /// A roster of one repository whose `archived` worktree sits in the
   /// archived bucket, as the reducer sees it when it computes a prune.
+  /// A roster listing `worktrees` in one repository, none archived. A prune
+  /// decides on what the store calls archived at delivery, so a test that
+  /// prunes by archive lists the directory here and archives it (`archive`).
+  private func roster(_ worktrees: [Worktree]) -> RepositoriesFeature.State {
+    RepositoriesFeature.State(reconciledRepositories: [
+      Repository(
+        id: RepositoryID("/tmp/repo"), rootURL: URL(fileURLWithPath: "/tmp/repo"), name: "repo",
+        worktrees: IdentifiedArray(uniqueElements: worktrees))
+    ])
+  }
+
+  /// Archives a listed worktree now, as the store sees it when a prune lands.
+  private func archive(_ worktree: Worktree, in harness: Harness) {
+    harness.store.withState { $0.repositories.$sidebar }.withLock { sidebar in
+      sidebar.insert(
+        worktree: worktree.id, in: RepositoryID("/tmp/repo"), bucket: .archived,
+        item: .init(archivedAt: Date(timeIntervalSince1970: 1_000_000)))
+    }
+    #expect(harness.store.withState { $0.archivedDirectories.contains(worktree.id) })
+  }
+
   private func roster(archiving archived: Worktree, beside other: Worktree) -> RepositoriesFeature.State {
     let repository = Repository(
       id: RepositoryID("/tmp/repo"), rootURL: URL(fileURLWithPath: "/tmp/repo"), name: "repo",
@@ -677,6 +693,34 @@ struct WorktreeTerminalManagerAckTests {
     #expect(recorder.remoteKills.value.isEmpty)
   }
 
+  /// The recheck is the primitive's own, not only its command handler's: a
+  /// direct call with a stale archived set prunes nothing the store no longer
+  /// calls archived.
+  @Test(.dependencies) func thePrunePrimitiveItselfRechecksTheArchiveAtDelivery() async throws {
+    let archived = makeWorktree(id: "/tmp/repo/wt-archived")
+    let other = makeWorktree(id: "/tmp/repo/wt-other")
+    let repositories = roster(archiving: archived, beside: other)
+    let harness = makeHarness(repositories: repositories)
+    let pump = CreationEvents(harness.manager)
+    let opened = LayoutID(task: UUID())
+    _ = await openLayout(opened, on: archived, in: harness, pump: pump)
+    try #require(harness.store.withState { $0.archivedDirectories } == [archived.id])
+
+    repositories.$sidebar.withLock { $0.removeAnywhere(worktree: archived.id, in: RepositoryID("/tmp/repo")) }
+    harness.manager.prune(
+      keepingDirectories: [other.id], protectingRepositoryIDs: [], archivedDirectories: [archived.id])
+
+    #expect(harness.manager.hostIfExists(for: opened) != nil)
+    #expect(harness.store.withState { Set($0.terminals.layouts.ids) } == [opened])
+
+    // Archived again: the same call tears it down.
+    archive(archived, in: harness)
+    harness.manager.prune(
+      keepingDirectories: [other.id], protectingRepositoryIDs: [], archivedDirectories: [archived.id])
+    #expect(harness.manager.hostIfExists(for: opened) == nil)
+    #expect(harness.store.withState { $0.terminals.layouts.isEmpty })
+  }
+
   @Test(.dependencies) func aPruneDeliveredWithoutAStoreTearsNothingDown() {
     let manager = withDependencies {
       $0.zmxClient = .noop
@@ -713,13 +757,18 @@ struct WorktreeTerminalManagerAckTests {
     }
   }
 
+  /// The directory two tasks share in the fixture, remote or local.
+  private func sharedDirectory(remote: Bool) -> Worktree {
+    let remoteHost = remote ? RemoteHost(alias: "build-box") : nil
+    return remoteHost.map { RepositoriesFeature.remoteMainWorktree(host: $0, remotePath: "/srv/repo") }
+      ?? makeWorktree(id: "/tmp/repo/wt-shared")
+  }
+
   private func makeSharedDirectoryFixture(
     remote: Bool, harness: Harness, recorder: TeardownRecorder
   ) async -> SharedDirectoryFixture {
     let remoteHost = remote ? RemoteHost(alias: "build-box") : nil
-    let directory =
-      remoteHost.map { RepositoriesFeature.remoteMainWorktree(host: $0, remotePath: "/srv/repo") }
-      ?? makeWorktree(id: "/tmp/repo/wt-shared")
+    let directory = sharedDirectory(remote: remote)
     let other = makeWorktree(id: "/tmp/repo/wt-other")
     let pump = CreationEvents(harness.manager)
     let created = Date(timeIntervalSince1970: 1)
@@ -788,10 +837,13 @@ struct WorktreeTerminalManagerAckTests {
   @Test(.dependencies, arguments: [false, true])
   func archivingADirectoryDeletesEveryTaskRecordAndKillsEverySession(remote: Bool) async {
     let recorder = TeardownRecorder()
+    let directory = sharedDirectory(remote: remote)
     let harness = makeHarness(
-      defaults: recorder.defaults, killSession: recorder.killSession, killRemoteSession: recorder.killRemoteSession)
+      defaults: recorder.defaults, killSession: recorder.killSession, killRemoteSession: recorder.killRemoteSession,
+      repositories: roster([directory, makeWorktree(id: "/tmp/repo/wt-other")]))
     let fixture = await makeSharedDirectoryFixture(remote: remote, harness: harness, recorder: recorder)
 
+    archive(directory, in: harness)
     harness.manager.prune(
       keepingDirectories: ["/tmp/repo/wt-other"], protectingRepositoryIDs: [],
       archivedDirectories: [fixture.directory.id])
@@ -807,7 +859,7 @@ struct WorktreeTerminalManagerAckTests {
     let fixture = await makeSharedDirectoryFixture(remote: remote, harness: harness, recorder: recorder)
 
     harness.manager.handleCommand(
-      .removeLayouts(forDirectory: fixture.directory.id, remoteHost: fixture.remoteHost))
+      .removeLayouts(forDirectory: fixture.directory.id))
 
     await expectOnlyTheSharedDirectoryWasTornDown(fixture, harness: harness, recorder: recorder)
   }
@@ -821,12 +873,15 @@ struct WorktreeTerminalManagerAckTests {
     }
     let killed = LockIsolated<Set<String>>([])
     let (kills, killSignal) = AsyncStream<Void>.makeStream()
+    let archivedWorktree = makeWorktree(id: "/tmp/repo/wt-archived")
     let harness = makeHarness(
       defaults: defaults,
       killSession: { session in
         killed.withValue { _ = $0.insert(session) }
         killSignal.yield()
-      })
+      },
+      repositories: roster([archivedWorktree, makeWorktree(id: "/tmp/repo/wt-other")]))
+    archive(archivedWorktree, in: harness)
     let archived = TaskRecord.Directory(worktreeID: "/tmp/repo/wt-archived")
     let other = TaskRecord.Directory(worktreeID: "/tmp/repo/wt-other")
     let first = LayoutID(task: UUID())
@@ -894,7 +949,7 @@ struct WorktreeTerminalManagerAckTests {
         .layoutsHydrated(
           TaskLayoutsFile(tasks: Dictionary(uniqueKeysWithValues: tasks.map { ($0.id.persistenceKey, $0) })))))
 
-    harness.manager.handleCommand(.removeLayouts(forDirectory: directory.worktreeID, remoteHost: nil))
+    harness.manager.handleCommand(.removeLayouts(forDirectory: directory.worktreeID))
 
     #expect(harness.store.withState { Array($0.terminals.layouts.ids) } == [kept])
     #expect(harness.store.withState { $0.terminals.directories } == [kept: other])
@@ -943,7 +998,7 @@ struct WorktreeTerminalManagerAckTests {
             tasks: Dictionary(uniqueKeysWithValues: hydratedTasks.map { ($0.id.persistenceKey, $0) }),
             origins: origins))))
 
-    harness.manager.handleCommand(.removeLayouts(forDirectory: deleted, remoteHost: RemoteHost(alias: "build-box")))
+    harness.manager.handleCommand(.removeLayouts(forDirectory: deleted))
 
     #expect(harness.store.withState { Set($0.terminals.layouts.ids) } == Set(hydratedTasks.map(\.id)))
     #expect(harness.store.withState { $0.terminals.directories[sentinel] } == sentinelDirectory)
@@ -953,7 +1008,7 @@ struct WorktreeTerminalManagerAckTests {
 
     // A real deletion afterwards: its tombstone and kill land after anything
     // the first command could have queued.
-    harness.manager.handleCommand(.removeLayouts(forDirectory: sentinelDirectory.worktreeID, remoteHost: nil))
+    harness.manager.handleCommand(.removeLayouts(forDirectory: sentinelDirectory.worktreeID))
 
     let written = await recorder.nextWrite { $0.tasks[sentinel.persistenceKey] == nil }
     #expect(written.tasks == [mismatched.persistenceKey: tasks[0]])
@@ -991,7 +1046,7 @@ struct WorktreeTerminalManagerAckTests {
       defaults: recorder.defaults, killSession: recorder.killSession, repositories: repositories)
     #expect(harness.store.withState { $0.terminals.layouts.isEmpty })
 
-    harness.manager.handleCommand(.removeLayouts(forDirectory: deleted.worktreeID, remoteHost: nil))
+    harness.manager.handleCommand(.removeLayouts(forDirectory: deleted.worktreeID))
 
     let written = await recorder.nextWrite { $0.tasks[minted.persistenceKey] == nil }
     #expect(written.tasks == [lookalike.persistenceKey: tasks[2]])
@@ -1030,7 +1085,7 @@ struct WorktreeTerminalManagerAckTests {
       return count
     }
 
-    harness.manager.handleCommand(.removeLayouts(forDirectory: directory.id, remoteHost: nil))
+    harness.manager.handleCommand(.removeLayouts(forDirectory: directory.id))
 
     tornDown = await tornDownCount.value
     #expect(tornDown == 2)
