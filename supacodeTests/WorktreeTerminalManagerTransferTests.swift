@@ -2282,9 +2282,11 @@ struct WorktreeTerminalManagerTransferTests {
     return false
   }
 
-  /// A record for `layoutID` on the fixture directory, never opened: stored,
-  /// no layout, no host.
-  private func seedStoredTask(_ layoutID: LayoutID, in harness: Harness) async {
+  /// A record for `layoutID` on the fixture directory, never opened this
+  /// run: stored and hydrated into a layout with one dormant tab (returned),
+  /// no host.
+  @discardableResult
+  private func seedStoredTask(_ layoutID: LayoutID, in harness: Harness) async -> UUID {
     let (paneID, dormant) = (PaneID(), UUID())
     let layout = PaneLayout(
       tree: SplitTree(view: paneID),
@@ -2305,6 +2307,61 @@ struct WorktreeTerminalManagerTransferTests {
     await harness.store.send(
       .terminals(.layoutsHydrated(TaskLayoutsFile(tasks: [layoutID.persistenceKey: record])))
     ).finish()
+    return dormant
+  }
+
+  // MARK: - A hydrated task gets its host from the selection, never from a focus.
+
+  /// A task restored at launch has its tabs but no host until it is shown.
+  /// Focus, show and select are commands on what exists: delivered against
+  /// such a task they attach no host, no layout and no tab. What they can do
+  /// without a host, pick the tab, they do, so the eventual show lands on it.
+  @Test(.dependencies) func focusShowAndSelectNeverProvisionAHydratedTask() async {
+    let harness = await makeHarness { state in
+      Self.listDirectory(&state)
+      state.repositories.reconcileSidebarForTesting()
+    }
+    let task = LayoutID(task: UUID())
+    let dormant = await seedStoredTask(task, in: harness)
+    #expect(harness.tabIDs(task) == [dormant], "hydrated with its tab")
+    #expect(harness.manager.hostIfExists(for: task) == nil, "no host until shown")
+    let prefixBefore = harness.terminals.layouts[id: task]?.titlePrefix
+    let context = DirectoryContext(worktree: Self.directory)
+
+    harness.manager.handleCommand(.showTask(task, context, focusing: true))
+    harness.manager.handleCommand(.focusSurface(task, context, tabID: TabID(rawValue: dormant), surfaceID: dormant))
+    harness.manager.handleCommand(.selectTab(task, context, tabID: TabID(rawValue: dormant)))
+    let after = await harness.events.collect(until: Self.createsATab)
+
+    #expect(harness.manager.hostIfExists(for: task) == nil, "a focus, show or select attached a host")
+    #expect(harness.terminals.layouts[id: task]?.titlePrefix == prefixBefore, "no layout attach restamped the task")
+    #expect(harness.tabIDs(task) == [dormant], "no tab created")
+    #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
+    #expect(harness.manager.selectedLayoutID != task, "nothing selected the task")
+  }
+
+  /// The user picks the hydrated task in the sidebar: the selection landing
+  /// on it is the one path that gives it its host, and the show that follows
+  /// finds that host.
+  @Test(.dependencies) func selectingAHydratedTaskInTheSidebarProvisionsIt() async {
+    let harness = await makeHarness { state in
+      Self.listDirectory(&state)
+      state.repositories.reconcileSidebarForTesting()
+      state.repositories.selection = .worktree(Self.directory.id)
+    }
+    let task = LayoutID(task: UUID())
+    let dormant = await seedStoredTask(task, in: harness)
+    #expect(harness.manager.hostIfExists(for: task) == nil)
+    harness.recorder.queuedCommands.withValue { $0.removeAll() }
+
+    await harness.store.send(.repositories(.selectTask(task, directory: Self.directory.id))).finish()
+    #expect(harness.recorder.queuedCommands.value.contains(.selectLayout(task, forDirectory: Self.directory.id)))
+    deliverQueuedCommands(in: harness)
+
+    #expect(harness.manager.hostIfExists(for: task) != nil, "the selection provisions the task")
+    #expect(harness.manager.selectedLayoutID == task)
+    #expect(harness.terminals.layouts[id: task]?.titlePrefix == Self.directory.name, "attached under its directory")
+    #expect(harness.tabIDs(task) == [dormant], "its tab is kept, no tab created")
   }
 
   /// The same launch on a directory still live: one tab, in the minted

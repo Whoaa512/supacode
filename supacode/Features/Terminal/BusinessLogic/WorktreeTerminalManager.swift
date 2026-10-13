@@ -493,10 +493,10 @@ final class WorktreeTerminalManager {
       }
       emit(.tabRenamed(layoutID: layoutID, tabID: tabID, applied: applied))
     case .selectTab(let layoutID, let context, let tabID):
-      guard let host = existingHost(for: layoutID, context: context, command: "selectTab") else { break }
+      guard existingTask(layoutID, context: context, command: "selectTab") else { break }
       sendLayout(layoutID, .wakeTab(id: tabID))
       sendLayout(layoutID, .selectTab(id: tabID))
-      host.focusSelectedTab()
+      existingHost(for: layoutID, context: context, command: "selectTab")?.focusSelectedTab()
     case .selectTabAtIndex(let layoutID, let index):
       selectTab(atIndex: index, in: layoutID)
     case .selectRelativeTab(let layoutID, let forward):
@@ -592,6 +592,10 @@ final class WorktreeTerminalManager {
   /// The tab ID when it exists in the worktree's layout, else nil.
   private func presentTab(_ tabID: TabID, in worktreeID: LayoutID) -> TabID? {
     layoutState(for: worktreeID)?.layout.pane(containingTab: tabID) != nil ? tabID : nil
+  }
+
+  private func owningTab(of surfaceID: UUID, in layoutID: LayoutID) -> TabID? {
+    layoutState(for: layoutID)?.layout.tab(containingContent: ContentID(rawValue: surfaceID))?.tab.id
   }
 
   private func handleSearchCommand(_ command: TerminalClient.Command) -> Bool {
@@ -764,6 +768,7 @@ final class WorktreeTerminalManager {
 
   /// Moves the selection, occluding the layout left and waking the one shown.
   private func selectLayout(_ id: LayoutID?) {
+    if let id { provisionHydratedTask(id) }
     guard id != selectedLayoutID else { return }
     if let previousID = selectedLayoutID, let previousHost = hosts[previousID] {
       rememberFocusedZoom(of: previousHost)
@@ -897,18 +902,42 @@ final class WorktreeTerminalManager {
     hosts[worktreeID]
   }
 
-  /// The host of a task that holds tabs now, attached if the task was never
-  /// shown this run. For the commands that act on what exists (select, focus,
-  /// rename, search, close, binding actions, splits of a surface or pane):
-  /// decided at delivery, so a task removed by transfer or close since the
-  /// command was sent gets no host, layout or tab back. The creating commands
-  /// keep `host(for:context:)`.
+  /// Whether a non-creating command may act on the task now: it exists, is
+  /// not removed and holds a tab. Decided at delivery, so a task removed by
+  /// transfer or close since the command was sent is refused.
+  private func existingTask(_ layoutID: LayoutID, context carried: DirectoryContext, command: StaticString) -> Bool {
+    deliveryContext(for: layoutID, carried: carried, creating: false, command: command) != nil
+  }
+
+  /// The host of a task that holds tabs now, when it has one. For the
+  /// commands that act on what exists (select, focus, rename, search, close,
+  /// binding actions, splits of a surface or pane): never attaches, so a
+  /// task hydrated at launch and not shown yet gets no host, layout or tab
+  /// from a queued command; `provisionHydratedTask` is the one path that
+  /// gives it its host, and the creating commands keep `host(for:context:)`.
   private func existingHost(
     for layoutID: LayoutID, context carried: DirectoryContext, command: StaticString
   ) -> WorktreeContentHost? {
-    guard let context = deliveryContext(for: layoutID, carried: carried, creating: false, command: command)
-    else { return nil }
-    return host(for: layoutID, context: context)
+    guard existingTask(layoutID, context: carried, command: command) else { return nil }
+    guard let host = hosts[layoutID] else {
+      terminalLogger.info("\(command): \(layoutID) has no host yet (not shown this run); nothing attached.")
+      return nil
+    }
+    return host
+  }
+
+  /// Gives a task hydrated at launch its host, from its own record as it is
+  /// now. Only the selection landing on the task calls this: the user picked
+  /// it and the detail view mounts it next, so the host is what its surfaces
+  /// wire to. A task with a host, with no tab, or removed is left as it is.
+  private func provisionHydratedTask(_ layoutID: LayoutID) {
+    guard hosts[layoutID] == nil, taskHoldsTabs(layoutID),
+      let context = appStore?.withState({ state -> DirectoryContext? in
+        guard !state.terminals.removedLayoutIDs.contains(layoutID) else { return nil }
+        return AppFeature.taskContext(layoutID, state: state)
+      })
+    else { return }
+    _ = host(for: layoutID, context: context)
   }
 
   /// The worktree's cross-feature host, created and wired on first use. Also
@@ -1642,14 +1671,17 @@ final class WorktreeTerminalManager {
   ) {
     // Decided here, not when the row was activated: a task removed since
     // must not come back as an empty layout with a host.
-    guard let host = existingHost(for: layoutID, context: context, command: "focusSurface") else { return }
+    guard existingTask(layoutID, context: context, command: "focusSurface") else { return }
     // Surface-first: the tab ID is a hint; the surface's actual owner wins.
-    guard let owningTab = host.tabID(containing: surfaceID) ?? presentTab(tabID, in: layoutID) else {
+    guard let owningTab = owningTab(of: surfaceID, in: layoutID) ?? presentTab(tabID, in: layoutID) else {
       terminalLogger.warning("focusSurface: surface \(surfaceID) not found in worktree \(layoutID).")
       return
     }
     sendLayout(layoutID, .wakeTab(id: owningTab))
     sendLayout(layoutID, .selectTab(id: owningTab))
+    // A task not shown this run has no host to focus: the tab is picked, and
+    // the selection that provisions the task shows it on that tab.
+    guard let host = existingHost(for: layoutID, context: context, command: "focusSurface") else { return }
     host.liveSurface(surfaceID)?.requestFocus()
     // A hibernated or not yet mounted surface has nothing to ask: latch the
     // request so it lands once the renderer is live and its window is key.
