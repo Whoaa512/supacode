@@ -370,9 +370,6 @@ struct SupacodeApp: App {
       sendTextToSurface: { worktreeID, surfaceID, text in
         terminalManager.sendText(text, worktreeID: worktreeID, surfaceID: surfaceID)
       },
-      surfaceScreenText: { worktreeID, surfaceID in
-        terminalManager.screenPreview(worktreeID: worktreeID, surfaceID: surfaceID)
-      },
       latestUnreadNotification: {
         terminalManager.latestUnreadNotificationLocation()
       },
