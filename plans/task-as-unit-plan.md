@@ -4161,3 +4161,50 @@ deviation.
   `WorktreeTerminalManagerReaperTests/terminateKillsTrackedEvenWithLiveClientsButSparesUntrackedInUse`
   (the tracked session killed twice; the test has no app store so none of
   the changed paths are reachable; passes 4/4 when its suite runs alone).
+- Z1 r3, 2026-10-12, `216af44f`, `8afc3d2e`, `88ddb8c3`. Review of Z1 r2
+  found one P0, two P1 and one P2, all held; one commit each, test red
+  first. (P0 + P1, one root cause) The delivery gates read the broad
+  `isTerminating` flag as "not live", and it covers `.deletingScript` and
+  `.archiving`, the phases in which the delete and archive scripts must
+  run: `runBlockingScript` refused the ordinary scripts and returned with
+  no completion (operation stuck), and `removeLayouts` read
+  `.deletingScript` as permission to tear every task down, against A12.
+  Rule, explicit now: a blocking script of kind K lands only while the row
+  is in K's own phase (`BlockingScriptKind.windDownPhase`: `.deletingScript`
+  for delete, `.archiving` for archive; a user script keeps the
+  live-directory rule), through `AppFeature.scriptTaskDirectory` /
+  `scriptDirectory` and the gate's `script:` argument; an archived row may
+  still be deleted, so only the listing and the phase are checked. A
+  removal lands only once the roster no longer lists the directory, the
+  state the deletion leaves behind; a listed directory keeps every task
+  whatever its row's phase. (P1) `existingHost` reached the attaching
+  `host(for:context:)`, so `showTask`, `focusSurface` and `selectTab` on a
+  task hydrated at launch and not shown yet created its host and attached
+  its layout. Non-creating commands now go through the delivery gate
+  (`existingTask`) and read `hosts[...]` as is; `provisionHydratedTask` is
+  the one explicit provisioning, called only when the selection lands on
+  the task (`selectLayout`, the sidebar pick, decided at delivery through
+  `selection(_:forDirectory:)`). A focus or select without a host still
+  picks the tab in the layout (`owningTab(of:in:)`), so the show that
+  follows the selection lands on it; the view's own `wireSurface` path is
+  unchanged. (P2) `supacode agent prompt --wait` re-resolved by name,
+  worktree, kind and task on each poll; both polls now carry
+  `resolvedTarget.surfaceID` (`pollForRow(surfaceID:)`, `surfaceRow`) and
+  read that surface's row by identity; its disappearance is
+  `agent_not_running`, never a re-resolution; a row with no surface keeps
+  the old path. Tests (red first on the unfixed source):
+  `WorktreeTerminalManagerTransferTests` +5
+  (`aWindDownScriptRunsToCompletionInItsOwnPhase` × delete / archive ×
+  task / task-less, reducer `deleteSidebarItemConfirmed` /
+  `archiveWorktreeConfirmed` to manager, finish emits
+  `blockingScriptCompleted`; `aWindDownScriptLandingAfterItsPhaseEndedIsRefused`
+  × delete / archive; `aDeletionLandingDuringANewDeleteScriptPhaseRemovesNothing`:
+  host, both tabs, tracked script, store and sessions all kept;
+  `focusShowAndSelectNeverProvisionAHydratedTask`;
+  `selectingAHydratedTaskInTheSidebarProvisionsIt`, green before and
+  after); `AgentCLITests` +3 (same-kind sibling in the same task; rename
+  with the name reused; prompted surface gone). Gate (final tree): check 0;
+  Transfer + Ack + Sessions manager suites exit 0 (121); `AgentCLITests`
+  exit 0 (41); FeatureTests `AppFeatureRunScriptTests` +
+  `AppFeatureDeeplinkTests` with Ack exit 0 (217); build-app 0; full
+  `make test` exit 2 with 4670 tests and only the 5 known failures.
