@@ -23,6 +23,15 @@ Requires [mise](https://mise.jdx.dev/) for zig, swiftlint, swift-format, xcbeaut
 
 Supacode is a macOS terminal emulator that for running multiple coding agents in parallel in Git worktrees, using GhosttyKit as the underlying terminal.
 
+### Tasks own layouts
+
+- The unit of work is a **task** (`TaskRecord`, `supacode/Domain/TaskRecord.swift`): id `LayoutID` (an opaque UUID, never a path; `Features/Terminal/Models/LayoutID.swift`), a default `Directory` (worktree id + optional SSH host), a layout and an ordered member list (`sessions`, primary first). Layouts live in `terminals.layouts[id: layoutID]`; a worktree owns no layout. Several tasks may share a directory, and a tab may `cd` elsewhere.
+- Tasks are never created by hand: the first tab on a task-less directory mints one (`PendingTaskLaunch`, `NewTaskSource`), and every indexed agent session without a record renders as an implicit one-member task; resuming it mints the record. Shell-only tasks are deleted when their last tab closes.
+- The primary session gives the title; later sessions in the task's tabs are tangents, shown as sub-rows. Task settle (`settleSessionAndAdvance` on a task) closes every tab; auto-settle never closes a tab and skips any task with one open. Settle state stays in the session sidecar on the current primary. Orphan tasks (directory gone from the roster) are kept until settled by hand.
+- Merge and detach are one level deep (`AppFeature+TaskTransfer.swift`, `TerminalsFeature.transferRefusal`): a task is a flat list of surfaces, never nested; detaching the primary is refused. Refusals (`TabTransferRefusal`) are decided on state alone, once for the toast and again by the manager in the turn that moves tabs.
+- App-layer "which layout does this worktree mean" lookups go through one seam, `AppFeature.State.layoutID(forDirectory:)` (the task the directory shows, nil when it has none: only a first tab mints one), with `layoutID(forDirectory:holding:)` when a tab or surface id names the owner; `SUPACODE_WORKTREE_ID`, `-w` and worktree deeplinks stay path-based, `SUPACODE_TASK_ID` / `--task` / the `/task/<id>/` route segment name a task.
+- **Decide at delivery, carry identity.** Anything that crosses an asynchronous boundary (a `.run` effect, a `terminalClient.send`, a debounce, a transfer completion) carries only identities: layout, tab, surface and directory ids. It never carries a list, a plan, a record or a verdict computed before the boundary. The receiver re-derives from current state when the command lands (`WorktreeTerminalManager.deliveryContext(for:carried:creating:command:)` is the gate for tab-creating and host-attaching commands) and applies every refusal there. A command sent to focus or show an existing task must not be one that can create a host, a layout or a tab. Tests for such a path make the target disappear between send and delivery and assert nothing is created or resurrected.
+
 ### Key Dependencies
 
 - **TCA (swift-composable-architecture)**: App state, reducers, side effects
