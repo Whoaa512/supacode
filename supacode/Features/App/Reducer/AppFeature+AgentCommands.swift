@@ -7,17 +7,40 @@ import SupacodeSettingsShared
 /// alert, which is what makes the socket ack `ok: false` (see
 /// `isolateSocketCommandAlert`).
 extension AppFeature {
-  /// The live presence key behind a (worktree, agent) pair, or why it can't be
-  /// resolved. Shared by every agent-scoped command, including rename.
+  /// The surfaces an agent command may address, in the row's order. With a
+  /// task named, that task's surfaces only, and it has to be a task of this
+  /// directory; with none, every surface on the directory, the shown task's
+  /// first, so two agents of one kind on one directory resolve to the one on
+  /// screen. The error names why nothing can be addressed.
+  static func agentSurfaceIDs(
+    worktreeID: Worktree.ID, task: LayoutID?, state: State
+  ) -> (ids: [UUID], error: String?) {
+    guard let item = state.repositories.sidebarItems[id: worktreeID] else {
+      return ([], "Worktree not found: \(worktreeID.rawValue)")
+    }
+    let index = surfaceIndex(state: state)
+    let all = Array(item.surfaceIDs)
+    guard let task else {
+      let shown = state.commandLayoutID(forDirectory: worktreeID)
+      return (all.filter { index[$0]?.layoutID == shown } + all.filter { index[$0]?.layoutID != shown }, nil)
+    }
+    let directory =
+      state.terminals.directories[task]?.worktreeID ?? storedTask(task, state: state)?.directory.worktreeID
+    guard hasTask(task, state: state), directory == worktreeID else { return ([], "Task not found.") }
+    return (all.filter { index[$0]?.layoutID == task }, nil)
+  }
+
+  /// The live presence key behind a (worktree, task, agent) triple, or why it
+  /// can't be resolved. Shared by every agent-scoped command, including rename.
   func agentPresenceKey(
     worktreeID: Worktree.ID,
+    task: LayoutID?,
     agent: SkillAgent,
     state: State
   ) -> (key: AgentPresenceFeature.PresenceKey?, error: String?) {
-    guard let surfaceIDs = state.repositories.sidebarItems[id: worktreeID]?.surfaceIDs else {
-      return (nil, "Worktree not found: \(worktreeID.rawValue)")
-    }
-    guard let key = state.agentPresence.presenceKey(agent: agent, across: surfaceIDs) else {
+    let surfaces = Self.agentSurfaceIDs(worktreeID: worktreeID, task: task, state: state)
+    if let error = surfaces.error { return (nil, error) }
+    guard let key = state.agentPresence.presenceKey(agent: agent, across: surfaces.ids) else {
       return (nil, "No running \(agent.rawValue) agent in \(worktreeID.rawValue).")
     }
     return (key, nil)
@@ -28,13 +51,14 @@ extension AppFeature {
   /// for shell commands.
   func promptAgent(
     worktreeID: Worktree.ID,
+    task: LayoutID? = nil,
     agent: SkillAgent,
     text: String,
     submit: Bool,
     state: State
   ) -> String? {
     @Dependency(TerminalClient.self) var terminalClient
-    let resolved = agentPresenceKey(worktreeID: worktreeID, agent: agent, state: state)
+    let resolved = agentPresenceKey(worktreeID: worktreeID, task: task, agent: agent, state: state)
     guard let key = resolved.key else { return resolved.error }
     let submitSequence = submit ? (AgentKeySequence.sequence(for: "enter") ?? "\r") : ""
     guard let owner = state.layoutID(forDirectory: worktreeID, holding: key.surfaceID),
@@ -49,6 +73,7 @@ extension AppFeature {
   /// typo in the third key can't leave the agent half-driven.
   func sendKeysToAgent(
     worktreeID: Worktree.ID,
+    task: LayoutID?,
     agent: SkillAgent,
     keys: [String],
     state: State
@@ -58,7 +83,7 @@ extension AppFeature {
     if let unknown = mapped.unknownName {
       return "Unknown key '\(unknown)'. Supported: \(AgentKeySequence.names.joined(separator: ", "))."
     }
-    let resolved = agentPresenceKey(worktreeID: worktreeID, agent: agent, state: state)
+    let resolved = agentPresenceKey(worktreeID: worktreeID, task: task, agent: agent, state: state)
     guard let key = resolved.key else { return resolved.error }
     for sequence in mapped.sequences {
       guard let owner = state.layoutID(forDirectory: worktreeID, holding: key.surfaceID),
@@ -79,15 +104,18 @@ extension AppFeature {
   /// - no resume candidate means we have no proven-dead session with a ref, so
   ///   there is nothing to resume rather than something to guess;
   /// - `AgentResumeCommand` re-validates the ref before it becomes terminal input.
+  /// With a task named, both the running check and the candidate lookup see
+  /// that task's surfaces only; the resume never widens to the directory.
   func resumeAgent(
     worktreeID: Worktree.ID,
+    task: LayoutID?,
     agent: SkillAgent,
     state: State
   ) -> (effect: Effect<Action>, error: String?) {
     @Dependency(TerminalClient.self) var terminalClient
-    guard let surfaceIDs = state.repositories.sidebarItems[id: worktreeID]?.surfaceIDs else {
-      return (.none, "Worktree not found: \(worktreeID.rawValue)")
-    }
+    let surfaces = Self.agentSurfaceIDs(worktreeID: worktreeID, task: task, state: state)
+    if let error = surfaces.error { return (.none, error) }
+    let surfaceIDs = surfaces.ids
     if state.agentPresence.presenceKey(agent: agent, across: surfaceIDs) != nil {
       return (.none, "\(agent.rawValue) is already running in \(worktreeID.rawValue).")
     }
@@ -120,6 +148,7 @@ extension AppFeature {
   /// Stores display-only tokens on a live agent.
   func reportAgentMetadata(
     worktreeID: Worktree.ID,
+    task: LayoutID? = nil,
     agent: SkillAgent,
     tokens: [String: String],
     clear: Bool,
@@ -128,7 +157,7 @@ extension AppFeature {
     if let error = AgentPresenceFeature.validate(tokens: tokens) {
       return (.none, error)
     }
-    let resolved = agentPresenceKey(worktreeID: worktreeID, agent: agent, state: state)
+    let resolved = agentPresenceKey(worktreeID: worktreeID, task: task, agent: agent, state: state)
     guard let key = resolved.key else { return (.none, resolved.error) }
     return (.send(.agentPresence(.reportMetadata(key: key, tokens: tokens, clear: clear))), nil)
   }

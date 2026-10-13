@@ -20,6 +20,9 @@ enum AgentQueryResponse {
     /// The agent's native session id, when a hook reported one. Empty for an
     /// agent whose hooks don't carry session identity.
     static let sessionRef = "sessionRef"
+    /// The task that holds the agent's surface, as `--task` names it. Empty
+    /// for a surface no task holds.
+    static let taskID = "taskID"
     /// Metadata tokens are flattened as `token.<key>` so the whole payload stays
     /// a flat `[String: String]` (the socket wire format) with no nested JSON to
     /// parse on the CLI side.
@@ -30,7 +33,8 @@ enum AgentQueryResponse {
   /// polls (`agent wait`) see a stable row order.
   static func rows(
     presence: AgentPresenceFeature.State,
-    repositories: RepositoriesFeature.State
+    repositories: RepositoriesFeature.State,
+    tasks: [UUID: LayoutID] = [:]
   ) -> [[String: String]] {
     var rows: [Row] = []
     for (key, record) in presence.records {
@@ -61,6 +65,7 @@ enum AgentQueryResponse {
             Key.repo: repoTitle,
             Key.worktreeTitle: title,
             Key.sessionRef: record.sessionRef ?? "",
+            Key.taskID: tasks[key.surfaceID]?.externalID ?? "",
           ].merging(
             (presence.metadataByKey[key] ?? [:]).map { ("\(Key.tokenPrefix)\($0.key)", $0.value) },
             uniquingKeysWith: { _, token in token }
@@ -169,11 +174,12 @@ enum AgentResumeCandidateQueryResponse {
     static let branch = AgentQueryResponse.Key.branch
     static let repo = AgentQueryResponse.Key.repo
     static let worktreeTitle = AgentQueryResponse.Key.worktreeTitle
+    static let taskID = AgentQueryResponse.Key.taskID
     /// The command `agent resume` asks Supacode to type. Returned so the CLI can
     /// show the user exactly what will run without duplicating the mapping.
     static let command = "command"
 
-    static let all = [agent, sessionRef, command, repo, branch, worktreeTitle, worktreeID]
+    static let all = [agent, sessionRef, command, repo, branch, worktreeTitle, worktreeID, taskID]
   }
 
   /// One sorted row: the sort keys, plus the wire fields they order.
@@ -186,7 +192,8 @@ enum AgentResumeCandidateQueryResponse {
   /// Sorted by worktree title then agent kind, so repeated polls see a stable order.
   static func rows(
     presence: AgentPresenceFeature.State,
-    repositories: RepositoriesFeature.State
+    repositories: RepositoriesFeature.State,
+    tasks: [UUID: LayoutID] = [:]
   ) -> [[String: String]] {
     var rows: [Row] = []
     for (key, candidate) in presence.resumeCandidates {
@@ -215,6 +222,7 @@ enum AgentResumeCandidateQueryResponse {
             Key.branch: item.branchName,
             Key.repo: repoTitle,
             Key.worktreeTitle: title,
+            Key.taskID: tasks[key.surfaceID]?.externalID ?? "",
           ]
         ))
     }

@@ -50,12 +50,13 @@ extension TerminalCommand {
 
     func run() throws {
       let matcher = try Self.matcher(regex: regex, text: text)
-      let worktreeID = try Self.resolvedWorktreeID(target)
+      let resolved = try Self.resolvedTarget(target)
+      let worktreeID = resolved.worktreeID
       let deadline = timeout > 0 ? Date().addingTimeInterval(TimeInterval(timeout)) : Date.distantFuture
 
       while true {
         let screen = try AgentCommand.readScreen(
-          worktreeID: worktreeID,
+          target: resolved,
           agentKind: nil,
           lines: lines,
           timeoutSeconds: Self.queryTimeoutSeconds
@@ -76,17 +77,21 @@ extension TerminalCommand {
       }
     }
 
-    /// Resolves an agent name / branch / title through the `agents` query, and
-    /// falls back to treating the target as a worktree ID so an agentless
-    /// worktree is still watchable.
-    private static func resolvedWorktreeID(_ target: String?) throws -> String {
-      guard let target, !target.isEmpty else { return try IDResolvers.resolveWorktreeID(nil) }
+    /// Resolves an agent name / branch / title through the `agents` query (the
+    /// agent's own task included), and falls back to treating the target as a
+    /// worktree ID so an agentless worktree is still watchable; that reads
+    /// this terminal's own task when the worktree is its own.
+    private static func resolvedTarget(_ target: String?) throws -> WorktreeTarget {
+      guard let target, !target.isEmpty else {
+        return TaskOption.target(worktreeID: try IDResolvers.resolveWorktreeID(nil), task: nil)
+      }
       guard
         let rows = try? QueryDispatcher.query(resource: "agents", timeoutSeconds: queryTimeoutSeconds),
-        let row = try? AgentCommand.resolve(target: target, agentKind: nil, in: rows),
-        let worktreeID = row[AgentCommand.Key.worktreeID]
-      else { return target }
-      return worktreeID
+        let row = try? AgentCommand.resolve(
+          target: target, agentKind: nil, environmentTaskID: EnvironmentDefaults.taskID, in: rows),
+        row[AgentCommand.Key.worktreeID] != nil
+      else { return TaskOption.target(worktreeID: target, task: nil) }
+      return AgentCommand.target(of: row)
     }
 
     private static func matcher(regex: String?, text: String?) throws -> (String) -> Bool {

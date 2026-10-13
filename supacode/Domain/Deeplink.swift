@@ -25,7 +25,9 @@ enum Deeplink: Equatable, Sendable {
   )
   /// `agent/<worktree-id>/<agent-kind>/<action>`. The kind stays a raw string so
   /// the parser doesn't have to know the `SkillAgent` roster.
-  case agent(worktreeID: Worktree.ID, agent: String, action: AgentAction)
+  /// `task` narrows the agent lookup to that task's surfaces; nil means the
+  /// directory's, the shown task's first.
+  case agent(worktreeID: Worktree.ID, agent: String, action: AgentAction, task: LayoutID? = nil)
   case session(key: SessionKey, action: SessionAction)
   case settings(section: DeeplinkSettingsSection?)
   case settingsRepo(repositoryID: Repository.ID)

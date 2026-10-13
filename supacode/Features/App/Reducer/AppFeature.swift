@@ -2795,9 +2795,9 @@ struct AppFeature {
         worktreeID: worktreeID, action: action, source: source, responseFD: responseFD,
         timeoutSeconds: timeoutSeconds, state: &state, background: background, task: task
       )
-    case .agent(let worktreeID, let rawAgent, let agentAction):
+    case .agent(let worktreeID, let rawAgent, let agentAction, let task):
       return handleAgentDeeplink(
-        worktreeID: worktreeID, agent: rawAgent, action: agentAction, state: &state)
+        worktreeID: worktreeID, agent: rawAgent, action: agentAction, task: task, state: &state)
     case .session(let key, let action):
       return Self.handleSessionDeeplink(key: key, action: action, state: &state)
     case .repoOpen(let path):

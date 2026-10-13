@@ -31,33 +31,35 @@ nonisolated enum DeeplinkURLBuilder {
 
   /// A `nil` name clears the agent's name (the app reads an absent or empty
   /// `name` as "clear").
-  static func agentRename(worktreeID: String, agent: String, name: String?) -> String {
-    var url = "supacode://agent/\(worktreeID)/\(agent)/rename"
+  /// Agent routes carry the resolved row's worktree and, when the row has
+  /// one, its task, so a name-addressed command reaches exactly that agent.
+  static func agentRename(target: WorktreeTarget, agent: String, name: String?) -> String {
+    var url = "supacode://agent/\(target.urlSegment)/\(agent)/rename"
     if let name { url += "?name=\(percentEncodeQueryValue(name))" }
     return url
   }
 
   /// `submit=false` opts out of the trailing enter; the app submits by default.
-  static func agentPrompt(worktreeID: String, agent: String, text: String, submit: Bool) -> String {
-    "supacode://agent/\(worktreeID)/\(agent)/prompt?text=\(percentEncodeQueryValue(text))"
+  static func agentPrompt(target: WorktreeTarget, agent: String, text: String, submit: Bool) -> String {
+    "supacode://agent/\(target.urlSegment)/\(agent)/prompt?text=\(percentEncodeQueryValue(text))"
       + (submit ? "" : "&submit=false")
   }
 
-  static func agentSendKeys(worktreeID: String, agent: String, keys: [String]) -> String {
+  static func agentSendKeys(target: WorktreeTarget, agent: String, keys: [String]) -> String {
     let joined = keys.joined(separator: ",")
-    return "supacode://agent/\(worktreeID)/\(agent)/send-keys?keys=\(percentEncodeQueryValue(joined))"
+    return "supacode://agent/\(target.urlSegment)/\(agent)/send-keys?keys=\(percentEncodeQueryValue(joined))"
   }
 
   /// Types the agent's native resume command into the surface whose session died.
   /// The app refuses it when that agent is running.
-  static func agentResume(worktreeID: String, agent: String) -> String {
-    "supacode://agent/\(worktreeID)/\(agent)/resume"
+  static func agentResume(target: WorktreeTarget, agent: String) -> String {
+    "supacode://agent/\(target.urlSegment)/\(agent)/resume"
   }
 
   /// Tokens ride as ordinary query items (`summary=...`), sorted so the URL is
   /// stable. `clear` drops the agent's existing tokens first.
   static func agentMetadata(
-    worktreeID: String,
+    target: WorktreeTarget,
     agent: String,
     tokens: [String: String],
     clear: Bool
@@ -66,7 +68,7 @@ nonisolated enum DeeplinkURLBuilder {
     for (key, value) in tokens.sorted(by: { $0.key < $1.key }) {
       params.append("\(percentEncodeQueryValue(key))=\(percentEncodeQueryValue(value))")
     }
-    let url = "supacode://agent/\(worktreeID)/\(agent)/metadata"
+    let url = "supacode://agent/\(target.urlSegment)/\(agent)/metadata"
     guard !params.isEmpty else { return url }
     return "\(url)?\(params.joined(separator: "&"))"
   }

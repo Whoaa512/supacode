@@ -30,7 +30,8 @@ struct AgentCLITests {
     worktreeID: String = "%2Ftmp%2Frepo%2Falpha",
     branch: String = "alpha",
     repo: String = "repo",
-    title: String = "alpha"
+    title: String = "alpha",
+    taskID: String = ""
   ) -> [String: String] {
     [
       "name": name,
@@ -41,8 +42,12 @@ struct AgentCLITests {
       "branch": branch,
       "repo": repo,
       "worktreeTitle": title,
+      "taskID": taskID,
     ]
   }
+
+  private static let taskA = "00000000-0000-0000-0000-0000000000A1"
+  private static let taskB = "00000000-0000-0000-0000-0000000000B2"
 
   /// Fixture `agentExplain` reply. `pids` is deliberately empty so the report's
   /// "unset reads as `-`" branch is covered.
@@ -160,6 +165,89 @@ struct AgentCLITests {
       #expect(missing.exitCode != 0)
       #expect(missing.standardError.contains("No running agent matches 'nope'"))
       #expect(deeplinks.value.isEmpty)
+    }
+  }
+
+  // MARK: - Two agents of one kind on one worktree: the task tells them apart.
+
+  private static var twoTasks: [[String: String]] {
+    [Self.row(taskID: taskA), Self.row(taskID: taskB)]
+  }
+
+  @Test(.timeLimit(.minutes(3)))
+  func sameKindOnOneWorktreeIsAmbiguousUntilATaskPicks() async throws {
+    try await withFixture(rows: Self.twoTasks) { cli, _, deeplinks in
+      let ambiguous = try await cli(["agent", "rename", "alpha", "builder"])
+      #expect(ambiguous.exitCode != 0)
+      #expect(ambiguous.standardError.contains("--task <id>"))
+      #expect(ambiguous.standardError.contains("claude --task \(Self.taskA)"))
+      #expect(ambiguous.standardError.contains("claude --task \(Self.taskB)"))
+      #expect(deeplinks.value.isEmpty)
+
+      _ = try await cli(["agent", "rename", "alpha", "builder", "--task", Self.taskB]).succeeding()
+      #expect(
+        deeplinks.value == [
+          "supacode://agent/%2Ftmp%2Frepo%2Falpha/task/\(Self.taskB)/claude/rename?name=builder&timeout=180"
+        ])
+    }
+  }
+
+  @Test(.timeLimit(.minutes(3)))
+  func theEnvironmentsTaskBreaksATieOnlyWhenExactlyOneCandidateIsOnIt() async throws {
+    try await withFixture(rows: Self.twoTasks, environment: ["SUPACODE_TASK_ID": Self.taskA]) { cli, _, deeplinks in
+      _ = try await cli(["agent", "send-keys", "alpha", "esc"]).succeeding()
+      #expect(deeplinks.value.first?.contains("/task/\(Self.taskA)/claude/send-keys") == true)
+      // An explicit --task outranks the environment.
+      _ = try await cli(["agent", "send-keys", "alpha", "esc", "--task", Self.taskB]).succeeding()
+      #expect(deeplinks.value.last?.contains("/task/\(Self.taskB)/claude/send-keys") == true)
+    }
+    // Two candidates on the environment's task: still ambiguous, nothing picked.
+    let bothOnA = [Self.row(taskID: Self.taskA), Self.row(name: "second", taskID: Self.taskA)]
+    try await withFixture(rows: bothOnA, environment: ["SUPACODE_TASK_ID": Self.taskA]) { cli, _, deeplinks in
+      let ambiguous = try await cli(["agent", "send-keys", "alpha", "esc"])
+      #expect(ambiguous.exitCode != 0)
+      #expect(deeplinks.value.isEmpty)
+    }
+  }
+
+  @Test(.timeLimit(.minutes(3)))
+  func aNameWinsOverAContradictingTaskAndCarriesItsOwnTask() async throws {
+    let rows = [Self.row(name: "reviewer", taskID: Self.taskA), Self.row(taskID: Self.taskB)]
+    try await withFixture(rows: rows) { cli, _, deeplinks in
+      _ = try await cli(["agent", "prompt", "reviewer", "go", "--task", Self.taskB]).succeeding()
+      #expect(deeplinks.value.first?.contains("/task/\(Self.taskA)/claude/prompt") == true)
+    }
+  }
+
+  @Test(.timeLimit(.minutes(3)))
+  func aRowWithNoTaskEmitsNoTaskSegmentAndMatchesNoTask() async throws {
+    try await withFixture(rows: [Self.row(name: "reviewer")]) { cli, _, deeplinks in
+      _ = try await cli(["agent", "send-keys", "reviewer", "esc"]).succeeding()
+      #expect(deeplinks.value == ["supacode://agent/%2Ftmp%2Frepo%2Falpha/claude/send-keys?keys=esc&timeout=180"])
+      let missing = try await cli(["agent", "send-keys", "alpha", "esc", "--task", Self.taskA])
+      #expect(missing.exitCode != 0)
+      #expect(deeplinks.value.count == 1)
+    }
+  }
+
+  @Test(.timeLimit(.minutes(3)))
+  func listJsonCarriesTheTaskAndOmitsAnEmptyOne() async throws {
+    try await withFixture(rows: [Self.row(name: "reviewer", taskID: Self.taskA), Self.row(name: "plain")]) {
+      cli, _, _ in
+      let output = try await cli(["agent", "list", "--json"]).succeeding()
+      let lines = output.split(separator: "\n").map(String.init)
+      #expect(lines[0].hasSuffix("\"worktreeID\":\"%2Ftmp%2Frepo%2Falpha\",\"taskID\":\"\(Self.taskA)\"}"))
+      #expect(lines[1].hasSuffix("\"worktreeID\":\"%2Ftmp%2Frepo%2Falpha\"}"))
+    }
+  }
+
+  @Test(.timeLimit(.minutes(3)))
+  func readAndExplainSendTheResolvedRowsTask() async throws {
+    try await withFixture(rows: [Self.row(name: "reviewer", taskID: Self.taskA)], screen: "ok") { cli, params, _ in
+      _ = try await cli(["agent", "read", "reviewer"]).succeeding()
+      _ = try await cli(["agent", "explain", "reviewer", "--json"]).succeeding()
+      #expect(params.value.contains("agentRead taskID=\(Self.taskA)"))
+      #expect(params.value.contains("agentExplain taskID=\(Self.taskA)"))
     }
   }
 
@@ -455,13 +543,14 @@ struct AgentCLITests {
   private func withFixture(
     rows: [[String: String]],
     screen: String = "",
+    environment: [String: String] = [:],
     body: (
       _ cli: ([String]) async throws -> Run,
       _ resources: LockIsolated<[String]>,
       _ deeplinks: LockIsolated<[String]>
     ) async throws -> Void
   ) async throws {
-    try await withFixture(rowsForPoll: { _ in rows }, screen: screen, body: body)
+    try await withFixture(rowsForPoll: { _ in rows }, screen: screen, environment: environment, body: body)
   }
 
   /// Variant whose `agents` reply depends on the poll index, so a wait that
@@ -469,6 +558,7 @@ struct AgentCLITests {
   private func withFixture(
     rowsForPoll: @escaping (Int) -> [[String: String]],
     screen: String = "",
+    environment: [String: String] = [:],
     body: (
       _ cli: ([String]) async throws -> Run,
       _ resources: LockIsolated<[String]>,
@@ -484,6 +574,7 @@ struct AgentCLITests {
     let agentPolls = LockIsolated(0)
     server.onQuery = { resource, params, clientFD in
       resources.withValue { $0.append(resource) }
+      if let taskID = params["taskID"] { resources.withValue { $0.append("\(resource) taskID=\(taskID)") } }
       if resource == "agentExplain" {
         AgentHookSocketServer.sendQueryResponse(clientFD: clientFD, data: [Self.explainRow])
         return
@@ -509,11 +600,16 @@ struct AgentCLITests {
       try? FileManager.default.removeItem(atPath: directory)
     }
 
-    try await body({ try await Self.runCLI(arguments: $0, socketPath: socketPath) }, resources, deeplinks)
-    #expect(resources.value.allSatisfy { ["agents", "agentRead", "agentExplain"].contains($0) })
+    try await body(
+      { try await Self.runCLI(arguments: $0, environment: environment, socketPath: socketPath) }, resources,
+      deeplinks)
+    #expect(
+      resources.value.allSatisfy { ["agents", "agentRead", "agentExplain"].contains($0) || $0.contains(" taskID=") })
   }
 
-  private static func runCLI(arguments: [String], socketPath: String) async throws -> Run {
+  private static func runCLI(
+    arguments: [String], environment: [String: String] = [:], socketPath: String
+  ) async throws -> Run {
     let executableURL = try #require(Bundle.main.resourceURL?.appending(path: "bin/supacode"))
     try #require(FileManager.default.fileExists(atPath: executableURL.path(percentEncoded: false)))
     let process = Process()
@@ -521,8 +617,10 @@ struct AgentCLITests {
     let error = Pipe()
     process.executableURL = executableURL
     process.arguments = arguments
+    // The test's own terminal may run inside a task; the fixture decides the task.
     process.environment = ProcessInfo.processInfo.environment.merging(
-      ["SUPACODE_SOCKET_PATH": socketPath],
+      ["SUPACODE_SOCKET_PATH": socketPath, "SUPACODE_TASK_ID": ""].merging(
+        environment, uniquingKeysWith: { _, given in given }),
       uniquingKeysWith: { _, fixture in fixture }
     )
     process.standardOutput = output

@@ -70,6 +70,26 @@ struct DeeplinkClientTests {
     #expect(parse(url) == nil)
   }
 
+  // MARK: - Agent task segment.
+
+  @Test func agentDeeplinkTakesTheTaskSegmentBehindTheWorktreeID() {
+    let encoded = "%2Ftmp%2Frepo%2Fwt-1"
+    let task = LayoutID(task: taskUUID)
+    #expect(
+      parse(URL(string: "supacode://agent/\(encoded)/task/\(taskUUID.uuidString)/pi/prompt?text=x")!)
+        == .agent(worktreeID: "/tmp/repo/wt-1", agent: "pi", action: .prompt(text: "x", submit: true), task: task))
+    #expect(
+      parse(URL(string: "supacode://agent/\(encoded)/task/\(taskUUID.uuidString)/claude/resume")!)
+        == .agent(worktreeID: "/tmp/repo/wt-1", agent: "claude", action: .resume, task: task))
+    // Without the pair nothing changes on the wire.
+    #expect(
+      parse(URL(string: "supacode://agent/\(encoded)/pi/prompt?text=x")!)
+        == .agent(worktreeID: "/tmp/repo/wt-1", agent: "pi", action: .prompt(text: "x", submit: true), task: nil))
+    // A task segment that names nothing fails rather than widening to the directory.
+    #expect(parse(URL(string: "supacode://agent/\(encoded)/task/pi/prompt?text=x")!) == nil)
+    #expect(parse(URL(string: "supacode://agent/\(encoded)/task/\(taskUUID.uuidString)/pi")!) == nil)
+  }
+
   // MARK: - Shared id parsing.
 
   @Test func externalWorktreeIDsDecodeAndDropOneTrailingSlash() {

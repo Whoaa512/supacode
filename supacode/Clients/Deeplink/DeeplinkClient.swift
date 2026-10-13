@@ -142,7 +142,7 @@ private nonisolated enum DeeplinkParser {
     pathSegments: [String],
     queryItems: [URLQueryItem]
   ) -> Deeplink? {
-    // Expected: <percent-encoded-worktree-id>/<agent-kind>/<action>[?...].
+    // Expected: <percent-encoded-worktree-id>[/task/<task-id>]/<agent-kind>/<action>[?...].
     guard pathSegments.count >= 3 else {
       logger.warning("Agent deeplink missing worktree id, agent kind, or action")
       return nil
@@ -151,8 +151,19 @@ private nonisolated enum DeeplinkParser {
       logger.warning("Failed to percent-decode worktree ID in agent deeplink")
       return nil
     }
-    guard let action = parseAgentAction(pathSegments[2], queryItems: queryItems) else { return nil }
-    return .agent(worktreeID: worktreeID, agent: pathSegments[1], action: action)
+    var task: LayoutID?
+    var rest = Array(pathSegments.dropFirst())
+    if rest.first == "task" {
+      // A malformed task fails the parse rather than widening to the directory.
+      guard rest.count >= 4, let named = LayoutID(external: rest[1]) else {
+        logger.warning("Agent deeplink has a task segment with no task id")
+        return nil
+      }
+      task = named
+      rest = Array(rest.dropFirst(2))
+    }
+    guard let action = parseAgentAction(rest[1], queryItems: queryItems) else { return nil }
+    return .agent(worktreeID: worktreeID, agent: rest[0], action: action, task: task)
   }
 
   private static func parseAgentAction(

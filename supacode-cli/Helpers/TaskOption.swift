@@ -13,6 +13,12 @@ struct TaskOption: ParsableArguments {
   var task: String?
 
   func target(worktreeID: String) -> WorktreeTarget {
+    Self.target(worktreeID: worktreeID, task: task)
+  }
+
+  /// The same rule without the parsed option, for a command that reads its
+  /// task from elsewhere.
+  static func target(worktreeID: String, task: String?) -> WorktreeTarget {
     WorktreeTarget(
       worktreeID: worktreeID,
       taskID: IDResolvers.resolveTaskID(

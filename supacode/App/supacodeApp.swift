@@ -645,7 +645,8 @@ struct SupacodeApp: App {
       AgentHookSocketServer.sendQueryResponse(
         clientFD: clientFD,
         data: AgentResumeCandidateQueryResponse.rows(
-          presence: store.agentPresence, repositories: store.repositories)
+          presence: store.agentPresence, repositories: store.repositories,
+          tasks: store.withState { AppFeature.surfaceIndex(state: $0).mapValues(\.layoutID) })
       )
     case "sessions":
       AgentHookSocketServer.sendQueryResponse(
@@ -654,7 +655,8 @@ struct SupacodeApp: App {
       AgentHookSocketServer.sendQueryResponse(
         clientFD: clientFD,
         data: AgentQueryResponse.rows(
-          presence: store.agentPresence, repositories: store.repositories)
+          presence: store.agentPresence, repositories: store.repositories,
+          tasks: store.withState { AppFeature.surfaceIndex(state: $0).mapValues(\.layoutID) })
       )
     }
   }
@@ -675,13 +677,22 @@ struct SupacodeApp: App {
       return
     }
     guard let worktreeID = WorktreeID(external: rawWorktreeID),
-      let item = store.repositories.sidebarItems[id: worktreeID]
+      store.repositories.sidebarItems[id: worktreeID] != nil
     else {
       AgentHookSocketServer.sendCommandResponse(
         clientFD: clientFD, ok: false, error: "Worktree not found: \(rawWorktreeID)")
       return
     }
-    let seamLayoutID = store.withState { $0.layoutID(forDirectory: worktreeID) }
+    // A task named narrows the lookup to its surfaces; an unparsable one names nothing.
+    guard let task = parsedTaskID(params["taskID"]) else {
+      AgentHookSocketServer.sendCommandResponse(clientFD: clientFD, ok: false, error: "Task not found.")
+      return
+    }
+    let surfaces = store.withState { AppFeature.agentSurfaceIDs(worktreeID: worktreeID, task: task, state: $0) }
+    if let error = surfaces.error {
+      AgentHookSocketServer.sendCommandResponse(clientFD: clientFD, ok: false, error: error)
+      return
+    }
     let surfaceID: UUID?
     if let rawAgent = params["agent"] {
       guard let agent = SkillAgent(rawValue: rawAgent) else {
@@ -689,7 +700,7 @@ struct SupacodeApp: App {
           clientFD: clientFD, ok: false, error: "Unknown agent kind: \(rawAgent)")
         return
       }
-      guard let key = store.agentPresence.presenceKey(agent: agent, across: item.surfaceIDs) else {
+      guard let key = store.agentPresence.presenceKey(agent: agent, across: surfaces.ids) else {
         AgentHookSocketServer.sendCommandResponse(
           clientFD: clientFD, ok: false,
           error: "No running \(rawAgent) agent in \(worktreeID.rawValue).")
@@ -697,7 +708,9 @@ struct SupacodeApp: App {
       }
       surfaceID = key.surfaceID
     } else {
-      surfaceID = seamLayoutID.flatMap { terminalManager.focusedSurfaceID(worktreeID: $0) } ?? item.surfaceIDs.first
+      // The focused surface of the task the command means, else the first it may address.
+      let seamLayoutID = store.withState { $0.commandLayoutID(forDirectory: worktreeID, task: task) }
+      surfaceID = seamLayoutID.flatMap { terminalManager.focusedSurfaceID(worktreeID: $0) } ?? surfaces.ids.first
     }
     // The row lists the surfaces of every task on the directory, so the
     // surface is read through the task that holds it.
@@ -737,14 +750,23 @@ struct SupacodeApp: App {
       return
     }
     guard let worktreeID = WorktreeID(external: rawWorktreeID),
-      let item = store.repositories.sidebarItems[id: worktreeID]
+      store.repositories.sidebarItems[id: worktreeID] != nil
     else {
       AgentHookSocketServer.sendCommandResponse(
         clientFD: clientFD, ok: false, error: "Worktree not found: \(rawWorktreeID)")
       return
     }
+    guard let task = parsedTaskID(params["taskID"]) else {
+      AgentHookSocketServer.sendCommandResponse(clientFD: clientFD, ok: false, error: "Task not found.")
+      return
+    }
+    let surfaces = store.withState { AppFeature.agentSurfaceIDs(worktreeID: worktreeID, task: task, state: $0) }
+    if let error = surfaces.error {
+      AgentHookSocketServer.sendCommandResponse(clientFD: clientFD, ok: false, error: error)
+      return
+    }
     let presence = store.agentPresence
-    guard let key = presence.presenceKey(agent: agent, across: item.surfaceIDs),
+    guard let key = presence.presenceKey(agent: agent, across: surfaces.ids),
       let row = AgentExplainQueryResponse.row(key: key, presence: presence)
     else {
       AgentHookSocketServer.sendCommandResponse(
@@ -753,6 +775,13 @@ struct SupacodeApp: App {
       return
     }
     AgentHookSocketServer.sendQueryResponse(clientFD: clientFD, data: [row])
+  }
+
+  /// The `taskID` a query names: `.some(nil)` for none, `.none` when it does not parse.
+  private static func parsedTaskID(_ raw: String?) -> LayoutID?? {
+    guard let raw, !raw.isEmpty else { return .some(nil) }
+    guard let task = LayoutID(external: raw) else { return .none }
+    return .some(task)
   }
 
   private static func handleWorktreeStatusQuery(

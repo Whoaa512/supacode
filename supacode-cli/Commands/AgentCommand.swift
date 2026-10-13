@@ -37,10 +37,13 @@ extension AgentCommand {
     static let repo = "repo"
     static let worktreeTitle = "worktreeTitle"
     static let sessionRef = "sessionRef"
+    /// The task holding the agent's surface; what `--task` matches and the
+    /// deeplink's task segment carries. Empty for a surface no task holds.
+    static let taskID = "taskID"
 
     /// Column order for human-readable output and the JSON row.
     static let all = [
-      name, agent, state, activity, repo, branch, worktreeTitle, worktreeID, sessionRef,
+      name, agent, state, activity, repo, branch, worktreeTitle, worktreeID, sessionRef, taskID,
     ]
 
     /// Metadata tokens arrive flattened as `token.<key>` (see
@@ -49,7 +52,7 @@ extension AgentCommand {
 
     /// Keys dropped from the JSON row when empty, so optional fields don't
     /// churn the stable output shape consumers already parse.
-    static let omittedWhenEmpty: Set<String> = [sessionRef]
+    static let omittedWhenEmpty: Set<String> = [sessionRef, taskID]
   }
 
   /// Socket wire keys of the `agentResumeCandidates` query. Mirrors
@@ -61,9 +64,10 @@ extension AgentCommand {
     static let branch = Key.branch
     static let repo = Key.repo
     static let worktreeTitle = Key.worktreeTitle
+    static let taskID = Key.taskID
     static let command = "command"
 
-    static let all = [agent, sessionRef, command, repo, branch, worktreeTitle, worktreeID]
+    static let all = [agent, sessionRef, command, repo, branch, worktreeTitle, worktreeID, taskID]
   }
 
   /// Socket wire keys of the `agentExplain` query. Mirrors
@@ -155,7 +159,7 @@ extension AgentCommand {
         return "No resumable agent session for '\(target)'. "
           + "Run `supacode agent resume-candidates` to see what can be resumed."
       case .ambiguous(let target, let candidates):
-        return "'\(target)' matches several agents. Disambiguate with --agent <kind>:\n"
+        return "'\(target)' matches several agents. Disambiguate with --agent <kind> or --task <id>:\n"
           + candidates.map { "  \($0)" }.joined(separator: "\n")
       }
     }
@@ -163,9 +167,15 @@ extension AgentCommand {
 
   /// Resolves a target to exactly one row. An exact live-name match wins, so a
   /// named agent is addressable even when its worktree hosts several kinds.
+  /// Then the worktree, branch or title with `agentKind`; then `task` keeps
+  /// the rows of that task only; then, with several left, the one on this
+  /// terminal's own task (`environmentTaskID`) if exactly one is. Anything
+  /// still ambiguous is reported, never picked.
   static func resolve(
     target: String,
     agentKind: String?,
+    task: String? = nil,
+    environmentTaskID: String? = nil,
     in rows: [[String: String]]
   ) throws -> [String: String] {
     if let named = rows.first(where: { !($0[Key.name] ?? "").isEmpty && $0[Key.name] == target }) {
@@ -177,18 +187,40 @@ extension AgentCommand {
       let id = decoded(row[Key.worktreeID] ?? "")
       return id == decodedTarget || row[Key.branch] == target || row[Key.worktreeTitle] == target
     }
-    guard let first = matches.first else { throw TargetError.notFound(target) }
-    guard matches.count == 1 else {
+    let narrowed = try narrowedToTask(matches, task: task, environmentTaskID: environmentTaskID, key: Key.taskID)
+    guard let first = narrowed.first else { throw TargetError.notFound(target) }
+    guard narrowed.count == 1 else {
       throw TargetError.ambiguous(
         target: target,
-        candidates: matches.map { row in
+        candidates: narrowed.map { row in
           let name = row[Key.name] ?? ""
           let kind = row[Key.agent] ?? ""
-          return name.isEmpty ? kind : "\(kind) (\(name))"
+          let task = row[Key.taskID] ?? ""
+          let label = name.isEmpty ? kind : "\(kind) (\(name))"
+          return task.isEmpty ? label : "\(label) --task \(task)"
         }
       )
     }
     return first
+  }
+
+  /// The rows of the task asked for; with none asked and several rows, the
+  /// environment's task breaks the tie only when exactly one row is on it.
+  static func narrowedToTask(
+    _ rows: [[String: String]], task: String?, environmentTaskID: String?, key: String
+  ) throws -> [[String: String]] {
+    if let task, !task.isEmpty {
+      return rows.filter { decoded($0[key] ?? "") == decoded(task) }
+    }
+    guard rows.count > 1, let environmentTaskID, !environmentTaskID.isEmpty else { return rows }
+    let own = rows.filter { decoded($0[key] ?? "") == decoded(environmentTaskID) }
+    return own.count == 1 ? own : rows
+  }
+
+  /// The worktree and task a resolved row addresses, as the deeplink carries them.
+  static func target(of row: [String: String], key: String = Key.taskID) -> WorktreeTarget {
+    let task = row[key] ?? ""
+    return WorktreeTarget(worktreeID: row[Key.worktreeID] ?? "", taskID: task.isEmpty ? nil : task)
   }
 
   /// Percent-decodes and drops a trailing slash so encoded and decoded worktree
@@ -249,11 +281,18 @@ extension AgentCommand {
   static func resolvedRow(
     target: String,
     agentKind: String?,
+    task: String? = nil,
     timeoutSeconds: Int
   ) throws -> [String: String] {
     let rows = try QueryDispatcher.query(resource: "agents", timeoutSeconds: timeoutSeconds)
-    return try resolve(target: target, agentKind: agentKind, in: rows)
+    return try resolve(
+      target: target, agentKind: agentKind, task: task, environmentTaskID: EnvironmentDefaults.taskID, in: rows)
   }
+
+  /// `--task` help, shared by every agent subcommand that addresses one agent.
+  static let taskHelp =
+    "Task ID, to pick one of several same-kind agents on a worktree. "
+    + "With none, $SUPACODE_TASK_ID breaks a tie when exactly one candidate is on this terminal's task."
 
   /// Poll interval for every agent-state wait. Presence state is push-updated
   /// app-side, so this only bounds how stale the CLI's view can be.
@@ -269,6 +308,7 @@ extension AgentCommand {
   static func pollForRow(
     target: String,
     agentKind: String?,
+    task: String? = nil,
     deadline: Date,
     interval: TimeInterval = AgentCommand.pollInterval,
     timedOut: (String) -> Error,
@@ -280,7 +320,8 @@ extension AgentCommand {
     while true {
       let rows = try QueryDispatcher.query(resource: "agents", timeoutSeconds: queryTimeoutSeconds)
       do {
-        let row = try resolve(target: target, agentKind: agentKind, in: rows)
+        let row = try resolve(
+          target: target, agentKind: agentKind, task: task, environmentTaskID: EnvironmentDefaults.taskID, in: rows)
         everResolved = true
         if isSatisfied(row) { return row }
       } catch TargetError.notFound(let target) where everResolved {
@@ -359,6 +400,9 @@ extension AgentCommand {
     @Option(name: .long, help: "Agent kind, to disambiguate a worktree running several agents.")
     var agent: String?
 
+    @Option(name: .long, help: ArgumentHelp(AgentCommand.taskHelp))
+    var task: String?
+
     @OptionGroup var timeoutOption: TimeoutOption
 
     func validate() throws {
@@ -368,11 +412,11 @@ extension AgentCommand {
     }
 
     func run() throws {
-      let rows = try QueryDispatcher.query(resource: "agents", timeoutSeconds: timeoutOption.timeout)
-      let row = try AgentCommand.resolve(target: target, agentKind: agent, in: rows)
+      let row = try AgentCommand.resolvedRow(
+        target: target, agentKind: agent, task: task, timeoutSeconds: timeoutOption.timeout)
       try Dispatcher.dispatch(
         deeplinkURL: DeeplinkURLBuilder.agentRename(
-          worktreeID: row[Key.worktreeID] ?? "",
+          target: AgentCommand.target(of: row),
           agent: row[Key.agent] ?? "",
           name: clear ? nil : name
         ),
@@ -401,6 +445,9 @@ extension AgentCommand {
     @Option(name: .long, help: "Agent kind, to disambiguate a worktree running several agents.")
     var agent: String?
 
+    @Option(name: .long, help: ArgumentHelp(AgentCommand.taskHelp))
+    var task: String?
+
     func validate() throws {
       guard timeout >= 0 else { throw ValidationError("--timeout cannot be negative.") }
       _ = try AgentCommand.parsedStates(until)
@@ -409,7 +456,7 @@ extension AgentCommand {
     func run() throws {
       let wanted = try AgentCommand.parsedStates(until)
       let row = try AgentCommand.pollForSettled(
-        target: target, agentKind: agent, wanted: wanted, timeout: timeout)
+        target: target, agentKind: agent, task: task, wanted: wanted, timeout: timeout)
       print(AgentCommand.jsonLine(row))
     }
   }
@@ -419,6 +466,7 @@ extension AgentCommand {
   static func pollForSettled(
     target: String,
     agentKind: String?,
+    task: String? = nil,
     wanted: Set<AgentState>,
     timeout: Int
   ) throws -> [String: String] {
@@ -426,6 +474,7 @@ extension AgentCommand {
     return try pollForRow(
       target: target,
       agentKind: agentKind,
+      task: task,
       deadline: deadline,
       timedOut: { target in
         let states = wanted.map(\.rawValue).sorted().joined(separator: "|")
@@ -476,6 +525,9 @@ extension AgentCommand {
     @Option(name: .long, help: "Agent kind, to disambiguate a worktree running several agents.")
     var agent: String?
 
+    @Option(name: .long, help: ArgumentHelp(AgentCommand.taskHelp))
+    var task: String?
+
     func validate() throws {
       guard !text.isEmpty else { throw ValidationError("Prompt text cannot be empty.") }
       guard timeout >= 0 else { throw ValidationError("--timeout cannot be negative.") }
@@ -486,11 +538,12 @@ extension AgentCommand {
     func run() throws {
       let wanted = try AgentCommand.parsedStates(until)
       let row = try AgentCommand.resolvedRow(
-        target: target, agentKind: agent, timeoutSeconds: AgentCommand.queryTimeoutSeconds)
+        target: target, agentKind: agent, task: task, timeoutSeconds: AgentCommand.queryTimeoutSeconds)
       let kind = row[Key.agent] ?? ""
+      let resolvedTarget = AgentCommand.target(of: row)
       try Dispatcher.dispatch(
         deeplinkURL: DeeplinkURLBuilder.agentPrompt(
-          worktreeID: row[Key.worktreeID] ?? "",
+          target: resolvedTarget,
           agent: kind,
           text: text,
           submit: !noSubmit
@@ -500,19 +553,21 @@ extension AgentCommand {
       guard wait else { return }
       // Require an observed transition into `working` first: without it, an
       // agent that never picked the prompt up would look instantly "settled"
-      // and the wait would succeed against the previous turn's state.
-      try waitForTurnToStart(kind: kind)
+      // and the wait would succeed against the previous turn's state. The
+      // wait follows the agent the prompt went to, task included.
+      try waitForTurnToStart(kind: kind, task: resolvedTarget.taskID)
       let settled = try AgentCommand.pollForSettled(
-        target: target, agentKind: kind, wanted: wanted, timeout: timeout)
+        target: target, agentKind: kind, task: resolvedTarget.taskID, wanted: wanted, timeout: timeout)
       print(AgentCommand.jsonLine(settled))
     }
 
     /// Polls faster than the settle wait: a short turn can pass through
     /// `working` quickly, and missing it would report a false stall.
-    private func waitForTurnToStart(kind: String) throws {
+    private func waitForTurnToStart(kind: String, task: String?) throws {
       _ = try AgentCommand.pollForRow(
         target: target,
         agentKind: kind,
+        task: task,
         deadline: Date().addingTimeInterval(TimeInterval(stallTimeout)),
         interval: 0.25,
         timedOut: { target in
@@ -540,6 +595,9 @@ extension AgentCommand {
     @Option(name: .long, help: "Agent kind, to disambiguate a worktree running several agents.")
     var agent: String?
 
+    @Option(name: .long, help: ArgumentHelp(AgentCommand.taskHelp))
+    var task: String?
+
     @OptionGroup var timeoutOption: TimeoutOption
 
     func validate() throws {
@@ -551,10 +609,10 @@ extension AgentCommand {
 
     func run() throws {
       let row = try AgentCommand.resolvedRow(
-        target: target, agentKind: agent, timeoutSeconds: timeoutOption.timeout)
+        target: target, agentKind: agent, task: task, timeoutSeconds: timeoutOption.timeout)
       try Dispatcher.dispatch(
         deeplinkURL: DeeplinkURLBuilder.agentSendKeys(
-          worktreeID: row[Key.worktreeID] ?? "",
+          target: AgentCommand.target(of: row),
           agent: row[Key.agent] ?? "",
           keys: keys.map { $0.lowercased() }
         ),
@@ -577,6 +635,9 @@ extension AgentCommand {
     @Option(name: .long, help: "Agent kind, to disambiguate a worktree running several agents.")
     var agent: String?
 
+    @Option(name: .long, help: ArgumentHelp(AgentCommand.taskHelp))
+    var task: String?
+
     @OptionGroup var timeoutOption: TimeoutOption
 
     func validate() throws {
@@ -585,9 +646,9 @@ extension AgentCommand {
 
     func run() throws {
       let row = try AgentCommand.resolvedRow(
-        target: target, agentKind: agent, timeoutSeconds: timeoutOption.timeout)
+        target: target, agentKind: agent, task: task, timeoutSeconds: timeoutOption.timeout)
       let text = try AgentCommand.readScreen(
-        worktreeID: row[Key.worktreeID] ?? "",
+        target: AgentCommand.target(of: row),
         agentKind: row[Key.agent],
         lines: lines,
         timeoutSeconds: timeoutOption.timeout
@@ -597,14 +658,15 @@ extension AgentCommand {
   }
 
   /// Screen text of one surface. Without `agentKind` the app reads the
-  /// worktree's focused surface, which is what `terminal wait-output` watches.
+  /// task's focused surface, which is what `terminal wait-output` watches.
   static func readScreen(
-    worktreeID: String,
+    target: WorktreeTarget,
     agentKind: String?,
     lines: Int,
     timeoutSeconds: Int
   ) throws -> String {
-    var params = ["worktreeID": worktreeID, "lines": String(lines)]
+    var params = target.queryParams
+    params["lines"] = String(lines)
     if let agentKind, !agentKind.isEmpty { params["agent"] = agentKind }
     let rows = try QueryDispatcher.query(
       resource: "agentRead", params: params, timeoutSeconds: timeoutSeconds)
@@ -628,13 +690,16 @@ extension AgentCommand {
     @Option(name: .long, help: "Agent kind, to disambiguate a worktree running several agents.")
     var agent: String?
 
+    @Option(name: .long, help: ArgumentHelp(AgentCommand.taskHelp))
+    var task: String?
+
     @OptionGroup var timeoutOption: TimeoutOption
 
     func run() throws {
       let row = try AgentCommand.resolvedRow(
-        target: target, agentKind: agent, timeoutSeconds: timeoutOption.timeout)
+        target: target, agentKind: agent, task: task, timeoutSeconds: timeoutOption.timeout)
       let explained = try AgentCommand.explain(
-        worktreeID: row[Key.worktreeID] ?? "",
+        target: AgentCommand.target(of: row),
         agentKind: row[Key.agent] ?? "",
         timeoutSeconds: timeoutOption.timeout
       )
@@ -647,15 +712,13 @@ extension AgentCommand {
   }
 
   static func explain(
-    worktreeID: String,
+    target: WorktreeTarget,
     agentKind: String,
     timeoutSeconds: Int
   ) throws -> [String: String] {
-    let rows = try QueryDispatcher.query(
-      resource: "agentExplain",
-      params: ["worktreeID": worktreeID, "agent": agentKind],
-      timeoutSeconds: timeoutSeconds
-    )
+    var params = target.queryParams
+    params["agent"] = agentKind
+    let rows = try QueryDispatcher.query(resource: "agentExplain", params: params, timeoutSeconds: timeoutSeconds)
     guard let row = rows.first else {
       throw SocketClient.Error.responseError("Supacode returned no explanation for '\(agentKind)'.")
     }
@@ -720,6 +783,9 @@ extension AgentCommand {
     @Option(name: .long, help: "Agent kind, to disambiguate a worktree with several dead sessions.")
     var agent: String?
 
+    @Option(name: .long, help: ArgumentHelp(AgentCommand.taskHelp))
+    var task: String?
+
     @Flag(name: .long, help: "Print the resume command instead of running it.")
     var dryRun = false
 
@@ -728,14 +794,15 @@ extension AgentCommand {
     func run() throws {
       let rows = try QueryDispatcher.query(
         resource: "agentResumeCandidates", timeoutSeconds: timeoutOption.timeout)
-      let row = try AgentCommand.resolveCandidate(target: target, agentKind: agent, in: rows)
+      let row = try AgentCommand.resolveCandidate(
+        target: target, agentKind: agent, task: task, environmentTaskID: EnvironmentDefaults.taskID, in: rows)
       guard !dryRun else {
         print(row[ResumeKey.command] ?? "")
         return
       }
       try Dispatcher.dispatch(
         deeplinkURL: DeeplinkURLBuilder.agentResume(
-          worktreeID: row[ResumeKey.worktreeID] ?? "",
+          target: AgentCommand.target(of: row, key: ResumeKey.taskID),
           agent: row[ResumeKey.agent] ?? ""
         ),
         timeoutSeconds: timeoutOption.timeout
@@ -744,10 +811,12 @@ extension AgentCommand {
   }
 
   /// Resume candidates have no names (a name addresses a *running* agent), so
-  /// they resolve by worktree only, with `--agent` as the tie-break.
+  /// they resolve by worktree only, with `--agent` and `--task` as tie-breaks.
   static func resolveCandidate(
     target: String,
     agentKind: String?,
+    task: String? = nil,
+    environmentTaskID: String? = nil,
     in rows: [[String: String]]
   ) throws -> [String: String] {
     let decodedTarget = decoded(target)
@@ -757,12 +826,19 @@ extension AgentCommand {
       return id == decodedTarget || row[ResumeKey.branch] == target
         || row[ResumeKey.worktreeTitle] == target
     }
-    guard let first = matches.first else {
+    let narrowed = try narrowedToTask(
+      matches, task: task, environmentTaskID: environmentTaskID, key: ResumeKey.taskID)
+    guard let first = narrowed.first else {
       throw TargetError.noResumeCandidate(target)
     }
-    guard matches.count == 1 else {
+    guard narrowed.count == 1 else {
       throw TargetError.ambiguous(
-        target: target, candidates: matches.map { $0[ResumeKey.agent] ?? "" })
+        target: target,
+        candidates: narrowed.map { row in
+          let task = row[ResumeKey.taskID] ?? ""
+          let kind = row[ResumeKey.agent] ?? ""
+          return task.isEmpty ? kind : "\(kind) --task \(task)"
+        })
     }
     return first
   }
@@ -796,6 +872,9 @@ extension AgentCommand {
     @Option(name: .long, help: "Agent kind, to disambiguate a worktree running several agents.")
     var agent: String?
 
+    @Option(name: .long, help: ArgumentHelp(AgentCommand.taskHelp))
+    var task: String?
+
     @OptionGroup var timeoutOption: TimeoutOption
 
     func validate() throws {
@@ -808,10 +887,10 @@ extension AgentCommand {
     func run() throws {
       let tokens = try AgentCommand.parsedTokens(token)
       let row = try AgentCommand.resolvedRow(
-        target: target, agentKind: agent, timeoutSeconds: timeoutOption.timeout)
+        target: target, agentKind: agent, task: task, timeoutSeconds: timeoutOption.timeout)
       try Dispatcher.dispatch(
         deeplinkURL: DeeplinkURLBuilder.agentMetadata(
-          worktreeID: row[Key.worktreeID] ?? "",
+          target: AgentCommand.target(of: row),
           agent: row[Key.agent] ?? "",
           tokens: tokens,
           clear: clear
