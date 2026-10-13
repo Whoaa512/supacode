@@ -19,31 +19,37 @@ struct AppFeatureTerminalSetupScriptTests {
     )
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
+      $0.uuid = .incrementing
       $0.terminalClient.send = { command in
         sent.withValue { $0.append(command) }
       }
     }
 
+    store.exhaustivity = .off
+
+    // The directory has no task yet: the first tab mints one, carrying the row's identity and the setup flag.
+    let minted = LayoutID(task: UUID(0))
     await store.send(.newTerminal)
-    await store.send(.terminalEvent(.setupScriptConsumed(layoutID: worktree.id.layoutID)))
+    #expect(
+      store.state.pendingTaskLaunches == [
+        PendingTaskLaunch(layoutID: minted, directoryID: worktree.id, primary: nil, followsDirectory: true)
+      ])
+    // The manager attaches the minted layout to the directory before the script is consumed.
+    await store.send(
+      .terminals(
+        .attachLayout(worktreeID: minted, directory: TaskRecord.Directory(worktreeID: worktree.id), titlePrefix: "wt")))
+    await store.send(.terminalEvent(.setupScriptConsumed(layoutID: minted)))
     await store.receive(\.repositories.worktreeCreationSettled)
-    await store.receive(\.repositories.sidebarItems) {
-      $0.repositories.sidebarItems[id: worktree.id]?.lifecycle = .idle
-      $0.repositories.applyPostReduceCacheRecomputes(
-        [.sidebarStructure, .selectedWorktreeSlice, .sidebarSelectionSlice]
-      )
-    }
+    await store.receive(\.repositories.sidebarItems)
     await store.finish()
+    #expect(store.state.repositories.sidebarItems[id: worktree.id]?.lifecycle == .idle)
     #expect(
       sent.value == [
-        .createTab(worktree.id.layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, id: nil)
+        .createTaskTab(minted, source: .roster(worktree.id), input: nil, runSetupScriptIfNew: true, focusing: true)
       ])
   }
 
@@ -56,23 +62,26 @@ struct AppFeatureTerminalSetupScriptTests {
     )
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
+      $0.uuid = .incrementing
       $0.terminalClient.send = { command in
         sent.withValue { $0.append(command) }
       }
     }
 
-    await store.send(.newTerminal)
+    let minted = LayoutID(task: UUID(0))
+    await store.send(.newTerminal) {
+      $0.pendingTaskLaunches = [
+        PendingTaskLaunch(layoutID: minted, directoryID: worktree.id, primary: nil, followsDirectory: true)
+      ]
+    }
     await store.finish()
     #expect(
       sent.value == [
-        .createTab(worktree.id.layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, id: nil)
+        .createTaskTab(minted, source: .roster(worktree.id), input: nil, runSetupScriptIfNew: false, focusing: true)
       ]
     )
   }
@@ -87,12 +96,10 @@ struct AppFeatureTerminalSetupScriptTests {
       pendingSetupScript: true,
       selected: true
     )
-    let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
-    ) {
+    // The event names the directory's task; the record is what maps it back.
+    var initial = AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
+    initial.terminals.directories[worktree.id.layoutID] = TaskRecord.Directory(worktreeID: worktree.id)
+    let store = TestStore(initialState: initial) {
       AppFeature()
     }
 
@@ -116,12 +123,10 @@ struct AppFeatureTerminalSetupScriptTests {
       pendingSetupScript: true,
       selected: true
     )
-    let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
-    ) {
+    // The event names the directory's task; the record is what maps it back.
+    var initial = AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
+    initial.terminals.directories[worktree.id.layoutID] = TaskRecord.Directory(worktreeID: worktree.id)
+    let store = TestStore(initialState: initial) {
       AppFeature()
     }
 
@@ -151,10 +156,7 @@ struct AppFeatureTerminalSetupScriptTests {
       selected: true
     )
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
     ) {
       AppFeature()
     }
@@ -175,12 +177,10 @@ struct AppFeatureTerminalSetupScriptTests {
       pendingSetupScript: true,
       selected: true
     )
-    let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
-    ) {
+    // The event names the directory's task; the record is what maps it back.
+    var initial = AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
+    initial.terminals.directories[worktree.id.layoutID] = TaskRecord.Directory(worktreeID: worktree.id)
+    let store = TestStore(initialState: initial) {
       AppFeature()
     }
 
@@ -206,12 +206,10 @@ struct AppFeatureTerminalSetupScriptTests {
     )
     repositoriesState.sidebarItems[id: worktree.id]?.lifecycle = .deleting
     repositoriesState.applyPostReduceCacheRecomputes()
-    let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
-    ) {
+    // The event names the directory's task; the record is what maps it back.
+    var initial = AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
+    initial.terminals.directories[worktree.id.layoutID] = TaskRecord.Directory(worktreeID: worktree.id)
+    let store = TestStore(initialState: initial) {
       AppFeature()
     }
 
@@ -233,10 +231,7 @@ struct AppFeatureTerminalSetupScriptTests {
     // A surface-bearing selected row's cache recompute reads the live
     // date/clock, so supply test values to keep the store hermetic.
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -276,10 +271,7 @@ struct AppFeatureTerminalSetupScriptTests {
       selected: true
     )
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
     ) {
       AppFeature()
     }
@@ -309,12 +301,9 @@ struct AppFeatureTerminalSetupScriptTests {
       pendingSetupScript: true,
       selected: true
     )
-    let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
-    ) {
+    var initial = AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
+    initial.terminals.directories[worktree.id.layoutID] = TaskRecord.Directory(worktreeID: worktree.id)
+    let store = TestStore(initialState: initial) {
       AppFeature()
     }
 
@@ -338,24 +327,27 @@ struct AppFeatureTerminalSetupScriptTests {
     )
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
+      $0.uuid = .incrementing
       $0.terminalClient.send = { command in
         sent.withValue { $0.append(command) }
       }
     }
 
-    await store.send(.repositories(.delegate(.worktreeCreated(worktree))))
+    // A new worktree has no task: its first tab mints one.
+    let minted = LayoutID(task: UUID(0))
+    await store.send(.repositories(.delegate(.worktreeCreated(worktree)))) {
+      $0.pendingTaskLaunches = [
+        PendingTaskLaunch(layoutID: minted, directoryID: worktree.id, primary: nil, followsDirectory: true)
+      ]
+    }
     await store.finish()
     #expect(
       sent.value == [
-        .ensureInitialTab(
-          worktree.id.layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, focusing: false)
+        .ensureInitialTab(minted, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, focusing: false)
       ]
     )
   }
@@ -369,24 +361,27 @@ struct AppFeatureTerminalSetupScriptTests {
     )
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
+      $0.uuid = .incrementing
       $0.terminalClient.send = { command in
         sent.withValue { $0.append(command) }
       }
     }
 
-    await store.send(.repositories(.delegate(.worktreeCreated(worktree))))
+    // A new worktree has no task: its first tab mints one.
+    let minted = LayoutID(task: UUID(0))
+    await store.send(.repositories(.delegate(.worktreeCreated(worktree)))) {
+      $0.pendingTaskLaunches = [
+        PendingTaskLaunch(layoutID: minted, directoryID: worktree.id, primary: nil, followsDirectory: true)
+      ]
+    }
     await store.finish()
     #expect(
       sent.value == [
-        .ensureInitialTab(
-          worktree.id.layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: false)
+        .ensureInitialTab(minted, DirectoryContext(worktree: worktree), runSetupScriptIfNew: false, focusing: false)
       ]
     )
   }
@@ -394,7 +389,8 @@ struct AppFeatureTerminalSetupScriptTests {
   @Test(.dependencies) func selectedWorktreeChangedLeavesTheFirstTabToWorktreeCreated() async {
     // A freshly created worktree emits `selectedWorktreeChanged` before
     // `worktreeCreated`. Selecting a directory mints nothing, so the
-    // setup-aware bootstrap is `worktreeCreated`'s alone.
+    // setup-aware bootstrap is `worktreeCreated`'s alone, and it mints the
+    // directory's first task.
     let worktree = makeWorktree()
     let repositoriesState = makeRepositoriesState(
       worktree: worktree,
@@ -404,13 +400,11 @@ struct AppFeatureTerminalSetupScriptTests {
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let storage = SettingsTestStorage()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
+      $0.uuid = .incrementing
       $0.terminalClient.send = { command in sent.withValue { $0.append(command) } }
       $0.worktreeInfoWatcher.send = { _ in }
       $0.settingsFileStorage = storage.storage
@@ -420,15 +414,20 @@ struct AppFeatureTerminalSetupScriptTests {
 
     await store.send(.repositories(.delegate(.selectedWorktreeChanged(worktree))))
     await store.finish()
-    #expect(sent.value == [.selectLayout(worktree.id.layoutID, forDirectory: worktree.id)])
+    #expect(sent.value == [.selectLayout(nil, forDirectory: worktree.id)])
+    #expect(store.state.pendingTaskLaunches.isEmpty)
 
     await store.send(.repositories(.delegate(.worktreeCreated(worktree))))
     await store.finish()
+    let minted = LayoutID(task: UUID(0))
     #expect(
       sent.value.last
-        == .ensureInitialTab(
-          worktree.id.layoutID, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, focusing: false)
+        == .ensureInitialTab(minted, DirectoryContext(worktree: worktree), runSetupScriptIfNew: true, focusing: false)
     )
+    #expect(
+      store.state.pendingTaskLaunches == [
+        PendingTaskLaunch(layoutID: minted, directoryID: worktree.id, primary: nil, followsDirectory: true)
+      ])
   }
 
   private func makeWorktree() -> Worktree {
@@ -466,6 +465,7 @@ struct AppFeatureTerminalSetupScriptTests {
         layout: PaneLayout(tree: SplitTree(view: paneID), panes: [Pane(id: paneID, tabs: [tab], selectedTabID: tab.id)])
       )
     ]
+    initial.terminals.directories[worktree.id.layoutID] = TaskRecord.Directory(worktreeID: worktree.id)
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {

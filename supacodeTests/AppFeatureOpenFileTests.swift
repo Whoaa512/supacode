@@ -30,10 +30,9 @@ struct AppFeatureOpenFileTests {
     let worktree = makeWorktree()
     let openedWith = LockIsolated<[OpenWorktreeAction?]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(
+        repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(),
+        ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -65,10 +64,9 @@ struct AppFeatureOpenFileTests {
       @Shared(.settingsFile) var settingsFile
       $settingsFile.withLock { $0.global = settings }
       return TestStore(
-        initialState: AppFeature.State(
-          repositories: makeRepositoriesState(worktree: worktree),
-          settings: SettingsFeature.State(settings: settings)
-        )
+        initialState: .seeded(
+          repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(settings: settings),
+          ownKeyTaskOn: worktree)
       ) {
         AppFeature()
       } withDependencies: {
@@ -114,10 +112,9 @@ struct AppFeatureOpenFileTests {
         $0.repositories[repositoryID] = repoSettings
       }
       return TestStore(
-        initialState: AppFeature.State(
-          repositories: makeRepositoriesState(worktree: worktree),
-          settings: SettingsFeature.State()
-        )
+        initialState: .seeded(
+          repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(),
+          ownKeyTaskOn: worktree)
       ) {
         AppFeature()
       } withDependencies: {
@@ -155,10 +152,9 @@ struct AppFeatureOpenFileTests {
       @Shared(.settingsFile) var settingsFile
       $settingsFile.withLock { $0.global = settings }
       return TestStore(
-        initialState: AppFeature.State(
-          repositories: makeRepositoriesState(worktree: worktree),
-          settings: SettingsFeature.State(settings: settings)
-        )
+        initialState: .seeded(
+          repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(settings: settings),
+          ownKeyTaskOn: worktree)
       ) {
         AppFeature()
       } withDependencies: {
@@ -201,10 +197,9 @@ struct AppFeatureOpenFileTests {
       @Shared(.settingsFile) var settingsFile
       $settingsFile.withLock { $0.global = settings }
       return TestStore(
-        initialState: AppFeature.State(
-          repositories: makeRepositoriesState(worktree: worktree),
-          settings: SettingsFeature.State(settings: settings)
-        )
+        initialState: .seeded(
+          repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(settings: settings),
+          ownKeyTaskOn: worktree)
       ) {
         AppFeature()
       } withDependencies: {

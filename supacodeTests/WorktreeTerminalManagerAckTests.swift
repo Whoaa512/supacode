@@ -964,6 +964,85 @@ struct WorktreeTerminalManagerAckTests {
     #expect(recorder.remoteKills.value.isEmpty)
   }
 
+  /// Before hydration nothing at runtime names a task, so the stored file is
+  /// the only witness: every record on the deleted directory goes, by record,
+  /// and a record stored under a key shaped like that directory's path but
+  /// naming another directory stays. No host exists, so nothing is killed.
+  @Test(.dependencies) func deletingAnUnhydratedDirectoryRemovesItsStoredTasksByRecordOnly() async {
+    let recorder = TeardownRecorder()
+    let deleted = TaskRecord.Directory(worktreeID: "/tmp/repo/wt-deleted")
+    let other = TaskRecord.Directory(worktreeID: "/tmp/repo/wt-other")
+    let ownKey = LayoutID(legacyWorktreeKey: deleted.worktreeID.rawValue)
+    let minted = LayoutID(task: UUID())
+    // A key that looks like the deleted directory's path, recorded elsewhere.
+    let lookalike = LayoutID(legacyWorktreeKey: deleted.worktreeID.rawValue + "-sibling")
+    let created = Date(timeIntervalSince1970: 1)
+    let tasks = [
+      TaskRecord(id: ownKey, directory: deleted, layout: singleTabLayout(contentID: UUID()), createdAt: created),
+      TaskRecord(id: minted, directory: deleted, layout: singleTabLayout(contentID: UUID()), createdAt: created),
+      TaskRecord(id: lookalike, directory: other, layout: singleTabLayout(contentID: UUID()), createdAt: created),
+    ]
+    recorder.seed(tasks)
+    // The app read the file at launch; the terminal has not hydrated it.
+    var repositories = RepositoriesFeature.State()
+    repositories.$persistedLayouts = SharedReader(
+      value: TaskLayoutsFile(tasks: Dictionary(uniqueKeysWithValues: tasks.map { ($0.id.persistenceKey, $0) })))
+    let harness = makeHarness(
+      defaults: recorder.defaults, killSession: recorder.killSession, repositories: repositories)
+    #expect(harness.store.withState { $0.terminals.layouts.isEmpty })
+
+    harness.manager.handleCommand(.removeLayouts(forDirectory: deleted.worktreeID, remoteHost: nil))
+
+    let written = await recorder.nextWrite { $0.tasks[minted.persistenceKey] == nil }
+    #expect(written.tasks == [lookalike.persistenceKey: tasks[2]])
+    #expect(harness.store.withState { $0.terminals.removedLayoutIDs } == [ownKey, minted])
+    #expect(harness.manager.hostIfExists(for: ownKey) == nil && harness.manager.hostIfExists(for: minted) == nil)
+    #expect(recorder.localKills.value.isEmpty)
+  }
+
+  /// A hosted task and a stored-only task on one directory: both go, the
+  /// hosted one torn down exactly once.
+  @Test(.dependencies) func deletingADirectoryRemovesItsHostedAndStoredOnlyTasksOnce() async {
+    let recorder = TeardownRecorder()
+    let directory = makeWorktree(id: "/tmp/repo/wt-mixed")
+    let hosted = LayoutID(task: UUID())
+    let storedOnly = LayoutID(task: UUID())
+    let created = Date(timeIntervalSince1970: 1)
+    let storedRecord = TaskRecord(
+      id: storedOnly, directory: .init(worktreeID: directory.id), layout: singleTabLayout(contentID: UUID()),
+      createdAt: created)
+    recorder.seed([storedRecord])
+    var repositories = RepositoriesFeature.State()
+    repositories.$persistedLayouts = SharedReader(
+      value: TaskLayoutsFile(tasks: [storedOnly.persistenceKey: storedRecord]))
+    let harness = makeHarness(
+      defaults: recorder.defaults, killSession: recorder.killSession, repositories: repositories)
+    let pump = CreationEvents(harness.manager)
+    let hostedSurface = await openLayout(hosted, on: directory, in: harness, pump: pump)
+    var tornDown = 0
+    let events = harness.manager.eventStream()
+    let tornDownCount = Task {
+      var count = 0
+      for await event in events {
+        if case .worktreeStateTornDown = event { count += 1 }
+        if count == 2 { break }
+      }
+      return count
+    }
+
+    harness.manager.handleCommand(.removeLayouts(forDirectory: directory.id, remoteHost: nil))
+
+    tornDown = await tornDownCount.value
+    #expect(tornDown == 2)
+    #expect(harness.manager.hostIfExists(for: hosted) == nil)
+    #expect(harness.store.withState { $0.terminals.layouts[id: hosted] } == nil)
+    #expect(harness.store.withState { $0.terminals.removedLayoutIDs } == [hosted, storedOnly])
+    let written = await recorder.nextWrite { $0.tasks.isEmpty }
+    #expect(written.tasks.isEmpty)
+    await recorder.awaitKills(1)
+    #expect(recorder.localKills.value == [ZmxSessionID.make(surfaceID: hostedSurface)])
+  }
+
   @Test(.dependencies) func theDirectoryRowProjectionCoversEveryTaskOnIt() async {
     let harness = makeHarness()
     let pump = CreationEvents(harness.manager)

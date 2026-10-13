@@ -32,6 +32,10 @@ struct PendingTaskLaunch: Equatable {
   /// Only the latest launch is shown when its tab appears. Selecting it
   /// earlier would bootstrap a plain shell tab into it.
   var isShown = true
+  /// A task minted for a first tab on a directory that had none: when its
+  /// tab appears it is shown only if that directory is still what the user
+  /// looks at, and it is never selected as a task pick.
+  var followsDirectory = false
 }
 
 struct PendingBranchMismatchResume: Equatable {
@@ -1148,9 +1152,25 @@ extension AppFeature {
     return .send(.terminals(.membersChanged(members, agents: agents)))
   }
 
+  /// The layout a tab-creating command on a directory goes to: its task, else
+  /// one minted for it. The mint is remembered until its first tab exists, so
+  /// a second command in that window joins it instead of minting again. The
+  /// pending entry lists no member: nothing is stored until the tab exists.
+  static func firstTabLayoutID(forDirectory directoryID: Worktree.ID, state: inout State) -> LayoutID {
+    if let existing = state.firstTabLayoutIDIfAny(forDirectory: directoryID) { return existing }
+    @Dependency(\.uuid) var uuid
+    let layoutID = LayoutID(task: uuid())
+    state.pendingTaskLaunches.append(
+      PendingTaskLaunch(layoutID: layoutID, directoryID: directoryID, primary: nil, followsDirectory: true))
+    return layoutID
+  }
+
   /// Lists the session each launched task was minted for, ahead of whatever
   /// its agent reports, as soon as the task holds a tab, and shows the task
-  /// when it is the latest launch.
+  /// when it is the latest launch. A first tab minted for a directory never
+  /// selects: it only tells the terminal which layout the still-selected
+  /// directory now shows, and nothing if the user has moved on or picked a
+  /// task since.
   static func showLaunchedTaskIfReady(state: inout State, members: inout [LayoutID: [TaskMember]]) -> Effect<Action>? {
     let ready = state.pendingTaskLaunches.filter { pending in
       state.terminals.layouts[id: pending.layoutID]?.layout.panes.contains { !$0.tabs.isEmpty } == true
@@ -1161,8 +1181,14 @@ extension AppFeature {
       guard let primary = pending.primary.map(TaskMember.session) else { continue }
       members[pending.layoutID] = [primary] + (members[pending.layoutID] ?? []).filter { $0 != primary }
     }
-    guard let shown = ready.last(where: \.isShown) else { return nil }
-    return .send(.repositories(.selectTask(shown.layoutID, directory: shown.directoryID)))
+    if let shown = ready.last(where: { !$0.followsDirectory && $0.isShown }) {
+      return .send(.repositories(.selectTask(shown.layoutID, directory: shown.directoryID)))
+    }
+    guard let first = ready.last(where: \.followsDirectory),
+      state.repositories.selectedWorktreeID == first.directoryID, state.repositories.selectedTaskID == nil
+    else { return nil }
+    @Dependency(TerminalClient.self) var terminalClient
+    return .run { _ in await terminalClient.send(.setSelectedLayoutID(first.layoutID)) }
   }
 
   // MARK: - Branch capture (FIFO queue, one in-flight at a time)

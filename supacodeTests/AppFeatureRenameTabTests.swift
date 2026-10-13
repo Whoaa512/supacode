@@ -101,12 +101,9 @@ struct AppFeatureRenameTabTests {
     if let selection {
       repositories.selection = .worktree(selection)
     }
-    return TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State()
-      )
-    ) {
+    var initial = AppFeature.State(repositories: repositories, settings: SettingsFeature.State())
+    for worktree in worktrees { initial.seedOwnKeyTask(on: worktree) }
+    return TestStore(initialState: initial) {
       AppFeature()
     }
   }

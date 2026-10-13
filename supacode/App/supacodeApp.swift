@@ -681,9 +681,7 @@ struct SupacodeApp: App {
         clientFD: clientFD, ok: false, error: "Worktree not found: \(rawWorktreeID)")
       return
     }
-    let seamLayoutID = store.withState {
-      $0.commandLayoutID(forDirectory: worktreeID) ?? $0.layoutID(forDirectory: worktreeID)
-    }
+    let seamLayoutID = store.withState { $0.layoutID(forDirectory: worktreeID) }
     let surfaceID: UUID?
     if let rawAgent = params["agent"] {
       guard let agent = SkillAgent(rawValue: rawAgent) else {
@@ -699,14 +697,13 @@ struct SupacodeApp: App {
       }
       surfaceID = key.surfaceID
     } else {
-      surfaceID = terminalManager.focusedSurfaceID(worktreeID: seamLayoutID) ?? item.surfaceIDs.first
+      surfaceID = seamLayoutID.flatMap { terminalManager.focusedSurfaceID(worktreeID: $0) } ?? item.surfaceIDs.first
     }
     // The row lists the surfaces of every task on the directory, so the
     // surface is read through the task that holds it.
     guard let surfaceID,
-      let screen = terminalManager.screenPreview(
-        worktreeID: store.withState { $0.layoutID(forDirectory: worktreeID, holding: surfaceID) },
-        surfaceID: surfaceID)
+      let owner = store.withState({ $0.layoutID(forDirectory: worktreeID, holding: surfaceID) }),
+      let screen = terminalManager.screenPreview(worktreeID: owner, surfaceID: surfaceID)
     else {
       AgentHookSocketServer.sendCommandResponse(
         clientFD: clientFD, ok: false,

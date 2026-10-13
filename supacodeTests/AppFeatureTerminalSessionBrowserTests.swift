@@ -19,7 +19,7 @@ struct AppFeatureTerminalSessionBrowserTests {
     let tabID = TabID()
     let surfaceID = UUID()
     let calls = LockIsolated<[Call]>([])
-    let store = makeStore(worktree: worktree) {
+    let store = makeStore(worktree: worktree, tabID: tabID, surfaceID: surfaceID) {
       $0.terminalClient.focusSurface = { layoutID, context, tabID, surfaceID in
         calls.withValue { $0.append(.focus(layoutID, context, tabID, surfaceID)) }
       }
@@ -37,7 +37,7 @@ struct AppFeatureTerminalSessionBrowserTests {
     let tabID = TabID()
     let surfaceID = UUID()
     let calls = LockIsolated<[Call]>([])
-    let store = makeStore(worktree: worktree) {
+    let store = makeStore(worktree: worktree, tabID: tabID, surfaceID: surfaceID) {
       $0.terminalClient.closeSurface = { layoutID, context, tabID, surfaceID in
         calls.withValue { $0.append(.close(layoutID, context, tabID, surfaceID)) }
       }
@@ -78,6 +78,8 @@ struct AppFeatureTerminalSessionBrowserTests {
       makeLayoutState(worktree: zebra, surfaceID: UUID()),
       makeLayoutState(worktree: alpha, surfaceID: alphaSurface),
     ]
+    appState.terminals.directories[zebra.layoutID] = TaskRecord.Directory(worktreeID: zebra.id)
+    appState.terminals.directories[alpha.layoutID] = TaskRecord.Directory(worktreeID: alpha.id)
     let store = Store(initialState: appState) { AppFeature() }
     let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
     manager.appStore = store
@@ -90,16 +92,18 @@ struct AppFeatureTerminalSessionBrowserTests {
     #expect(sessions.allSatisfy { !$0.isFocused })
   }
 
+  /// The surface is reached through the task that holds it, so the store
+  /// seeds the directory's task with that tab.
   private func makeStore(
     worktree: Worktree,
+    tabID: TabID = TabID(),
+    surfaceID: UUID? = nil,
     configure: (inout DependencyValues) -> Void
   ) -> TestStoreOf<AppFeature> {
-    let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktrees: [worktree]),
-        settings: SettingsFeature.State()
-      )
-    ) {
+    var initial = AppFeature.State(
+      repositories: makeRepositoriesState(worktrees: [worktree]), settings: SettingsFeature.State())
+    initial.seedOwnKeyTask(on: worktree, tabID: tabID, surfaceID: surfaceID)
+    let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
       $0.date = .constant(Date(timeIntervalSince1970: 0))

@@ -110,6 +110,7 @@ struct AppFeatureDeeplinkTaskTests {
       $0.terminalClient.tabCanRename = { _, _ in true }
       $0.terminalClient.runningScripts = { running[$0] ?? [] }
       $0.terminalClient.idExistsAnywhere = { _ in false }
+      $0.uuid = .incrementing
       // A surface close fans out to the agent-presence persist effect.
       $0.continuousClock = ImmediateClock()
       $0.date = .constant(Date(timeIntervalSince1970: 0))
@@ -243,13 +244,14 @@ struct AppFeatureDeeplinkTaskTests {
     #expect(terminals.commandLayoutID(forDirectory: worktree.id, task: LayoutID(task: UUID())) == nil)
   }
 
-  @Test func aDirectoryWithNoTaskStillResolvesToWhereItsFirstTabLands() {
+  @Test func aDirectoryWithNoTaskResolvesToNothing() {
     var terminals = state().terminals
     terminals.layouts = []
     terminals.directories = [:]
     terminals.activeTasks = [:]
-    #expect(terminals.commandLayoutID(forDirectory: worktree.id) == worktree.id.layoutID)
-    #expect(terminals.commandLayoutID(forDirectory: worktree.id, holding: [UUID()]) == worktree.id.layoutID)
+    // No id is made from the path: a first tab mints a task instead.
+    #expect(terminals.commandLayoutID(forDirectory: worktree.id) == nil)
+    #expect(terminals.commandLayoutID(forDirectory: worktree.id, holding: [UUID()]) == nil)
   }
 
   @Test func cliIDsResolveAsSent() {
@@ -269,8 +271,10 @@ struct AppFeatureDeeplinkTaskTests {
     let state = state()
     #expect(state.layoutID(forDirectory: worktree.id, holding: other.surface) == other.id)
     #expect(state.layoutID(forDirectory: worktree.id, holding: shown.surface) == shown.id)
-    // An id nothing holds leaves the directory's own answer.
-    #expect(state.layoutID(forDirectory: worktree.id, holding: UUID()) == shown.id)
+    // An id nothing holds reaches nothing: never another layout.
+    #expect(state.layoutID(forDirectory: worktree.id, holding: UUID()) == nil)
+    #expect(
+      state.commandLayoutID(forDirectory: worktree.id, holding: [UUID()]) == shown.id, "a bare command still lands")
   }
 
   // MARK: - Commands.
@@ -475,20 +479,83 @@ struct AppFeatureDeeplinkTaskTests {
     }
   }
 
-  /// A directory with no task yet: the command was raised for where its first
-  /// tab lands, and still goes there.
-  @Test(.dependencies) func aBareTabNewOnADirectoryWithNoTaskStillLandsAfterTheConfirmation() async {
+  /// A directory with no task.
+  private func taskless() -> AppFeature.State {
     var empty = confirming()
     empty.terminals.layouts = [elsewhere.layout]
     empty.terminals.directories = [elsewhere.id: TaskRecord.Directory(worktreeID: sibling.id)]
     empty.terminals.activeTasks[worktree.id] = nil
-    let landing = TerminalsFeature.State.ownKeyLayoutID(forDirectory: worktree.id)
+    return empty
+  }
+
+  /// A directory with no task yet: the dialog is raised for the task the
+  /// first tab mints, which is remembered until that tab exists, and the
+  /// confirmed command goes there. Nothing is derived from the path.
+  @Test(.dependencies) func aBareTabNewOnADirectoryWithNoTaskMintsOnceAndLandsAfterTheConfirmation() async {
+    let minted = LayoutID(task: UUID(0))
     let action = Deeplink.WorktreeAction.tabNew(input: "echo hi", id: nil)
-    let (store, sent) = makeStore(empty)
+    let (store, sent) = makeStore(taskless())
     await store.send(.deeplink(.worktree(id: worktree.id, action: action, background: true)))
-    #expect(store.state.deeplinkInputConfirmation?.target == landing)
+    #expect(store.state.deeplinkInputConfirmation?.target == minted)
+    #expect(
+      store.state.pendingTaskLaunches == [
+        PendingTaskLaunch(layoutID: minted, directoryID: worktree.id, primary: nil, followsDirectory: true)
+      ])
+    #expect(sent.value.isEmpty)
     await confirm(action, in: store)
-    #expect(createdTabs(sent.value) == [landing])
+    #expect(createdTabs(sent.value) == [minted])
+    #expect(!createdTabs(sent.value).contains(worktree.layoutID))
+    #expect(store.state.pendingTaskLaunches.count == 1, "the mint waits for its tab")
+  }
+
+  /// A task appears on the directory while the dialog waits: the mint is no
+  /// longer what the directory means, so the confirmed command is refused.
+  @Test(.dependencies) func aBareTabNewMintedForATasklessDirectoryIsRefusedOnceATaskAppears() async {
+    let action = Deeplink.WorktreeAction.tabNew(input: "echo hi", id: nil)
+    let (waiting, _) = makeStore(taskless())
+    await waiting.send(.deeplink(.worktree(id: worktree.id, action: action, background: true)))
+    var appeared = waiting.state
+    appeared.terminals.layouts.append(other.layout)
+    appeared.terminals.directories[other.id] = TaskRecord.Directory(worktreeID: worktree.id)
+    let (store, sent) = makeStore(appeared)
+    await confirm(action, in: store)
+    #expect(sent.value.isEmpty)
+    #expect(store.state.alert != nil)
+  }
+
+  /// Cancelling leaves nothing: the mint was only a reservation.
+  @Test(.dependencies) func cancellingTheDialogOnATasklessDirectoryDropsTheMint() async {
+    let action = Deeplink.WorktreeAction.tabNew(input: "echo hi", id: nil)
+    let (store, sent) = makeStore(taskless())
+    await store.send(.deeplink(.worktree(id: worktree.id, action: action, background: true)))
+    #expect(store.state.pendingTaskLaunches.count == 1)
+    await withKnownIssue("TCA @Presents dismiss tracking") {
+      await store.send(.deeplinkInputConfirmation(.presented(.delegate(.cancel))))
+    }
+    await store.finish()
+    #expect(sent.value.isEmpty)
+    #expect(store.state.pendingTaskLaunches.isEmpty)
+  }
+
+  /// A bare `tab new` without input needs no dialog: it mints and creates.
+  /// A `tab close` on the same directory has nothing to act on and mints nothing.
+  @Test(.dependencies) func aTasklessDirectoryMintsForATabNewAndRefusesATabClose() async {
+    let minted = LayoutID(task: UUID(0))
+    let (store, sent) = makeStore(taskless())
+    await store.send(.deeplink(.worktree(id: worktree.id, action: .tabDestroy(tabID: UUID()), background: true)))
+    await store.finish()
+    #expect(sent.value.isEmpty)
+    #expect(store.state.alert != nil)
+    #expect(store.state.pendingTaskLaunches.isEmpty)
+    await store.send(.alert(.dismiss))
+    await store.send(.deeplink(.worktree(id: worktree.id, action: .tabNew(input: nil, id: nil), background: true)))
+    await store.finish()
+    let created: [LayoutID] = sent.value.compactMap {
+      if case .createTab(let layoutID, _, _, _, _, _, _) = $0 { return layoutID }
+      return nil
+    }
+    #expect(created == [minted])
+    #expect(store.state.pendingTaskLaunches.map(\.layoutID) == [minted])
   }
 
   // MARK: - A task selected, not yet echoed by the terminal.
@@ -505,7 +572,7 @@ struct AppFeatureDeeplinkTaskTests {
     let directory = "%2Ftmp%2Frepo%2Fwt-1"
     #expect(state.commandLayoutID(forDirectory: worktree.id) == other.id)
     #expect(state.commandLayoutID(externalWorktreeID: directory, externalTaskID: nil) == other.id)
-    #expect(state.layoutID(forDirectory: worktree.id, holding: UUID()) == other.id)
+    #expect(state.layoutID(forDirectory: worktree.id, holding: UUID()) == nil)
     // An id or a named task still decides first.
     #expect(state.commandLayoutID(forDirectory: worktree.id, holding: [shown.tab]) == shown.id)
     #expect(state.commandLayoutID(forDirectory: worktree.id, task: shown.id) == shown.id)

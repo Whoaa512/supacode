@@ -47,10 +47,14 @@ struct AppFeatureTerminalGridTests {
     let worktree = makeWorktree()
     let session = makeSession(worktree: worktree)
     let focused = LockIsolated<UUID?>(nil)
-    let store = makeStore(worktree: worktree) {
-      $0.terminalClient.listSurfaces = { [session] }
-      $0.terminalClient.focusSurface = { _, _, _, surfaceID in focused.setValue(surfaceID) }
-    }
+    // The surface is reached through the task that holds it.
+    let store = makeStore(
+      worktree: worktree,
+      seeding: { $0.seedTask(worktree.layoutID, on: worktree.id, tabID: session.tabID, surfaceID: session.surfaceID) },
+      configure: {
+        $0.terminalClient.listSurfaces = { [session] }
+        $0.terminalClient.focusSurface = { _, _, _, surfaceID in focused.setValue(surfaceID) }
+      })
 
     await store.send(.setTerminalGridPresented(true))
     await store.send(
@@ -70,9 +74,9 @@ struct AppFeatureTerminalGridTests {
     let worktree = makeWorktree()
     let tabID = TabID()
     let closed = LockIsolated<TabID?>(nil)
-    let store = makeStore(worktree: worktree) {
-      $0.terminalClient.closeTab = { _, tabID in closed.setValue(tabID) }
-    }
+    let store = makeStore(
+      worktree: worktree, seeding: { $0.seedTask(worktree.layoutID, on: worktree.id, tabID: tabID) },
+      configure: { $0.terminalClient.closeTab = { _, tabID in closed.setValue(tabID) } })
 
     await store.send(.closeTerminalTab(worktreeID: worktree.id, tabID: tabID))
     await store.finish()
@@ -80,21 +84,23 @@ struct AppFeatureTerminalGridTests {
     #expect(closed.value == tabID)
   }
 
-  @Test(.dependencies) func layoutSeamReadsBackToTheRosterWorktree() {
+  @Test(.dependencies) func layoutSeamReadsBackToTheRosterWorktree() throws {
     let worktree = makeWorktree()
     let state = makeStore(worktree: worktree) { _ in }.state
 
-    #expect(state.worktree(forLayout: state.layoutID(forDirectory: worktree.id))?.id == worktree.id)
-    // A layout whose directory is not in the roster has no worktree to name.
-    #expect(state.worktree(forLayout: state.layoutID(forDirectory: "/tmp/repo/unknown")) == nil)
+    let layoutID = try #require(state.layoutID(forDirectory: worktree.id))
+    #expect(state.worktree(forLayout: layoutID)?.id == worktree.id)
+    // A directory with no task resolves to nothing; a layout no record names has no worktree.
+    #expect(state.layoutID(forDirectory: "/tmp/repo/unknown") == nil)
+    #expect(state.worktree(forLayout: LayoutID(task: UUID())) == nil)
   }
 
   @Test(.dependencies) func layoutSeamResolvesToTheDirectorysMostRecentlySelectedTask() {
     let worktree = makeWorktree()
     var state = makeStore(worktree: worktree) { _ in }.state
     let taskID = LayoutID(task: UUID())
-    state.terminals.directories[taskID] = TaskRecord.Directory(worktreeID: worktree.id)
-    #expect(state.layoutID(forDirectory: worktree.id) == worktree.id.layoutID)
+    state.seedTask(taskID, on: worktree.id)
+    #expect(state.layoutID(forDirectory: worktree.id) == worktree.id.layoutID, "the own-key task first")
 
     state.terminals.activeTasks[worktree.id] = taskID
     #expect(state.layoutID(forDirectory: worktree.id) == taskID)
@@ -124,6 +130,7 @@ struct AppFeatureTerminalGridTests {
 
   private func makeStore(
     worktree: Worktree,
+    seeding: (inout AppFeature.State) -> Void = { _ in },
     configure: (inout DependencyValues) -> Void
   ) -> TestStoreOf<AppFeature> {
     var repositories = RepositoriesFeature.State()
@@ -137,12 +144,10 @@ struct AppFeatureTerminalGridTests {
     ]
     repositories.selection = .worktree(worktree.id)
     repositories.isInitialLoadComplete = true
-    let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State()
-      )
-    ) {
+    var initial = AppFeature.State.seeded(
+      repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
+    seeding(&initial)
+    let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
       $0.date = .constant(Date(timeIntervalSince1970: 0))

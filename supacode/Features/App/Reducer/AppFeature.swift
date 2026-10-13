@@ -695,7 +695,7 @@ struct AppFeature {
         // picked earlier (it holds no tab here any more), so that pick is
         // over: kept, it would stay mounted on a missing directory while the
         // terminal is sent to the other one.
-        let landing = state.terminals.displayLayoutID(forDirectory: worktree.id)
+        let landing = state.terminals.landingLayoutID(forDirectory: worktree.id)
         if taskID == nil, let selectedTask = state.repositories.selectedTask, selectedTask.id != task ?? landing {
           state.repositories.selectedTask = nil
         }
@@ -728,7 +728,8 @@ struct AppFeature {
       case .repositories(.delegate(.worktreeCreated(let worktree))):
         let shouldRunSetupScript =
           state.repositories.sidebarItems[id: worktree.id]?.lifecycle == .pending
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        // A new worktree has no task: its first tab mints one.
+        let layoutID = Self.firstTabLayoutID(forDirectory: worktree.id, state: &state)
         return .run { _ in
           await terminalClient.send(
             .ensureInitialTab(
@@ -862,7 +863,7 @@ struct AppFeature {
           appLogger.warning("openWorktreeInApp: worktree \(worktreeID) not found, ignoring.")
           return .none
         }
-        return openWorktreeEffect(worktree: worktree, action: action, source: .contextMenu, state: state)
+        return openWorktreeEffect(worktree: worktree, action: action, source: .contextMenu, state: &state)
 
       case .repositories(.delegate(.openRepositorySettings(let repositoryID))):
         guard let repository = state.repositories.repositories[id: repositoryID] else {
@@ -882,7 +883,8 @@ struct AppFeature {
           appLogger.info("Skipping \(kind) blocking script on missing worktree \(worktree.id)")
           return .none
         }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        // A script tab is a tab: on a directory with no task it mints one.
+        let layoutID = Self.firstTabLayoutID(forDirectory: worktree.id, state: &state)
         return .run { _ in
           await terminalClient.send(
             .runBlockingScript(
@@ -890,8 +892,9 @@ struct AppFeature {
         }
 
       case .repositories(.delegate(.selectTerminalTab(let worktreeID, let tabId))):
-        guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        guard let worktree = state.repositories.worktree(for: worktreeID),
+          let layoutID = state.layoutID(forDirectory: worktree.id, holding: tabId.rawValue)
+        else { return .none }
         return .run { _ in
           await terminalClient.send(.selectTab(layoutID, DirectoryContext(worktree: worktree), tabID: tabId))
         }
@@ -1084,14 +1087,14 @@ struct AppFeature {
           appLogger.warning("revealInFinder: selected worktree not found, ignoring.")
           return .none
         }
-        return openWorktreeEffect(worktree: worktree, action: .finder, source: .revealInFinder, state: state)
+        return openWorktreeEffect(worktree: worktree, action: .finder, source: .revealInFinder, state: &state)
 
       case .openWorktree(let action):
         guard let worktree = state.repositories.worktree(for: state.repositories.selectedWorktreeID) else {
           appLogger.warning("openWorktree: selected worktree not found, ignoring.")
           return .none
         }
-        return openWorktreeEffect(worktree: worktree, action: action, source: .toolbar, state: state)
+        return openWorktreeEffect(worktree: worktree, action: action, source: .toolbar, state: &state)
 
       case .openFile(let fileURL, let explicitAction):
         // An explicit pick comes from the Open With submenu; the default open
@@ -1121,7 +1124,8 @@ struct AppFeature {
         let script = resolveOpenFileScript(in: worktree)
         guard !script.isEmpty else { return openWithDefaultApp }
         let input = Self.openFileCommandInput(script: script, fileURL: fileURL)
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        // Opens in a tab or split: on a directory with no task it mints one.
+        let layoutID = Self.firstTabLayoutID(forDirectory: worktree.id, state: &state)
         return .run { _ in
           await terminalClient.send(
             .openFileWithScript(layoutID, DirectoryContext(worktree: worktree), input: input))
@@ -1200,7 +1204,18 @@ struct AppFeature {
         // Nil for an orphan: no roster row, so no setup script.
         let shouldRunSetupScript =
           state.repositories.sidebarItems[id: shown.directory.worktreeID]?.lifecycle == .pending
-        let layoutID = shown.layoutID ?? state.layoutID(forDirectory: shown.directory.worktreeID)
+        guard let layoutID = shown.layoutID else {
+          // A directory with no task: the tab mints one. The command carries
+          // the roster row's identity only; the manager re-reads the row at
+          // delivery and creates nothing for one gone, archived or missing.
+          let minted = Self.firstTabLayoutID(forDirectory: shown.directory.worktreeID, state: &state)
+          let source = NewTaskSource.roster(shown.directory.worktreeID)
+          return .run { _ in
+            await terminalClient.send(
+              .createTaskTab(
+                minted, source: source, input: nil, runSetupScriptIfNew: shouldRunSetupScript, focusing: true))
+          }
+        }
         return .run { _ in
           await terminalClient.send(
             .createTab(layoutID, shown.directory, runSetupScriptIfNew: shouldRunSetupScript))
@@ -1322,7 +1337,10 @@ struct AppFeature {
         // `.merge` is safe here: `focusSurface` carries the `Worktree`
         // explicitly, so it does not depend on `selectWorktree` landing
         // first. `.concatenate` would serialize unnecessarily.
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        guard let layoutID = state.layoutID(forDirectory: worktree.id, holding: location.surfaceID) else {
+          jumpLogger.warning("jumpToLatestUnread: no task on \(location.worktreeID) holds \(location.surfaceID).")
+          return .none
+        }
         return .merge(
           .send(.repositories(.selectWorktree(location.worktreeID, focusTerminal: true))),
           .run { _ in
@@ -1335,8 +1353,9 @@ struct AppFeature {
         )
 
       case .focusTerminalSurface(let worktreeID, let tabID, let surfaceID):
-        guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
-        let layoutID = state.layoutID(forDirectory: worktree.id, holding: surfaceID)
+        guard let worktree = state.repositories.worktree(for: worktreeID),
+          let layoutID = state.layoutID(forDirectory: worktree.id, holding: surfaceID)
+        else { return .none }
         return .merge(
           Self.selectEffect(showing: layoutID, onDirectory: worktree.id, state: state),
           .run { @MainActor _ in
@@ -1345,15 +1364,17 @@ struct AppFeature {
         )
 
       case .closeTerminalSurface(let worktreeID, let tabID, let surfaceID):
-        guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
-        let layoutID = state.layoutID(forDirectory: worktree.id, holding: surfaceID)
+        guard let worktree = state.repositories.worktree(for: worktreeID),
+          let layoutID = state.layoutID(forDirectory: worktree.id, holding: surfaceID)
+        else { return .none }
         return .run { @MainActor _ in
           terminalClient.closeSurface(layoutID, DirectoryContext(worktree: worktree), tabID, surfaceID)
         }
 
       case .closeTerminalTab(let worktreeID, let tabID):
-        guard let worktree = state.repositories.worktree(for: worktreeID) else { return .none }
-        let layoutID = state.layoutID(forDirectory: worktree.id, holding: tabID.rawValue)
+        guard state.repositories.worktree(for: worktreeID) != nil,
+          let layoutID = state.layoutID(forDirectory: worktreeID, holding: tabID.rawValue)
+        else { return .none }
         return .run { @MainActor _ in
           terminalClient.closeTab(layoutID, tabID)
         }
@@ -1466,7 +1487,7 @@ struct AppFeature {
         analyticsClient.capture("script_run", ["kind": definition.kind.rawValue])
         // The row's `runningScripts` reconciles from the terminal's projection
         // once the script tab is tracked; no optimistic mirror write (#573).
-        let layoutID = state.layoutID(forDirectory: worktree.id)
+        let layoutID = Self.firstTabLayoutID(forDirectory: worktree.id, state: &state)
         return .run { _ in
           await terminalClient.send(
             .runBlockingScript(
@@ -1485,7 +1506,8 @@ struct AppFeature {
         let runners = layoutIDs(onDirectory: worktree.id, preferring: shown, state: state) {
           $0.id == definition.id
         }
-        let layoutID = runners.first ?? shown
+        // No task runs it and the directory shows none: nothing to stop.
+        guard let layoutID = runners.first ?? shown else { return .none }
         return .run { _ in
           await terminalClient.send(
             .stopScript(layoutID, DirectoryContext(worktree: worktree), definitionID: definition.id))
@@ -1497,7 +1519,7 @@ struct AppFeature {
         }
         let shown = state.layoutID(forDirectory: worktree.id)
         let runners = layoutIDs(onDirectory: worktree.id, preferring: shown, state: state) { $0.kind == .run }
-        let layoutIDs = runners.isEmpty ? [shown] : runners
+        let layoutIDs = runners.isEmpty ? [shown].compactMap { $0 } : runners
         return .run { _ in
           for layoutID in layoutIDs {
             await terminalClient.send(.stopRunScript(layoutID, DirectoryContext(worktree: worktree)))
@@ -1638,6 +1660,7 @@ struct AppFeature {
         guard let confirmation = state.deeplinkInputConfirmation,
           confirmation.responseFD == responseFD, confirmation.timeoutToken == token
         else { return .none }
+        Self.dropUnconfirmedFirstTab(state: &state)
         state.deeplinkInputConfirmation = nil
         return sendSocketResponse(
           clientFD: responseFD, ok: false, error: "Timed out waiting for confirmation.")
@@ -1753,6 +1776,7 @@ struct AppFeature {
 
       case .deeplinkInputConfirmation(.presented(.delegate(.cancel))):
         let pendingFD = state.deeplinkInputConfirmation?.responseFD
+        Self.dropUnconfirmedFirstTab(state: &state)
         state.deeplinkInputConfirmation = nil
         let cancelWatchdog: Effect<Action> = .cancel(id: CancelID.deeplinkConfirmationTimeout)
         guard let clientFD = pendingFD else { return cancelWatchdog }
@@ -1761,6 +1785,7 @@ struct AppFeature {
           sendSocketResponse(clientFD: clientFD, ok: false, error: "Cancelled by user."))
 
       case .deeplinkInputConfirmation(.dismiss):
+        Self.dropUnconfirmedFirstTab(state: &state)
         // Drain any pending responseFD when TCA auto-dismisses the dialog
         // so the CLI client does not hang.
         return .merge(
@@ -2149,9 +2174,9 @@ struct AppFeature {
         var effects: [Effect<Action>] = []
         let isMuted = isViewed && state.settings.muteNotificationsForActiveSurface
         if state.settings.systemNotificationsEnabled && !isMuted {
-          let deeplinkURL = surfaceDeeplinkURL(
-            worktreeID: worktreeID, layoutID: state.layoutID(forDirectory: worktreeID, holding: surfaceID),
-            surfaceID: surfaceID)
+          let deeplinkURL = state.layoutID(forDirectory: worktreeID, holding: surfaceID).flatMap { layoutID in
+            surfaceDeeplinkURL(worktreeID: worktreeID, layoutID: layoutID, surfaceID: surfaceID)
+          }
           effects.append(
             .run { _ in
               await systemNotificationClient.send(title, body, deeplinkURL)
@@ -2323,7 +2348,7 @@ struct AppFeature {
         // The first tab could not be hosted: fail the worktree-new ack and
         // settle the creation-progress state so the worktree shows with no tabs
         // (a valid empty state to retry from).
-        let layout = state.layoutID(forDirectory:)
+        let layout = state.firstTabLayoutIDIfAny(forDirectory:)
         let ackEffect = resolveCommandAcks(ok: false, error: message, state: &state) { match in
           if case .worktreeNew(_, let ackWorktree?) = match { return layout(ackWorktree) == layoutID }
           return false
@@ -2691,7 +2716,7 @@ struct AppFeature {
     worktree: Worktree,
     action: OpenWorktreeAction,
     source: OpenWorktreeSource,
-    state: State
+    state: inout State
   ) -> Effect<Action> {
     // Orphan rows can't be opened anywhere meaningful; bail out
     // before invoking the workspace / terminal client.
@@ -2735,7 +2760,8 @@ struct AppFeature {
     }
     let shouldRunSetupScript =
       state.repositories.sidebarItems[id: worktree.id]?.lifecycle == .pending
-    let layoutID = state.layoutID(forDirectory: worktree.id)
+    // A tab: on a directory with no task it mints one.
+    let layoutID = Self.firstTabLayoutID(forDirectory: worktree.id, state: &state)
     return .run { _ in
       await terminalClient.send(
         .createTabWithInput(
@@ -2988,18 +3014,21 @@ struct AppFeature {
     }
 
     let policyBypass = state.settings.automatedActionPolicy.allowsBypass(from: source)
-    // Appearance and tab rename are metadata-only updates; don't steal focus for a title change.
-    guard
-      let layoutID = state.commandLayoutID(
-        forDirectory: worktreeID, task: task, holding: action.addressedIDs)
-    else {
+    // A named task has to be one of this directory's. With none named, nil
+    // means the directory has no task: the action decides below whether that
+    // mints one, needs none or has nothing to act on.
+    let layoutID = state.commandLayoutID(forDirectory: worktreeID, task: task, holding: action.addressedIDs)
+    if layoutID == nil, task != nil {
       state.alert = taskNotFoundAlert()
       return .none
     }
+    // Appearance and tab rename are metadata-only updates; don't steal focus for a title change.
     let selectEffect: Effect<Action> =
-      action.selectsWorktree && !background
-      ? Self.selectEffect(showing: layoutID, onDirectory: worktreeID, state: state)
-      : .none
+      switch (action.selectsWorktree && !background, layoutID) {
+      case (false, _): .none
+      case (true, let shown?): Self.selectEffect(showing: shown, onDirectory: worktreeID, state: state)
+      case (true, nil): .send(.repositories(.selectWorktree(worktreeID, focusTerminal: true)))
+      }
     let actionEffect = worktreeActionEffect(
       worktreeID: worktreeID,
       action: action,
@@ -3013,134 +3042,21 @@ struct AppFeature {
     return .concatenate(selectEffect, actionEffect)
   }
 
-  // swiftlint:disable:next cyclomatic_complexity function_body_length
-  private func worktreeActionEffect(
+  /// The actions that are the directory's own (select, archive, delete, pin,
+  /// appearance): they need no task, so a directory with none takes them
+  /// too. Nil for every other action.
+  private func directoryActionEffect(
     worktreeID: Worktree.ID,
     action: Deeplink.WorktreeAction,
     state: inout State,
     bypassConfirmation: Bool,
     responseFD: Int32? = nil,
     timeoutSeconds: Int = defaultCommandTimeoutSeconds,
-    background: Bool = false,
-    task: LayoutID? = nil,
-    confirmedTarget: LayoutID? = nil
-  ) -> Effect<Action> {
-    // Block only the actions that would spawn a shell/script at the
-    // missing working dir. Cleanup actions (delete/archive/pin) and
-    // management of already-spawned terminals stay reachable so the
-    // user can actually clear the orphan.
-    let spawnsShell: Bool
-    switch action {
-    case .run, .runScript, .tabNew, .surfaceSplit, .paneSplit:
-      spawnsShell = true
-    case .surface(_, _, let input):
-      spawnsShell = input?.isEmpty == false
-    case .select, .stop, .stopScript, .tab, .tabRename, .tabDestroy, .surfaceDestroy,
-      .archive, .unarchive, .delete, .pin, .unpin, .appearance,
-      .tabMove, .paneFocus, .paneFocusDirection, .paneDestroy, .paneZoom, .paneWindow, .paneEqualize:
-      spawnsShell = false
-    }
-    if spawnsShell, let worktree = state.repositories.worktree(for: worktreeID), worktree.isMissing {
-      deeplinkLogger.info(
-        "Ignoring shell-spawning deeplink action on missing worktree \(worktreeID)"
-      )
-      // Set alert so the CLI socket response surfaces a real error instead of silent ok=true.
-      state.alert = AlertState {
-        TextState("Working directory missing")
-      } actions: {
-        ButtonState(role: .cancel, action: .dismiss) {
-          TextState("OK")
-        }
-      } message: {
-        TextState(
-          "\(worktree.name) has no working directory on disk. Restore it or delete the worktree."
-        )
-      }
-      return .none
-    }
-    // Resolved again here, not carried from the dispatch: a confirmation can
-    // sit between the two, and the task or tab may be gone by then. An id the
-    // action carries still finds its owner; an action with none keeps the
-    // layout the dialog was raised for, or fails if that is gone.
-    let resolved =
-      if let confirmedTarget, action.addressedIDs.isEmpty {
-        state.confirmedLayoutID(confirmedTarget, forDirectory: worktreeID, task: task)
-      } else {
-        state.commandLayoutID(forDirectory: worktreeID, task: task, holding: action.addressedIDs)
-      }
-    guard let layoutID = resolved else {
-      state.alert = taskNotFoundAlert()
-      return .none
-    }
+    background: Bool = false
+  ) -> Effect<Action>? {
     switch action {
     case .select:
       return .none
-    case .run:
-      // Resolve against the target worktree rather than the selection: a background
-      // dispatch never selects, and `.runScript` reads the selected worktree.
-      guard let worktree = state.repositories.worktree(for: worktreeID) else {
-        state.alert = worktreeNotFoundAlert()
-        return .none
-      }
-      guard let definition = mergedScripts(in: worktree).primaryScript else {
-        // A foreground call on the selected worktree keeps the old affordance of
-        // opening the pane where the missing script would be configured. Anything
-        // else alerts: opening a window interrupts more than a focus move.
-        if !background, worktreeID == state.repositories.selectedWorktreeID {
-          return .send(.runScript)
-        }
-        state.alert = scriptAlert(
-          title: "No run script",
-          message: "\(worktree.name) has no run script configured. Add one in Settings first."
-        )
-        return .none
-      }
-      // Bare `run` never prompted, so keep it unprompted; `run --script` still does.
-      return runScriptDeeplinkEffect(
-        worktreeID: worktreeID,
-        layoutID: layoutID,
-        scriptID: definition.id,
-        state: &state,
-        bypassConfirmation: true,
-        responseFD: responseFD,
-        timeoutSeconds: timeoutSeconds,
-        background: background
-      )
-    case .stop:
-      guard let worktree = state.repositories.worktree(for: worktreeID) else {
-        state.alert = worktreeNotFoundAlert()
-        return .none
-      }
-      // A named task is stopped as named. A bare stop means the directory's
-      // run scripts, which may sit in a task other than the one it shows.
-      let runners =
-        task == nil
-        ? layoutIDs(onDirectory: worktreeID, preferring: layoutID, state: state) { $0.kind == .run } : []
-      let targets = runners.isEmpty ? [layoutID] : runners
-      let terminalClient = terminalClient
-      return .run { _ in
-        for target in targets {
-          await terminalClient.send(
-            .stopRunScript(
-              target, DirectoryContext(worktree: worktree), focusing: !background && target == layoutID))
-        }
-      }
-    case .runScript(let scriptID):
-      return runScriptDeeplinkEffect(
-        worktreeID: worktreeID,
-        layoutID: layoutID,
-        scriptID: scriptID,
-        state: &state,
-        bypassConfirmation: bypassConfirmation,
-        responseFD: responseFD,
-        timeoutSeconds: timeoutSeconds,
-        background: background,
-        task: task
-      )
-    case .stopScript(let scriptID):
-      return stopScriptDeeplinkEffect(
-        worktreeID: worktreeID, layoutID: layoutID, scriptID: scriptID, state: &state, background: background,
-        task: task)
     case .archive:
       return deeplinkArchiveWorktreeEffect(
         worktreeID: worktreeID,
@@ -3218,6 +3134,153 @@ struct AppFeature {
           )
         )
       )
+    default:
+      return nil
+    }
+  }
+
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
+  private func worktreeActionEffect(
+    worktreeID: Worktree.ID,
+    action: Deeplink.WorktreeAction,
+    state: inout State,
+    bypassConfirmation: Bool,
+    responseFD: Int32? = nil,
+    timeoutSeconds: Int = defaultCommandTimeoutSeconds,
+    background: Bool = false,
+    task: LayoutID? = nil,
+    confirmedTarget: LayoutID? = nil
+  ) -> Effect<Action> {
+    // Block only the actions that would spawn a shell/script at the
+    // missing working dir. Cleanup actions (delete/archive/pin) and
+    // management of already-spawned terminals stay reachable so the
+    // user can actually clear the orphan.
+    let spawnsShell: Bool
+    switch action {
+    case .run, .runScript, .tabNew, .surfaceSplit, .paneSplit:
+      spawnsShell = true
+    case .surface(_, _, let input):
+      spawnsShell = input?.isEmpty == false
+    case .select, .stop, .stopScript, .tab, .tabRename, .tabDestroy, .surfaceDestroy,
+      .archive, .unarchive, .delete, .pin, .unpin, .appearance,
+      .tabMove, .paneFocus, .paneFocusDirection, .paneDestroy, .paneZoom, .paneWindow, .paneEqualize:
+      spawnsShell = false
+    }
+    if spawnsShell, let worktree = state.repositories.worktree(for: worktreeID), worktree.isMissing {
+      deeplinkLogger.info(
+        "Ignoring shell-spawning deeplink action on missing worktree \(worktreeID)"
+      )
+      // Set alert so the CLI socket response surfaces a real error instead of silent ok=true.
+      state.alert = AlertState {
+        TextState("Working directory missing")
+      } actions: {
+        ButtonState(role: .cancel, action: .dismiss) {
+          TextState("OK")
+        }
+      } message: {
+        TextState(
+          "\(worktree.name) has no working directory on disk. Restore it or delete the worktree."
+        )
+      }
+      return .none
+    }
+    // The directory's own actions need no task and never look for one.
+    if let directoryEffect = directoryActionEffect(
+      worktreeID: worktreeID, action: action, state: &state, bypassConfirmation: bypassConfirmation,
+      responseFD: responseFD, timeoutSeconds: timeoutSeconds, background: background)
+    {
+      return directoryEffect
+    }
+    // Resolved again here, not carried from the dispatch: a confirmation can
+    // sit between the two, and the task or tab may be gone by then. An id the
+    // action carries still finds its owner; an action with none keeps the
+    // layout the dialog was raised for, or fails if that is gone. A first tab
+    // on a directory with no task mints one (remembered until its tab exists,
+    // so a confirmation raised for it still means it); anything else on such
+    // a directory has nothing to act on.
+    let resolved =
+      if let confirmedTarget, action.addressedIDs.isEmpty {
+        state.confirmedLayoutID(confirmedTarget, forDirectory: worktreeID, task: task)
+      } else {
+        state.commandLayoutID(forDirectory: worktreeID, task: task, holding: action.addressedIDs)
+      }
+    let minted: LayoutID? =
+      resolved == nil && task == nil && confirmedTarget == nil && action.taskNeed == .mints
+      ? Self.firstTabLayoutID(forDirectory: worktreeID, state: &state) : nil
+    guard let layoutID = resolved ?? minted else {
+      state.alert = taskNotFoundAlert()
+      return .none
+    }
+    switch action {
+    case .select, .archive, .unarchive, .delete, .pin, .unpin, .appearance:
+      // Handled by `directoryActionEffect` above.
+      return .none
+    case .run:
+      // Resolve against the target worktree rather than the selection: a background
+      // dispatch never selects, and `.runScript` reads the selected worktree.
+      guard let worktree = state.repositories.worktree(for: worktreeID) else {
+        state.alert = worktreeNotFoundAlert()
+        return .none
+      }
+      guard let definition = mergedScripts(in: worktree).primaryScript else {
+        // A foreground call on the selected worktree keeps the old affordance of
+        // opening the pane where the missing script would be configured. Anything
+        // else alerts: opening a window interrupts more than a focus move.
+        if !background, worktreeID == state.repositories.selectedWorktreeID {
+          return .send(.runScript)
+        }
+        state.alert = scriptAlert(
+          title: "No run script",
+          message: "\(worktree.name) has no run script configured. Add one in Settings first."
+        )
+        return .none
+      }
+      // Bare `run` never prompted, so keep it unprompted; `run --script` still does.
+      return runScriptDeeplinkEffect(
+        worktreeID: worktreeID,
+        layoutID: layoutID,
+        scriptID: definition.id,
+        state: &state,
+        bypassConfirmation: true,
+        responseFD: responseFD,
+        timeoutSeconds: timeoutSeconds,
+        background: background
+      )
+    case .stop:
+      guard let worktree = state.repositories.worktree(for: worktreeID) else {
+        state.alert = worktreeNotFoundAlert()
+        return .none
+      }
+      // A named task is stopped as named. A bare stop means the directory's
+      // run scripts, which may sit in a task other than the one it shows.
+      let runners =
+        task == nil
+        ? layoutIDs(onDirectory: worktreeID, preferring: layoutID, state: state) { $0.kind == .run } : []
+      let targets = runners.isEmpty ? [layoutID] : runners
+      let terminalClient = terminalClient
+      return .run { _ in
+        for target in targets {
+          await terminalClient.send(
+            .stopRunScript(
+              target, DirectoryContext(worktree: worktree), focusing: !background && target == layoutID))
+        }
+      }
+    case .runScript(let scriptID):
+      return runScriptDeeplinkEffect(
+        worktreeID: worktreeID,
+        layoutID: layoutID,
+        scriptID: scriptID,
+        state: &state,
+        bypassConfirmation: bypassConfirmation,
+        responseFD: responseFD,
+        timeoutSeconds: timeoutSeconds,
+        background: background,
+        task: task
+      )
+    case .stopScript(let scriptID):
+      return stopScriptDeeplinkEffect(
+        worktreeID: worktreeID, layoutID: layoutID, scriptID: scriptID, state: &state, background: background,
+        task: task)
     case .tab(let tabID):
       guard validateTab(layoutID: layoutID, worktreeID: worktreeID, tabID: tabID, state: &state) else { return .none }
       return sendTerminalCommand(worktreeID: worktreeID, layoutID: layoutID, state: &state) { layoutID, worktree in
@@ -3524,6 +3587,14 @@ struct AppFeature {
     }
   }
 
+  /// A task the waiting dialog minted for a directory with none is only a
+  /// reservation until its tab exists: the dialog going away without a
+  /// confirm drops it, so nothing is left behind.
+  static func dropUnconfirmedFirstTab(state: inout State) {
+    guard let target = state.deeplinkInputConfirmation?.target, !taskHoldsTabs(target, state: state) else { return }
+    state.pendingTaskLaunches.removeAll { $0.layoutID == target && $0.followsDirectory }
+  }
+
   private func runScriptDeeplinkEffect(
     worktreeID: Worktree.ID,
     layoutID: LayoutID,
@@ -3642,11 +3713,12 @@ struct AppFeature {
   /// their union.
   private func layoutIDs(
     onDirectory worktreeID: Worktree.ID,
-    preferring preferred: LayoutID,
+    preferring preferred: LayoutID?,
     state: State,
     runningScript matches: (ScriptDefinition) -> Bool
   ) -> [LayoutID] {
-    let candidates = [preferred] + state.terminals.layoutIDs(onDirectory: worktreeID).filter { $0 != preferred }
+    let candidates =
+      [preferred].compactMap { $0 } + state.terminals.layoutIDs(onDirectory: worktreeID).filter { $0 != preferred }
     return candidates.filter { terminalClient.runningScripts($0).contains(where: matches) }
   }
 
@@ -3977,7 +4049,7 @@ struct AppFeature {
 
   private func sendTerminalCommand(
     worktreeID: Worktree.ID,
-    layoutID: LayoutID? = nil,
+    layoutID: LayoutID,
     state: inout State,
     command: (LayoutID, Worktree) -> TerminalClient.Command
   ) -> Effect<Action> {
@@ -3987,7 +4059,7 @@ struct AppFeature {
       state.alert = worktreeNotFoundAlert()
       return .none
     }
-    let cmd = command(layoutID ?? state.layoutID(forDirectory: worktree.id), worktree)
+    let cmd = command(layoutID, worktree)
     let terminalClient = terminalClient
     return .run { _ in await terminalClient.send(cmd) }
   }
@@ -4299,6 +4371,8 @@ struct AppFeature {
           fallback: repository.name
         )
       }
+    // A superseded dialog's mint goes with it, unless this one means the same task.
+    if state.deeplinkInputConfirmation?.target != target { Self.dropUnconfirmedFirstTab(state: &state) }
     // Close any previously pending FD so the CLI does not hang.
     let supersededEffect: Effect<Action> =
       state.deeplinkInputConfirmation?.responseFD.map {
@@ -4489,17 +4563,23 @@ struct AppFeature {
 }
 
 extension AppFeature.State {
-  /// The single app-layer seam for "which layout does this worktree mean".
-  func layoutID(forDirectory worktreeID: Worktree.ID) -> LayoutID {
-    terminals.layoutID(forDirectory: worktreeID)
+  /// The single app-layer seam for "which layout does this worktree mean":
+  /// what a bare command on the directory means (`commandLayoutID`), the task
+  /// it shows included. Nil when the directory has no task; a first tab then
+  /// mints one (`firstTabLayoutID`), nothing else does.
+  func layoutID(forDirectory worktreeID: Worktree.ID) -> LayoutID? {
+    commandLayoutID(forDirectory: worktreeID)
   }
 
   /// The task on a directory that holds this tab or surface. A caller that
   /// has such an id (an agent's surface, a grid tile, a notification) found
   /// it across every task of the directory, so the layout to reach it through
-  /// is its owner, not whichever task the directory shows.
-  func layoutID(forDirectory worktreeID: Worktree.ID, holding id: UUID) -> LayoutID {
-    commandLayoutID(forDirectory: worktreeID, holding: [id]) ?? layoutID(forDirectory: worktreeID)
+  /// is its owner, not whichever task the directory shows. Nil when no task
+  /// of the directory holds it: never another layout.
+  func layoutID(forDirectory worktreeID: Worktree.ID, holding id: UUID) -> LayoutID? {
+    let owner = commandLayoutID(forDirectory: worktreeID, holding: [id])
+    guard let owner, terminals.layouts[id: owner]?.layout.pane(forToken: id) != nil else { return nil }
+    return owner
   }
 
   /// The layout a directory-addressed command means (see the terminal state's
@@ -4518,15 +4598,25 @@ extension AppFeature.State {
   /// The layout a confirmed command with no id of its own still means: the
   /// one it resolved to when the dialog went up, while that is still a task
   /// of the directory. A layout with no record is one only while the
-  /// directory resolves to it (where a first tab lands). Nil sends the
-  /// command nowhere rather than to whichever task the directory shows now.
+  /// directory still resolves to it, or while it is the task the dialog
+  /// minted for a directory that still has none. Nil sends the command
+  /// nowhere rather than to whichever task the directory shows now.
   func confirmedLayoutID(
     _ target: LayoutID, forDirectory worktreeID: Worktree.ID, task: LayoutID?
   ) -> LayoutID? {
     if let record = terminals.directories[target] {
       return record.worktreeID == worktreeID ? target : nil
     }
-    return commandLayoutID(forDirectory: worktreeID, task: task) == target ? target : nil
+    let bare = commandLayoutID(forDirectory: worktreeID, task: task)
+    if bare == target { return target }
+    guard task == nil, bare == nil, pendingFirstTab(forDirectory: worktreeID) == target else { return nil }
+    return target
+  }
+
+  /// The task a first-tab command on this directory is waiting on, if one
+  /// was minted and has no tab yet.
+  func pendingFirstTab(forDirectory worktreeID: Worktree.ID) -> LayoutID? {
+    pendingTaskLaunches.last { $0.directoryID == worktreeID && $0.followsDirectory }?.layoutID
   }
 
   /// See `AppFeature.resolveWorktreeID`: the one place a parsed directory id
@@ -4591,7 +4681,7 @@ extension AppFeature.State {
   /// The layout the detail view mounts for a selected directory, and the one
   /// a directory selection sends the terminal to. Nil renders the empty state.
   func detailLayoutID(forDirectory worktreeID: Worktree.ID) -> LayoutID? {
-    taskOnMissingDirectory ?? terminals.displayLayoutID(forDirectory: worktreeID)
+    taskOnMissingDirectory ?? terminals.landingLayoutID(forDirectory: worktreeID)
   }
 
   /// The selected task when its directory is still in the roster but gone from
@@ -4619,7 +4709,14 @@ extension AppFeature.State {
 
   /// The persisted layout of the task the seam resolves this directory to.
   func persistedLayout(forDirectory worktreeID: Worktree.ID) -> PaneLayout? {
-    repositories.persistedLayouts.tasks[layoutID(forDirectory: worktreeID).persistenceKey]?.layout
+    guard let layoutID = layoutID(forDirectory: worktreeID) else { return nil }
+    return repositories.persistedLayouts.tasks[layoutID.persistenceKey]?.layout
+  }
+
+  /// The layout a first tab on this directory is, or will be: its task, else
+  /// the one minted for it that has no tab yet.
+  func firstTabLayoutIDIfAny(forDirectory worktreeID: Worktree.ID) -> LayoutID? {
+    layoutID(forDirectory: worktreeID) ?? pendingFirstTab(forDirectory: worktreeID)
   }
 
   /// The directory a pending worktree-new ack is bound to, when that
@@ -4627,26 +4724,19 @@ extension AppFeature.State {
   func worktreeNewAckDirectory(forLayout layoutID: LayoutID) -> Worktree.ID? {
     for ack in pendingCommandAcks {
       guard case .worktreeNew(_, let boundID?) = ack.match else { continue }
-      guard self.layoutID(forDirectory: boundID) == layoutID else { continue }
+      guard firstTabLayoutIDIfAny(forDirectory: boundID) == layoutID else { continue }
       return boundID
     }
     return nil
   }
 
-  /// The seam read backwards: the roster worktree whose layout this is. A
-  /// hydrated layout names its directory in its task record; any other scans
-  /// through `layoutID(forDirectory:)` so there is no second conversion.
+  /// The seam read backwards: the roster worktree whose layout this is. The
+  /// task record is the only answer; a layout no record names is no
+  /// directory's.
   func worktree(forLayout layoutID: LayoutID) -> Worktree? {
-    if let directory = terminals.directories[layoutID] {
-      for repository in repositories.repositories {
-        if let worktree = repository.worktrees[id: directory.worktreeID] { return worktree }
-      }
-      return nil
-    }
+    guard let directory = terminals.directories[layoutID] else { return nil }
     for repository in repositories.repositories {
-      for worktree in repository.worktrees where self.layoutID(forDirectory: worktree.id) == layoutID {
-        return worktree
-      }
+      if let worktree = repository.worktrees[id: directory.worktreeID] { return worktree }
     }
     return nil
   }
@@ -4665,8 +4755,14 @@ struct DirectoryLayoutResolver: Equatable {
   let store: StoreOf<AppFeature>
 
   @MainActor
-  func layoutID(forDirectory worktreeID: Worktree.ID) -> LayoutID {
+  func layoutID(forDirectory worktreeID: Worktree.ID) -> LayoutID? {
     store.withState { $0.layoutID(forDirectory: worktreeID) }
+  }
+
+  /// The task on the directory that holds this surface or tab.
+  @MainActor
+  func layoutID(forDirectory worktreeID: Worktree.ID, holding id: UUID) -> LayoutID? {
+    store.withState { $0.layoutID(forDirectory: worktreeID, holding: id) }
   }
 
   // Store identity, so re-publishing it never invalidates sidebar rows.

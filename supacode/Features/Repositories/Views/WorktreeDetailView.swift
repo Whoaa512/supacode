@@ -467,8 +467,9 @@ struct WorktreeDetailView: View {
     _ notification: WorktreeTerminalNotification
   ) {
     store.send(.repositories(.selectWorktree(worktreeID)))
-    let layoutID = store.withState { $0.layoutID(forDirectory: worktreeID) }
-    if let host = terminalManager.hostIfExists(for: layoutID),
+    // The task that holds the surface, whichever one the directory shows.
+    let layoutID = store.withState { $0.layoutID(forDirectory: worktreeID, holding: notification.surfaceID) }
+    if let host = layoutID.flatMap(terminalManager.hostIfExists(for:)),
       !host.focusSurface(id: notification.surfaceID)
     {
       SupaLogger("Terminal").warning(

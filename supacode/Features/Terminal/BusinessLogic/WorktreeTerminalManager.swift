@@ -363,12 +363,15 @@ final class WorktreeTerminalManager {
   /// task exists) and anything else gets nothing, no host, layout or tab. No
   /// further hop follows, so nothing can change between this check and the
   /// creation. With no store to ask, nothing is created.
-  private func createTaskTab(in layoutID: LayoutID, source: NewTaskSource, input: String?, focusing: Bool) {
+  private func createTaskTab(
+    in layoutID: LayoutID, source: NewTaskSource, input: String?, runSetupScriptIfNew: Bool, focusing: Bool
+  ) {
     guard let context = appStore?.withState({ AppFeature.launchDirectory(for: source, state: $0) }) else {
       terminalLogger.info("createTaskTab: \(String(describing: source)) is not live any more; nothing created.")
       return
     }
-    createTabAsync(in: layoutID, context: context, runSetupScriptIfNew: false, initialInput: input, focusing: focusing)
+    createTabAsync(
+      in: layoutID, context: context, runSetupScriptIfNew: runSetupScriptIfNew, initialInput: input, focusing: focusing)
   }
 
   // swiftlint:disable:next cyclomatic_complexity
@@ -384,8 +387,9 @@ final class WorktreeTerminalManager {
       scheduleTabCreation(
         in: layoutID, context: context, runSetupScriptIfNew: runSetupScriptIfNew, input: input,
         tabID: id, customTitle: title, focusing: focusing, anchor: anchor)
-    case .createTaskTab(let layoutID, let source, let input, let focusing):
-      createTaskTab(in: layoutID, source: source, input: input, focusing: focusing)
+    case .createTaskTab(let layoutID, let source, let input, let runSetupScriptIfNew, let focusing):
+      createTaskTab(
+        in: layoutID, source: source, input: input, runSetupScriptIfNew: runSetupScriptIfNew, focusing: focusing)
     case .openFileWithScript(let layoutID, let context, let input):
       openFileWithScript(in: layoutID, context: context, input: input)
     case .ensureInitialTab(let layoutID, let context, let runSetupScriptIfNew, let focusing):
@@ -667,7 +671,7 @@ final class WorktreeTerminalManager {
     return appStore.withState { state in
       if let layoutID, AppFeature.taskHoldsTabs(layoutID, onDirectory: directoryID, state: state) { return layoutID }
       let shown =
-        state.shownTask(forDirectory: directoryID) ?? state.terminals.displayLayoutID(forDirectory: directoryID)
+        state.shownTask(forDirectory: directoryID) ?? state.terminals.landingLayoutID(forDirectory: directoryID)
       if shown != layoutID {
         let asked = layoutID?.description ?? "nil"
         terminalLogger.info(
@@ -776,8 +780,8 @@ final class WorktreeTerminalManager {
     return stream
   }
 
-  /// The worktree's layout state in the store, nil before hydration/attach.
-  /// The app-layer seam, for the entry points that still arrive with a directory id.
+  /// The app-layer seam, for the entry points that still arrive with a
+  /// directory id: the task the directory means, nil when it has none.
   private func layoutID(forDirectory directoryID: Worktree.ID) -> LayoutID? {
     appStore?.withState { $0.layoutID(forDirectory: directoryID) }
   }
@@ -1923,20 +1927,24 @@ final class WorktreeTerminalManager {
     for layoutID in layoutIDs(onDirectory: directoryID) {
       removeLayout(layoutID, directoryID: directoryID, remoteHost: remoteHost)
     }
-    removeUnnamedLayout(forDirectory: directoryID, remoteHost: remoteHost)
+    removeStoredLayouts(forDirectory: directoryID, remoteHost: remoteHost)
     pendingSetupScriptDirectories.remove(directoryID)
   }
 
-  /// The layout the seam resolves a directory to, when nothing at runtime
-  /// says whose it is (not hydrated yet, or dropped at hydration). A layout
-  /// key is no proof of a directory: one that names another directory is
-  /// that directory's task, and the stored record goes only if it names
-  /// this one.
-  private func removeUnnamedLayout(forDirectory directoryID: Worktree.ID, remoteHost: RemoteHost?) {
-    guard let resolved = layoutID(forDirectory: directoryID), hosts[resolved] == nil else { return }
-    let isNamed = appStore?.withState { $0.terminals.directories[resolved] != nil } ?? false
-    guard !isNamed else { return }
-    removeLayout(resolved, directoryID: directoryID, remoteHost: remoteHost, guessedFromDirectory: true)
+  /// Tasks the stored file puts on this directory that nothing at runtime
+  /// names (not hydrated yet, or dropped at hydration). Named by their
+  /// record, never guessed from the directory: a key shaped like this
+  /// directory's path whose record names another directory is that
+  /// directory's task and stays.
+  private func removeStoredLayouts(forDirectory directoryID: Worktree.ID, remoteHost: RemoteHost?) {
+    let known = Set(layoutIDs(onDirectory: directoryID))
+    let stored =
+      appStore?.withState { state in
+        AppFeature.storedTasks(state: state).filter { $0.directory.worktreeID == directoryID }.map(\.id)
+      } ?? []
+    for layoutID in stored.sorted(by: { $0.persistenceKey < $1.persistenceKey }) where !known.contains(layoutID) {
+      removeLayout(layoutID, directoryID: directoryID, remoteHost: remoteHost, fromStoredRecord: true)
+    }
   }
 
   private func layoutIDs(hostedOn directoryID: Worktree.ID) -> [LayoutID] {
@@ -1956,13 +1964,13 @@ final class WorktreeTerminalManager {
   }
 
   private func removeLayout(
-    _ layoutID: LayoutID, directoryID: Worktree.ID, remoteHost: RemoteHost?, guessedFromDirectory: Bool = false
+    _ layoutID: LayoutID, directoryID: Worktree.ID, remoteHost: RemoteHost?, fromStoredRecord: Bool = false
   ) {
     let surfaceIDs =
       hosts[layoutID]?.allSurfaceIDs
       ?? layoutState(for: layoutID)?.layout.allContentIDs.map(\.rawValue) ?? []
     paneWindows.closeAll(for: layoutID)
-    deleteLayoutSnapshot(worktreeID: layoutID, onlyIfStoredOn: guessedFromDirectory ? directoryID : nil)
+    deleteLayoutSnapshot(worktreeID: layoutID, onlyIfStoredOn: fromStoredRecord ? directoryID : nil)
     if let host = hosts.removeValue(forKey: layoutID) {
       // Watchers stop before the kill.
       host.tearDown()

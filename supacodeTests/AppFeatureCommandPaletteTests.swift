@@ -105,7 +105,7 @@ struct AppFeatureCommandPaletteTests {
     await store.finish()
 
     #expect(sent.value.count == 1)
-    guard case .createTaskTab(_, let source, let input, _) = sent.value[0] else {
+    guard case .createTaskTab(_, let source, let input, _, _) = sent.value[0] else {
       Issue.record("Expected one shell tab on the picked directory, got \(sent.value)")
       return
     }
@@ -145,7 +145,7 @@ struct AppFeatureCommandPaletteTests {
     await store.finish()
     #expect(store.state.repositories.openPanelPurpose == .openRepository)
     #expect(sent.value.count == 1)
-    guard case .createTaskTab(_, let source, let input, _) = sent.value[0] else {
+    guard case .createTaskTab(_, let source, let input, _, _) = sent.value[0] else {
       Issue.record("Expected one shell tab, got \(sent.value)")
       return
     }
@@ -312,10 +312,7 @@ struct AppFeatureCommandPaletteTests {
     let surfaceID = UUID()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -348,10 +345,7 @@ struct AppFeatureCommandPaletteTests {
     repositoriesState.selection = .worktree(worktree.id)
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -385,10 +379,7 @@ struct AppFeatureCommandPaletteTests {
     let currentSurface = LockIsolated(firstSurface)
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -426,10 +417,7 @@ struct AppFeatureCommandPaletteTests {
     let capturedTabID = TabID()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -459,10 +447,7 @@ struct AppFeatureCommandPaletteTests {
     let capturedTabID = TabID()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -494,10 +479,7 @@ struct AppFeatureCommandPaletteTests {
     let currentTabID = LockIsolated(firstTabID)
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -529,10 +511,7 @@ struct AppFeatureCommandPaletteTests {
     repositoriesState.selection = .worktree(worktree.id)
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -563,10 +542,7 @@ struct AppFeatureCommandPaletteTests {
     repositoriesState.selection = .worktree(worktree.id)
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -593,10 +569,7 @@ struct AppFeatureCommandPaletteTests {
     repositoriesState.selection = .worktree(worktree.id)
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -662,10 +635,7 @@ struct AppFeatureCommandPaletteTests {
     var repositoriesState = RepositoriesFeature.State()
     repositoriesState.repositories = [repository]
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -704,10 +674,7 @@ struct AppFeatureCommandPaletteTests {
     var repositoriesState = RepositoriesFeature.State()
     repositoriesState.repositories = [repository]
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -754,10 +721,7 @@ struct AppFeatureCommandPaletteTests {
     repositoriesState.repositoryRoots = [repository.rootURL]
     repositoriesState.reconcileSidebarForTesting()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -786,10 +750,8 @@ struct AppFeatureCommandPaletteTests {
     repositoriesState.repositoryRoots = [repository.rootURL]
     repositoriesState.reconcileSidebarForTesting()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(
+        repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: mainWorktree)
     ) {
       AppFeature()
     }
@@ -825,10 +787,7 @@ struct AppFeatureCommandPaletteTests {
     repositoriesState.repositoryRoots = [repository.rootURL]
     repositoriesState.reconcileSidebarForTesting()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -853,7 +812,7 @@ struct AppFeatureCommandPaletteTests {
     repositoriesState.repositoryRoots = [repository.rootURL]
     repositoriesState.reconcileSidebarForTesting()
     let store = TestStore(
-      initialState: AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -875,7 +834,7 @@ struct AppFeatureCommandPaletteTests {
     repositoriesState.reconcileSidebarForTesting()
     repositoriesState.selection = .worktree(worktree.id)
     let store = TestStore(
-      initialState: AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -921,7 +880,8 @@ struct AppFeatureCommandPaletteTests {
     repositoriesState.repositories = [repository]
     repositoriesState.repositoryRoots = [repository.rootURL]
     repositoriesState.reconcileSidebarForTesting()
-    var appState = AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
+    var appState = AppFeature.State.seeded(
+      repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     // The palette was last used as the worktree switcher and is now closed.
     appState.commandPalette.mode = .worktreeSwitcher
     let store = TestStore(initialState: appState) {
@@ -944,7 +904,8 @@ struct AppFeatureCommandPaletteTests {
     repositoriesState.repositories = [repository]
     repositoriesState.repositoryRoots = [repository.rootURL]
     repositoriesState.reconcileSidebarForTesting()
-    var appState = AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
+    var appState = AppFeature.State.seeded(
+      repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     // The worktree switcher is already open.
     appState.commandPalette.isPresented = true
     appState.commandPalette.mode = .worktreeSwitcher
@@ -970,7 +931,8 @@ struct AppFeatureCommandPaletteTests {
     repositoriesState.repositoryRoots = [repository.rootURL]
     repositoriesState.reconcileSidebarForTesting()
     repositoriesState.setSingleWorktreeSelection(selected.id)
-    var appState = AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
+    var appState = AppFeature.State.seeded(
+      repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: selected)
     appState.commandPalette.isPresented = true
     appState.commandPalette.mode = .commands
     let store = TestStore(initialState: appState) {
@@ -997,7 +959,8 @@ struct AppFeatureCommandPaletteTests {
     repositoriesState.repositoryRoots = [repository.rootURL]
     repositoriesState.reconcileSidebarForTesting()
     repositoriesState.setSingleWorktreeSelection(selected.id)
-    let appState = AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
+    let appState = AppFeature.State.seeded(
+      repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: selected)
     let store = TestStore(initialState: appState) {
       AppFeature()
     }

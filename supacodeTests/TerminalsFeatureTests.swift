@@ -819,10 +819,23 @@ struct TerminalsFeatureTests {
   // MARK: - Directory resolution.
 
   /// A task with no tabs, so selecting it has no content to wake.
-  private static func task(_ id: LayoutID, on directory: Worktree.ID) -> TaskRecord {
-    TaskRecord(
+  /// A stored task; `withTab` gives it one tab, which is what makes it a task
+  /// its directory shows rather than a recorded empty layout.
+  private static func task(_ id: LayoutID, on directory: Worktree.ID, withTab: Bool = false) -> TaskRecord {
+    var layout = PaneLayout()
+    if withTab {
+      let paneID = PaneID()
+      let tab = TabItem(
+        id: TabID(), title: "shell",
+        content: ContentSnapshot(id: ContentID(), state: .terminal(TerminalContentState(workingDirectory: nil))))
+      layout = PaneLayout(
+        tree: SplitTree(view: paneID), panes: [Pane(id: paneID, tabs: [tab], selectedTabID: tab.id)],
+        focusedPaneID: paneID)
+    }
+    return TaskRecord(
       id: id,
       directory: TaskRecord.Directory(worktreeID: directory),
+      layout: layout,
       createdAt: Date(timeIntervalSince1970: 1)
     )
   }
@@ -845,6 +858,11 @@ struct TerminalsFeatureTests {
           reported.withValue { $0.append(directoryID.rawValue) }
         }
       )
+      // Hydrated tabs are provisioned; an inert content stands in for the terminal.
+      $0.contentRuntime = ContentRuntime()
+      $0[LayoutContentFactory.self] = LayoutContentFactory { request in
+        InertTabContent(id: request.contentID, state: request.content)
+      }
     }
     store.exhaustivity = .off
     return (store, reported)
@@ -855,8 +873,13 @@ struct TerminalsFeatureTests {
     let ownKey = LayoutID(legacyWorktreeKey: "/tmp/repo")
     let minted = LayoutID(task: UUID())
     let (store, reported) = makeResolverStore()
-    await store.send(.layoutsHydrated(Self.file([Self.task(ownKey, on: directory), Self.task(minted, on: directory)])))
-    #expect(store.state.layoutID(forDirectory: directory) == ownKey)
+    await store.send(
+      .layoutsHydrated(
+        Self.file([Self.task(ownKey, on: directory, withTab: true), Self.task(minted, on: directory, withTab: true)])))
+    // No record and no selection: the own-key task is preferred over a
+    // minted sibling, as a comparison of keys, never an id made from the path.
+    #expect(store.state.task(forDirectory: directory) == ownKey)
+    #expect(store.state.landingLayoutID(forDirectory: directory) == ownKey)
 
     // Selecting the own-key task stores and writes nothing.
     await store.send(.selectedLayoutChanged(ownKey))
@@ -866,7 +889,7 @@ struct TerminalsFeatureTests {
 
     await store.send(.selectedLayoutChanged(minted))
     await store.finish()
-    #expect(store.state.layoutID(forDirectory: directory) == minted)
+    #expect(store.state.landingLayoutID(forDirectory: directory) == minted)
     #expect(reported.value == ["/tmp/repo"])
 
     // Re-selecting it reports nothing new.
@@ -877,9 +900,62 @@ struct TerminalsFeatureTests {
 
     await store.send(.selectedLayoutChanged(ownKey))
     await store.finish()
-    #expect(store.state.layoutID(forDirectory: directory) == ownKey)
+    #expect(store.state.landingLayoutID(forDirectory: directory) == ownKey)
     #expect(store.state.activeTasks.isEmpty)
     #expect(reported.value == ["/tmp/repo", "/tmp/repo"])
+  }
+
+  /// The own-key preference is a key comparison, so it holds for a directory
+  /// id whose path does not sort first among the keys.
+  @Test(.dependencies) func theOwnKeyTaskIsPreferredOnARemoteStyleDirectoryToo() async {
+    let directory: Worktree.ID = "user@host:/srv/repo"
+    let ownKey = LayoutID(legacyWorktreeKey: "user@host:/srv/repo")
+    let minted = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!)
+    let (store, _) = makeResolverStore()
+    await store.send(
+      .layoutsHydrated(
+        Self.file([Self.task(minted, on: directory, withTab: true), Self.task(ownKey, on: directory, withTab: true)])))
+    #expect(store.state.layoutIDs(onDirectory: directory).first == minted, "the minted key sorts first")
+    #expect(store.state.task(forDirectory: directory) == ownKey)
+  }
+
+  /// A layout that holds tabs but that no record names is no directory's
+  /// task: never shown or targeted by a directory, and never torn down by one.
+  @Test(.dependencies) func aLayoutWithNoRecordIsNoDirectorysTask() {
+    let directory: Worktree.ID = "/tmp/repo"
+    let ownKey = LayoutID(legacyWorktreeKey: "/tmp/repo")
+    var state = TerminalsFeature.State()
+    state.layouts = [LayoutFeature.State(id: ownKey, layout: Self.task(ownKey, on: directory, withTab: true).layout)]
+    #expect(!state.isTask(ownKey, onDirectory: directory))
+    #expect(state.task(forDirectory: directory) == nil)
+    #expect(state.landingLayoutID(forDirectory: directory) == nil)
+    #expect(state.commandLayoutID(forDirectory: directory) == nil)
+  }
+
+  @Test(.dependencies) func landingIsTheShownTaskElseARecordedEmptyTaskOfThisDirectoryElseNothing() async {
+    let directory: Worktree.ID = "/tmp/repo"
+    let shown = LayoutID(task: UUID())
+    let emptied = LayoutID(task: UUID())
+    let elsewhere = LayoutID(task: UUID())
+    let (store, _) = makeResolverStore()
+    await store.send(
+      .layoutsHydrated(
+        Self.file([
+          Self.task(shown, on: directory, withTab: true), Self.task(emptied, on: directory),
+          Self.task(elsewhere, on: "/tmp/other", withTab: true),
+        ])))
+    #expect(store.state.landingLayoutID(forDirectory: directory) == shown)
+    // A recorded task that holds no tab but still exists on the directory.
+    await store.send(.detachLayout(worktreeID: shown))
+    await store.send(.selectedLayoutChanged(emptied))
+    #expect(store.state.landingLayoutID(forDirectory: directory) == emptied)
+    // A record naming another directory's task is no answer for this one.
+    await store.send(.selectedLayoutChanged(elsewhere))
+    #expect(store.state.landingLayoutID(forDirectory: "/tmp/other") == elsewhere)
+    #expect(store.state.landingLayoutID(forDirectory: "/tmp/gone") == nil)
+    var crossed = store.state
+    crossed.activeTasks[directory] = elsewhere
+    #expect(crossed.landingLayoutID(forDirectory: directory) == nil)
   }
 
   @Test(.dependencies) func selectingATaskLeavesOtherDirectoriesResolutionAlone() async {
@@ -893,18 +969,19 @@ struct TerminalsFeatureTests {
     #expect(store.state.activeTasks == ["/tmp/a": first, "/tmp/b": second])
   }
 
-  @Test(.dependencies) func detachingTheActiveTaskFallsBackToTheDirectorysOwnKey() async {
+  @Test(.dependencies) func detachingTheActiveTaskLeavesTheDirectoryWithNoTask() async {
     let directory: Worktree.ID = "/tmp/repo"
     let minted = LayoutID(task: UUID())
     let file = Self.file([Self.task(minted, on: directory)])
     let (store, _) = makeResolverStore()
     await store.send(.layoutsHydrated(file))
     await store.send(.selectedLayoutChanged(minted))
-    #expect(store.state.layoutID(forDirectory: directory) == minted)
+    #expect(store.state.landingLayoutID(forDirectory: directory) == minted)
 
     await store.send(.detachLayout(worktreeID: minted))
     #expect(store.state.activeTasks.isEmpty)
-    #expect(store.state.layoutID(forDirectory: directory) == LayoutID(legacyWorktreeKey: "/tmp/repo"))
+    // No fallback to a path-shaped id: the directory simply has no task.
+    #expect(store.state.landingLayoutID(forDirectory: directory) == nil)
   }
 
   @Test(.dependencies) func hydrationRestoresTheActiveTaskOfEachDirectory() async {
@@ -945,7 +1022,9 @@ struct TerminalsFeatureTests {
       activeTasks: ["/tmp/a": minted.persistenceKey])
     await store.send(.layoutsHydrated(file))
     await store.finish()
-    #expect(store.state.layoutID(forDirectory: "/tmp/a") == ownKey)
+    // Nothing on the directory holds a tab, so it has no task to show and no
+    // recorded one to land in: the stored hint lost to the selection.
+    #expect(store.state.landingLayoutID(forDirectory: "/tmp/a") == nil)
     #expect(store.state.activeTasks.isEmpty)
     // The stale entry is cleared from the file, or the next launch restores it.
     #expect(reported.value == ["/tmp/a"])
@@ -963,12 +1042,12 @@ struct TerminalsFeatureTests {
       .layoutsHydrated(
         Self.file([Self.task(stored, on: "/tmp/a")], activeTasks: ["/tmp/a": stored.persistenceKey])))
     await store.finish()
-    #expect(store.state.layoutID(forDirectory: "/tmp/a") == stored)
+    #expect(store.state.landingLayoutID(forDirectory: "/tmp/a") == stored)
 
     await store.send(
       .attachLayout(worktreeID: selected, directory: TaskRecord.Directory(worktreeID: "/tmp/a"), titlePrefix: "a"))
     await store.finish()
-    #expect(store.state.layoutID(forDirectory: "/tmp/a") == selected)
+    #expect(store.state.landingLayoutID(forDirectory: "/tmp/a") == selected)
     #expect(store.state.selectedLayoutID == other)
     #expect(reported.value == ["/tmp/a"])
   }
@@ -985,7 +1064,7 @@ struct TerminalsFeatureTests {
           [Self.task(selected, on: "/tmp/a"), Self.task(stored, on: "/tmp/a")],
           activeTasks: ["/tmp/a": stored.persistenceKey])))
     await store.finish()
-    #expect(store.state.layoutID(forDirectory: "/tmp/a") == selected)
+    #expect(store.state.landingLayoutID(forDirectory: "/tmp/a") == selected)
     // One write for the directory, not a clear racing it.
     #expect(reported.value == ["/tmp/a"])
   }
@@ -1001,7 +1080,7 @@ struct TerminalsFeatureTests {
     await store.send(.selectedLayoutChanged(LayoutID(legacyWorktreeKey: "/tmp/b")))
     await store.send(.attachLayout(worktreeID: early, directory: directory, titlePrefix: "a"))
     await store.finish()
-    #expect(store.state.layoutID(forDirectory: "/tmp/a") == later)
+    #expect(store.state.landingLayoutID(forDirectory: "/tmp/a") == later)
     #expect(reported.value == ["/tmp/a"])
   }
 
@@ -1015,7 +1094,7 @@ struct TerminalsFeatureTests {
     await store.send(.attachLayout(worktreeID: minted, directory: directory, titlePrefix: "repo"))
     await store.finish()
     #expect(store.state.directories == [minted: directory])
-    #expect(store.state.layoutID(forDirectory: "/tmp/repo") == minted)
+    #expect(store.state.landingLayoutID(forDirectory: "/tmp/repo") == minted)
     #expect(reported.value == ["/tmp/repo"])
   }
 

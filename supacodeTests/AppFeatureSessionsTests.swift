@@ -64,6 +64,7 @@ struct AppFeatureSessionsTests {
           ])))
     } else {
       state.terminals.layouts = [LayoutFeature.State(id: worktree.id.layoutID, layout: layout)]
+      state.terminals.directories[worktree.id.layoutID] = TaskRecord.Directory(worktreeID: worktree.id)
     }
     return state
   }
@@ -189,6 +190,7 @@ struct AppFeatureSessionsTests {
     var initial = state()
     initial.repositories.repositories = []
     initial.terminals.layouts = []
+    initial.terminals.directories = [:]
     initial.repositories.$persistedLayouts = SharedReader(value: TaskLayoutsFile())
     let summary = SessionSummary(
       harness: .pi, sessionID: "old", createdAt: .distantPast, cwd: "/fixture",
@@ -386,7 +388,7 @@ struct AppFeatureSessionsTests {
 
     let createInputs = sent.value.compactMap { cmd -> String? in
       if case .createTabWithInput(_, _, let input, _, _, _, _, _) = cmd { return input }
-      if case .createTaskTab(_, _, let input?, _) = cmd { return input }
+      if case .createTaskTab(_, _, let input?, _, _) = cmd { return input }
       return nil
     }
     #expect(createInputs == ["pi --session piSess1"])
@@ -394,7 +396,7 @@ struct AppFeatureSessionsTests {
       if case .createTabWithInput(_, _, _, let setup, _, _, let focusing, _) = cmd {
         return (setup, focusing)
       }
-      if case .createTaskTab(_, _, _, let focusing) = cmd { return (false, focusing) }
+      if case .createTaskTab(_, _, _, _, let focusing) = cmd { return (false, focusing) }
       return nil
     }
     #expect(createFlags.count == 1)
@@ -897,7 +899,7 @@ struct AppFeatureSessionsTests {
 
     let tabInputs = sent.value.compactMap { cmd -> String? in
       if case .createTabWithInput(_, _, let input, _, _, _, _, _) = cmd { return input }
-      if case .createTaskTab(_, _, let input?, _) = cmd { return input }
+      if case .createTaskTab(_, _, let input?, _, _) = cmd { return input }
       return nil
     }
     #expect(tabInputs == ["pi --session piSess2"])
@@ -942,7 +944,7 @@ struct AppFeatureSessionsTests {
 
     let created = sent.value.compactMap { cmd -> String? in
       if case .createTabWithInput(_, _, let input, _, _, _, _, _) = cmd { return input }
-      if case .createTaskTab(_, _, let input?, _) = cmd { return input }
+      if case .createTaskTab(_, _, let input?, _, _) = cmd { return input }
       return nil
     }
     #expect(created == ["pi --session piSess3"])
@@ -1092,6 +1094,7 @@ struct AppFeatureSessionsTests {
         id: RepositoryID("/workspace2"), rootURL: worktree2.workingDirectory, name: "workspace2",
         worktrees: [worktree2]))
     initial.terminals.layouts.append(LayoutFeature.State(id: worktree2.id.layoutID, layout: layout2))
+    initial.terminals.directories[worktree2.id.layoutID] = TaskRecord.Directory(worktreeID: worktree2.id)
 
     let presenceKey1 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
     let presenceKey2 = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface2)
@@ -1171,7 +1174,7 @@ struct AppFeatureSessionsTests {
 
     let input = sent.value.compactMap { command -> String? in
       if case .createTabWithInput(_, _, let input, _, _, _, _, _) = command { return input }
-      if case .createTaskTab(_, _, let input?, _) = command { return input }
+      if case .createTaskTab(_, _, let input?, _, _) = command { return input }
       return nil
     }
     #expect(input == ["pi"])
@@ -1212,7 +1215,7 @@ struct AppFeatureSessionsTests {
     await store.finish()
     #expect(store.state.repositories.openPanelPurpose == .openRepository)
     #expect(sent.value.count == 1)
-    guard case .createTaskTab(_, let source, let input, _) = sent.value[0]
+    guard case .createTaskTab(_, let source, let input, _, _) = sent.value[0]
     else {
       Issue.record("Expected exactly one session launch")
       return
@@ -3241,7 +3244,7 @@ struct AppFeatureSessionsTests {
   /// A hint naming a task that no longer exists must not strand the directory
   /// on the own-key layout the split just removed.
   @Test(.dependencies)
-  func allAgentDirectoryWithAStaleHintResolvesToAMigratedTask() async {
+  func allAgentDirectoryWithAStaleHintResolvesToAMigratedTask() async throws {
     let (unhydrated, file) = migratedStore(activeTasks: ["/other": "no-such-task"])
     let onOther = Set(file.tasks.values.filter { $0.directory.worktreeID == "/other" }.map(\.id))
     #expect(onOther.count == 2)
@@ -3250,7 +3253,7 @@ struct AppFeatureSessionsTests {
     await store.send(.terminals(.layoutsHydrated(file)))
     await store.finish()
     await store.skipReceivedActions(strict: false)
-    let resolved = store.state.layoutID(forDirectory: "/other")
+    let resolved = try #require(store.state.layoutID(forDirectory: "/other"))
     #expect(onOther.contains(resolved))
     #expect(store.state.terminals.layouts[id: resolved] != nil)
   }
@@ -3270,13 +3273,13 @@ struct AppFeatureSessionsTests {
     await store.send(.terminals(.layoutsHydrated(file)))
     await store.finish()
     await store.skipReceivedActions(strict: false)
-    let resolved = store.state.layoutID(forDirectory: "/other")
+    let resolved = try #require(store.state.layoutID(forDirectory: "/other"))
     #expect(onOther.contains(resolved))
     #expect(store.state.terminals.layouts[id: resolved] != nil)
   }
 
   @Test(.dependencies, arguments: [1, -1])
-  func everyMigratedTaskHasARowAndIsInTheCycle(offset: Int) async {
+  func everyMigratedTaskHasARowAndIsInTheCycle(offset: Int) async throws {
     let (unhydrated, file) = migratedStore()
     let everyLayout = Set(file.tasks.values.map(\.id))
     #expect(everyLayout.count == 7)
@@ -3286,8 +3289,8 @@ struct AppFeatureSessionsTests {
     await hydrating.skipReceivedActions(strict: false)
     #expect(Set(hydrating.state.terminals.layouts.ids) == everyLayout)
     // A directory left with no task under its own key resolves to a real one.
-    #expect(everyLayout.contains(hydrating.state.layoutID(forDirectory: "/other")))
-    #expect(everyLayout.contains(hydrating.state.layoutID(forDirectory: "/workspace")))
+    #expect(everyLayout.contains(try #require(hydrating.state.layoutID(forDirectory: "/other"))))
+    #expect(everyLayout.contains(try #require(hydrating.state.layoutID(forDirectory: "/workspace"))))
 
     let initial = withRows(hydrating.state)
     @Shared(.sidebarTab) var tab
@@ -3653,7 +3656,7 @@ struct AppFeatureSessionsTests {
       switch command {
       case .createTabWithInput(let layoutID, let context, let input, _, _, _, _, _):
         return Launch(layoutID: layoutID, directory: context.worktreeID, input: input)
-      case .createTaskTab(let layoutID, let source, let input?, _):
+      case .createTaskTab(let layoutID, let source, let input?, _, _):
         return Launch(layoutID: layoutID, directory: Self.rosterDirectory(source), source: source, input: input)
       default:
         return nil
@@ -3672,6 +3675,7 @@ struct AppFeatureSessionsTests {
     ]
     state.repositories.selection = .worktree(onDisk.id)
     state.terminals.layouts = []
+    state.terminals.directories = [:]
     return (state, onDisk)
   }
 
@@ -4679,6 +4683,7 @@ struct AppFeatureSessionsTests {
   private func mintedTasksOnly(_ ids: [(LayoutID, UUID)]) -> AppFeature.State {
     var state = state()
     state.terminals.layouts = []
+    state.terminals.directories = [:]
     for (id, surface) in ids {
       state.terminals.layouts.append(agentTask(id, surface: surface))
       state.terminals.directories[id] = TaskRecord.Directory(worktreeID: worktree.id)
@@ -4706,7 +4711,8 @@ struct AppFeatureSessionsTests {
 
     #expect(!recorded.mintedOrResumed)
     #expect(!recorded.commands.value.contains(where: isBootstrap), "no shell tab is bootstrapped by a selection")
-    #expect(recorded.selectedLayouts == [worktree.id.layoutID], "where the directory's first tab would land")
+    #expect(recorded.selectedLayouts.isEmpty, "a directory with no task shows nothing; no id is made from its path")
+    #expect(recorded.commands.value.contains(.selectLayout(nil, forDirectory: worktree.id)))
     #expect(recorded.watcher.value == [.setSelectedWorktreeID(worktree.id)])
     #expect(store.state.terminals.layouts.isEmpty)
     #expect(store.state.repositories.selectedWorktreeID == worktree.id)
@@ -4790,10 +4796,10 @@ struct AppFeatureSessionsTests {
     #expect(ownKeyLast.task(forDirectory: worktree.id) == ownKey)
     ownKeyLast.selectionOrder = []
     #expect(ownKeyLast.task(forDirectory: worktree.id) == ownKey)
-    // One no record names yet is still the directory's own.
+    // One no record names is no directory's task, own key or not.
     ownKeyLast.directories[ownKey] = nil
     ownKeyLast.selectionOrder = [first, ownKey]
-    #expect(ownKeyLast.task(forDirectory: worktree.id) == ownKey)
+    #expect(ownKeyLast.task(forDirectory: worktree.id) == first)
   }
 
   /// `first` lists a session and is the selected task, but its last tab closed.
@@ -4847,11 +4853,11 @@ struct AppFeatureSessionsTests {
     #expect(state.terminals.task(forDirectory: worktree.id) == first)
     #expect(state.terminals.task(forDirectory: otherWorktree.id) == third)
 
-    // With no task to show, the seam still says where a first tab lands.
+    // With no task to show, the seam answers nothing: a first tab mints.
     state.terminals.layouts.remove(id: first)
     state.terminals.activeTasks[worktree.id] = nil
     #expect(state.terminals.task(forDirectory: worktree.id) == nil)
-    #expect(state.layoutID(forDirectory: worktree.id) == worktree.id.layoutID)
+    #expect(state.layoutID(forDirectory: worktree.id) == nil)
   }
 
   @Test(.dependencies) func aTasklessDirectoryNeverSelectsAnotherDirectorysLayout() async {
@@ -4875,9 +4881,9 @@ struct AppFeatureSessionsTests {
   }
 
   @Test func theDetailViewMountsWhatADirectorySelectionSelects() {
-    // No task: the empty layout a first tab lands in, so the tab shows up.
+    // No task: the empty state. A first tab mints a task and shows it then.
     var state = mintedTasksOnly([])
-    #expect(state.detailLayoutID(forDirectory: worktree.id) == worktree.id.layoutID)
+    #expect(state.detailLayoutID(forDirectory: worktree.id) == nil)
 
     state = mintedTasksOnly([(first, firstSurface), (second, secondSurface)])
     state.terminals.selectionOrder = [first, second]
@@ -5001,7 +5007,7 @@ struct AppFeatureSessionsTests {
       case .createTab(let layoutID, let context, let runsSetupScript, _, _, _, _):
         return ShellLaunch(
           layoutID: layoutID, directory: context.worktreeID, host: context.host, runsSetupScript: runsSetupScript)
-      case .createTaskTab(let layoutID, let source, nil, _):
+      case .createTaskTab(let layoutID, let source, nil, _, _):
         return ShellLaunch(
           layoutID: layoutID, directory: Self.rosterDirectory(source), source: source, host: nil,
           runsSetupScript: false)
@@ -5699,7 +5705,7 @@ struct AppFeatureSessionsTests {
   @Test(.dependencies, arguments: [true, false])
   func tabChordActsOnTheTaskJustSelected(forward: Bool) async {
     let initial = secondJustSelected()
-    #expect(initial.layoutID(forDirectory: worktree.id) == first)
+    #expect(initial.terminals.landingLayoutID(forDirectory: worktree.id) == first, "recorded, not yet echoed")
     let recorded = Recorded()
     let store = taskStore(initial, recorded: recorded)
 

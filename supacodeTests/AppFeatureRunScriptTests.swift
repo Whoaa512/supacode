@@ -18,10 +18,8 @@ struct AppFeatureRunScriptTests {
     settingsState.repositorySummaries = [
       SettingsRepositorySummary(id: expectedRepositoryID, name: "repo")
     ]
-    var initialState = AppFeature.State(
-      repositories: repositories,
-      settings: settingsState
-    )
+    var initialState = AppFeature.State.seeded(
+      repositories: repositories, settings: settingsState, ownKeyTaskOn: worktree)
     // Loaded, and the repository configures nothing: that is what routes to settings.
     initialState.loadedRepoScripts = LoadedRepositoryScripts(
       scripts: [],
@@ -43,10 +41,8 @@ struct AppFeatureRunScriptTests {
     let repositories = makeRepositoriesState(worktree: worktree)
     let definition = ScriptDefinition(kind: .run, name: "Dev", command: "npm run dev")
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    var initialState = AppFeature.State(
-      repositories: repositories,
-      settings: SettingsFeature.State()
-    )
+    var initialState = AppFeature.State.seeded(
+      repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     initialState.loadedRepoScripts = LoadedRepositoryScripts(
       scripts: [definition],
       rootURL: worktree.repositoryRootURL,
@@ -90,10 +86,7 @@ struct AppFeatureRunScriptTests {
     let repositories = makeRepositoriesState(worktree: worktree)
     let definition = ScriptDefinition(kind: .run, name: "Dev", command: "npm run dev")
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -119,10 +112,7 @@ struct AppFeatureRunScriptTests {
       .init(id: definition.id, tint: definition.resolvedTintColor)
     repositoriesState.reconcileSidebarForTesting()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -141,10 +131,8 @@ struct AppFeatureRunScriptTests {
     let worktree = makeWorktree()
     let repositories = makeRepositoriesState(worktree: worktree)
     let definition = ScriptDefinition(kind: .run, name: "Dev", command: "npm run dev")
-    var initialState = AppFeature.State(
-      repositories: repositories,
-      settings: SettingsFeature.State()
-    )
+    var initialState = AppFeature.State.seeded(
+      repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     initialState.loadedRepoScripts = LoadedRepositoryScripts(
       scripts: [definition],
       rootURL: worktree.repositoryRootURL,
@@ -182,10 +170,7 @@ struct AppFeatureRunScriptTests {
     repositoriesState.reconcileSidebarForTesting()
 
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -213,10 +198,7 @@ struct AppFeatureRunScriptTests {
     let definition = ScriptDefinition(kind: .run, name: "Dev", command: "npm run dev")
     let repositoriesState = makeArchivedRepositoriesState(worktree: worktree)
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -242,10 +224,7 @@ struct AppFeatureRunScriptTests {
     repositoriesState.sidebarItems[id: worktree.id]?.lifecycle = .deletingScript
     repositoriesState.applyPostReduceCacheRecomputes()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -266,10 +245,7 @@ struct AppFeatureRunScriptTests {
     let repositories = makeRepositoriesState(worktree: worktree)
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -296,10 +272,7 @@ struct AppFeatureRunScriptTests {
     let definition = ScriptDefinition(kind: .test, name: "Test", command: "npm test")
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State(),
-      ),
+      initialState: .seeded(repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree),
     ) {
       AppFeature()
     } withDependencies: {
@@ -328,10 +301,7 @@ struct AppFeatureRunScriptTests {
     var settings = RepositorySettings.default
     settings.scripts = [definition]
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -351,10 +321,7 @@ struct AppFeatureRunScriptTests {
     let repositories = makeRepositoriesState(worktree: worktree)
     let definition = ScriptDefinition(kind: .run, name: "Dev", command: "npm run dev")
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -379,10 +346,8 @@ struct AppFeatureRunScriptTests {
     let repositories = makeRepositoriesState(worktree: worktree)
     let repoScript = ScriptDefinition(kind: .run, name: "Dev", command: "npm run dev")
     let globalScript = ScriptDefinition(kind: .custom, name: "Lint Repo", command: "make lint")
-    var initialState = AppFeature.State(
-      repositories: repositories,
-      settings: SettingsFeature.State()
-    )
+    var initialState = AppFeature.State.seeded(
+      repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     initialState.loadedRepoScripts = LoadedRepositoryScripts(
       scripts: [repoScript],
       rootURL: worktree.repositoryRootURL,
@@ -399,10 +364,8 @@ struct AppFeatureRunScriptTests {
     let repositories = makeRepositoriesState(worktree: worktree)
     let globalScript = ScriptDefinition(kind: .custom, name: "Format", command: "swift-format")
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    var initialState = AppFeature.State(
-      repositories: repositories,
-      settings: SettingsFeature.State()
-    )
+    var initialState = AppFeature.State.seeded(
+      repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     initialState.globalScripts = [globalScript]
     // Loaded, and the repository configures none: a global may then win the id.
     initialState.loadedRepoScripts = LoadedRepositoryScripts(
@@ -442,10 +405,7 @@ struct AppFeatureRunScriptTests {
     settings.globalScripts = [globalScript]
 
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -461,9 +421,8 @@ struct AppFeatureRunScriptTests {
     let repoScript = ScriptDefinition(id: sharedID, kind: .run, name: "Repo", command: "npm run dev")
     let globalScript = ScriptDefinition(id: sharedID, kind: .custom, name: "Global", command: "echo global")
     let worktree = makeWorktree()
-    var initialState = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State()
+    var initialState = AppFeature.State.seeded(
+      repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(), ownKeyTaskOn: worktree
     )
     initialState.loadedRepoScripts = LoadedRepositoryScripts(
       scripts: [repoScript],
@@ -481,7 +440,7 @@ struct AppFeatureRunScriptTests {
     let worktree = makeWorktree()
     let repositories = makeRepositoriesState(worktree: worktree)
     let store = TestStore(
-      initialState: AppFeature.State(repositories: repositories, settings: SettingsFeature.State())
+      initialState: .seeded(repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -500,7 +459,8 @@ struct AppFeatureRunScriptTests {
     let worktree = makeWorktree()
     let repositories = makeRepositoriesState(worktree: worktree)
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    var initialState = AppFeature.State(repositories: repositories, settings: SettingsFeature.State())
+    var initialState = AppFeature.State.seeded(
+      repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     initialState.loadedRepoScripts = LoadedRepositoryScripts(
       scripts: [repoScript],
       rootURL: worktree.repositoryRootURL,
@@ -536,7 +496,8 @@ struct AppFeatureRunScriptTests {
     let worktree = makeWorktree()
     let repositories = makeRepositoriesState(worktree: worktree)
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    var initialState = AppFeature.State(repositories: repositories, settings: SettingsFeature.State())
+    var initialState = AppFeature.State.seeded(
+      repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     initialState.loadedRepoScripts = LoadedRepositoryScripts(
       scripts: [repoScript],
       rootURL: worktree.repositoryRootURL,
@@ -569,7 +530,8 @@ struct AppFeatureRunScriptTests {
     let worktree = makeWorktree()
     let repositories = makeRepositoriesState(worktree: worktree)
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    var initialState = AppFeature.State(repositories: repositories, settings: SettingsFeature.State())
+    var initialState = AppFeature.State.seeded(
+      repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     initialState.loadedRepoScripts = LoadedRepositoryScripts(
       scripts: [],
       rootURL: worktree.repositoryRootURL,
@@ -603,9 +565,8 @@ struct AppFeatureRunScriptTests {
     let injected = try JSONDecoder().decode(ScriptDefinition.self, from: Data(json.utf8))
     let repoScript = ScriptDefinition(kind: .run, name: "Real", command: "npm run dev")
     let worktree = makeWorktree()
-    var initialState = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State()
+    var initialState = AppFeature.State.seeded(
+      repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(), ownKeyTaskOn: worktree
     )
     initialState.loadedRepoScripts = LoadedRepositoryScripts(
       scripts: [repoScript],

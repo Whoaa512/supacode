@@ -303,10 +303,8 @@ struct AppFeatureOpenWorktreeTests {
     let settingsFileURL = URL(
       fileURLWithPath: "/tmp/supacode-settings-\(UUID().uuidString).json"
     )
-    var initialState = AppFeature.State(
-      repositories: repositoriesState,
-      settings: SettingsFeature.State()
-    )
+    var initialState = AppFeature.State.seeded(
+      repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     mutateApp(&initialState)
     let store = TestStore(initialState: initialState) {
       AppFeature()

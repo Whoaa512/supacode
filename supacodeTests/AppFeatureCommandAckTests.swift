@@ -128,9 +128,10 @@ struct AppFeatureCommandAckTests {
     defer { close(readFD) }
 
     var initial = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State()
-    )
+      repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State())
+    // The first tab is the task minted for the new directory, hosted by the time it reports.
+    let minted = LayoutID(task: UUID())
+    initial.seedTask(minted, on: created.id)
     initial.pendingCommandAcks[id: writeFD] = AppFeature.PendingCommandAck(
       responseFD: writeFD, token: 1,
       match: .worktreeNew(pendingID: pendingID, worktreeID: nil))
@@ -138,6 +139,7 @@ struct AppFeatureCommandAckTests {
       AppFeature()
     } withDependencies: {
       $0.terminalClient.send = { _ in }
+      $0.date = .constant(Date(timeIntervalSince1970: 0))
     }
     store.exhaustivity = .off
 
@@ -148,7 +150,7 @@ struct AppFeatureCommandAckTests {
         .createRandomWorktreeSucceeded(created, repositoryID: "/tmp/repo", pendingID: pendingID)))
     #expect(store.state.pendingCommandAcks[id: writeFD] != nil)
 
-    await store.send(.terminalEvent(.tabCreated(layoutID: created.id.layoutID)))
+    await store.send(.terminalEvent(.tabCreated(layoutID: minted)))
     await store.finish()
 
     #expect(store.state.pendingCommandAcks.isEmpty)
@@ -179,6 +181,8 @@ struct AppFeatureCommandAckTests {
     initial.pendingCommandAcks[id: writeFD] = AppFeature.PendingCommandAck(
       responseFD: writeFD, token: 1,
       match: .worktreeNew(pendingID: WorktreeID("pending:cli-1"), worktreeID: worktree.id))
+    let minted = LayoutID(task: UUID())
+    initial.seedTask(minted, on: worktree.id)
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
@@ -186,7 +190,7 @@ struct AppFeatureCommandAckTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.terminalEvent(.tabCreated(layoutID: worktree.id.layoutID)))
+    await store.send(.terminalEvent(.tabCreated(layoutID: minted)))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.receive(\.repositories.sidebarItems)
     await store.finish()
@@ -258,9 +262,8 @@ struct AppFeatureCommandAckTests {
     let (readFD, writeFD) = makePipe()
     defer { close(readFD) }
 
-    var initial = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State()
+    var initial = AppFeature.State.seeded(
+      repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(), ownKeyTaskOn: worktree
     )
     initial.pendingCommandAcks[id: writeFD] = AppFeature.PendingCommandAck(
       responseFD: writeFD, token: 1,
@@ -297,6 +300,14 @@ struct AppFeatureCommandAckTests {
     initial.pendingCommandAcks[id: writeFD] = AppFeature.PendingCommandAck(
       responseFD: writeFD, token: 1,
       match: .worktreeNew(pendingID: WorktreeID("pending:cli-1"), worktreeID: worktree.id))
+    // The first tab was minted for the directory and never got hosted: the
+    // mint is still pending, and the layout exists with no tab.
+    let minted = LayoutID(task: UUID())
+    initial.pendingTaskLaunches = [
+      PendingTaskLaunch(layoutID: minted, directoryID: worktree.id, primary: nil, followsDirectory: true)
+    ]
+    initial.terminals.layouts = [LayoutFeature.State(id: minted, layout: PaneLayout())]
+    initial.terminals.directories[minted] = TaskRecord.Directory(worktreeID: worktree.id)
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
@@ -304,7 +315,7 @@ struct AppFeatureCommandAckTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.terminalEvent(.initialTabCreationFailed(layoutID: worktree.id.layoutID, message: "boom")))
+    await store.send(.terminalEvent(.initialTabCreationFailed(layoutID: minted, message: "boom")))
     await store.receive(\.repositories.worktreeCreationSettled)
     await store.receive(\.repositories.sidebarItems)
     await store.finish()
@@ -329,6 +340,8 @@ struct AppFeatureCommandAckTests {
     initial.pendingCommandAcks[id: writeFD] = AppFeature.PendingCommandAck(
       responseFD: writeFD, token: 1,
       match: .worktreeNew(pendingID: WorktreeID("pending:cli-1"), worktreeID: absent))
+    let minted = LayoutID(task: UUID())
+    initial.seedTask(minted, on: absent)
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
@@ -336,7 +349,7 @@ struct AppFeatureCommandAckTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.terminalEvent(.tabCreated(layoutID: absent.layoutID)))
+    await store.send(.terminalEvent(.tabCreated(layoutID: minted)))
     await store.finish()
 
     #expect(store.state.pendingCommandAcks.isEmpty)
@@ -361,6 +374,10 @@ struct AppFeatureCommandAckTests {
     initial.pendingCommandAcks[id: writeFD] = AppFeature.PendingCommandAck(
       responseFD: writeFD, token: 1,
       match: .worktreeNew(pendingID: WorktreeID("pending:cli-1"), worktreeID: absent))
+    let minted = LayoutID(task: UUID())
+    initial.pendingTaskLaunches = [
+      PendingTaskLaunch(layoutID: minted, directoryID: absent, primary: nil, followsDirectory: true)
+    ]
     let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: {
@@ -368,7 +385,7 @@ struct AppFeatureCommandAckTests {
     }
     store.exhaustivity = .off
 
-    await store.send(.terminalEvent(.initialTabCreationFailed(layoutID: absent.layoutID, message: "boom")))
+    await store.send(.terminalEvent(.initialTabCreationFailed(layoutID: minted, message: "boom")))
     await store.finish()
 
     #expect(store.state.pendingCommandAcks.isEmpty)
@@ -430,9 +447,8 @@ struct AppFeatureCommandAckTests {
     let (readFD, writeFD) = makePipe()
     defer { close(readFD) }
 
-    var initial = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State()
+    var initial = AppFeature.State.seeded(
+      repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(), ownKeyTaskOn: worktree
     )
     initial.pendingCommandAcks[id: writeFD] = AppFeature.PendingCommandAck(
       responseFD: writeFD, token: 1,
@@ -460,9 +476,8 @@ struct AppFeatureCommandAckTests {
     let (readFD, writeFD) = makePipe()
     defer { close(readFD) }
 
-    var initial = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State()
+    var initial = AppFeature.State.seeded(
+      repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(), ownKeyTaskOn: worktree
     )
     initial.pendingCommandAcks[id: writeFD] = AppFeature.PendingCommandAck(
       responseFD: writeFD, token: 1,
@@ -546,7 +561,8 @@ struct AppFeatureCommandAckTests {
     repositories.repositories = [
       Repository(id: "/tmp/repo", rootURL: URL(fileURLWithPath: "/tmp/repo"), name: "repo", worktrees: [worktree])
     ]
-    var state = AppFeature.State(repositories: repositories, settings: SettingsFeature.State())
+    var state = AppFeature.State.seeded(
+      repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     state.terminals.layouts = [LayoutFeature.State(id: task, layout: populated)]
     state.terminals.directories[task] = TaskRecord.Directory(worktreeID: worktree.id)
 
@@ -567,9 +583,8 @@ struct AppFeatureCommandAckTests {
     let (readFD, writeFD) = makePipe()
     defer { close(readFD) }
 
-    var initial = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State()
+    var initial = AppFeature.State.seeded(
+      repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(), ownKeyTaskOn: worktree
     )
     initial.deeplinkInputConfirmation = DeeplinkInputConfirmationFeature.State(
       worktreeID: worktree.id, worktreeName: "wt-1", repositoryName: "repo",
@@ -593,9 +608,8 @@ struct AppFeatureCommandAckTests {
       close(writeFD)
     }
 
-    var initial = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State()
+    var initial = AppFeature.State.seeded(
+      repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(), ownKeyTaskOn: worktree
     )
     initial.deeplinkInputConfirmation = DeeplinkInputConfirmationFeature.State(
       worktreeID: worktree.id, worktreeName: "wt-1", repositoryName: "repo",
@@ -842,10 +856,8 @@ struct AppFeatureCommandAckTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .never
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings
-      )
+      initialState: .seeded(
+        repositories: makeRepositoriesState(worktree: worktree), settings: settings, ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -853,6 +865,7 @@ struct AppFeatureCommandAckTests {
       $0.terminalClient.send = { command in
         sent.withValue { $0.append(command) }
       }
+      $0.date = .constant(Date(timeIntervalSince1970: 0))
     }
     store.exhaustivity = .off
 
@@ -907,10 +920,8 @@ struct AppFeatureCommandAckTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .never
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings
-      )
+      initialState: .seeded(
+        repositories: makeRepositoriesState(worktree: worktree), settings: settings, ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -954,10 +965,8 @@ struct AppFeatureCommandAckTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .never
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings
-      )
+      initialState: .seeded(
+        repositories: makeRepositoriesState(worktree: worktree), settings: settings, ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -1004,10 +1013,8 @@ struct AppFeatureCommandAckTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .never
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings
-      )
+      initialState: .seeded(
+        repositories: makeRepositoriesState(worktree: worktree), settings: settings, ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -1093,10 +1100,8 @@ struct AppFeatureCommandAckTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .never
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings
-      )
+      initialState: .seeded(
+        repositories: makeRepositoriesState(worktree: worktree), settings: settings, ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -1298,8 +1303,7 @@ struct AppFeatureCommandAckTests {
     var repositoriesState = makeRepositoriesState(worktree: worktree)
     repositoriesState.reconcileSidebarForTesting()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState, settings: SettingsFeature.State())
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -1341,8 +1345,7 @@ struct AppFeatureCommandAckTests {
     var repositoriesState = makeRepositoriesState(worktree: worktree)
     repositoriesState.reconcileSidebarForTesting()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState, settings: SettingsFeature.State())
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -1806,9 +1809,8 @@ struct AppFeatureCommandAckTests {
     worktree: Worktree
   ) -> (store: TestStoreOf<AppFeature>, readFD: Int32) {
     let (readFD, writeFD) = makePipe()
-    var initial = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State()
+    var initial = AppFeature.State.seeded(
+      repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(), ownKeyTaskOn: worktree
     )
     initial.pendingCommandAcks[id: writeFD] = AppFeature.PendingCommandAck(
       responseFD: writeFD, token: 1, match: .worktreeArchived(worktreeID: worktree.id))
@@ -1842,9 +1844,8 @@ struct AppFeatureCommandAckTests {
       close(readFD)
       close(writeFD)
     }
-    var initial = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State()
+    var initial = AppFeature.State.seeded(
+      repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(), ownKeyTaskOn: worktree
     )
     initial.pendingCommandAcks[id: writeFD] = AppFeature.PendingCommandAck(
       responseFD: writeFD, token: 1, match: .folderRemoved(repositoryID: "/tmp/repo"))
@@ -1892,9 +1893,8 @@ struct AppFeatureCommandAckTests {
   ) -> (store: TestStoreOf<AppFeature>, readFD: Int32) {
     let worktree = makeWorktree()
     let (readFD, writeFD) = makePipe()
-    var initial = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State()
+    var initial = AppFeature.State.seeded(
+      repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(), ownKeyTaskOn: worktree
     )
     initial.pendingCommandAcks[id: writeFD] = AppFeature.PendingCommandAck(
       responseFD: writeFD, token: 1, match: match)
@@ -2000,10 +2000,9 @@ struct AppFeatureCommandAckTests {
     _ extraDependencies: (inout DependencyValues) -> Void = { _ in }
   ) -> TestStoreOf<AppFeature> {
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(
+        repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(),
+        ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -2011,6 +2010,7 @@ struct AppFeatureCommandAckTests {
       $0.terminalClient.surfaceExists = { _, _, _ in tabExists }
       $0.terminalClient.surfaceExistsInWorktree = { _, _ in tabExists }
       $0.terminalClient.send = { _ in }
+      $0.date = .constant(Date(timeIntervalSince1970: 0))
       extraDependencies(&$0)
     }
     store.exhaustivity = .off

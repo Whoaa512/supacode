@@ -109,6 +109,27 @@ enum Deeplink: Equatable, Sendable {
       }
     }
 
+    /// What the action makes of a directory with no task.
+    enum TaskNeed: Equatable {
+      /// A first tab: a task is minted for the directory.
+      case mints
+      /// The directory's own: no task is needed or looked for.
+      case none
+      /// Acts on what exists: nothing to act on, so it fails.
+      case required
+    }
+
+    var taskNeed: TaskNeed {
+      switch self {
+      case .tabNew(_, _, _, let pane): pane == nil ? .mints : .required
+      case .run, .runScript: .mints
+      case .select, .archive, .unarchive, .delete, .pin, .unpin, .appearance: .none
+      case .stop, .stopScript, .tab, .tabRename, .tabDestroy, .surface, .surfaceSplit, .surfaceDestroy,
+        .tabMove, .paneFocus, .paneFocusDirection, .paneSplit, .paneDestroy, .paneZoom, .paneWindow, .paneEqualize:
+        .required
+      }
+    }
+
     /// Whether dispatching this action should also select / focus the worktree.
     /// Metadata-only updates (appearance, tab rename) skip it so they don't steal focus.
     var selectsWorktree: Bool {

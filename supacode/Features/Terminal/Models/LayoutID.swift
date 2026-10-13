@@ -1,12 +1,20 @@
 import Foundation
 
-/// The key a terminal layout is stored under. Distinct from `Worktree.ID` so a directory id
-/// can only become a layout id through the resolver seam (`layoutID(forDirectory:)`).
+/// The key a terminal layout is stored under, and the task's id. Distinct from `Worktree.ID`:
+/// a directory never becomes a layout id. The app-layer seam
+/// (`AppFeature.State.layoutID(forDirectory:) -> LayoutID?`) answers which task a directory
+/// means, and nil when it has none; only the v2 migrator still reads an id off a directory path.
 nonisolated struct LayoutID: Hashable, Sendable, Codable, CustomStringConvertible {
   private let rawValue: String
 
-  /// A layout id read from a persisted layouts blob, whose keys are worktree paths.
+  /// A layout id read from a v2 layouts blob, whose keys are worktree paths. For the migrator
+  /// (`LayoutsMigrator`, `LayoutsTaskSplitter`) and test fixtures only: nothing else derives a
+  /// layout id from a directory.
   init(legacyWorktreeKey key: String) { rawValue = key }
+
+  /// A stored task id read back as written (`persistenceKey`): the inverse of the key a record
+  /// or a merged-away entry is filed under. It names a task that was stored, never a directory.
+  init(persistenceKey key: String) { rawValue = key }
 
   /// A task minted by the app; never derived from a directory.
   init(task uuid: UUID) { rawValue = uuid.uuidString }

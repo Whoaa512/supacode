@@ -14,7 +14,7 @@ struct WorktreeStatusInspectorContainer: View {
   let terminalManager: WorktreeTerminalManager
   let fileOpenActions: [OpenWorktreeAction]
   let resolvedOpenAction: OpenWorktreeAction?
-  let layoutID: (Worktree.ID) -> LayoutID
+  let layoutID: (Worktree.ID) -> LayoutID?
   let onSelectNotification: (Worktree.ID, WorktreeTerminalNotification) -> Void
   let onPullRequestAction: (RepositoriesFeature.PullRequestAction) -> Void
   let onOpenFile: (URL, OpenWorktreeAction?) -> Void
@@ -481,7 +481,7 @@ private struct PullRequestMergeQueueRow: View {
 struct WorktreeNotificationsInspectorView: View {
   let repositoriesStore: StoreOf<RepositoriesFeature>
   let terminalManager: WorktreeTerminalManager
-  let layoutID: (Worktree.ID) -> LayoutID
+  let layoutID: (Worktree.ID) -> LayoutID?
   let onSelectNotification: (Worktree.ID, WorktreeTerminalNotification) -> Void
 
   @Shared(.settingsFile) private var settingsFile
@@ -535,12 +535,12 @@ struct WorktreeNotificationsInspectorView: View {
       },
       onMarkAllRead: {
         for worktreeID in actionableWorktreeIDs {
-          terminalManager.hostIfExists(for: layoutID(worktreeID))?.markAllNotificationsRead()
+          layoutID(worktreeID).flatMap(terminalManager.hostIfExists(for:))?.markAllNotificationsRead()
         }
       },
       onDismissAll: {
         for worktreeID in actionableWorktreeIDs {
-          let host = terminalManager.hostIfExists(for: layoutID(worktreeID))
+          let host = layoutID(worktreeID).flatMap(terminalManager.hostIfExists(for:))
           // Unread-only view dismisses only what it shows; read entries stay.
           if unreadOnly {
             host?.dismissUnreadNotifications()

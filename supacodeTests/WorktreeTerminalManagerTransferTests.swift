@@ -591,12 +591,12 @@ struct WorktreeTerminalManagerTransferTests {
     expectSelection(on: destination, not: source, in: harness)
   }
 
-  /// A removed task's own key is not a task, but it is still where the
-  /// directory's next tab lands: selecting the directory after its only task
-  /// closed shows the empty state there, as before.
-  @Test(.dependencies) func selectingADirectoryWhoseOwnKeyTaskClosedLandsOnTheOwnKey() async {
+  /// A removed task's own key is not a task, and nothing is derived from the
+  /// directory's path: selecting the directory after its only task closed
+  /// shows the empty state, selecting no layout and attaching no host.
+  @Test(.dependencies) func selectingADirectoryWhoseOwnKeyTaskClosedShowsTheEmptyState() async {
     let harness = await makeHarness(seed: Self.listDirectory)
-    let ownKey = TerminalsFeature.State.ownKeyLayoutID(forDirectory: Self.directory.id)
+    let ownKey = Self.directory.id.layoutID
     let (elsewhere, other) = (Self.worktree("/tmp/repo/wt-other"), LayoutID(task: UUID()))
     _ = await open(ownKey, in: harness)
     _ = await open(other, on: elsewhere, in: harness)
@@ -612,8 +612,8 @@ struct WorktreeTerminalManagerTransferTests {
     deliverQueuedCommands(in: harness)
     let after = await harness.events.collect(until: Self.createsATab)
 
-    #expect(harness.manager.selectedLayoutID == ownKey)
-    #expect(harness.terminals.selectedLayoutID == ownKey)
+    #expect(harness.manager.selectedLayoutID == nil)
+    #expect(harness.terminals.selectedLayoutID == nil)
     #expect(harness.manager.hostIfExists(for: ownKey) == nil, "an empty directory attaches no host")
     #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
   }
@@ -624,7 +624,7 @@ struct WorktreeTerminalManagerTransferTests {
   /// task that took its tabs, and that is what the stale pick selects.
   @Test(.dependencies) func aSelectionOfAnOwnKeyTaskMergedAwayLandsOnTheTaskThatTookItsTabs() async {
     let harness = await makeHarness(seed: Self.listDirectory)
-    let ownKey = TerminalsFeature.State.ownKeyLayoutID(forDirectory: Self.directory.id)
+    let ownKey = Self.directory.id.layoutID
     let destination = LayoutID(task: UUID())
     _ = await open(ownKey, in: harness)
     _ = await open(destination, in: harness)
@@ -1495,7 +1495,7 @@ struct WorktreeTerminalManagerTransferTests {
     await harness.store.send(.newTask(inDirectory: Self.directory.id, kind: kind)).finish()
     let queued = harness.recorder.queuedCommands.value
     #expect(queued.count(where: Self.isTaskLaunch) == 1, "the launch is in flight: \(queued)")
-    guard case .createTaskTab(let minted, let source, let input, _)? = queued.first(where: Self.isTaskLaunch)
+    guard case .createTaskTab(let minted, let source, let input, _, _)? = queued.first(where: Self.isTaskLaunch)
     else { return }
     #expect(source == .roster(Self.directory.id))
     #expect(input == (kind == .agent ? "pi" : nil))
@@ -1536,7 +1536,7 @@ struct WorktreeTerminalManagerTransferTests {
     await harness.store.send(.repositories(.selectTask(orphan, directory: Self.directory.id))).finish()
     await harness.store.send(.newTask(inDirectory: Self.directory.id, kind: kind)).finish()
     guard
-      case .createTaskTab(let minted, let source, _, _)? = harness.recorder.queuedCommands.value.first(
+      case .createTaskTab(let minted, let source, _, _, _)? = harness.recorder.queuedCommands.value.first(
         where: Self.isTaskLaunch)
     else {
       Issue.record("no launch queued")
@@ -1661,7 +1661,7 @@ struct WorktreeTerminalManagerTransferTests {
     await harness.store.send(.newSession).finish()
     let queued = harness.recorder.queuedCommands.value
     #expect(queued.count(where: Self.isTaskLaunch) == 1, "the launch is in flight: \(queued)")
-    guard case .createTaskTab(let minted, let source, let input, _)? = queued.first(where: Self.isTaskLaunch)
+    guard case .createTaskTab(let minted, let source, let input, _, _)? = queued.first(where: Self.isTaskLaunch)
     else { return }
     #expect(source == .task(task), "a local Cmd-N carries the task, as a remote one does")
     #expect(input == "pi")
@@ -1701,7 +1701,7 @@ struct WorktreeTerminalManagerTransferTests {
     await harness.store.send(.newSession).finish()
     let queued = harness.recorder.queuedCommands.value
     #expect(queued.count(where: Self.isTaskLaunch) == 1, "the launch is in flight: \(queued)")
-    guard case .createTaskTab(let minted, let source, _, _)? = queued.first(where: Self.isTaskLaunch)
+    guard case .createTaskTab(let minted, let source, _, _, _)? = queued.first(where: Self.isTaskLaunch)
     else { return }
     #expect(source == .task(orphan))
     #expect(
@@ -1752,7 +1752,7 @@ struct WorktreeTerminalManagerTransferTests {
     }
     await harness.store.send(.newTask(inDirectory: Self.directory.id, kind: kind)).finish()
     guard
-      case .createTaskTab(let minted, .roster, _, _)? = harness.recorder.queuedCommands.value.first(
+      case .createTaskTab(let minted, .roster, _, _, _)? = harness.recorder.queuedCommands.value.first(
         where: Self.isTaskLaunch)
     else {
       Issue.record("no launch queued")

@@ -76,10 +76,7 @@ struct AppFeatureDeeplinkTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .always
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings,
-      )
+      initialState: makeAppState(worktree: worktree, settings: settings)
     ) {
       AppFeature()
     } withDependencies: {
@@ -105,10 +102,7 @@ struct AppFeatureDeeplinkTests {
     let newID = UUID()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -137,10 +131,7 @@ struct AppFeatureDeeplinkTests {
     let token = UUID()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -164,10 +155,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -193,10 +181,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -220,10 +205,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -244,10 +226,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -270,10 +249,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -302,10 +278,9 @@ struct AppFeatureDeeplinkTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .always
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktrees: [worktree, target], selected: worktree),
-        settings: settings,
-      )
+      initialState: .seeded(
+        repositories: makeRepositoriesState(worktrees: [worktree, target], selected: worktree), settings: settings,
+        ownKeyTasksOn: [worktree, target])
     ) {
       AppFeature()
     } withDependencies: {
@@ -349,10 +324,7 @@ struct AppFeatureDeeplinkTests {
     ]
     repositories.reconcileSidebarForTesting()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -381,10 +353,7 @@ struct AppFeatureDeeplinkTests {
     ]
     repositories.reconcileSidebarForTesting()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -407,10 +376,7 @@ struct AppFeatureDeeplinkTests {
     let pendingID = Worktree.ID("pending:materialized")
     repositories.resolvedPendingWorktrees = [pendingID: .init(worktreeID: worktree.id, repositoryID: "/tmp/repo")]
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -435,10 +401,7 @@ struct AppFeatureDeeplinkTests {
         .items[worktree.id] = .init()
     }
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -585,10 +548,9 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let other = makeWorktree(id: "/tmp/repo/wt-2", name: "wt-2")
     let store = TestStore(
-      initialState: AppFeature.State(
+      initialState: .seeded(
         repositories: makeRepositoriesState(worktrees: [worktree, other], selected: worktree),
-        settings: SettingsFeature.State(),
-      )
+        settings: SettingsFeature.State(), ownKeyTasksOn: [worktree, other])
     ) {
       AppFeature()
     }
@@ -615,10 +577,7 @@ struct AppFeatureDeeplinkTests {
     let definition = seedRunScript(for: worktree, command: "npm start")
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -641,10 +600,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -670,7 +626,7 @@ struct AppFeatureDeeplinkTests {
       .init(id: definition.id, tint: definition.resolvedTintColor)
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(repositories: repositories, settings: SettingsFeature.State())
+      initialState: .seeded(repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -706,10 +662,7 @@ struct AppFeatureDeeplinkTests {
     var appSettings = SettingsFeature.State()
     appSettings.automatedActionPolicy = .always
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: appSettings,
-      )
+      initialState: makeAppState(worktree: worktree, settings: appSettings)
     ) {
       AppFeature()
     } withDependencies: {
@@ -756,10 +709,7 @@ struct AppFeatureDeeplinkTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .always
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings,
-      )
+      initialState: makeAppState(worktree: worktree, settings: settings)
     ) {
       AppFeature()
     } withDependencies: {
@@ -820,10 +770,7 @@ struct AppFeatureDeeplinkTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .always
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings,
-      )
+      initialState: makeAppState(worktree: worktree, settings: settings)
     ) {
       AppFeature()
     } withDependencies: {
@@ -840,10 +787,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     clearArchiveScript(for: worktree)
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -867,7 +811,7 @@ struct AppFeatureDeeplinkTests {
     repositories.reconcileSidebarForTesting()
     repositories.setWorktreeInfoForTesting(id: worktree.id, pullRequest: makeMergedPullRequest())
     let store = TestStore(
-      initialState: AppFeature.State(repositories: repositories, settings: settings)
+      initialState: .seeded(repositories: repositories, settings: settings, ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -915,10 +859,7 @@ struct AppFeatureDeeplinkTests {
       sidebar.sections[Repository.ID("/tmp/repo"), default: .init()].title = "Backend"
     }
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State(),
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -933,10 +874,7 @@ struct AppFeatureDeeplinkTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .always
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings,
-      )
+      initialState: AppFeature.State(repositories: makeRepositoriesState(worktree: worktree), settings: settings)
     ) {
       AppFeature()
     }
@@ -949,10 +887,7 @@ struct AppFeatureDeeplinkTests {
 
   @Test(.dependencies) func deleteWorktreeDeeplinkConfirmationAcceptedSendsDeleteConfirmed() async {
     let worktree = makeWorktree()
-    var initialState = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State(),
-    )
+    var initialState = makeAppState(worktree: worktree, settings: SettingsFeature.State())
     initialState.deeplinkInputConfirmation = DeeplinkInputConfirmationFeature.State(
       worktreeID: worktree.id,
       worktreeName: worktree.name,
@@ -1019,10 +954,7 @@ struct AppFeatureDeeplinkTests {
     repositoriesState.repositoryRoots = [folderURL]
     repositoriesState.isInitialLoadComplete = true
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
     ) {
       AppFeature()
     }
@@ -1053,10 +985,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -1081,10 +1010,9 @@ struct AppFeatureDeeplinkTests {
     let target = makeWorktree(id: "/tmp/repo/wt-2", name: "wt-2")
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
+      initialState: .seeded(
         repositories: makeRepositoriesState(worktrees: [worktree, target], selected: worktree),
-        settings: SettingsFeature.State(),
-      )
+        settings: SettingsFeature.State(), ownKeyTasksOn: [worktree, target])
     ) {
       AppFeature()
     } withDependencies: {
@@ -1112,10 +1040,7 @@ struct AppFeatureDeeplinkTests {
     $persisted.withLock { $0.scripts = [definition] }
     defer { $persisted.withLock { $0.scripts = [] } }
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     }
@@ -1137,10 +1062,7 @@ struct AppFeatureDeeplinkTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .always
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings
-      )
+      initialState: makeAppState(worktree: worktree, settings: settings)
     ) {
       AppFeature()
     } withDependencies: {
@@ -1185,7 +1107,7 @@ struct AppFeatureDeeplinkTests {
       .init(id: definition.id, tint: definition.resolvedTintColor)
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(repositories: repositories, settings: SettingsFeature.State())
+      initialState: .seeded(repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -1226,10 +1148,7 @@ struct AppFeatureDeeplinkTests {
     settings.automatedActionPolicy = .always
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings
-      )
+      initialState: makeAppState(worktree: worktree, settings: settings)
     ) {
       AppFeature()
     } withDependencies: {
@@ -1264,7 +1183,7 @@ struct AppFeatureDeeplinkTests {
       .init(id: globalScript.id, tint: globalScript.resolvedTintColor)
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(repositories: repositories, settings: SettingsFeature.State())
+      initialState: .seeded(repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -1303,10 +1222,7 @@ struct AppFeatureDeeplinkTests {
     settings.automatedActionPolicy = .always
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings
-      )
+      initialState: makeAppState(worktree: worktree, settings: settings)
     ) {
       AppFeature()
     } withDependencies: {
@@ -1339,10 +1255,7 @@ struct AppFeatureDeeplinkTests {
     defer { $persisted.withLock { $0.scripts = [] } }
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -1372,10 +1285,7 @@ struct AppFeatureDeeplinkTests {
     settings.automatedActionPolicy = .always
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings
-      )
+      initialState: makeAppState(worktree: worktree, settings: settings)
     ) {
       AppFeature()
     } withDependencies: {
@@ -1409,7 +1319,7 @@ struct AppFeatureDeeplinkTests {
     settings.automatedActionPolicy = .always
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(repositories: repositories, settings: settings)
+      initialState: .seeded(repositories: repositories, settings: settings, ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -1436,10 +1346,7 @@ struct AppFeatureDeeplinkTests {
     $persisted.withLock { $0.scripts = [definition] }
     defer { $persisted.withLock { $0.scripts = [] } }
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    var initialState = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State()
-    )
+    var initialState = makeAppState(worktree: worktree, settings: SettingsFeature.State())
     initialState.deeplinkInputConfirmation = DeeplinkInputConfirmationFeature.State(
       worktreeID: worktree.id,
       worktreeName: worktree.name,
@@ -1489,10 +1396,7 @@ struct AppFeatureDeeplinkTests {
     $persisted.withLock { $0.scripts = [definition] }
     defer { $persisted.withLock { $0.scripts = [] } }
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     }
@@ -1524,10 +1428,7 @@ struct AppFeatureDeeplinkTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .never
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings
-      )
+      initialState: makeAppState(worktree: worktree, settings: settings)
     ) {
       AppFeature()
     }
@@ -1558,10 +1459,7 @@ struct AppFeatureDeeplinkTests {
 
   @Test(.dependencies) func deeplinkReferenceOpenedResetsFlag() async {
     let worktree = makeWorktree()
-    var initialState = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State(),
-    )
+    var initialState = makeAppState(worktree: worktree, settings: SettingsFeature.State())
     initialState.isDeeplinkReferenceRequested = true
     let store = TestStore(initialState: initialState) {
       AppFeature()
@@ -1591,10 +1489,7 @@ struct AppFeatureDeeplinkTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .always
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings,
-      )
+      initialState: makeAppState(worktree: worktree, settings: settings)
     ) {
       AppFeature()
     } withDependencies: {
@@ -1633,10 +1528,7 @@ struct AppFeatureDeeplinkTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .always
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings,
-      )
+      initialState: makeAppState(worktree: worktree, settings: settings)
     ) {
       AppFeature()
     } withDependencies: {
@@ -1695,10 +1587,7 @@ struct AppFeatureDeeplinkTests {
     let surfaceUUID = UUID()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -1730,10 +1619,7 @@ struct AppFeatureDeeplinkTests {
     let tabUUID = UUID()
     let surfaceUUID = UUID()
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    var initialState = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State(),
-    )
+    var initialState = makeAppState(worktree: worktree, settings: SettingsFeature.State())
     initialState.deeplinkInputConfirmation = DeeplinkInputConfirmationFeature.State(
       worktreeID: worktree.id,
       worktreeName: worktree.name,
@@ -1858,10 +1744,7 @@ struct AppFeatureDeeplinkTests {
     repositoriesState.repositoryRoots = [folderURL]
     repositoriesState.isInitialLoadComplete = true
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
+      initialState: AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
     ) {
       AppFeature()
     }
@@ -1927,10 +1810,7 @@ struct AppFeatureDeeplinkTests {
     let tabUUID = UUID()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -1966,10 +1846,7 @@ struct AppFeatureDeeplinkTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .always
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings,
-      )
+      initialState: makeAppState(worktree: worktree, settings: settings)
     ) {
       AppFeature()
     } withDependencies: {
@@ -1993,10 +1870,7 @@ struct AppFeatureDeeplinkTests {
   @Test(.dependencies) func tabNewConfirmationAcceptedSendsTerminalCommand() async {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    var initialState = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State(),
-    )
+    var initialState = makeAppState(worktree: worktree, settings: SettingsFeature.State())
     initialState.deeplinkInputConfirmation = makeConfirmationState(worktree: worktree, input: "echo hello")
     let store = TestStore(initialState: initialState) {
       AppFeature()
@@ -2030,10 +1904,7 @@ struct AppFeatureDeeplinkTests {
 
   @Test(.dependencies) func tabNewConfirmationWithAlwaysAllowPersistsSetting() async {
     let worktree = makeWorktree()
-    var initialState = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State(),
-    )
+    var initialState = makeAppState(worktree: worktree, settings: SettingsFeature.State())
     initialState.deeplinkInputConfirmation = makeConfirmationState(worktree: worktree, input: "echo hello")
     let store = TestStore(initialState: initialState) {
       AppFeature()
@@ -2063,10 +1934,7 @@ struct AppFeatureDeeplinkTests {
   @Test(.dependencies) func tabNewConfirmationCancelledDoesNothing() async {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    var initialState = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State(),
-    )
+    var initialState = makeAppState(worktree: worktree, settings: SettingsFeature.State())
     initialState.deeplinkInputConfirmation = makeConfirmationState(worktree: worktree, input: "echo hello")
     let store = TestStore(initialState: initialState) {
       AppFeature()
@@ -2125,10 +1993,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2151,10 +2016,7 @@ struct AppFeatureDeeplinkTests {
     let tabID = UUID()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2188,10 +2050,7 @@ struct AppFeatureDeeplinkTests {
   @Test(.dependencies) func tabNewWithInputPreservesTitleThroughConfirmation() async {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
-    var initialState = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State(),
-    )
+    var initialState = makeAppState(worktree: worktree, settings: SettingsFeature.State())
     initialState.deeplinkInputConfirmation = DeeplinkInputConfirmationFeature.State(
       worktreeID: worktree.id,
       worktreeName: worktree.name,
@@ -2244,10 +2103,7 @@ struct AppFeatureDeeplinkTests {
     let tabID = UUID()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2280,10 +2136,7 @@ struct AppFeatureDeeplinkTests {
     let tabID = UUID()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2312,10 +2165,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2343,10 +2193,7 @@ struct AppFeatureDeeplinkTests {
     var repositories = makeRepositoriesState(worktree: worktree)
     repositories.selection = nil
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State(),
-      )
+      initialState: .seeded(repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -2369,10 +2216,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2396,10 +2240,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2423,10 +2264,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2457,10 +2295,7 @@ struct AppFeatureDeeplinkTests {
     repositories.selection = .worktree(worktree.id)
     repositories.isInitialLoadComplete = false
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State()
-      )
+      initialState: AppFeature.State(repositories: repositories, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2490,10 +2325,7 @@ struct AppFeatureDeeplinkTests {
     repositories.isInitialLoadComplete = false
     let callCount = LockIsolated(0)
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State()
-      )
+      initialState: AppFeature.State(repositories: repositories, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2538,10 +2370,7 @@ struct AppFeatureDeeplinkTests {
   @Test(.dependencies) func deeplinkReceivedParsesAndDispatches() async {
     let worktree = makeWorktree()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2559,10 +2388,7 @@ struct AppFeatureDeeplinkTests {
   @Test(.dependencies) func deeplinkReceivedWithUnknownURLShowsAlert() async {
     let worktree = makeWorktree()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2578,10 +2404,7 @@ struct AppFeatureDeeplinkTests {
   @Test(.dependencies) func deeplinkReceivedWithUnrecognizedHostShowsAlert() async {
     let worktree = makeWorktree()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2603,10 +2426,7 @@ struct AppFeatureDeeplinkTests {
     repositories.selection = .worktree(worktree.id)
     repositories.isInitialLoadComplete = false
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -2637,10 +2457,7 @@ struct AppFeatureDeeplinkTests {
     repositories.selection = .worktree(worktree.id)
     repositories.isInitialLoadComplete = false
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State()
-      )
+      initialState: AppFeature.State(repositories: repositories, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2668,10 +2485,7 @@ struct AppFeatureDeeplinkTests {
   @Test(.dependencies) func repoWorktreeNewWithBranchDeeplink() async {
     let worktree = makeWorktree()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2701,9 +2515,7 @@ struct AppFeatureDeeplinkTests {
     let observedDirectoryOverride = LockIsolated<URL?>(nil)
     let store = TestStore(
       initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+        repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2755,9 +2567,7 @@ struct AppFeatureDeeplinkTests {
     let observedSetUpstream = LockIsolated<SetUpstreamInvocation?>(nil)
     let store = TestStore(
       initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+        repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2807,10 +2617,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let streamStarted = LockIsolated(false)
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2856,9 +2663,7 @@ struct AppFeatureDeeplinkTests {
     $settingsFile.withLock { $0.global.promptForWorktreeCreation = false }
     let store = TestStore(
       initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+        repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2908,9 +2713,7 @@ struct AppFeatureDeeplinkTests {
     let observedUnset = LockIsolated<String?>(nil)
     let store = TestStore(
       initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+        repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -2960,9 +2763,7 @@ struct AppFeatureDeeplinkTests {
     let createdWorktree = makeWorktree(id: "/tmp/repo/feature-x", name: "feature-x")
     let store = TestStore(
       initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+        repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -3029,10 +2830,7 @@ struct AppFeatureDeeplinkTests {
     let surfaceUUID = UUID()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -3062,10 +2860,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let tabUUID = UUID()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -3082,10 +2877,7 @@ struct AppFeatureDeeplinkTests {
     let tabUUID = UUID()
     let surfaceUUID = UUID()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -3106,10 +2898,7 @@ struct AppFeatureDeeplinkTests {
     let tabUUID = UUID()
     let surfaceUUID = UUID()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -3165,10 +2954,7 @@ struct AppFeatureDeeplinkTests {
     repositories.repositories = [repository]
     repositories.isInitialLoadComplete = false
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -3192,10 +2978,7 @@ struct AppFeatureDeeplinkTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .never
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings,
-      )
+      initialState: makeAppState(worktree: worktree, settings: settings)
     ) {
       AppFeature()
     }
@@ -3219,10 +3002,7 @@ struct AppFeatureDeeplinkTests {
     let (oldReadFD, oldWriteFD) = makePipe()
     defer { close(oldReadFD) }
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings,
-      )
+      initialState: makeAppState(worktree: worktree, settings: settings)
     ) {
       AppFeature()
     }
@@ -3268,10 +3048,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let (readFD, writeFD) = makePipe()
     defer { close(readFD) }
-    var initialState = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State(),
-    )
+    var initialState = makeAppState(worktree: worktree, settings: SettingsFeature.State())
     initialState.deeplinkInputConfirmation = DeeplinkInputConfirmationFeature.State(
       worktreeID: worktree.id,
       worktreeName: worktree.name,
@@ -3301,10 +3078,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let (readFD, writeFD) = makePipe()
     defer { close(readFD) }
-    var initialState = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State(),
-    )
+    var initialState = makeAppState(worktree: worktree, settings: SettingsFeature.State())
     initialState.deeplinkInputConfirmation = DeeplinkInputConfirmationFeature.State(
       worktreeID: worktree.id,
       worktreeName: worktree.name,
@@ -3343,10 +3117,7 @@ struct AppFeatureDeeplinkTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .cliOnly
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings,
-      )
+      initialState: makeAppState(worktree: worktree, settings: settings)
     ) {
       AppFeature()
     } withDependencies: {
@@ -3377,10 +3148,7 @@ struct AppFeatureDeeplinkTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .cliOnly
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings,
-      )
+      initialState: makeAppState(worktree: worktree, settings: settings)
     ) {
       AppFeature()
     }
@@ -3453,6 +3221,15 @@ struct AppFeatureDeeplinkTests {
     return repositoriesState
   }
 
+  /// The app state these commands were written against: the directory with
+  /// its own-key task seeded (one tab, recorded on the directory), so a bare
+  /// command on the directory lands there.
+  private func makeAppState(worktree: Worktree, settings: SettingsFeature.State) -> AppFeature.State {
+    var state = AppFeature.State(repositories: makeRepositoriesState(worktree: worktree), settings: settings)
+    state.seedOwnKeyTask(on: worktree)
+    return state
+  }
+
   private func makeRepositoriesState(worktree: Worktree) -> RepositoriesFeature.State {
     let repository = makeRepository(worktree: worktree)
     var repositoriesState = RepositoriesFeature.State()
@@ -3508,10 +3285,7 @@ struct AppFeatureDeeplinkTests {
         .items[worktree.id] = item
     }
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositories,
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(repositories: repositories, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     }
@@ -3521,16 +3295,14 @@ struct AppFeatureDeeplinkTests {
 
   private func makeStore(worktree: Worktree) -> TestStoreOf<AppFeature> {
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
       $0.terminalClient.tabExists = { _, _ in true }
       $0.terminalClient.surfaceExists = { _, _, _ in true }
       $0.terminalClient.surfaceExistsInWorktree = { _, _ in true }
+      $0.date = .constant(Date(timeIntervalSince1970: 0))
     }
     store.exhaustivity = .off
     return store
@@ -3573,10 +3345,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let terminated = LockIsolated(false)
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -3597,10 +3366,7 @@ struct AppFeatureDeeplinkTests {
     var settings = GlobalSettings.default
     settings.confirmQuitMode = .always
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(settings: settings),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State(settings: settings))
     ) {
       AppFeature()
     } withDependencies: {
@@ -3617,10 +3383,7 @@ struct AppFeatureDeeplinkTests {
   @Test(.dependencies) func requestQuitInAutoModeWithBlockingScriptShowsAlert() async {
     let worktree = makeWorktree()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -3638,10 +3401,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let terminated = LockIsolated(false)
     let terminateSessionsCalled = LockIsolated(false)
-    var initialState = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State(),
-    )
+    var initialState = makeAppState(worktree: worktree, settings: SettingsFeature.State())
     initialState.alert = AlertState { TextState("Quit Supacode?") }
     let store = TestStore(initialState: initialState) {
       AppFeature()
@@ -3663,10 +3423,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let (readFD, writeFD) = makePipe()
     defer { close(readFD) }
-    var initialState = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State(),
-    )
+    var initialState = makeAppState(worktree: worktree, settings: SettingsFeature.State())
     initialState.deeplinkInputConfirmation = DeeplinkInputConfirmationFeature.State(
       worktreeID: worktree.id,
       worktreeName: worktree.name,
@@ -3696,10 +3453,7 @@ struct AppFeatureDeeplinkTests {
     defer { close(readFD) }
     var settings = GlobalSettings.default
     settings.confirmQuitMode = .always
-    var initialState = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State(settings: settings),
-    )
+    var initialState = makeAppState(worktree: worktree, settings: SettingsFeature.State(settings: settings))
     initialState.deeplinkInputConfirmation = DeeplinkInputConfirmationFeature.State(
       worktreeID: worktree.id,
       worktreeName: worktree.name,
@@ -3735,10 +3489,7 @@ struct AppFeatureDeeplinkTests {
     var settings = GlobalSettings.default
     settings.confirmQuitMode = .never
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(settings: settings),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State(settings: settings))
     ) {
       AppFeature()
     } withDependencies: {
@@ -3763,10 +3514,7 @@ struct AppFeatureDeeplinkTests {
       .init(agent: .claude, activity: .busy)
     ]
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State(),
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -3786,10 +3534,7 @@ struct AppFeatureDeeplinkTests {
     repositoriesState.reconcileSidebarForTesting()
     repositoriesState.sidebarItems[id: worktree.id]?.lifecycle = .pending
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State(),
-      )
+      initialState: .seeded(repositories: repositoriesState, settings: SettingsFeature.State(), ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -3806,10 +3551,7 @@ struct AppFeatureDeeplinkTests {
   @Test(.dependencies) func requestTerminateAllTerminalSessionsShowsAlertAndConfirmInvokesTerminate() async {
     let worktree = makeWorktree()
     let terminateCalled = LockIsolated(false)
-    var initial = AppFeature.State(
-      repositories: makeRepositoriesState(worktree: worktree),
-      settings: SettingsFeature.State(),
-    )
+    var initial = makeAppState(worktree: worktree, settings: SettingsFeature.State())
     initial.hasAnyTerminalSurface = true
     let store = TestStore(initialState: initial) {
       AppFeature()
@@ -3853,10 +3595,7 @@ struct AppFeatureDeeplinkTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .deeplinksOnly
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings,
-      )
+      initialState: makeAppState(worktree: worktree, settings: settings)
     ) {
       AppFeature()
     } withDependencies: {
@@ -3887,10 +3626,7 @@ struct AppFeatureDeeplinkTests {
     var settings = SettingsFeature.State()
     settings.automatedActionPolicy = .deeplinksOnly
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: settings,
-      )
+      initialState: makeAppState(worktree: worktree, settings: settings)
     ) {
       AppFeature()
     }
@@ -3912,10 +3648,7 @@ struct AppFeatureDeeplinkTests {
     let (readFD, writeFD) = makePipe()
     defer { close(readFD) }
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -3937,10 +3670,7 @@ struct AppFeatureDeeplinkTests {
     let worktree = makeWorktree()
     let existingTabID = UUID()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {
@@ -3959,10 +3689,7 @@ struct AppFeatureDeeplinkTests {
     let surfaceUUID = UUID()
     let existingSurfaceID = UUID()
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State(),
-      )
+      initialState: makeAppState(worktree: worktree, settings: SettingsFeature.State())
     ) {
       AppFeature()
     } withDependencies: {

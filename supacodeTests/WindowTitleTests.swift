@@ -9,7 +9,7 @@ import Testing
 
 @MainActor
 struct WindowTitleTests {
-  private static let layoutID: (Worktree.ID) -> LayoutID = AppFeature.State().layoutID(forDirectory:)
+  private static let layoutID: (Worktree.ID) -> LayoutID? = AppFeature.State().layoutID(forDirectory:)
 
   // MARK: - format.
 

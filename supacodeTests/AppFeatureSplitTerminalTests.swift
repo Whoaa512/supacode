@@ -59,10 +59,9 @@ struct AppFeatureSplitTerminalTests {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(
+        repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(),
+        ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -99,10 +98,9 @@ struct AppFeatureSplitTerminalTests {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(
+        repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(),
+        ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -120,10 +118,9 @@ struct AppFeatureSplitTerminalTests {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(
+        repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(),
+        ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -141,10 +138,9 @@ struct AppFeatureSplitTerminalTests {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(
+        repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(),
+        ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {
@@ -162,10 +158,9 @@ struct AppFeatureSplitTerminalTests {
     let worktree = makeWorktree()
     let sent = LockIsolated<[TerminalClient.Command]>([])
     let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: makeRepositoriesState(worktree: worktree),
-        settings: SettingsFeature.State()
-      )
+      initialState: .seeded(
+        repositories: makeRepositoriesState(worktree: worktree), settings: SettingsFeature.State(),
+        ownKeyTaskOn: worktree)
     ) {
       AppFeature()
     } withDependencies: {

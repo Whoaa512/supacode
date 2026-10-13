@@ -141,7 +141,10 @@ struct TerminalClient {
     /// resolves the directory by the source's rule (a roster row must still be
     /// live; a task's directory is re-read while the task exists) and refuses
     /// otherwise, creating no host, layout or tab. `input` nil is a plain shell.
-    case createTaskTab(LayoutID, source: NewTaskSource, input: String?, focusing: Bool)
+    /// `runSetupScriptIfNew` arms the directory's setup script as a first tab
+    /// on a freshly created worktree does.
+    case createTaskTab(
+      LayoutID, source: NewTaskSource, input: String?, runSetupScriptIfNew: Bool = false, focusing: Bool)
     /// Runs the resolved open-file script for a File Explorer file. `input` is the ready shell
     /// command; the manager picks placement (tab in the zoomed/top-right pane, or a split).
     case openFileWithScript(LayoutID, DirectoryContext, input: String)

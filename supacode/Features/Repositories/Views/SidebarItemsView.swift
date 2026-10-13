@@ -495,7 +495,7 @@ private struct SidebarItemBody: View {
       highlightSubtitle: highlightSubtitle
     )
     .environment(\.focusNotificationAction) { notification in
-      guard let layoutID = layoutResolver?.layoutID(forDirectory: rowID),
+      guard let layoutID = layoutResolver?.layoutID(forDirectory: rowID, holding: notification.surfaceID),
         let host = terminalManager.hostIfExists(for: layoutID)
       else {
         notificationLogger.warning(

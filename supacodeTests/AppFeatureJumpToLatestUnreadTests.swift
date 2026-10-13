@@ -32,7 +32,7 @@ struct AppFeatureJumpToLatestUnreadTests {
     let notificationUUID = UUID()
     let focused = LockIsolated<[TerminalClient.Command]>([])
     let marked = LockIsolated<[(Worktree.ID, UUID)]>([])
-    let store = makeStore(worktree: worktree) {
+    let store = makeStore(worktree: worktree, tabID: TabID(rawValue: tabUUID), surfaceID: surfaceUUID) {
       $0.terminalClient.latestUnreadNotification = {
         NotificationLocation(
           worktreeID: worktree.id,
@@ -114,6 +114,8 @@ struct AppFeatureJumpToLatestUnreadTests {
 
   private func makeStore(
     worktree: Worktree,
+    tabID: TabID = TabID(),
+    surfaceID: UUID? = nil,
     withAdditionalDependencies: (inout DependencyValues) -> Void
   ) -> TestStoreOf<AppFeature> {
     var repositoriesState = RepositoriesFeature.State()
@@ -127,12 +129,10 @@ struct AppFeatureJumpToLatestUnreadTests {
     repositoriesState.selection = .worktree(worktree.id)
     repositoriesState.isInitialLoadComplete = true
 
-    let store = TestStore(
-      initialState: AppFeature.State(
-        repositories: repositoriesState,
-        settings: SettingsFeature.State()
-      )
-    ) {
+    // The notification's surface is reached through the task that holds it.
+    var initial = AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
+    initial.seedOwnKeyTask(on: worktree, tabID: tabID, surfaceID: surfaceID)
+    let store = TestStore(initialState: initial) {
       AppFeature()
     } withDependencies: { values in
       values.terminalClient.tabExists = { _, _ in true }
