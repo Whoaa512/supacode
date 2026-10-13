@@ -1,6 +1,6 @@
 # Task as the unit — implementation plan
 
-Status: **plan, not started**. Scope and decisions are in
+Status: **complete, 2026-10-12** (R0–R10, F1, T1–T11, S1–S3, K1–K2, M1–M3, P1, Z1–Z2 landed on `cj-main`; live-UI checks remain cj's). Scope and decisions are in
 `task-as-unit-sizing.md` (authoritative; "D3" below means decision 3 there).
 Read `ideas-graveyard.md` (Task Inbox) first: this lands on `cj-main` in thin
 slices, tasks are never made by hand, and history shows on day one.
@@ -976,16 +976,24 @@ none rejected.
 
 ## Progress
 
-A2 allow-list after R10 (`Worktree.ID` in Terminal layer): `TerminalClient`
-`prune(keepingDirectories:)`, `removeLayouts(forDirectory:)`,
-`notificationReceived`, `runStatusChanged`, `blockingScriptCompleted`,
-`worktreeProjectionChanged`, `worktreeStateTornDown`; manager
-`worktreeProjection`/`runStatus` observation keys, `removeLayouts`, `prune`,
-`forceEmitProjection`, `emitProjection`, `markNotificationRead`,
-`dismissNotification`, `killSession`; `PaneWindowManager.headerInfo`;
-`DirectoryContext.worktreeID`, host `worktreeID`, `TerminalSession.worktreeID`,
-`NotificationLocation.worktreeID`; the `LayoutID` alias. A3 allow-list:
-`DirectoryContext.init(worktree:)` only.
+A2 allow-list (task era, re-run at Z2; supersedes the R10 list): `Worktree.ID`
+in the Terminal layer names a directory, never a layout. Allowed:
+directory-facing command and event payloads in `TerminalClient`
+(`removeLayouts(forDirectory:)`, `followFirstTab(_:forDirectory:)`,
+`selectLayout(_:forDirectory:)`, `notificationReceived`, `runStatusChanged`,
+`blockingScriptCompleted`, `commandPaletteToggleRequested`,
+`worktreeStateTornDown`); manager and reducer `forDirectory:`/`onDirectory:`/
+`hostedOn:`/`directoryID:` parameters (`selection`, `layoutID(forDirectory:)`,
+`armSetupScriptIfNeeded`, `removeLayouts`, `removeStoredLayouts`, `layoutIDs`,
+`handleActiveTaskChanged`, `deleteLayoutSnapshot(onlyIfStoredOn:)`,
+`invalidateCaches`, `emitRunStatus`, `emitProjection`, `markNotificationRead`,
+`dismissNotification`; `TerminalsFeature.State.task`, `landingLayoutID`,
+`isOwnKey`, `commandLayoutID`, `isTask`, `latestSelection`, `layoutIDs`);
+`LayoutsIncrementalWriter.enqueue/flush(activeTask:forDirectory:)`;
+`PaneWindowManager.headerInfo`; `DirectoryContext.worktreeID`, host
+`worktreeID`, `TerminalSession.worktreeID`, `NotificationLocation.worktreeID`;
+the `LayoutID` doc comment. A3 allow-list: `DirectoryContext.init(worktree:)`
+only.
 
 Update this section per slice: id, commit, date, and any allow-list or
 deviation.
@@ -4208,3 +4216,24 @@ deviation.
   exit 0 (41); FeatureTests `AppFeatureRunScriptTests` +
   `AppFeatureDeeplinkTests` with Ack exit 0 (217); build-app 0; full
   `make test` exit 2 with 4670 tests and only the 5 known failures.
+- Z2, 2026-10-12, `2681e664`, `3f0a1a80` + this commit. Docs only. Users:
+  README "Tasks" feature section (model, ⌘N / ⌘⇧N / ⌘⌥⇧N, sub-rows and
+  primary title, task-level settle and the auto-settle rule, orphans,
+  merge/detach and their refusals) and the CLI paragraph; bundled skills
+  `Resources/Skills/supacode-cli.md` (task paragraph, `SUPACODE_TASK_ID`
+  not deprecated, `--task` on pane/tab/agent commands, the whole `agent`
+  and `terminal wait-output` family, which the skill never listed) and
+  `supacode-deeplinks.md` (`/task/<task_id>/` route segment). Contributors:
+  AGENTS.md "Tasks own layouts" (TaskRecord, minting, primary/tangents,
+  settle, orphans, merge/detach, the resolver seam, and the binding
+  "Decide at delivery, carry identity" rule with `deliveryContext` named
+  as the gate). Plan: Status set to complete; the R10 A2 allow-list
+  replaced by the task-era list (`rg` re-run at this tree: 58 directory-
+  facing sites, A3 still `DirectoryContext(worktree:)` only); sizing notes
+  marked landed with the upstream-process TODO left open; follow-ups file
+  records what the final audits deferred (same-directory resume cwd,
+  prune's carried sets, the `deliveryContext` carried-context fallback,
+  reaper race). The user-level installed copy at
+  `~/.pi/agent/skills/supacode-cli` is the user's; not touched. Decision
+  recorded in the decisions memory (cj-private, 2026-10). Gate: check 0,
+  build-app 0; no test touched, none run.

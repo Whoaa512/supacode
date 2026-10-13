@@ -125,3 +125,38 @@ in the plan's fixed-design section, with a stale-delivery test each:
   `createTabWithInput` to `createTabAsync` with no eligibility check at
   delivery; a target merged, removed or archived before delivery can be
   resurrected.
+
+## Left after the final audits (Z2, 2026-10-12)
+
+Found by the Z1 reviews and the final decide-at-delivery audit, judged below
+the bar for a slice of their own. Each is pre-existing or guarded; none loses
+data today.
+
+- **Same-directory resume still inherits the focused tab's pwd.** The item
+  above ("A resume in the task's own directory…") stands: `resumeInput`
+  (`AppFeature+Sessions.swift`) only prefixes `cd` for a session that ran
+  elsewhere, so a resume into a task whose focused tab has `cd`ed away
+  starts the agent there. Fix in `createTabWithInput` / `resumeInput`: always
+  pass the working directory, with a reducer test on a task whose focused
+  surface reports another pwd.
+- **`prune(keepingDirectories:protectingRepositoryIDs:archivedDirectories:)`
+  carries precomputed sets across the boundary.** The manager re-derives
+  what matters at delivery (a host goes only when its directory is named as
+  archived, and the primitive re-intersects with `archivedDirectories`), so
+  the kept and protection sets are advisory, but the command shape still
+  violates "carry identity". Retype to a bare `prune` that reads the roster
+  and archive state through the store at delivery, and drop the two sets.
+- **`deliveryContext` falls back to the carried `DirectoryContext` for an
+  unknown layout.** For a layout with no task, no pending mint and not
+  removed, a creating command is served with the context it carried
+  (`WorktreeTerminalManager.deliveryContext`). Only test harnesses reach
+  it today (every app first tab is minted), but it is the one place a
+  carried directory is still read. Replace with a refusal plus a test-only
+  seed, then delete the `carried:` parameter.
+- **Reaper race not covered.**
+  `WorktreeTerminalManagerReaperTests/terminateKillsTrackedEvenWithLiveClientsButSparesUntrackedInUse`
+  flaked once in the Z1 r2 full run (tracked session killed twice; passes
+  alone). Nothing in the slice touches that path; add a deterministic test
+  of two terminate paths racing on one tracked session before changing the
+  reaper.
+

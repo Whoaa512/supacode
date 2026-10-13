@@ -1,6 +1,8 @@
 # Task as the unit — sizing notes
 
-Status: **scope agreed in interview** (decisions below); implementation plan not written. Idea: the sidebar row becomes a task that
+Status: **landed on `cj-main`, 2026-10-12.** Every decision below shipped
+through `task-as-unit-plan.md` (phases R, F, T, S, K, M, P, Z; see its
+Progress section). Open: the TODO at the bottom on the upstream process. Idea: the sidebar row becomes a task that
 owns its own layout (agent sessions + plain shells), instead of a derived row
 pointing into a worktree-owned layout.
 
@@ -90,3 +92,13 @@ worktree sidebar rows, all of which assume one layout per directory.
   `upstream-rebase` skill's cherry-pick-onto-fresh-upstream flow may stop
   working. Work out the replacement process (selective ports, as in
   `upstream-sync-2026-09-16-ports.md`?) and whether to rename.
+
+## Landed (2026-10-12)
+
+The departure from upstream's worktree-owned layout is complete: tasks own
+layouts (`TaskRecord`, `LayoutID` a real UUID type), v2 → v3 migration, sub-rows,
+tangent keyboard, merge and detach, the picker, task-scoped CLI and deeplinks
+(`SUPACODE_TASK_ID`, `--task`, `/task/<id>/`). Decisions 1–12 hold as written;
+the assumptions cj confirmed on 2026-10-09 are in `task-as-unit-followups.md`.
+The TODO below is now live: the terminal layer no longer matches upstream, so
+the next `upstream-rebase` attempt must start by deciding the process there.
