@@ -36,24 +36,25 @@ nonisolated enum DeeplinkURLBuilder {
   static func agentRename(target: WorktreeTarget, agent: String, name: String?) -> String {
     var url = "supacode://agent/\(target.urlSegment)/\(agent)/rename"
     if let name { url += "?name=\(percentEncodeQueryValue(name))" }
-    return url
+    return url + target.surfaceQuery(first: name == nil)
   }
 
   /// `submit=false` opts out of the trailing enter; the app submits by default.
   static func agentPrompt(target: WorktreeTarget, agent: String, text: String, submit: Bool) -> String {
     "supacode://agent/\(target.urlSegment)/\(agent)/prompt?text=\(percentEncodeQueryValue(text))"
-      + (submit ? "" : "&submit=false")
+      + (submit ? "" : "&submit=false") + target.surfaceQuery(first: false)
   }
 
   static func agentSendKeys(target: WorktreeTarget, agent: String, keys: [String]) -> String {
     let joined = keys.joined(separator: ",")
     return "supacode://agent/\(target.urlSegment)/\(agent)/send-keys?keys=\(percentEncodeQueryValue(joined))"
+      + target.surfaceQuery(first: false)
   }
 
   /// Types the agent's native resume command into the surface whose session died.
   /// The app refuses it when that agent is running.
   static func agentResume(target: WorktreeTarget, agent: String) -> String {
-    "supacode://agent/\(target.urlSegment)/\(agent)/resume"
+    "supacode://agent/\(target.urlSegment)/\(agent)/resume" + target.surfaceQuery(first: true)
   }
 
   /// Tokens ride as ordinary query items (`summary=...`), sorted so the URL is
@@ -68,6 +69,7 @@ nonisolated enum DeeplinkURLBuilder {
     for (key, value) in tokens.sorted(by: { $0.key < $1.key }) {
       params.append("\(percentEncodeQueryValue(key))=\(percentEncodeQueryValue(value))")
     }
+    if let surfaceID = target.surfaceID { params.append("surface=\(surfaceID)") }
     let url = "supacode://agent/\(target.urlSegment)/\(agent)/metadata"
     guard !params.isEmpty else { return url }
     return "\(url)?\(params.joined(separator: "&"))"

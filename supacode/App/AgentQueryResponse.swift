@@ -23,6 +23,9 @@ enum AgentQueryResponse {
     /// The task that holds the agent's surface, as `--task` names it. Empty
     /// for a surface no task holds.
     static let taskID = "taskID"
+    /// The surface the agent runs in: the one identity that tells two agents
+    /// of one kind in one task apart. A resolved row is addressed by it.
+    static let surfaceID = "surfaceID"
     /// Metadata tokens are flattened as `token.<key>` so the whole payload stays
     /// a flat `[String: String]` (the socket wire format) with no nested JSON to
     /// parse on the CLI side.
@@ -66,6 +69,7 @@ enum AgentQueryResponse {
             Key.worktreeTitle: title,
             Key.sessionRef: record.sessionRef ?? "",
             Key.taskID: tasks[key.surfaceID]?.externalID ?? "",
+            Key.surfaceID: key.surfaceID.uuidString,
           ].merging(
             (presence.metadataByKey[key] ?? [:]).map { ("\(Key.tokenPrefix)\($0.key)", $0.value) },
             uniquingKeysWith: { _, token in token }
@@ -175,11 +179,12 @@ enum AgentResumeCandidateQueryResponse {
     static let repo = AgentQueryResponse.Key.repo
     static let worktreeTitle = AgentQueryResponse.Key.worktreeTitle
     static let taskID = AgentQueryResponse.Key.taskID
+    static let surfaceID = AgentQueryResponse.Key.surfaceID
     /// The command `agent resume` asks Supacode to type. Returned so the CLI can
     /// show the user exactly what will run without duplicating the mapping.
     static let command = "command"
 
-    static let all = [agent, sessionRef, command, repo, branch, worktreeTitle, worktreeID, taskID]
+    static let all = [agent, sessionRef, command, repo, branch, worktreeTitle, worktreeID, taskID, surfaceID]
   }
 
   /// One sorted row: the sort keys, plus the wire fields they order.
@@ -223,6 +228,7 @@ enum AgentResumeCandidateQueryResponse {
             Key.repo: repoTitle,
             Key.worktreeTitle: title,
             Key.taskID: tasks[key.surfaceID]?.externalID ?? "",
+            Key.surfaceID: key.surfaceID.uuidString,
           ]
         ))
     }

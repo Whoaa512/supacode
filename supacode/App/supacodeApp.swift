@@ -685,7 +685,13 @@ struct SupacodeApp: App {
       AgentHookSocketServer.sendCommandResponse(clientFD: clientFD, ok: false, error: "Task not found.")
       return
     }
-    let surfaces = store.withState { AppFeature.agentSurfaceIDs(worktreeID: worktreeID, task: task, state: $0) }
+    guard let named = parsedSurfaceID(params["surfaceID"]) else {
+      AgentHookSocketServer.sendCommandResponse(clientFD: clientFD, ok: false, error: "Agent not found.")
+      return
+    }
+    let surfaces = store.withState {
+      AppFeature.agentSurfaceIDs(worktreeID: worktreeID, task: task, surface: named, state: $0)
+    }
     if let error = surfaces.error {
       AgentHookSocketServer.sendCommandResponse(clientFD: clientFD, ok: false, error: error)
       return
@@ -705,9 +711,11 @@ struct SupacodeApp: App {
       }
       surfaceID = key.surfaceID
     } else {
-      // The focused surface of the task the command means, else the first it may address.
+      // The surface named, else the focused surface of the task the command
+      // means, else the first it may address.
       let seamLayoutID = store.withState { $0.commandLayoutID(forDirectory: worktreeID, task: task) }
-      surfaceID = seamLayoutID.flatMap { terminalManager.focusedSurfaceID(worktreeID: $0) } ?? surfaces.ids.first
+      surfaceID =
+        named ?? seamLayoutID.flatMap { terminalManager.focusedSurfaceID(worktreeID: $0) } ?? surfaces.ids.first
     }
     // The row lists the surfaces of every task on the directory, so the
     // surface is read through the task that holds it.
@@ -757,7 +765,13 @@ struct SupacodeApp: App {
       AgentHookSocketServer.sendCommandResponse(clientFD: clientFD, ok: false, error: "Task not found.")
       return
     }
-    let surfaces = store.withState { AppFeature.agentSurfaceIDs(worktreeID: worktreeID, task: task, state: $0) }
+    guard let named = parsedSurfaceID(params["surfaceID"]) else {
+      AgentHookSocketServer.sendCommandResponse(clientFD: clientFD, ok: false, error: "Agent not found.")
+      return
+    }
+    let surfaces = store.withState {
+      AppFeature.agentSurfaceIDs(worktreeID: worktreeID, task: task, surface: named, state: $0)
+    }
     if let error = surfaces.error {
       AgentHookSocketServer.sendCommandResponse(clientFD: clientFD, ok: false, error: error)
       return
@@ -779,6 +793,14 @@ struct SupacodeApp: App {
     guard let raw, !raw.isEmpty else { return .some(nil) }
     guard let task = LayoutID(external: raw) else { return .none }
     return .some(task)
+  }
+
+  /// `.none` for an unparsable surface id: it names nothing, and is never
+  /// widened to the task.
+  private static func parsedSurfaceID(_ raw: String?) -> UUID?? {
+    guard let raw, !raw.isEmpty else { return .some(nil) }
+    guard let surface = UUID(uuidString: raw) else { return .none }
+    return .some(surface)
   }
 
   private static func handleWorktreeStatusQuery(

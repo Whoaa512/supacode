@@ -222,6 +222,76 @@ struct AppFeatureAgentTaskTests {
         "Worktree not found") == true)
   }
 
+  /// An agent shell keeps the `SUPACODE_TASK_ID` it was born with. Once its
+  /// task is merged away that id is an alias of the surviving task (M2),
+  /// for agent commands as for worktree ones (`mergedTasks`, which hydration
+  /// fills from the stored map).
+  @Test(.dependencies) func aMergedAwayTaskIDNamesTheSurvivingTask() async {
+    let mergedAway = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!)
+    var initial = twoRunning()
+    initial.terminals.mergedTasks[mergedAway] = other
+    #expect(
+      AppFeature.agentSurfaceIDs(worktreeID: worktree.id, task: mergedAway, state: initial).ids == [agentSurface])
+
+    let (store, sent) = makeStore(initial, liveSurfaces: bothLive)
+    await send(.prompt(text: "hi", submit: false), task: mergedAway, to: store)
+    #expect(sent.value == [Sent(layoutID: other, surfaceID: agentSurface, text: "hi")])
+    #expect(store.state.alert == nil)
+  }
+
+  /// Two `claude`s in one task (D5): the task alone addresses the first; a
+  /// surface names the second exactly. A surface outside the task, or one
+  /// with no running agent of the kind, is refused rather than widened.
+  @Test(.dependencies) func aSurfaceNamesOneOfTwoSameKindAgentsInOneTask() async {
+    let second = UUID()
+    var initial = twoRunning()
+    initial.repositories.sidebarItems[id: worktree.id]?.surfaceIDs = [shownSurface, agentSurface, second]
+    let pane = initial.terminals.layouts[id: other]!.layout.panes[0].id
+    let item = TabItem(
+      id: TabID(rawValue: UUID()), title: "Tab 2",
+      content: ContentSnapshot(
+        id: ContentID(rawValue: second), state: .terminal(TerminalContentState(workingDirectory: nil))))
+    initial.terminals.layouts[id: other]!.layout.panes[id: pane]!.tabs.append(item)
+    let secondKey = AgentPresenceFeature.PresenceKey(agent: .claude, surfaceID: second)
+    initial.agentPresence.records[secondKey] = AgentPresenceFeature.PresenceRecord(pids: [3])
+    let live: [LayoutID: UUID] = [other: second, shown: shownSurface]
+
+    let (store, sent) = makeStore(initial, liveSurfaces: live)
+    await store.send(
+      .deeplink(
+        .agent(
+          worktreeID: worktree.id, agent: "claude", action: .prompt(text: "hi", submit: false), task: other,
+          surface: second)))
+    await store.finish()
+    #expect(sent.value == [Sent(layoutID: other, surfaceID: second, text: "hi")])
+    #expect(store.state.alert == nil)
+
+    await store.send(
+      .deeplink(
+        .agent(
+          worktreeID: worktree.id, agent: "claude", action: .rename(name: "two"), task: other, surface: second)))
+    await store.receive(\.agentPresence.renameAgent)
+    await store.finish()
+    #expect(store.state.agentPresence.nameByKey[secondKey] == "two")
+    #expect(store.state.agentPresence.nameByKey[key] == nil)
+
+    // The shown task's surface named under the other task: not one of its surfaces.
+    let (refused, sentRefused) = makeStore(initial, liveSurfaces: live)
+    await refused.send(
+      .deeplink(
+        .agent(
+          worktreeID: worktree.id, agent: "claude", action: .prompt(text: "hi", submit: false), task: other,
+          surface: shownSurface)))
+    await refused.finish()
+    #expect(sentRefused.value.isEmpty)
+    #expect(refused.state.alert != nil)
+    #expect(
+      AppFeature.agentSurfaceIDs(worktreeID: worktree.id, task: other, surface: shownSurface, state: initial).error
+        == "Agent not found.")
+    #expect(
+      AppFeature.agentSurfaceIDs(worktreeID: worktree.id, task: nil, surface: second, state: initial).ids == [second])
+  }
+
   private func expected(_ texts: String...) -> [Sent] {
     texts.map { Sent(layoutID: other, surfaceID: agentSurface, text: $0) }
   }

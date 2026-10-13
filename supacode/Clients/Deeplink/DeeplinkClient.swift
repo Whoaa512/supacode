@@ -163,7 +163,16 @@ private nonisolated enum DeeplinkParser {
       rest = Array(rest.dropFirst(2))
     }
     guard let action = parseAgentAction(rest[1], queryItems: queryItems) else { return nil }
-    return .agent(worktreeID: worktreeID, agent: rest[0], action: action, task: task)
+    var surface: UUID?
+    if let raw = queryItems.first(where: { $0.name == "surface" })?.value, !raw.isEmpty {
+      // A malformed surface fails the parse rather than widening to the task.
+      guard let parsed = UUID(uuidString: raw) else {
+        logger.warning("Agent deeplink has an unparsable surface id")
+        return nil
+      }
+      surface = parsed
+    }
+    return .agent(worktreeID: worktreeID, agent: rest[0], action: action, task: task, surface: surface)
   }
 
   private static func parseAgentAction(
@@ -194,9 +203,9 @@ private nonisolated enum DeeplinkParser {
       }
       return .sendKeys(keys: keys)
     case "metadata":
-      // Every query item is a token except the two reserved names: `clear` is
-      // the verb, and `timeout` is the CLI's socket budget.
-      let reserved: Set<String> = ["clear", "timeout"]
+      // Every query item is a token except the reserved names: `clear` is the
+      // verb, `timeout` the CLI's socket budget, `surface` the agent's identity.
+      let reserved: Set<String> = ["clear", "timeout", "surface"]
       var tokens: [String: String] = [:]
       for item in queryItems where !reserved.contains(item.name) {
         tokens[item.name] = item.value ?? ""

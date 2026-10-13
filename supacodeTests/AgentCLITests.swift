@@ -31,7 +31,8 @@ struct AgentCLITests {
     branch: String = "alpha",
     repo: String = "repo",
     title: String = "alpha",
-    taskID: String = ""
+    taskID: String = "",
+    surfaceID: String = ""
   ) -> [String: String] {
     [
       "name": name,
@@ -43,8 +44,12 @@ struct AgentCLITests {
       "repo": repo,
       "worktreeTitle": title,
       "taskID": taskID,
+      "surfaceID": surfaceID,
     ]
   }
+
+  private static let surfaceA = "00000000-0000-0000-0000-00000000005A"
+  private static let surfaceB = "00000000-0000-0000-0000-00000000005B"
 
   private static let taskA = "00000000-0000-0000-0000-0000000000A1"
   private static let taskB = "00000000-0000-0000-0000-0000000000B2"
@@ -227,6 +232,32 @@ struct AgentCLITests {
       let missing = try await cli(["agent", "send-keys", "alpha", "esc", "--task", Self.taskA])
       #expect(missing.exitCode != 0)
       #expect(deeplinks.value.count == 1)
+    }
+  }
+
+  /// Two agents of one kind in one task: a name resolves one row, and every
+  /// command carries that row's surface so the app reaches that agent, not
+  /// the first same-kind one in the task.
+  @Test(.timeLimit(.minutes(3)))
+  func aResolvedRowCarriesItsSurfaceSoANamedAgentIsReachedExactly() async throws {
+    let rows = [
+      Self.row(name: "first", taskID: Self.taskA, surfaceID: Self.surfaceA),
+      Self.row(name: "second", taskID: Self.taskA, surfaceID: Self.surfaceB),
+    ]
+    try await withFixture(rows: rows, screen: "ok") { cli, params, deeplinks in
+      _ = try await cli(["agent", "prompt", "second", "go"]).succeeding()
+      _ = try await cli(["agent", "rename", "second", "two"]).succeeding()
+      _ = try await cli(["agent", "report-metadata", "second", "--token", "summary=x"]).succeeding()
+      _ = try await cli(["agent", "read", "second"]).succeeding()
+      let base = "supacode://agent/%2Ftmp%2Frepo%2Falpha/task/\(Self.taskA)/claude"
+      let surface = "surface=\(Self.surfaceB)&timeout="
+      #expect(deeplinks.value.contains { $0.hasPrefix("\(base)/prompt?text=go&\(surface)") })
+      #expect(deeplinks.value.contains { $0.hasPrefix("\(base)/rename?name=two&\(surface)") })
+      #expect(deeplinks.value.contains { $0.hasPrefix("\(base)/metadata?summary=x&\(surface)") })
+      #expect(params.value.contains("agentRead surfaceID=\(Self.surfaceB)"))
+      // Named at the task alone, two candidates stay ambiguous.
+      let ambiguous = try await cli(["agent", "prompt", "alpha", "go", "--task", Self.taskA])
+      #expect(ambiguous.exitCode != 0)
     }
   }
 
@@ -575,6 +606,9 @@ struct AgentCLITests {
     server.onQuery = { resource, params, clientFD in
       resources.withValue { $0.append(resource) }
       if let taskID = params["taskID"] { resources.withValue { $0.append("\(resource) taskID=\(taskID)") } }
+      if let surfaceID = params["surfaceID"] {
+        resources.withValue { $0.append("\(resource) surfaceID=\(surfaceID)") }
+      }
       if resource == "agentExplain" {
         AgentHookSocketServer.sendQueryResponse(clientFD: clientFD, data: [Self.explainRow])
         return
@@ -604,7 +638,9 @@ struct AgentCLITests {
       { try await Self.runCLI(arguments: $0, environment: environment, socketPath: socketPath) }, resources,
       deeplinks)
     #expect(
-      resources.value.allSatisfy { ["agents", "agentRead", "agentExplain"].contains($0) || $0.contains(" taskID=") })
+      resources.value.allSatisfy {
+        ["agents", "agentRead", "agentExplain"].contains($0) || $0.contains(" taskID=") || $0.contains(" surfaceID=")
+      })
   }
 
   private static func runCLI(

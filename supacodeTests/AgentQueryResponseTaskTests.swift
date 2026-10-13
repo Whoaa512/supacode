@@ -39,6 +39,8 @@ struct AgentQueryResponseTaskTests {
     let byAgent = Dictionary(uniqueKeysWithValues: rows.map { ($0[AgentQueryResponse.Key.agent] ?? "", $0) })
     #expect(byAgent["pi"]?[AgentQueryResponse.Key.taskID] == task.externalID)
     #expect(byAgent["claude"]?[AgentQueryResponse.Key.taskID] == "")
+    #expect(byAgent["pi"]?[AgentQueryResponse.Key.surfaceID] == inTask.uuidString)
+    #expect(byAgent["claude"]?[AgentQueryResponse.Key.surfaceID] == loose.uuidString)
   }
 
   @Test func resumeCandidateRowsCarryTheTaskToo() {
@@ -50,6 +52,10 @@ struct AgentQueryResponseTaskTests {
     let byRef = Dictionary(uniqueKeysWithValues: rows.map { ($0[AgentQueryResponse.Key.sessionRef] ?? "", $0) })
     #expect(byRef["s1"]?[AgentResumeCandidateQueryResponse.Key.taskID] == task.externalID)
     #expect(byRef["s2"]?[AgentResumeCandidateQueryResponse.Key.taskID] == "")
-    #expect(AgentResumeCandidateQueryResponse.Key.all.last == AgentResumeCandidateQueryResponse.Key.taskID)
+    #expect(byRef["s1"]?[AgentResumeCandidateQueryResponse.Key.surfaceID] == inTask.uuidString)
+    #expect(byRef["s2"]?[AgentResumeCandidateQueryResponse.Key.surfaceID] == loose.uuidString)
+    #expect(
+      AgentResumeCandidateQueryResponse.Key.all.suffix(2)
+        == [AgentResumeCandidateQueryResponse.Key.taskID, AgentResumeCandidateQueryResponse.Key.surfaceID])
   }
 }

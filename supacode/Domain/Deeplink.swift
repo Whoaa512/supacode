@@ -27,7 +27,9 @@ enum Deeplink: Equatable, Sendable {
   /// the parser doesn't have to know the `SkillAgent` roster.
   /// `task` narrows the agent lookup to that task's surfaces; nil means the
   /// directory's, the shown task's first.
-  case agent(worktreeID: Worktree.ID, agent: String, action: AgentAction, task: LayoutID? = nil)
+  /// `surface` names one agent exactly (the CLI resolved a row to it): the
+  /// command reaches that surface or nothing, never a same-kind sibling.
+  case agent(worktreeID: Worktree.ID, agent: String, action: AgentAction, task: LayoutID? = nil, surface: UUID? = nil)
   case session(key: SessionKey, action: SessionAction)
   case settings(section: DeeplinkSettingsSection?)
   case settingsRepo(repositoryID: Repository.ID)

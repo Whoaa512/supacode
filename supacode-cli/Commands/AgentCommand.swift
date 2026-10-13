@@ -40,10 +40,13 @@ extension AgentCommand {
     /// The task holding the agent's surface; what `--task` matches and the
     /// deeplink's task segment carries. Empty for a surface no task holds.
     static let taskID = "taskID"
+    /// The agent's surface: the identity a resolved row is addressed by, so
+    /// two agents of one kind in one task are told apart.
+    static let surfaceID = "surfaceID"
 
     /// Column order for human-readable output and the JSON row.
     static let all = [
-      name, agent, state, activity, repo, branch, worktreeTitle, worktreeID, sessionRef, taskID,
+      name, agent, state, activity, repo, branch, worktreeTitle, worktreeID, sessionRef, taskID, surfaceID,
     ]
 
     /// Metadata tokens arrive flattened as `token.<key>` (see
@@ -52,7 +55,7 @@ extension AgentCommand {
 
     /// Keys dropped from the JSON row when empty, so optional fields don't
     /// churn the stable output shape consumers already parse.
-    static let omittedWhenEmpty: Set<String> = [sessionRef, taskID]
+    static let omittedWhenEmpty: Set<String> = [sessionRef, taskID, surfaceID]
   }
 
   /// Socket wire keys of the `agentResumeCandidates` query. Mirrors
@@ -65,9 +68,10 @@ extension AgentCommand {
     static let repo = Key.repo
     static let worktreeTitle = Key.worktreeTitle
     static let taskID = Key.taskID
+    static let surfaceID = Key.surfaceID
     static let command = "command"
 
-    static let all = [agent, sessionRef, command, repo, branch, worktreeTitle, worktreeID, taskID]
+    static let all = [agent, sessionRef, command, repo, branch, worktreeTitle, worktreeID, taskID, surfaceID]
   }
 
   /// Socket wire keys of the `agentExplain` query. Mirrors
@@ -217,10 +221,15 @@ extension AgentCommand {
     return own.count == 1 ? own : rows
   }
 
-  /// The worktree and task a resolved row addresses, as the deeplink carries them.
+  /// The worktree, task and surface a resolved row addresses, as the deeplink
+  /// carries them: the command reaches that row's agent, not a same-kind
+  /// sibling the app would otherwise pick first.
   static func target(of row: [String: String], key: String = Key.taskID) -> WorktreeTarget {
     let task = row[key] ?? ""
-    return WorktreeTarget(worktreeID: row[Key.worktreeID] ?? "", taskID: task.isEmpty ? nil : task)
+    let surface = row[Key.surfaceID] ?? ""
+    return WorktreeTarget(
+      worktreeID: row[Key.worktreeID] ?? "", taskID: task.isEmpty ? nil : task,
+      surfaceID: surface.isEmpty ? nil : surface)
   }
 
   /// Percent-decodes and drops a trailing slash so encoded and decoded worktree

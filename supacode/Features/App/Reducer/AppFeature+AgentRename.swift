@@ -9,11 +9,13 @@ extension AppFeature {
   func renameAgentEffect(
     worktreeID: Worktree.ID,
     task: LayoutID? = nil,
+    surface: UUID? = nil,
     agent: SkillAgent,
     name: String?,
     state: State
   ) -> (effect: Effect<Action>, error: String?) {
-    let resolved = agentPresenceKey(worktreeID: worktreeID, task: task, agent: agent, state: state)
+    let resolved = agentPresenceKey(
+      worktreeID: worktreeID, task: task, surface: surface, agent: agent, state: state)
     guard let key = resolved.key else { return (.none, resolved.error) }
     if let name {
       guard AgentPresenceFeature.validate(name: name) else {
@@ -29,12 +31,13 @@ extension AppFeature {
     return (.send(.agentPresence(.renameAgent(key: key, name: name))), nil)
   }
 
-  /// `supacode://agent/<worktree-id>[/task/<task-id>]/<agent-kind>/<action>`.
+  /// `supacode://agent/<worktree-id>[/task/<task-id>]/<agent-kind>/<action>[?surface=<id>]`.
   func handleAgentDeeplink(
     worktreeID: Worktree.ID,
     agent rawAgent: String,
     action: Deeplink.AgentAction,
     task: LayoutID? = nil,
+    surface: UUID? = nil,
     state: inout State
   ) -> Effect<Action> {
     guard let agent = SkillAgent(rawValue: rawAgent) else {
@@ -43,21 +46,24 @@ extension AppFeature {
     }
     switch action {
     case .rename(let name):
-      let outcome = renameAgentEffect(worktreeID: worktreeID, task: task, agent: agent, name: name, state: state)
+      let outcome = renameAgentEffect(
+        worktreeID: worktreeID, task: task, surface: surface, agent: agent, name: name, state: state)
       return apply(outcome: outcome, state: &state)
     case .prompt(let text, let submit):
       let error = promptAgent(
-        worktreeID: worktreeID, task: task, agent: agent, text: text, submit: submit, state: state)
+        worktreeID: worktreeID, task: task, surface: surface, agent: agent, text: text, submit: submit, state: state)
       return apply(outcome: (.none, error), state: &state)
     case .sendKeys(let keys):
-      let error = sendKeysToAgent(worktreeID: worktreeID, task: task, agent: agent, keys: keys, state: state)
+      let error = sendKeysToAgent(
+        worktreeID: worktreeID, task: task, surface: surface, agent: agent, keys: keys, state: state)
       return apply(outcome: (.none, error), state: &state)
     case .metadata(let tokens, let clear):
       let outcome = reportAgentMetadata(
-        worktreeID: worktreeID, task: task, agent: agent, tokens: tokens, clear: clear, state: state)
+        worktreeID: worktreeID, task: task, surface: surface, agent: agent, tokens: tokens, clear: clear,
+        state: state)
       return apply(outcome: outcome, state: &state)
     case .resume:
-      let outcome = resumeAgent(worktreeID: worktreeID, task: task, agent: agent, state: state)
+      let outcome = resumeAgent(worktreeID: worktreeID, task: task, surface: surface, agent: agent, state: state)
       return apply(outcome: outcome, state: &state)
     }
   }

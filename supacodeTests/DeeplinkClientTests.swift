@@ -90,6 +90,21 @@ struct DeeplinkClientTests {
     #expect(parse(URL(string: "supacode://agent/\(encoded)/task/\(taskUUID.uuidString)/pi")!) == nil)
   }
 
+  @Test func agentDeeplinkTakesTheSurfaceQueryAsTheAgentsIdentity() {
+    let encoded = "%2Ftmp%2Frepo%2Fwt-1"
+    let surface = UUID()
+    #expect(
+      parse(URL(string: "supacode://agent/\(encoded)/pi/resume?surface=\(surface.uuidString)")!)
+        == .agent(worktreeID: "/tmp/repo/wt-1", agent: "pi", action: .resume, task: nil, surface: surface))
+    #expect(
+      parse(URL(string: "supacode://agent/\(encoded)/pi/metadata?summary=x&surface=\(surface.uuidString)")!)
+        == .agent(
+          worktreeID: "/tmp/repo/wt-1", agent: "pi", action: .metadata(tokens: ["summary": "x"], clear: false),
+          task: nil, surface: surface))
+    // A surface that names nothing fails rather than widening to the task.
+    #expect(parse(URL(string: "supacode://agent/\(encoded)/pi/resume?surface=nope")!) == nil)
+  }
+
   // MARK: - Shared id parsing.
 
   @Test func externalWorktreeIDsDecodeAndDropOneTrailingSlash() {
