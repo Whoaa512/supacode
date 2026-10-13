@@ -29,10 +29,12 @@ orphan until you settle it.
 
 **Merge and detach**, one level deep, from the row's context menu or the command palette.
 Merge A into B moves A's tabs and sessions into B and removes A. Detach moves one tab (and the
-session on it) into a new task; the primary cannot be detached, merge the other way instead.
-Both refuse across machines, while a blocking script runs on a moved tab, while a close
-confirmation is pending on either task, while the layouts store is unreadable or read-only,
-and while Supacode is quitting.
+session on it) into a new task; the primary cannot be detached, merge the other way instead,
+and neither can a task's only tab unless a session stays behind to keep the task. Both refuse
+across machines, while tasks are still loading, while a session is still starting in the
+source task, while a blocking script runs on a moved tab, while a close confirmation is
+pending on either task, while the layouts store is unreadable or read-only, and while
+Supacode is quitting.
 
 ### Worktrees
 
