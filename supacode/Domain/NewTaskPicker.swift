@@ -17,6 +17,10 @@ nonisolated enum NewTaskSource: Equatable, Sendable {
   /// Cmd-N on a task: that task's directory as it is at delivery, while the
   /// task still exists.
   case task(LayoutID)
+  /// A session resumed into the task that lists it: the task's directory at
+  /// delivery, while the task still exists and still lists that session. One
+  /// detached since gets nothing typed into its old task.
+  case resume(into: LayoutID, SessionKey)
 }
 
 /// A roster directory the new-task picker can start a task on. A snapshot

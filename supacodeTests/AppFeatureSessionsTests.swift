@@ -2833,7 +2833,7 @@ struct AppFeatureSessionsTests {
     var nonFocusCommands: [TerminalClient.Command] {
       commands.value.filter {
         switch $0 {
-        case .setSelectedLayoutID, .selectLayout: false
+        case .setSelectedLayoutID, .selectLayout, .followFirstTab: false
         case .showTask: false
         default: true
         }
@@ -2844,7 +2844,7 @@ struct AppFeatureSessionsTests {
     var selectedLayouts: [LayoutID] {
       commands.value.compactMap {
         switch $0 {
-        case .setSelectedLayoutID(let id?), .selectLayout(let id?, _): id
+        case .setSelectedLayoutID(let id?), .selectLayout(let id?, _), .followFirstTab(let id, _): id
         default: nil
         }
       }
@@ -4083,8 +4083,10 @@ struct AppFeatureSessionsTests {
 
     #expect(launches(recorded).map(\.layoutID) == [first], "the task that was clicked, not one minted elsewhere")
     // The launch names the task; the manager re-reads its directory at delivery.
-    #expect(launches(recorded).map(\.source) == [.task(first)])
-    #expect(AppFeature.launchDirectory(for: .task(first), state: store.state)?.worktreeID == onDisk.id)
+    #expect(launches(recorded).map(\.source) == [.resume(into: first, piKey("tangent"))])
+    #expect(
+      AppFeature.launchDirectory(for: .resume(into: first, piKey("tangent")), state: store.state)?.worktreeID
+        == onDisk.id)
     let quoted = ZmxAttach.shellQuote(elsewhere.path)
     #expect(launches(recorded).map(\.input) == ["cd \(quoted) && pi --session tangent"])
     #expect(store.state.repositories.repositories.count == 1, "its directory is not registered for it")
@@ -4132,8 +4134,10 @@ struct AppFeatureSessionsTests {
     await store.finish()
 
     #expect(launches(recorded).map(\.layoutID) == [first], "the stored task, not one minted for the session")
-    #expect(launches(recorded).map(\.source) == [.task(first)])
-    #expect(AppFeature.launchDirectory(for: .task(first), state: store.state)?.worktreeID == onDisk.id)
+    #expect(launches(recorded).map(\.source) == [.resume(into: first, piKey("tangent"))])
+    #expect(
+      AppFeature.launchDirectory(for: .resume(into: first, piKey("tangent")), state: store.state)?.worktreeID
+        == onDisk.id)
     #expect(launches(recorded).map(\.input) == ["cd \(ZmxAttach.shellQuote(elsewhere.path)) && pi --session tangent"])
     #expect(store.state.pendingTaskLaunches == [PendingTaskLaunch(layoutID: first, directoryID: onDisk.id)])
     #expect(store.state.repositories.repositories == roster, "no folder is registered for the session")
@@ -4319,8 +4323,10 @@ struct AppFeatureSessionsTests {
     await store.finish()
 
     #expect(launches(recorded).map(\.layoutID) == [first])
-    #expect(launches(recorded).map(\.source) == [.task(first)])
-    #expect(AppFeature.launchDirectory(for: .task(first), state: store.state)?.worktreeID == "/gone/checkout")
+    #expect(launches(recorded).map(\.source) == [.resume(into: first, piKey("tangent"))])
+    #expect(
+      AppFeature.launchDirectory(for: .resume(into: first, piKey("tangent")), state: store.state)?.worktreeID
+        == "/gone/checkout")
     #expect(launches(recorded).first?.input.hasPrefix("cd ") == true)
     #expect(store.state.repositories.repositories == roster, "no folder is registered for the session")
   }

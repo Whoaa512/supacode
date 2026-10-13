@@ -709,17 +709,25 @@ extension AppFeature {
   /// longer lists is refused even while a task is still open or stored on it.
   /// Cmd-N on a task re-reads that task's own directory while the task
   /// exists (an orphan task keeps its recorded one; a roster directory must be
-  /// live). The manager asks the same question at delivery, so what is
-  /// decided here is only what is sent, never what gets created.
+  /// live). A resume into a task needs the task to still list the session.
+  /// The manager asks the same question at delivery, so what is decided here
+  /// is only what is sent, never what gets created.
   static func launchDirectory(for source: NewTaskSource, state: State) -> DirectoryContext? {
     switch source {
     case .roster(let directoryID):
       return rosterDirectory(directoryID, state: state)
     case .task(let layoutID):
-      guard let context = taskContext(layoutID, state: state) else { return nil }
-      guard state.repositories.worktree(for: context.worktreeID) != nil else { return context }
-      return rosterDirectory(context.worktreeID, state: state)
+      return liveTaskDirectory(layoutID, state: state)
+    case .resume(let layoutID, let key):
+      guard taskDirectory(layoutID, listing: key, state: state) != nil else { return nil }
+      return liveTaskDirectory(layoutID, state: state)
     }
+  }
+
+  private static func liveTaskDirectory(_ layoutID: LayoutID, state: State) -> DirectoryContext? {
+    guard let context = taskContext(layoutID, state: state) else { return nil }
+    guard state.repositories.worktree(for: context.worktreeID) != nil else { return context }
+    return rosterDirectory(context.worktreeID, state: state)
   }
 
   /// A live roster entry and nothing else: no orphan fallback. A row the
@@ -1063,7 +1071,8 @@ extension AppFeature {
     // is not live then. A resume into a task names that task, so one merged,
     // removed or archived by delivery gets no tab; a resume that mints names
     // the roster directory it resumes in.
-    let launchSource = source ?? target.map(NewTaskSource.task) ?? .roster(directory.worktreeID)
+    let launchSource =
+      source ?? target.map { NewTaskSource.resume(into: $0, pending.key) } ?? .roster(directory.worktreeID)
     let create: TerminalClient.Command = .createTaskTab(
       layoutID, source: launchSource, input: pending.kind == .agent ? command : nil, focusing: true)
     return .run { send in
@@ -1184,8 +1193,10 @@ extension AppFeature {
     guard let first = ready.last(where: \.followsDirectory),
       state.repositories.selectedWorktreeID == first.directoryID, state.repositories.selectedTaskID == nil
     else { return nil }
+    // Identity only: the manager asks again at delivery whether the directory
+    // is still the bare selection.
     @Dependency(TerminalClient.self) var terminalClient
-    return .run { _ in await terminalClient.send(.setSelectedLayoutID(first.layoutID)) }
+    return .run { _ in await terminalClient.send(.followFirstTab(first.layoutID, forDirectory: first.directoryID)) }
   }
 
   // MARK: - Branch capture (FIFO queue, one in-flight at a time)
