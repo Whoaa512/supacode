@@ -7,9 +7,17 @@ description: Control Supacode from the terminal. Use when running Supacode CLI c
 
 Control Supacode from the terminal. The `supacode` command is available in all Supacode terminal sessions.
 
-A worktree's layout is a split tree of **panes**; each pane holds a strip of
+A **task** owns a layout: a split tree of **panes**; each pane holds a strip of
 **tabs**; each tab is one terminal. Split a pane to grow the tree; add a tab to
-a pane to stack terminals in the same split.
+a pane to stack terminals in the same split. A worktree can hold several tasks
+(each agent session is its own task); pane and tab commands act on one task,
+by default the one the terminal you run them in belongs to (`$SUPACODE_TASK_ID`),
+or the task the worktree shows when run from outside. `--task <id>` names
+another; a tab, pane, or surface id always finds its own task.
+
+Task ids are opaque UUIDs minted by the app (never a path). Read your own from
+`$SUPACODE_TASK_ID`; agent rows (`supacode agent list --json`) carry `taskID`.
+Deeplinks address a task as `supacode://worktree/<worktree_id>/task/<task_id>/…`.
 
 ## CRITICAL: ID Tracking
 
@@ -81,15 +89,16 @@ Inside Supacode terminals, these environment variables are set automatically:
 | Variable | Description |
 |----------|-------------|
 | `SUPACODE_SOCKET_PATH` | Socket for app communication. |
+| `SUPACODE_TASK_ID` | Current task (UUID). Default `--task` for pane, tab, and agent commands run against this terminal's own worktree; a tie-breaker for agent targets. |
 | `SUPACODE_WORKTREE_ID` | Deprecated. Current worktree (percent-encoded path). |
 | `SUPACODE_TAB_ID` | Deprecated. Current tab UUID. |
 | `SUPACODE_SURFACE_ID` | Deprecated. Current content UUID (used by `surface` commands). |
 | `SUPACODE_REPO_ID` | Deprecated. Current repository (percent-encoded path). |
 
-The id variables are **deprecated and will be removed in the next release**:
-new pane/tab commands ignore them and resolve an omitted worktree/pane/tab from
-the focused target instead. Only the deprecated `surface` commands still read
-them.
+The deprecated id variables **will be removed in the next release**: new
+pane/tab commands ignore them and resolve an omitted worktree/pane/tab from the
+focused target instead. Only the deprecated `surface` commands still read them.
+`SUPACODE_TASK_ID` is not deprecated.
 
 ## Commands
 
@@ -120,8 +129,9 @@ supacode worktree appearance [-w <id>] [--title <title>] [--color <value>]  # Re
 ### Pane
 
 A pane is a split-tree leaf holding a strip of tabs. `-w` defaults to the
-focused worktree; `-p` defaults to the focused pane. `-p` accepts a pane, tab,
-or content UUID.
+focused worktree; `--task` to `$SUPACODE_TASK_ID` in your own worktree, else
+the task the worktree shows; `-p` defaults to the focused pane. `-p` accepts a
+pane, tab, or content UUID. Every pane command takes `--task <id>`.
 
 ```
 supacode pane list [-w <id>] [-f]                                   # List pane UUIDs (-f = focused only).
@@ -135,7 +145,8 @@ supacode pane window [-w <id>] [-p <token>]                         # Toggle a p
 
 ### Tab
 
-`-t` defaults to the focused tab.
+`-t` defaults to the focused tab. Every tab command takes `--task <id>` with
+the same default as pane commands.
 
 ```
 supacode tab list [-w <id>] [-f]                                    # List tab UUIDs in worktree (-f = focused only).
@@ -157,6 +168,29 @@ supacode surface split …   # Deprecated: use `supacode pane split`.
 supacode surface focus …   # Deprecated: use `supacode tab focus`.
 supacode surface close …   # Deprecated: use `supacode tab close`.
 supacode surface list …    # Deprecated: use `supacode tab list`.
+```
+
+### Agent
+
+Address running coding agents. `<target>` is an agent name (from `agent rename`),
+a worktree ID, or a branch. With several same-kind agents on one worktree,
+`--agent <kind>` picks the harness and `--task <id>` picks the task; with no
+`--task`, `$SUPACODE_TASK_ID` breaks the tie only when exactly one candidate is
+on this terminal's task, otherwise the command fails listing `--task` values.
+A resolved target reaches exactly that agent, never a same-kind sibling.
+
+```
+supacode agent list [--json]                                        # Running agents: name, kind, state, repo, branch, worktree ID, taskID.
+supacode agent rename <target> <name> | --clear [--agent <kind>] [--task <id>]
+supacode agent wait <target> [--until <state>]... [--timeout <s>] [--task <id>]   # Block until idle/done/blocked (or --until), print the row as JSON.
+supacode agent prompt <target> <text> [--no-submit] [--wait] [--until <state>]... [--task <id>]
+supacode agent send-keys <target> <key>... [--task <id>]            # enter, esc, tab, up, down, ctrl+<letter>, ...
+supacode agent read <target> [--lines <n>] [--task <id>]            # Tail of the screen hosting the agent.
+supacode agent explain <target> [--json] [--task <id>]              # Why the agent is in its state.
+supacode agent report-metadata <target> --token key=value [--clear] [--task <id>]
+supacode agent resume-candidates [--json]                           # Dead sessions that can be resumed.
+supacode agent resume <worktree-or-branch> [--agent <kind>] [--task <id>] [--dry-run]  # Relaunch a dead session into its task.
+supacode terminal wait-output <target> --regex <pattern> | --text <literal>   # Poll the target's terminal until a line matches.
 ```
 
 ### Repository
@@ -218,6 +252,7 @@ action that would otherwise focus its target (`tab new`, `tab move`,
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--worktree` | `-w` | focused worktree | Worktree ID. |
+| `--task` | - | `$SUPACODE_TASK_ID` in its own worktree, else the shown task | Task ID (UUID) for pane, tab, and agent commands. |
 | `--pane` | `-p` | focused pane | Pane token: a pane, tab, or content UUID. |
 | `--tab` | `-t` | focused tab | Tab UUID. |
 | `--script` | `-c` | - | Script UUID (for `worktree run`/`stop`). |

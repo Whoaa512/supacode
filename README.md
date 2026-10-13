@@ -12,6 +12,28 @@ connection loses nothing.
 
 ## Features
 
+### Tasks
+
+The sidebar's unit of work is a task: an agent session (or a plain shell) with its own tabs and
+splits. A task is never made by hand. ⌘N starts one in the current task's directory with the
+default agent; ⌘⇧N opens a picker (directory, agent or shell); ⌘⌥⇧N creates a new worktree.
+Every indexed agent session shows as a task from day one; clicking a history row resumes it.
+
+An agent started inside a task's tab joins that task. The first session is the primary and gives
+the task its title; the others show as sub-rows while the task is selected, dimmed once they
+end, click to resume. Two tasks may share a directory; the directory is a default for new
+tabs, not a rule. Settle is task-level: it marks the task done and closes every tab, so nothing
+runs on; reopening resumes the primary. Auto-settle (idle timeout) never closes a tab and skips
+any task that still has one open. A task whose directory was removed or deleted stays as an
+orphan until you settle it.
+
+**Merge and detach**, one level deep, from the row's context menu or the command palette.
+Merge A into B moves A's tabs and sessions into B and removes A. Detach moves one tab (and the
+session on it) into a new task; the primary cannot be detached, merge the other way instead.
+Both refuse across machines, while a blocking script runs on a moved tab, while a close
+confirmation is pending on either task, while the layouts store is unreadable or read-only,
+and while Supacode is quitting.
+
 ### Worktree-first workflow
 
 Each task gets its own git worktree and terminal, so agents run in parallel without colliding.
@@ -49,8 +71,10 @@ over SSH, and drives notifications so you know the moment an agent needs you.
 ### The CLI and deeplinks
 
 Drive the app from any terminal, script, or other tool. The `supacode` CLI manages worktrees,
-tabs, splits, and repos, and every session exports its repo, worktree, tab, and surface IDs, so
-commands default to the session you run them in. Deeplinks (`supacode://...`) mirror the CLI, so
+tasks, tabs, splits, repos, and running agents (`supacode agent prompt|wait|read|resume …`).
+Every session exports `SUPACODE_TASK_ID` with its worktree id, so pane, tab, and agent commands
+default to the task you run them in; `--task <id>` names another. The id is on the task, not
+the directory: two tasks on one worktree are told apart. Deeplinks (`supacode://...`) mirror the CLI, so
 you can bind an action to a hotkey or fire it from another app.
 
 ### More

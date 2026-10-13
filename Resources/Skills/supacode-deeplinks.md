@@ -27,7 +27,7 @@ follow-up commands after it.
 
 ## Environment
 
-Each Supacode terminal session still exposes `SUPACODE_REPO_ID`, `SUPACODE_WORKTREE_ID`, `SUPACODE_TAB_ID`, and `SUPACODE_SURFACE_ID`, but these id variables are **deprecated and will be removed in the next release** (only `SUPACODE_SOCKET_PATH` is not). Prefer the `supacode` CLI, whose pane/tab commands resolve the focused target for you.
+Each Supacode terminal session still exposes `SUPACODE_REPO_ID`, `SUPACODE_WORKTREE_ID`, `SUPACODE_TAB_ID`, and `SUPACODE_SURFACE_ID`, but these id variables are **deprecated and will be removed in the next release** (`SUPACODE_SOCKET_PATH` and `SUPACODE_TASK_ID` are not). Prefer the `supacode` CLI, whose pane/tab commands resolve the focused target for you.
 
 Worktree and repository IDs must be percent-encoded (e.g. `/tmp/repo` becomes `%2Ftmp%2Frepo`); `SUPACODE_REPO_ID` and `SUPACODE_WORKTREE_ID` already are.
 
@@ -46,6 +46,7 @@ supacode://help                               # Open the deeplink reference wind
 
 ```
 supacode://worktree/<worktree_id>             # Select worktree.
+supacode://worktree/<worktree_id>/task/<task_id>/…   # Send a tab or pane route to one task of the worktree ($SUPACODE_TASK_ID), not the one it shows.
 supacode://worktree/<worktree_id>/run         # Run the primary run-kind script.
 supacode://worktree/<worktree_id>/stop        # Stop all run-kind scripts.
 supacode://worktree/<worktree_id>/script/<script_id>/run    # Run a specific script by UUID.
