@@ -103,10 +103,30 @@ struct WorktreeTerminalManagerTransferTests {
   }
 
   /// Opens one tab in `layoutID`; returns its surface id (also its tab id).
+  /// A task removed this run (merged away) is created again through the
+  /// reducer: the manager refuses a creating command for a removed id at
+  /// delivery (tested on its own), while the writer still has to cope with a
+  /// record that exists again under its old key.
   private func open(
     _ layoutID: LayoutID, on directory: Worktree = WorktreeTerminalManagerTransferTests.directory, in harness: Harness
   ) async -> UUID {
     let surfaceID = UUID()
+    if harness.terminals.removedLayoutIDs.contains(layoutID) {
+      await harness.store.send(
+        .terminals(
+          .attachLayout(
+            worktreeID: layoutID, directory: TaskRecord.Directory(worktreeID: directory.id, host: directory.host),
+            titlePrefix: directory.name))
+      ).finish()
+      let spec = NewTabSpec(
+        tabID: TabID(rawValue: surfaceID), contentID: ContentID(rawValue: surfaceID), title: "Tab",
+        content: .terminal(TerminalContentState(workingDirectory: nil)),
+        geometry: ContentRuntime.liveValue.spawnGeometry(near: nil), select: false, inheritedFrom: nil)
+      await harness.store.send(
+        .terminals(.layouts(.element(id: layoutID, action: .newTab(inPane: PaneID(), spec: spec))))
+      ).finish()
+      return surfaceID
+    }
     harness.manager.handleCommand(
       .createTab(
         layoutID, DirectoryContext(worktree: directory), runSetupScriptIfNew: false, id: surfaceID,
@@ -1774,6 +1794,101 @@ struct WorktreeTerminalManagerTransferTests {
     #expect(harness.recorder.localKills.value == [ZmxSessionID.make(surfaceID: own)])
   }
 
+  /// Cmd-T on a shown task queues a tab for that task; the task is closed
+  /// or merged away before the tab lands. The creation is decided then: the
+  /// removed task gets no host, layout or tab back.
+  @Test(.dependencies, arguments: TaskRemoval.allCases)
+  func aCmdTTabLandingAfterItsTaskWentCreatesNothing(removal: TaskRemoval) async {
+    let harness = await makeHarness { state in
+      Self.listDirectory(&state)
+      state.repositories.reconcileSidebarForTesting()
+      state.repositories.selection = .worktree(Self.directory.id)
+    }
+    let task = LayoutID(task: UUID())
+    let own = await open(task, in: harness)
+    await harness.store.send(.repositories(.selectTask(task, directory: Self.directory.id))).finish()
+    harness.recorder.queuedCommands.withValue { $0.removeAll() }
+
+    await harness.store.send(.newTerminal).finish()
+    let queued = harness.recorder.queuedCommands.value
+    guard case .createTab(let into, _, _, _, _, _, _)? = queued.first(where: Self.createsATabCommand) else {
+      Issue.record("Cmd-T queued no tab: \(queued)")
+      return
+    }
+    #expect(into == task)
+
+    await removeTask(task, removal, ownTab: own, in: harness)
+    deliverQueuedCommands(in: harness)
+    let after = await harness.events.collect(until: Self.createsATab)
+
+    #expect(harness.manager.hostIfExists(for: task) == nil, "no host for a task that is gone")
+    #expect(harness.terminals.layouts[id: task] == nil, "the removed task is not resurrected")
+    #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
+  }
+
+  private static func createsATabCommand(_ command: TerminalClient.Command) -> Bool {
+    switch command {
+    case .createTab, .createTabWithInput, .createTaskTab, .ensureInitialTab: true
+    default: false
+    }
+  }
+
+  /// A first tab minted for a directory (the new-worktree bootstrap) lands
+  /// after the directory was archived or dropped from the roster: nothing is
+  /// created, and the bootstrap reports its failure so a waiting ack fails.
+  @Test(.dependencies, arguments: DirectoryChange.allCases)
+  func aFirstTabBootstrapLandingAfterItsDirectoryChangedCreatesNothing(change: DirectoryChange) async {
+    let harness = await makeHarness { state in
+      Self.listDirectory(&state)
+      state.repositories.reconcileSidebarForTesting()
+      state.repositories.selection = .worktree(Self.directory.id)
+    }
+    await harness.store.send(.newTerminal).finish()
+    guard let minted = harness.store.withState({ $0.pendingFirstTab(forDirectory: Self.directory.id) }) else {
+      Issue.record("Cmd-T minted nothing")
+      return
+    }
+    harness.recorder.queuedCommands.withValue { $0.removeAll() }
+
+    await self.change(change, in: harness)
+    harness.manager.handleCommand(
+      .ensureInitialTab(
+        minted, DirectoryContext(worktree: Self.directory), runSetupScriptIfNew: true, focusing: true))
+    let after = await harness.events.collect {
+      if case .initialTabCreationFailed = $0 { return true }
+      return Self.createsATab($0)
+    }
+
+    #expect(harness.manager.hostIfExists(for: minted) == nil)
+    #expect(harness.terminals.layouts[id: minted] == nil)
+    #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
+    #expect(
+      after.contains {
+        if case .initialTabCreationFailed(let id, _) = $0 { return id == minted } else { return false }
+      },
+      "the bootstrap fails rather than strands its ack: \(after)")
+  }
+
+  /// A non-creating command carries a context computed before it was queued.
+  /// At delivery the task's own directory decides; the stale context never
+  /// restamps the task's record.
+  @Test(.dependencies) func aStaleContextOnANonCreatingCommandNeverRestampsTheTask() async {
+    let harness = await makeHarness(seed: Self.listDirectory)
+    let task = LayoutID(task: UUID())
+    let own = await open(task, in: harness)
+    let before = harness.terminals.directories[task]
+    #expect(before?.worktreeID == Self.directory.id)
+    let stale = DirectoryContext(
+      orphan: TaskRecord.Directory(worktreeID: "/elsewhere/checkout", host: RemoteHost(alias: "build-box")))
+
+    harness.manager.handleCommand(.selectTab(task, stale, tabID: TabID(rawValue: own)))
+    harness.manager.handleCommand(.startSearch(task, stale))
+    harness.manager.handleCommand(.showTask(task, stale, focusing: false))
+
+    #expect(harness.terminals.directories[task] == before, "the task's record is its own, not the command's")
+    #expect(harness.manager.hostIfExists(for: task)?.worktreeID == Self.directory.id)
+  }
+
   /// Commands that act on what exists (select, rename, search, close, binding
   /// actions) were queued against a task, and the task is merged away before
   /// they land. None attaches a host or brings the layout back.
@@ -1815,6 +1930,57 @@ struct WorktreeTerminalManagerTransferTests {
     #expect(harness.tabIDs(destination).count == 2, "the moved tab stays where it went")
   }
 
+  /// Cmd-T on a directory with no task mints one; when its tab appears the
+  /// app asks the terminal to follow. The follow is decided when it lands: a
+  /// task picked meanwhile keeps the screen, and the mint is never shown.
+  /// Without such a pick the follow shows the mint.
+  @Test(.dependencies, arguments: [false, true]) func aFirstTabFollowLandingAfterANewerPickShowsNothing(picks: Bool)
+    async
+  {
+    let harness = await makeHarness { state in
+      Self.listDirectory(&state)
+      state.repositories.reconcileSidebarForTesting()
+      state.repositories.selection = .worktree(Self.directory.id)
+    }
+    #expect(harness.store.withState { $0.layoutID(forDirectory: Self.directory.id) } == nil)
+
+    await harness.store.send(.newTerminal).finish()
+    deliverQueuedCommands(in: harness)
+    _ = await harness.events.collect(until: Self.createsATab)
+    for _ in 0..<50 where !harness.recorder.queuedCommands.value.contains(where: Self.isFollow) {
+      await Task.megaYield()
+    }
+    guard
+      case .followFirstTab(let minted, let directoryID)? = harness.recorder.queuedCommands.value.first(
+        where: Self.isFollow)
+    else {
+      Issue.record("no follow queued: \(harness.recorder.queuedCommands.value)")
+      return
+    }
+    #expect(directoryID == Self.directory.id)
+    #expect(harness.tabIDs(minted).count == 1)
+    harness.recorder.queuedCommands.withValue { $0.removeAll() }
+
+    let picked = LayoutID(task: UUID())
+    if picks {
+      _ = await open(picked, in: harness)
+      await harness.store.send(.repositories(.selectTask(picked, directory: Self.directory.id))).finish()
+      #expect(harness.store.withState(\.repositories.selectedTaskID) == picked)
+    }
+    harness.manager.handleCommand(.followFirstTab(minted, forDirectory: directoryID))
+
+    if picks {
+      #expect(harness.manager.selectedLayoutID != minted, "a newer pick keeps the screen")
+    } else {
+      #expect(harness.manager.selectedLayoutID == minted)
+    }
+  }
+
+  private static func isFollow(_ command: TerminalClient.Command) -> Bool {
+    if case .followFirstTab = command { return true }
+    return false
+  }
+
   /// A resume into a task, through the app: the launch names the task, and
   /// the task is merged away before the launch lands (closing its tab would
   /// keep it: it lists a session). Nothing is created, nothing is stored.
@@ -1850,7 +2016,7 @@ struct WorktreeTerminalManagerTransferTests {
       return
     }
     #expect(into == task)
-    #expect(source == .task(task), "a resume carries the task it goes into, not a planned directory")
+    #expect(source == .resume(into: task, key), "a resume carries the task it goes into and the session, not a plan")
     #expect(input == "pi --session tangent")
 
     await removeTask(task, removal, ownTab: own, in: harness)
@@ -1862,6 +2028,55 @@ struct WorktreeTerminalManagerTransferTests {
     #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
     let stored = await settledStore(harness)
     #expect(stored.tasks[task.persistenceKey] == nil)
+  }
+
+  /// A resume into a task that still exists when the launch lands, but no
+  /// longer lists the session (the tangent was detached meanwhile): nothing
+  /// is typed into the old task. Its own tab stays.
+  @Test(.dependencies) func aResumeLandingAfterItsSessionLeftTheTaskCreatesNothing() async throws {
+    let directory = try onDiskWorktree(named: "resume-detached")
+    let key = Self.session("tangent")
+    let harness = await makeHarness { state in
+      Self.listDirectory(directory, in: &state)
+      state.repositories.reconcileSidebarForTesting()
+      state.repositories.sessionSummaries = [
+        SessionSummary(
+          harness: .pi, sessionID: "tangent", createdAt: .distantPast,
+          cwd: directory.workingDirectory.path(percentEncoded: false), title: "t", messageCount: 2,
+          lastActivity: .distantPast)
+      ]
+      state.repositories.sessionsStarted = true
+    }
+    let task = LayoutID(task: UUID())
+    let own = await open(task, on: directory, in: harness)
+    await harness.store.send(
+      .terminals(.membersChanged([task: [.session(Self.session("PA")), .session(key)]], agents: []))
+    )
+    .finish()
+
+    await harness.store.send(.repositories(.delegate(.resumeSession(key, task: task)))).finish()
+    for _ in 0..<50 where !harness.recorder.queuedCommands.value.contains(where: Self.isTaskLaunch) {
+      await Task.megaYield()
+    }
+    guard
+      case .createTaskTab(let into, let source, _, _, _)? = harness.recorder.queuedCommands.value.first(
+        where: Self.isTaskLaunch)
+    else {
+      Issue.record("the resume is in flight as a task launch")
+      return
+    }
+    #expect(into == task)
+    #expect(source == .resume(into: task, key))
+
+    // The tangent leaves the task before the launch lands; the task survives.
+    await harness.store.send(.terminals(.membersChanged([task: [.session(Self.session("PA"))]], agents: []))).finish()
+    #expect(harness.store.withState { AppFeature.hasTask(task, state: $0) })
+    #expect(harness.store.withState { AppFeature.launchDirectory(for: source, state: $0) } == nil)
+    deliverQueuedCommands(in: harness)
+    let after = await harness.events.collect(until: Self.createsATab)
+
+    #expect(!after.contains(where: Self.createsATab), "no tab created: \(after)")
+    #expect(harness.tabIDs(task) == [own], "the task keeps only its own tab")
   }
 
   /// A record for `layoutID` on the fixture directory, never opened: stored,
