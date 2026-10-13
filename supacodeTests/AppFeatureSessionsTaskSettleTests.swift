@@ -877,7 +877,9 @@ struct AppFeatureSessionsTaskSettleTests {
     await store.finish()
 
     let launches = recorded.commands.value.compactMap { command -> (LayoutID, String)? in
-      guard case .createTabWithInput(let layoutID, _, let input, _, _, _, _, _) = command else { return nil }
+      // A resume names the task it goes into; the manager re-derives the directory at delivery.
+      guard case .createTaskTab(let layoutID, let source, let input?, _, _) = command, source == .task(layoutID)
+      else { return nil }
       return (layoutID, input)
     }
     #expect(launches.map(\.0) == [task], "one tab, in the task that lists it")
@@ -923,7 +925,7 @@ struct AppFeatureSessionsTaskSettleTests {
 
   private func launchedTasks(_ recorded: Recorded) -> [LayoutID] {
     recorded.commands.value.compactMap {
-      guard case .createTabWithInput(let layoutID, _, _, _, _, _, _, _) = $0 else { return nil }
+      guard case .createTaskTab(let layoutID, let source, _, _, _) = $0, source == .task(layoutID) else { return nil }
       return layoutID
     }
   }
