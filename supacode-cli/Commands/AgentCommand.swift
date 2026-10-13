@@ -313,11 +313,16 @@ extension AgentCommand {
 
   /// Polls the `agents` query until `isSatisfied` accepts the target's row.
   /// Shared by `agent wait` and `agent prompt --wait`, so both agree on how a
-  /// vanished agent and a blown deadline are reported.
+  /// vanished agent and a blown deadline are reported. With `surfaceID` the
+  /// target was resolved once already: each poll reads that surface's row and
+  /// never resolves the name again, so a same-kind sibling appearing or the
+  /// name being reused cannot move the wait to another agent; the surface
+  /// gone is the agent gone.
   static func pollForRow(
     target: String,
     agentKind: String?,
     task: String? = nil,
+    surfaceID: String? = nil,
     deadline: Date,
     interval: TimeInterval = AgentCommand.pollInterval,
     timedOut: (String) -> Error,
@@ -325,12 +330,17 @@ extension AgentCommand {
   ) throws -> [String: String] {
     // A name that resolved once and then stops resolving means the agent
     // exited; that is a different failure from a target that never existed.
-    var everResolved = false
+    var everResolved = surfaceID != nil
     while true {
       let rows = try QueryDispatcher.query(resource: "agents", timeoutSeconds: queryTimeoutSeconds)
       do {
-        let row = try resolve(
-          target: target, agentKind: agentKind, task: task, environmentTaskID: EnvironmentDefaults.taskID, in: rows)
+        let row =
+          if let surfaceID {
+            try surfaceRow(surfaceID, target: target, in: rows)
+          } else {
+            try resolve(
+              target: target, agentKind: agentKind, task: task, environmentTaskID: EnvironmentDefaults.taskID, in: rows)
+          }
         everResolved = true
         if isSatisfied(row) { return row }
       } catch TargetError.notFound(let target) where everResolved {
@@ -339,6 +349,15 @@ extension AgentCommand {
       guard Date().addingTimeInterval(interval) < deadline else { throw timedOut(target) }
       Thread.sleep(forTimeInterval: interval)
     }
+  }
+
+  /// The row of an already resolved surface, by identity alone; absent, the
+  /// agent is gone (`notFound`, which the poll reports as not running).
+  private static func surfaceRow(_ surfaceID: String, target: String, in rows: [[String: String]]) throws
+    -> [String: String]
+  {
+    guard let row = rows.first(where: { $0[Key.surfaceID] == surfaceID }) else { throw TargetError.notFound(target) }
+    return row
   }
 
   static func state(of row: [String: String]) -> AgentState {
@@ -476,6 +495,7 @@ extension AgentCommand {
     target: String,
     agentKind: String?,
     task: String? = nil,
+    surfaceID: String? = nil,
     wanted: Set<AgentState>,
     timeout: Int
   ) throws -> [String: String] {
@@ -484,6 +504,7 @@ extension AgentCommand {
       target: target,
       agentKind: agentKind,
       task: task,
+      surfaceID: surfaceID,
       deadline: deadline,
       timedOut: { target in
         let states = wanted.map(\.rawValue).sorted().joined(separator: "|")
@@ -563,20 +584,23 @@ extension AgentCommand {
       // Require an observed transition into `working` first: without it, an
       // agent that never picked the prompt up would look instantly "settled"
       // and the wait would succeed against the previous turn's state. The
-      // wait follows the agent the prompt went to, task included.
-      try waitForTurnToStart(kind: kind, task: resolvedTarget.taskID)
+      // wait follows the surface the prompt went to, never a re-resolution:
+      // a same-kind sibling or a reused name cannot redirect it.
+      try waitForTurnToStart(kind: kind, target: resolvedTarget)
       let settled = try AgentCommand.pollForSettled(
-        target: target, agentKind: kind, task: resolvedTarget.taskID, wanted: wanted, timeout: timeout)
+        target: target, agentKind: kind, task: resolvedTarget.taskID, surfaceID: resolvedTarget.surfaceID,
+        wanted: wanted, timeout: timeout)
       print(AgentCommand.jsonLine(settled))
     }
 
     /// Polls faster than the settle wait: a short turn can pass through
     /// `working` quickly, and missing it would report a false stall.
-    private func waitForTurnToStart(kind: String, task: String?) throws {
+    private func waitForTurnToStart(kind: String, target resolved: WorktreeTarget) throws {
       _ = try AgentCommand.pollForRow(
         target: target,
         agentKind: kind,
-        task: task,
+        task: resolved.taskID,
+        surfaceID: resolved.surfaceID,
         deadline: Date().addingTimeInterval(TimeInterval(stallTimeout)),
         interval: 0.25,
         timedOut: { target in

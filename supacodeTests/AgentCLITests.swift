@@ -373,6 +373,82 @@ struct AgentCLITests {
     }
   }
 
+  /// The prompt resolved one agent; a same-kind sibling appears in the same
+  /// task during the wait. The wait follows the surface the prompt went to,
+  /// so the sibling neither makes the target ambiguous nor gets waited on.
+  @Test(.timeLimit(.minutes(3)))
+  func promptWaitFollowsTheSurfaceWhenASameKindSiblingAppears() async throws {
+    let original = { (state: String) in Self.row(state: state, taskID: Self.taskA, surfaceID: Self.surfaceA) }
+    let sibling = Self.row(state: "done", taskID: Self.taskA, surfaceID: Self.surfaceB)
+    let rowsForPoll: (Int) -> [[String: String]] = { poll in
+      switch poll {
+      case 0: [original("idle")]
+      case 1: [original("working")]
+      case 2: [original("working"), sibling]
+      default: [original("done"), sibling]
+      }
+    }
+    try await withFixture(rowsForPoll: rowsForPoll) { cli, _, deeplinks in
+      let output = try await cli(
+        [
+          "agent", "prompt", "/tmp/repo/alpha", "go", "--agent", "claude", "--wait", "--stall-timeout", "5",
+          "--timeout", "20",
+        ]
+      ).succeeding()
+      #expect(output.contains("\"state\":\"done\""))
+      #expect(output.contains("\"surfaceID\":\"\(Self.surfaceA)\""), "the wait reports the prompted agent: \(output)")
+      #expect(output.contains("\"taskID\":\"\(Self.taskA)\""))
+      #expect(deeplinks.value.count == 1)
+    }
+  }
+
+  /// The prompted agent is renamed during the wait and its old name is given
+  /// to another agent. The wait stays on the prompted surface, not the name.
+  @Test(.timeLimit(.minutes(3)))
+  func promptWaitFollowsTheSurfaceWhenTheNameIsReused() async throws {
+    let original = { (name: String, state: String) in Self.row(name: name, state: state, surfaceID: Self.surfaceA) }
+    let usurper = Self.row(name: "reviewer", state: "done", surfaceID: Self.surfaceB)
+    let rowsForPoll: (Int) -> [[String: String]] = { poll in
+      switch poll {
+      case 0: [original("reviewer", "idle")]
+      case 1: [original("reviewer", "working")]
+      case 2: [original("old", "working"), usurper]
+      default: [original("old", "done"), usurper]
+      }
+    }
+    try await withFixture(rowsForPoll: rowsForPoll) { cli, _, _ in
+      let output = try await cli(
+        ["agent", "prompt", "reviewer", "go", "--wait", "--stall-timeout", "5", "--timeout", "20"]
+      ).succeeding()
+      #expect(output.contains("\"surfaceID\":\"\(Self.surfaceA)\""), "the wait reports the prompted agent: \(output)")
+      #expect(output.contains("\"name\":\"old\""))
+      #expect(output.contains("\"state\":\"done\""))
+    }
+  }
+
+  /// The prompted agent exits during the wait and another takes its name.
+  /// Its surface is gone: the wait refuses as not running instead of
+  /// resolving the name again.
+  @Test(.timeLimit(.minutes(3)))
+  func promptWaitRefusesWhenThePromptedSurfaceDisappears() async throws {
+    let original = { (state: String) in Self.row(name: "reviewer", state: state, surfaceID: Self.surfaceA) }
+    let usurper = Self.row(name: "reviewer", state: "done", surfaceID: Self.surfaceB)
+    let rowsForPoll: (Int) -> [[String: String]] = { poll in
+      switch poll {
+      case 0: [original("idle")]
+      case 1: [original("working")]
+      default: [usurper]
+      }
+    }
+    try await withFixture(rowsForPoll: rowsForPoll) { cli, _, _ in
+      let gone = try await cli(
+        ["agent", "prompt", "reviewer", "go", "--wait", "--stall-timeout", "5", "--timeout", "20"])
+      #expect(gone.exitCode != 0)
+      #expect(gone.standardError.contains("agent_not_running"), "\(gone.standardError)")
+      #expect(!gone.standardOutput.contains(Self.surfaceB), "the usurper is never reported")
+    }
+  }
+
   // MARK: - send-keys.
 
   @Test(.timeLimit(.minutes(3)))
