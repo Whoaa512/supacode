@@ -194,6 +194,9 @@ extension RepositoriesFeature {
       case .settleTaskRequested(let layoutID):
         return .send(.delegate(.settleTask(layoutID)))
 
+      case .markRowUnreadRequested(let id, let unread):
+        return .send(.delegate(.markRowUnread(id, unread: unread)))
+
       case .mergeTaskRequested(let source, let target):
         return .send(.delegate(.mergeTask(source, into: target)))
 

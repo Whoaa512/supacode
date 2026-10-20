@@ -152,6 +152,9 @@ struct AgentPresenceFeature {
     /// The user focused these surfaces, so the states parked on them (`error`,
     /// `awaitingInput`) return to `idle`.
     case clearAttention(surfaces: Set<UUID>)
+    /// The user marks these surfaces unread (or read) by hand: the "done,
+    /// unseen" badge comes back on an idle agent they looked at but did not act on.
+    case markDoneUnseen(surfaces: Set<UUID>, unseen: Bool)
     /// Stage records for the off-main liveness pass. Apply lands as
     /// `restoreFromSnapshotChecked` so `kill(2)` never runs on the main actor.
     /// The resume command was typed into the candidate's surface, so the offer is
@@ -259,6 +262,14 @@ struct AgentPresenceFeature {
 
       case .clearAttention(let surfaces):
         let changed = Self.clearAttention(on: surfaces, into: &state)
+        return Self.surfacesChangedEffect(changed)
+
+      case .markDoneUnseen(let surfaces, let unseen):
+        var changed: Set<UUID> = []
+        for (key, record) in state.records where surfaces.contains(key.surfaceID) && record.isDoneUnseen != unseen {
+          state.records[key]?.isDoneUnseen = unseen
+          changed.insert(key.surfaceID)
+        }
         return Self.surfacesChangedEffect(changed)
 
       case .resumeCandidateConsumed(let key):

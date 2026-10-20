@@ -794,6 +794,29 @@ struct AppFeatureSessionsTaskSettleTests {
       "a task with tabs open is never shown settled")
   }
 
+  // MARK: - Mark unread
+
+  @Test(.dependencies) func markingATaskRowUnreadBadgesEveryAgentOfTheTask() async {
+    let recorded = Recorded()
+    let store = store(state(second: live("b", pid: 12)), recorded: recorded)
+    #expect(store.state.repositories.sessionItems[id: .task(task)]?.status == .idle)
+
+    await store.send(.repositories(.markRowUnreadRequested(.task(task), unread: true)))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    let records = store.state.agentPresence.records
+    #expect(records[.init(agent: .pi, surfaceID: primarySurface)]?.isDoneUnseen == true)
+    #expect(records[.init(agent: .pi, surfaceID: secondSurface)]?.isDoneUnseen == true)
+    #expect(records[.init(agent: .pi, surfaceID: otherSurface)]?.isDoneUnseen == false, "the other task is untouched")
+    #expect(store.state.repositories.sessionItems[id: .task(task)]?.status == .doneUnseen)
+
+    await store.send(.repositories(.markRowUnreadRequested(.task(task), unread: false)))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+    #expect(store.state.repositories.sessionItems[id: .task(task)]?.status == .idle)
+  }
+
   // MARK: - Settle and advance
 
   @Test(.dependencies) func settleAndAdvanceLeavesTheSettledTaskForTheNextLiveOne() async {

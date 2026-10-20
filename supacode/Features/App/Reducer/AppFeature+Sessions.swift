@@ -274,6 +274,11 @@ extension AppFeature {
       case .repositories(.delegate(.settleTask(let layoutID))):
         return Self.settleTask(layoutID, state: state)
 
+      case .repositories(.delegate(.markRowUnread(let id, let unread))):
+        let surfaces = Self.liveSurfaces(of: id, state: state)
+        guard !surfaces.isEmpty else { return .none }
+        return .send(.agentPresence(.markDoneUnseen(surfaces: surfaces, unseen: unread)))
+
       case .repositories(.delegate(.mergeTask(let source, let target))):
         return .send(.mergeTask(source, into: target))
 
@@ -470,6 +475,20 @@ extension AppFeature {
       return layout.alert == nil && layout.layout.allContentIDs.isEmpty ? layoutID : nil
     default:
       return nil
+    }
+  }
+
+  /// The surfaces a row's unread mark covers: the session's own, or every
+  /// agent surface of a task.
+  static func liveSurfaces(of id: SessionRowID, state: State) -> Set<UUID> {
+    let snapshots = state.repositories.sessionSnapshots
+    switch id {
+    case .implicit(let key):
+      return Set(snapshots.filter { $0.sessionKey == key }.map(\.location.surfaceID))
+    case .provisional(_, let surfaceID):
+      return [surfaceID]
+    case .task(let layoutID):
+      return Set(snapshots.filter { $0.location.layoutID == layoutID }.map(\.location.surfaceID))
     }
   }
 

@@ -11,8 +11,16 @@ private struct SessionContextMenu: View {
   let onSettle: (SessionKey) -> Void
   let onUnsettle: (SessionKey) -> Void
   let onMerge: (LayoutID) -> Void
+  let onMarkUnread: (Bool) -> Void
 
   var body: some View {
+    // An idle agent can be put back on the to-do pile; a done one taken off it.
+    if store.status == .idle {
+      Button("Mark as Unread") { onMarkUnread(true) }
+        .help("Bring back the done badge so this shows up in “next session needs me”")
+    } else if store.status == .doneUnseen {
+      Button("Mark as Read") { onMarkUnread(false) }
+    }
     // A shell-only task has no session to settle.
     if let key = store.sessionKey {
       if store.lifecycle == .active {
@@ -131,7 +139,8 @@ struct SessionsSidebarListView: View {
               onUnsettle: { store.send(.unsettleSession($0)) },
               onMerge: { target in
                 if case .task(let layoutID) = id { store.send(.mergeTaskRequested(layoutID, into: target)) }
-              }
+              },
+              onMarkUnread: { store.send(.markRowUnreadRequested(id, unread: $0)) }
             )
           }
       }

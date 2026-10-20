@@ -1281,6 +1281,28 @@ struct AgentPresenceFeatureTests {
     #expect(harness.state.records[key(surfaceID)]?.isDoneUnseen == false)
   }
 
+  @Test func markingUnreadBringsDoneUnseenBackUntilTheNextFocus() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.hookEventReceived(makeEvent(.idle, agent: .claude, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.clearAttention(surfaces: [surfaceID]))
+    #expect(harness.state.records[key(surfaceID)]?.isDoneUnseen == false)
+
+    harness.send(.markDoneUnseen(surfaces: [surfaceID], unseen: true))
+    #expect(harness.state.records[key(surfaceID)]?.isDoneUnseen == true)
+
+    harness.send(.markDoneUnseen(surfaces: [surfaceID], unseen: false))
+    #expect(harness.state.records[key(surfaceID)]?.isDoneUnseen == false)
+
+    harness.send(.markDoneUnseen(surfaces: [surfaceID], unseen: true))
+    harness.send(.clearAttention(surfaces: [UUID()]))
+    #expect(harness.state.records[key(surfaceID)]?.isDoneUnseen == true, "focus elsewhere leaves the mark")
+    harness.send(.clearAttention(surfaces: [surfaceID]))
+    #expect(harness.state.records[key(surfaceID)]?.isDoneUnseen == false)
+  }
+
   @Test func focusingAnotherSurfaceLeavesDoneUnseenAlone() {
     var harness = Harness()
     let surfaceID = UUID()

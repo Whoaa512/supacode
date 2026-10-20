@@ -438,6 +438,8 @@ struct RepositoriesFeature {
     /// A manual settle from the sidebar: also closes the session's tabs.
     case settleSessionRequested(SessionKey)
     case settleTaskRequested(LayoutID)
+    /// From a row's "Mark as Unread" / "Mark as Read".
+    case markRowUnreadRequested(SessionRowID, unread: Bool)
     /// From a task row's "Merge into…" menu.
     case mergeTaskRequested(LayoutID, into: LayoutID)
     /// From a sub-row's "Detach into New Task".
@@ -784,6 +786,7 @@ struct RepositoriesFeature {
     case resumeSession(SessionKey, task: LayoutID? = nil)
     case settleAndCloseSession(SessionKey)
     case settleTask(LayoutID)
+    case markRowUnread(SessionRowID, unread: Bool)
     case mergeTask(LayoutID, into: LayoutID)
     case detachTab(LayoutID, tabID: TabID)
     case newSessionDirectorySelected(URL, kind: NewTaskKind = .agent)
@@ -5032,7 +5035,8 @@ struct RepositoriesFeature {
         .sessionsRefreshRequested, .sessionsRefreshDebounced, .sessionsRefreshCompleted,
         .sessionsRefreshFailed, .sessionSnapshotsChanged, .sessionSelectionChanged, .activateSession,
         .activateSessionSubRow, .taskSnapshotsChanged, .taskSessionsChanged, .selectTask, .selectedTaskRemoved,
-        .settleSession, .settleSessionRequested, .settleTaskRequested, .mergeTaskRequested, .detachTabRequested,
+        .settleSession, .settleSessionRequested, .settleTaskRequested, .markRowUnreadRequested, .mergeTaskRequested,
+        .detachTabRequested,
         .unsettleSession, .sessionBranchCaptured:
         return .none
 
