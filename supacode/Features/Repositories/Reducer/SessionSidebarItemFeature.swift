@@ -131,6 +131,11 @@ struct SessionSidebarItemFeature {
       if case .task = id { return true }
       return false
     }
+    /// The agent the row stands for; nil for a shell-only task.
+    var harness: SkillAgent? {
+      if case .provisional(let agent, _) = id { return agent }
+      return sessionKey?.harness
+    }
 
     func matches(_ draft: SessionRowDraft) -> Bool {
       title == draft.title && cwd == draft.cwd && createdAt == draft.createdAt

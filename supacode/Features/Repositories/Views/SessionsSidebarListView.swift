@@ -173,13 +173,7 @@ private struct SessionSidebarRowView: View {
       store.send(.activate)
     } label: {
       HStack {
-        Image(systemName: store.isLive ? "terminal" : "moon")
-          .accessibilityLabel(store.isLive ? "Live session" : "Dormant session")
-        if let status = store.status {
-          Image(systemName: status.systemImage)
-            .foregroundStyle(status.tint)
-            .accessibilityLabel(status.accessibilityLabel)
-        }
+        SessionKindIcon(harness: store.harness, isDormant: !store.isLive, status: store.status)
         VStack(alignment: .leading, spacing: 2) {
           Text(store.title)
             .font(.body)
@@ -232,13 +226,7 @@ private struct SessionSubRowView: View {
   var body: some View {
     Button(action: activate) {
       HStack {
-        Image(systemName: row.isDormant ? "moon" : "terminal")
-          .accessibilityLabel(row.isDormant ? "Dormant session" : "Live session")
-        if let status = row.status {
-          Image(systemName: status.systemImage)
-            .foregroundStyle(status.tint)
-            .accessibilityLabel(status.accessibilityLabel)
-        }
+        SessionKindIcon(harness: row.harness, isDormant: row.isDormant, status: row.status)
         Text(row.title)
           .font(.callout)
           .lineLimit(1)
@@ -256,6 +244,33 @@ private struct SessionSubRowView: View {
     guard !row.isDormant else { return "Resume this session in a new tab of this task" }
     let chords = [nextTab.map { "Next Tab \($0)" }, previousTab.map { "Previous Tab \($0)" }].compactMap { $0 }
     return chords.isEmpty ? "Focus this session" : "Focus this session (\(chords.joined(separator: ", ")))"
+  }
+}
+
+/// What the row is (agent mark, or a terminal for a shell-only task), then
+/// how it is doing: the agent's status, or a moon when nothing is running.
+private struct SessionKindIcon: View {
+  let harness: SkillAgent?
+  let isDormant: Bool
+  let status: SessionClassification.Status?
+
+  var body: some View {
+    if let harness {
+      AgentBadgeView(agent: harness, size: 16)
+    } else {
+      Image(systemName: "terminal")
+        .accessibilityLabel("Shell")
+        .help("Shell only, no agent session")
+    }
+    if isDormant {
+      Image(systemName: "moon")
+        .foregroundStyle(.secondary)
+        .accessibilityLabel("Dormant session")
+    } else if let status {
+      Image(systemName: status.systemImage)
+        .foregroundStyle(status.tint)
+        .accessibilityLabel(status.accessibilityLabel)
+    }
   }
 }
 

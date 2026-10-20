@@ -1,6 +1,7 @@
 import Foundation
 import IdentifiedCollections
 import Sharing
+import SupacodeSettingsShared
 
 struct SessionsSidebarStructure: Equatable, Sendable {
   struct Section: Equatable, Identifiable, Sendable {
@@ -21,6 +22,12 @@ struct SessionsSidebarStructure: Equatable, Sendable {
     var isDetachable = false
 
     var isDormant: Bool { location == nil }
+    var harness: SkillAgent? {
+      switch id {
+      case .session(let key): key.harness
+      case .provisional(let harness, _): harness
+      }
+    }
   }
 
   /// A task another task can merge into: one that holds a tab.
