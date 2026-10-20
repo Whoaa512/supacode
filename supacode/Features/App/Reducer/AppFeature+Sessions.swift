@@ -221,11 +221,13 @@ extension AppFeature {
         .repositories(.delegate(.repositoriesChanged)):
         Self.syncSessionSelectionToFocus(state: &state)
         var effects: [Effect<Action>] = []
-        if let settled = Self.taskClosedForSettle(action, state: state),
-          let primary = Self.primarySession(of: settled, state: state)
-        {
+        let settled = Self.taskClosedForSettle(action, state: state)
+        if let settled, let primary = Self.primarySession(of: settled, state: state) {
           effects.append(.send(.repositories(.settleSession(primary))))
         }
+        let cancelled: LayoutID? =
+          if case .terminals(.layouts(.element(let layoutID, .alert(.dismiss)))) = action { layoutID } else { nil }
+        effects.append(Self.settleAdvanceEffect(closed: settled, cancelled: cancelled, state: &state))
         let keys = Self.liveSessionKeys(state: state)
         let tasks = Self.taskEntries(state: state)
         let index = Self.surfaceIndex(tasks: tasks)
@@ -580,14 +582,45 @@ extension AppFeature {
     case .provisional, nil:
       return .none
     }
-    guard let currentID,
-      let target = nextLiveRow(after: currentID, outside: settledTask, state: state),
+    guard let currentID else { return .none }
+    // A task with tabs open may ask before closing; the advance follows the answer.
+    if let settledTask, state.terminals.layouts[id: settledTask]?.layout.allContentIDs.isEmpty == false {
+      state.pendingSettleAdvance = currentID
+      return settleEffect
+    }
+    return .merge(settleEffect, advanceEffect(after: currentID, outside: settledTask, state: state))
+  }
+
+  /// The deferred half of a settle-and-advance, once `settled`'s tabs are
+  /// closed (or the confirmation was cancelled: then there is nowhere to go).
+  static func settleAdvanceEffect(
+    closed settled: LayoutID?, cancelled: LayoutID?, state: inout State
+  ) -> Effect<Action> {
+    guard let pending = state.pendingSettleAdvance else { return .none }
+    let pendingTask: LayoutID? =
+      switch pending {
+      case .task(let layoutID): layoutID
+      case .implicit(let key): taskLed(by: key, state: state)
+      case .provisional: nil
+      }
+    if let cancelled, cancelled == pendingTask {
+      state.pendingSettleAdvance = nil
+      return .none
+    }
+    guard let settled, settled == pendingTask else { return .none }
+    state.pendingSettleAdvance = nil
+    return advanceEffect(after: pending, outside: settled, state: state)
+  }
+
+  private static func advanceEffect(
+    after currentID: SessionRowID, outside settledTask: LayoutID?, state: State
+  ) -> Effect<Action> {
+    guard let target = nextLiveRow(after: currentID, outside: settledTask, state: state),
       let targetItem = state.repositories.sessionItems[id: target],
       let location = targetItem.location
-    else { return settleEffect }
+    else { return .none }
     var effects: [Effect<Action>] = [
-      settleEffect,
-      RepositoriesFeature.focusEffect(id: target, location: location).map(Action.repositories),
+      RepositoriesFeature.focusEffect(id: target, location: location).map(Action.repositories)
     ]
     if case .implicit(let targetKey) = target, targetItem.lifecycle == .settled {
       effects.append(.send(.repositories(.unsettleSession(targetKey))))

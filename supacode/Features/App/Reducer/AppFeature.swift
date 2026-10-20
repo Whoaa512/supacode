@@ -201,6 +201,10 @@ struct AppFeature {
     /// The tasks launches targeted, oldest first, each until its first tab exists.
     var pendingTaskLaunches: [PendingTaskLaunch] = []
     var lastFocusedSessionRowID: SessionRowID?
+    /// The row a settle-and-advance is closing a task from. The advance
+    /// waits until the tabs are gone, so a close confirmation is seen where
+    /// it was asked; a cancelled one advances nowhere.
+    var pendingSettleAdvance: SessionRowID?
     /// The session an agent last ended on a surface that is still open, so
     /// the next session it reports there is known to replace that one.
     var endedSessions: [AgentPresenceFeature.PresenceKey: SessionKey] = [:]

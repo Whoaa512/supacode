@@ -814,6 +814,52 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(Set(recorded.shown) == [otherTask], "not the tangent whose tab is closing")
   }
 
+  @Test(.dependencies) func settleAndAdvanceWaitsForTheCloseConfirmationBeforeMovingOn() async throws {
+    confirmClose(.always)
+    let recorded = Recorded()
+    var initial = try splitIntoTwoPanes(state(second: live("b", pid: 12)))
+    initial.repositories.sessionSelection = .task(task)
+    let store = store(initial, recorded: recorded)
+
+    await store.send(.settleSessionAndAdvance)
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    let alert = try #require(store.state.terminals.layouts[id: task]?.alert)
+    #expect(recorded.shown.isEmpty, "the confirmation is asked on the task still on screen")
+    #expect(store.state.pendingSettleAdvance == .task(task))
+
+    let confirm = try #require(alert.buttons.compactMap(\.action.action).first)
+    await store.send(.terminals(.layouts(.element(id: task, action: .alert(.presented(confirm))))))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(surfaces(of: task, in: store).isEmpty)
+    #expect(settledAt("a", in: store) == now)
+    #expect(Set(recorded.shown) == [otherTask])
+    #expect(store.state.pendingSettleAdvance == nil)
+  }
+
+  @Test(.dependencies) func cancellingTheSettleAndAdvanceConfirmationStaysPut() async throws {
+    confirmClose(.always)
+    let recorded = Recorded()
+    var initial = try splitIntoTwoPanes(state(second: live("b", pid: 12)))
+    initial.repositories.sessionSelection = .task(task)
+    let store = store(initial, recorded: recorded)
+
+    await store.send(.settleSessionAndAdvance)
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+    await store.send(.terminals(.layouts(.element(id: task, action: .alert(.dismiss)))))
+    await store.finish()
+    await store.skipReceivedActions(strict: false)
+
+    #expect(recorded.shown.isEmpty)
+    #expect(Set(surfaces(of: task, in: store)) == [primarySurface, secondSurface])
+    #expect(settledAt("a", in: store) == nil)
+    #expect(store.state.pendingSettleAdvance == nil)
+  }
+
   @Test(.dependencies) func settleAndAdvanceOnAShellOnlyTaskClosesItAndMovesOn() async {
     confirmClose(.never)
     let recorded = Recorded()
