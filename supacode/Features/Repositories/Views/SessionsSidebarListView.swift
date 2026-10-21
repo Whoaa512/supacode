@@ -74,6 +74,8 @@ struct SessionsSidebarListView: View {
   @Shared(.sessionsExpandSelectedTask) private var expandSelectedTask: Bool
   @State private var isSettledExpanded = false
   @State private var settledLimit = SessionsSidebarStructure.settledPageSize
+  /// The keyboard sits on the settled "Show more" row; the list shows no selected row then.
+  @State private var isShowMoreSelected = false
 
   var body: some View {
     let shortcutHintByID: [SessionRowID: String]
@@ -99,8 +101,11 @@ struct SessionsSidebarListView: View {
     }
     return List(
       selection: Binding(
-        get: { store.sessionSelection },
-        set: { store.send(.sessionSelectionChanged($0)) }
+        get: { isShowMoreSelected ? nil : store.sessionSelection },
+        set: {
+          isShowMoreSelected = false
+          store.send(.sessionSelectionChanged($0))
+        }
       )
     ) {
       // Running agents show up as rows before the first scan lands, so the
@@ -141,12 +146,20 @@ struct SessionsSidebarListView: View {
     .listStyle(.sidebar)
     .onAppear { store.send(.sessionsSidebarShown) }
     .onChange(of: isSettledExpanded) { _, expanded in
-      if !expanded { settledLimit = SessionsSidebarStructure.settledPageSize }
+      if !expanded {
+        settledLimit = SessionsSidebarStructure.settledPageSize
+        isShowMoreSelected = false
+      }
     }
+    .onChange(of: store.sessionSelection) { _, _ in isShowMoreSelected = false }
     .onChange(of: expandSelectedTask) { _, _ in store.send(.sessionsExpandSelectedTaskChanged) }
     .onKeyPress(.upArrow) { moveSelection(by: -1) }
     .onKeyPress(.downArrow) { moveSelection(by: 1) }
     .onKeyPress(.return) {
+      if isShowMoreSelected {
+        showMoreSettled()
+        return .handled
+      }
       guard let id = store.sessionSelection else { return .ignored }
       store.send(.activateSession(id))
       return .handled
@@ -224,25 +237,38 @@ struct SessionsSidebarListView: View {
 
   private func showMoreRow(remaining: Int) -> some View {
     let step = min(remaining, SessionsSidebarStructure.settledPageSize)
-    return Button("Show \(step) more") {
-      settledLimit += SessionsSidebarStructure.settledPageSize
+    return Button("Show \(step) more") { showMoreSettled() }
+      .buttonStyle(.plain)
+      .foregroundStyle(isShowMoreSelected ? .primary : .secondary)
+      .frame(maxWidth: .infinity)
+      .listRowBackground(isShowMoreSelected ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.5) : nil)
+      .help("Load the next \(step) settled sessions (\(remaining) not shown). Return when selected")
+  }
+
+  private func showMoreSettled() {
+    settledLimit += SessionsSidebarStructure.settledPageSize
+    guard isShowMoreSelected, !store.sessionsSidebarStructure.hasMoreSettled(than: settledLimit) else { return }
+    // Nothing left to page: the keyboard falls back onto the last row.
+    isShowMoreSelected = false
+    if let last = store.sessionsSidebarStructure.visibleIDs(settledLimit: settledLimit).last {
+      store.send(.sessionSelectionChanged(last))
     }
-    .buttonStyle(.plain)
-    .foregroundStyle(.secondary)
-    .frame(maxWidth: .infinity)
-    .help("Load the next \(step) settled sessions (\(remaining) not shown)")
   }
 
   private func moveSelection(by offset: Int) -> KeyPress.Result {
     let structure = store.sessionsSidebarStructure
-    var limit = isSettledExpanded ? settledLimit : 0
-    if structure.reachesSettledPageEnd(from: store.sessionSelection, offset: offset, settledLimit: limit) {
-      limit += SessionsSidebarStructure.settledPageSize
-      settledLimit = limit
-    }
-    guard let id = structure.selection(byOffset: offset, from: store.sessionSelection, settledLimit: limit)
+    let limit = isSettledExpanded ? settledLimit : 0
+    let current: SessionsSidebarStructure.KeyboardStop? =
+      isShowMoreSelected ? .showMoreSettled : store.sessionSelection.map { .row($0) }
+    guard let stop = structure.keyboardStop(byOffset: offset, from: current, settledLimit: limit)
     else { return .ignored }
-    store.send(.sessionSelectionChanged(id))
+    switch stop {
+    case .showMoreSettled:
+      isShowMoreSelected = true
+    case .row(let id):
+      isShowMoreSelected = false
+      store.send(.sessionSelectionChanged(id))
+    }
     return .handled
   }
 }

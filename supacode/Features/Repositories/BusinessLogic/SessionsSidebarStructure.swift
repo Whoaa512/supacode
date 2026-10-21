@@ -71,13 +71,28 @@ struct SessionsSidebarStructure: Equatable, Sendable {
     selection == .task(layoutID) && expanded.contains(layoutID)
   }
 
-  /// Whether stepping down from `current` runs off the end of the settled
-  /// page while more history remains: the keyboard's "Show more".
-  func reachesSettledPageEnd(from current: SessionRowID?, offset: Int, settledLimit: Int) -> Bool {
-    guard offset > 0, let current, let settled = sections.first(where: { $0.id == .settled }),
-      settled.rowIDs.count > settledLimit, settledLimit > 0
-    else { return false }
-    return settled.rowIDs[settledLimit - 1] == current
+  /// A stop the arrow keys land on: a row, or the settled section's
+  /// "Show more" when history remains past the page.
+  enum KeyboardStop: Equatable, Sendable {
+    case row(SessionRowID)
+    case showMoreSettled
+  }
+
+  func hasMoreSettled(than settledLimit: Int) -> Bool {
+    (sections.first { $0.id == .settled }?.rowIDs.count ?? 0) > max(0, settledLimit)
+  }
+
+  /// The stop `offset` steps from `current`, wrapping; "Show more" sits
+  /// after the last paged settled row, so Return there pages instead of
+  /// activating a task.
+  func keyboardStop(byOffset offset: Int, from current: KeyboardStop?, settledLimit: Int) -> KeyboardStop? {
+    var stops = visibleIDs(settledLimit: settledLimit).map(KeyboardStop.row)
+    if settledLimit > 0, hasMoreSettled(than: settledLimit) { stops.append(.showMoreSettled) }
+    guard !stops.isEmpty else { return nil }
+    guard let current, let index = stops.firstIndex(of: current) else {
+      return offset > 0 ? stops.first : stops.last
+    }
+    return stops[(index + offset + stops.count) % stops.count]
   }
 
   func selection(

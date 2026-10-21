@@ -512,11 +512,21 @@ struct RepositoriesFeatureSessionsTests {
     #expect(structure.selection(byOffset: -1, from: .implicit(active.id), settledLimit: 0) == .implicit(active.id))
     #expect(structure.selection(byOffset: 1, from: settledIDs[4], settledLimit: 2) == .implicit(active.id))
 
-    #expect(structure.reachesSettledPageEnd(from: settledIDs[1], offset: 1, settledLimit: 2))
-    #expect(!structure.reachesSettledPageEnd(from: settledIDs[1], offset: -1, settledLimit: 2))
-    #expect(!structure.reachesSettledPageEnd(from: settledIDs[0], offset: 1, settledLimit: 2))
-    #expect(!structure.reachesSettledPageEnd(from: settledIDs[4], offset: 1, settledLimit: 5))
-    #expect(!structure.reachesSettledPageEnd(from: .implicit(active.id), offset: 1, settledLimit: 0))
+    typealias Stop = SessionsSidebarStructure.KeyboardStop
+    #expect(structure.hasMoreSettled(than: 2))
+    #expect(!structure.hasMoreSettled(than: 5))
+    // Down from the last paged row lands on "Show more", then wraps; Return there pages, never activates.
+    #expect(structure.keyboardStop(byOffset: 1, from: .row(settledIDs[1]), settledLimit: 2) == .showMoreSettled)
+    #expect(structure.keyboardStop(byOffset: 1, from: .showMoreSettled, settledLimit: 2) == .row(.implicit(active.id)))
+    #expect(structure.keyboardStop(byOffset: -1, from: .showMoreSettled, settledLimit: 2) == .row(settledIDs[1]))
+    #expect(structure.keyboardStop(byOffset: -1, from: .row(.implicit(active.id)), settledLimit: 2) == .showMoreSettled)
+    #expect(structure.keyboardStop(byOffset: -1, from: nil, settledLimit: 2) == .showMoreSettled)
+    #expect(
+      structure.keyboardStop(byOffset: 1, from: .row(settledIDs[4]), settledLimit: 5) == .row(.implicit(active.id)))
+    #expect(
+      structure.keyboardStop(byOffset: -1, from: .row(.implicit(active.id)), settledLimit: 0)
+        == .row(.implicit(active.id)))
+    #expect(structure.keyboardStop(byOffset: 1, from: .showMoreSettled, settledLimit: 5) == .row(.implicit(active.id)))
   }
 
   @Test(.dependencies) func settledSectionOrdersByWhenSettledNotWhenCreated() {
