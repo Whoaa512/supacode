@@ -192,15 +192,12 @@ struct TerminalClient {
     /// Moves the worktree's focused pane into its own window, or back.
     case toggleWindowModeForFocusedPane(LayoutID)
     case renameTab(LayoutID, tabID: TabID, title: String)
-    /// Only tasks on a directory named in `archivedDirectories` (and not also
-    /// kept or protected) are pruned. Absence from the kept set never prunes:
-    /// that set is stale by delivery, and a missing directory can also mean an
-    /// orphan task or a repository that has not loaded yet. The archived set
-    /// is stale by delivery too: the manager prunes only what the store still
-    /// calls archived then.
-    case prune(
-      keepingDirectories: Set<Worktree.ID>, protectingRepositoryIDs: Set<Repository.ID>,
-      archivedDirectories: Set<Worktree.ID> = [])
+    /// The roster changed; tasks on a directory the store calls archived go.
+    /// Carries nothing: which directories are archived and which repositories
+    /// are shielded (failed or environment-blocked, no rows yet) is read
+    /// from the store at delivery. A directory merely absent from the roster
+    /// never prunes: it may be an orphan task or a repository not loaded yet.
+    case prune
     /// Explicitly deleted worktree: every layout on that directory goes, with
     /// its sessions and persisted record, host or no host. Identity only;
     /// decided at delivery: the manager checks the roster no longer lists the

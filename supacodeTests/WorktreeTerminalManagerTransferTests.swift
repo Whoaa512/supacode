@@ -994,7 +994,7 @@ struct WorktreeTerminalManagerTransferTests {
     await change(.archived, in: harness)
 
     // No suspension between the three: the removal's own write has not run.
-    harness.manager.prune(keepingDirectories: [elsewhere.id], archivedDirectories: [Self.directory.id])
+    harness.manager.prune()
     harness.manager.cancelPendingLayoutSaves()
     harness.manager.saveAllLayoutSnapshots()
     await drainWrites(harness)
@@ -1408,7 +1408,7 @@ struct WorktreeTerminalManagerTransferTests {
     // The directory the tab came from goes: the tab is another directory's now.
     // (Neither directory is in the roster, so the prune is a no-op by the
     // delivery rule and the deletion does the removing.)
-    harness.manager.prune(keepingDirectories: [destinationDirectory.id], archivedDirectories: [sourceDirectory.id])
+    harness.manager.prune()
     harness.manager.removeLayouts(forDirectory: sourceDirectory.id)
     await Task.megaYield()
     #expect(harness.recorder.localKills.value.isEmpty)

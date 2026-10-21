@@ -691,10 +691,8 @@ final class WorktreeTerminalManager {
 
   private func handleManagementCommand(_ command: TerminalClient.Command) {
     switch command {
-    case .prune(let ids, let protectedRepositoryIDs, let archivedDirectories):
-      prune(
-        keepingDirectories: ids, protectingRepositoryIDs: protectedRepositoryIDs,
-        archivedDirectories: archivedDirectories)
+    case .prune:
+      prune()
     case .removeLayouts(let directoryID):
       removeLayouts(forDirectory: directoryID)
     case .transferTabs(let from, let target, let context, let request):
@@ -2172,25 +2170,18 @@ final class WorktreeTerminalManager {
       clearingTombstones: surfaceIDs.map { ContentID(rawValue: $0) })
   }
 
-  func prune(
-    keepingDirectories directoryIDs: Set<Worktree.ID>,
-    protectingRepositoryIDs protectedRepositoryIDs: Set<Repository.ID> = [],
-    archivedDirectories: Set<Worktree.ID> = []
-  ) {
-    // The host's directory decides, never its key: a layout id need not be
-    // the directory id, and a mismatch here kills sessions silently.
-    // A host goes only when its directory is named as archived. The kept set
-    // was computed before this command was delivered, so absence from it
-    // proves nothing: a task attached in between, one on a directory deleted
-    // outside the app or one whose repository left the roster is an orphan
-    // and keeps its sessions. The archived set was computed before delivery
-    // too: an archive reversed in between must not cost the directory its
-    // tasks, so only what the store still calls archived now goes, and with
-    // no store to ask, nothing does.
-    let stillArchived = appStore?.withState { $0.archivedDirectories } ?? []
-    let prunable = archivedDirectories.intersection(stillArchived).subtracting(directoryIDs)
+  /// Decided here, from the store as it is now: a host goes only when its
+  /// directory is one the store calls archived at delivery, so an archive
+  /// reversed since the roster changed costs nothing, and a task on a
+  /// directory the roster does not list (deleted outside the app, its
+  /// repository removed or not loaded) is an orphan and keeps its sessions.
+  /// The host's directory decides, never its key: a layout id need not be
+  /// the directory id. With no store to ask, nothing goes.
+  func prune() {
+    let (prunable, shielded) =
+      appStore?.withState { ($0.archivedDirectories, $0.pruneShieldedRepositoryIDs) } ?? ([], [])
     let shouldKeep: (WorktreeContentHost) -> Bool = { host in
-      !prunable.contains(host.worktreeID) || protectedRepositoryIDs.contains(host.repositoryID)
+      !prunable.contains(host.worktreeID) || shielded.contains(host.repositoryID)
     }
     var removed: [(LayoutID, WorktreeContentHost)] = []
     for (id, host) in hosts where !shouldKeep(host) {
@@ -2242,9 +2233,8 @@ final class WorktreeTerminalManager {
   }
 
   /// A hydrated task the user never opened has no host, so the roster pass
-  /// above cannot see it. It goes only when its recorded directory is named:
-  /// a hostless task outside the kept set may belong to a repository that has
-  /// not loaded, and one with no recorded directory is never guessed at.
+  /// above cannot see it. It goes only when its recorded directory is
+  /// archived now; one with no recorded directory is never guessed at.
   private func pruneHostlessLayouts(in directoryIDs: Set<Worktree.ID>) {
     guard !directoryIDs.isEmpty else { return }
     let recorded = appStore?.withState { $0.terminals.directories } ?? [:]

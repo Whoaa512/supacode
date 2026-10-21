@@ -56,6 +56,32 @@ struct AppFeatureArchivedSelectionTests {
     #expect(store.state.repositories.sidebar.focusedWorktreeID == priorFocus)
   }
 
+  /// The prune command carries nothing; this set is what the manager reads at
+  /// delivery. A row mid delete-script is still kept, archived or not.
+  @Test(.dependencies) func archivedDirectoriesNamesArchivedRowsExceptOnesRunningTheirDeleteScript() {
+    let rootURL = URL(fileURLWithPath: "/tmp/repo")
+    let worktrees = ["wt-active", "wt-archived", "wt-deleting"].map { name in
+      Worktree(
+        id: Worktree.ID("/tmp/repo/\(name)"), name: name, detail: "",
+        workingDirectory: URL(fileURLWithPath: "/tmp/repo/\(name)"), repositoryRootURL: rootURL)
+    }
+    let repository = Repository(
+      id: RepositoryID(rootURL.path(percentEncoded: false)), rootURL: rootURL, name: "repo",
+      worktrees: IdentifiedArray(uniqueElements: worktrees))
+    var repositoriesState = RepositoriesFeature.State(reconciledRepositories: [repository])
+    repositoriesState.$sidebar.withLock { sidebar in
+      for worktree in worktrees.dropFirst() {
+        sidebar.insert(
+          worktree: worktree.id, in: repository.id, bucket: .archived,
+          item: .init(archivedAt: Date(timeIntervalSince1970: 1_000_000)))
+      }
+    }
+    repositoriesState.sidebarItems[id: worktrees[2].id]?.lifecycle = .deletingScript
+    let appState = AppFeature.State(repositories: repositoriesState, settings: SettingsFeature.State())
+
+    #expect(appState.archivedDirectories == [worktrees[1].id])
+  }
+
   @Test(.dependencies) func repositoriesChangedPrunesArchivedWorktreesFromTerminalAndRunScriptStatus() async {
     let rootURL = URL(fileURLWithPath: "/tmp/repo")
     let activeWorktree = Worktree(
@@ -122,9 +148,7 @@ struct AppFeatureArchivedSelectionTests {
 
     #expect(
       sentCommands.value == [
-        .prune(
-          keepingDirectories: [activeWorktree.id], protectingRepositoryIDs: [],
-          archivedDirectories: [archivedWorktree.id])
+        .prune
       ]
     )
   }
@@ -194,9 +218,7 @@ struct AppFeatureArchivedSelectionTests {
     // The archived directory alone is pruned: the orphan is always kept.
     #expect(
       sentCommands.value == [
-        .prune(
-          keepingDirectories: [activeWorktree.id, orphanDirectory], protectingRepositoryIDs: [],
-          archivedDirectories: [archivedWorktree.id])
+        .prune
       ]
     )
     #expect(watcherCommands.value == [.setWorktrees(watcherInputWithoutTasks)])
@@ -227,7 +249,7 @@ struct AppFeatureArchivedSelectionTests {
 
     #expect(
       sentCommands.value == [
-        .prune(keepingDirectories: [], protectingRepositoryIDs: [failedRepositoryID])
+        .prune
       ]
     )
   }
@@ -260,7 +282,7 @@ struct AppFeatureArchivedSelectionTests {
 
     #expect(
       sentCommands.value == [
-        .prune(keepingDirectories: [], protectingRepositoryIDs: [blockedID])
+        .prune
       ]
     )
   }
@@ -331,7 +353,7 @@ struct AppFeatureArchivedSelectionTests {
     #expect(activeRowIDs.contains(worktree.id))
     #expect(
       sentCommands.value == [
-        .prune(keepingDirectories: [worktree.id], protectingRepositoryIDs: []),
+        .prune,
         .setImagePasteAgents(surfaceID: surfaceID, agents: [.claude]),
       ]
     )

@@ -434,27 +434,25 @@ struct WorktreeTerminalManagerAckTests {
 
   @Test(.dependencies) func pruneDecidesByTheHostsDirectoryNotItsKey() async {
     let directory = makeWorktree(id: "/tmp/repo/wt-directory")
-    let harness = makeHarness(repositories: roster([directory]))
+    let keyDirectory = makeWorktree(id: "/tmp/repo/wt-layout-key")
+    let harness = makeHarness(repositories: roster([directory, keyDirectory]))
     let pump = CreationEvents(harness.manager)
-    let layoutID = LayoutID(legacyWorktreeKey: "/tmp/repo/wt-layout-key")
+    let layoutID = LayoutID(legacyWorktreeKey: keyDirectory.id.rawValue)
     _ = await openLayout(layoutID, on: directory, in: harness, pump: pump)
 
-    harness.manager.prune(keepingDirectories: [directory.id], protectingRepositoryIDs: [])
+    harness.manager.prune()
 
     #expect(harness.manager.hostIfExists(for: layoutID) != nil)
     #expect(harness.store.withState { $0.terminals.layouts[id: layoutID] } != nil)
 
     // Archiving the key names no directory a host sits on.
-    harness.manager.prune(
-      keepingDirectories: [], protectingRepositoryIDs: [], archivedDirectories: ["/tmp/repo/wt-layout-key"])
+    archive(keyDirectory, in: harness)
+    harness.manager.prune()
 
     #expect(harness.manager.hostIfExists(for: layoutID) != nil)
 
-    // Keeping the key alone protects nothing once the directory is archived.
     archive(directory, in: harness)
-    harness.manager.prune(
-      keepingDirectories: ["/tmp/repo/wt-layout-key"], protectingRepositoryIDs: [],
-      archivedDirectories: [directory.id])
+    harness.manager.prune()
 
     #expect(harness.manager.hostIfExists(for: layoutID) == nil)
     #expect(harness.store.withState { $0.terminals.layouts[id: layoutID] } == nil)
@@ -506,7 +504,7 @@ struct WorktreeTerminalManagerAckTests {
     _ = await openLayout(first, on: directory, in: harness, pump: pump)
     _ = await openLayout(second, on: directory, in: harness, pump: pump)
 
-    harness.manager.prune(keepingDirectories: [directory.id], protectingRepositoryIDs: [])
+    harness.manager.prune()
 
     #expect(harness.manager.hostIfExists(for: first) != nil)
     #expect(harness.manager.hostIfExists(for: second) != nil)
@@ -525,8 +523,7 @@ struct WorktreeTerminalManagerAckTests {
     _ = await openLayout(second, on: archived, in: harness, pump: pump)
     _ = await openLayout(kept, on: other, in: harness, pump: pump)
 
-    harness.manager.prune(
-      keepingDirectories: [other.id], protectingRepositoryIDs: [], archivedDirectories: [archived.id])
+    harness.manager.prune()
 
     #expect(harness.manager.hostIfExists(for: first) == nil)
     #expect(harness.manager.hostIfExists(for: second) == nil)
@@ -547,12 +544,9 @@ struct WorktreeTerminalManagerAckTests {
     let archivedTask = LayoutID(task: UUID())
     let orphanTask = LayoutID(task: UUID())
     let listedSurface = await openLayout(listedTask, on: listed, in: harness, pump: pump)
-    // The reducer computes the prune from the roster it sees: one listed
-    // directory, nothing archived, and no orphan yet.
-    let computedEarlier = TerminalClient.Command.prune(
-      keepingDirectories: [listed.id], protectingRepositoryIDs: [], archivedDirectories: [])
-    // Before that command is delivered, a task opens on a directory the
-    // roster does not list.
+    // The reducer sends the prune for a roster of one listed directory,
+    // nothing archived and no orphan yet. Before it is delivered, a task
+    // opens on a directory the roster does not list.
     let orphanSurface = await openLayout(orphanTask, on: gone, in: harness, pump: pump)
     let archivedSurface = await openLayout(archivedTask, on: archived, in: harness, pump: pump)
     let created = Date(timeIntervalSince1970: 1)
@@ -568,18 +562,16 @@ struct WorktreeTerminalManagerAckTests {
         layout: singleTabLayout(contentID: archivedSurface), createdAt: created),
     ])
 
-    harness.manager.handleCommand(computedEarlier)
+    harness.manager.handleCommand(.prune)
 
     #expect(harness.manager.hostIfExists(for: orphanTask) != nil)
     #expect(harness.manager.hostIfExists(for: archivedTask) != nil)
     #expect(harness.store.withState { Set($0.terminals.layouts.ids) } == [listedTask, orphanTask, archivedTask])
     #expect(harness.store.withState { $0.terminals.directories[orphanTask]?.worktreeID } == gone.id)
 
-    // A later, positively archived directory is the only thing that goes. Its
-    // delete and kill land after anything the stale command could have queued.
+    // A later, positively archived directory is the only thing that goes.
     archive(archived, in: harness)
-    harness.manager.prune(
-      keepingDirectories: [listed.id], protectingRepositoryIDs: [], archivedDirectories: [archived.id])
+    harness.manager.prune()
 
     let written = await recorder.nextWrite { $0.tasks[archivedTask.persistenceKey] == nil }
     #expect(Set(written.tasks.keys) == [listedTask.persistenceKey, orphanTask.persistenceKey])
@@ -589,8 +581,6 @@ struct WorktreeTerminalManagerAckTests {
     #expect(harness.manager.hostIfExists(for: orphanTask) != nil)
   }
 
-  /// A roster of one repository whose `archived` worktree sits in the
-  /// archived bucket, as the reducer sees it when it computes a prune.
   /// A roster listing `worktrees` in one repository, none archived. A prune
   /// decides on what the store calls archived at delivery, so a test that
   /// prunes by archive lists the directory here and archives it (`archive`).
@@ -639,7 +629,7 @@ struct WorktreeTerminalManagerAckTests {
     _ = await openLayout(keptTask, on: other, in: harness, pump: pump)
 
     harness.manager.handleCommand(
-      .prune(keepingDirectories: [other.id], protectingRepositoryIDs: [], archivedDirectories: [archived.id]))
+      .prune)
 
     #expect(harness.manager.hostIfExists(for: archivedTask) == nil)
     #expect(harness.manager.hostIfExists(for: keptTask) != nil)
@@ -671,20 +661,17 @@ struct WorktreeTerminalManagerAckTests {
         id: opened, directory: .init(worktreeID: archived.id), layout: singleTabLayout(contentID: openedSurface),
         createdAt: Date(timeIntervalSince1970: 1)),
     ])
-    // The reducer computed this while the directory was archived.
+    // The reducer sent the prune while the directory was archived; the
+    // archive is reversed before the command is delivered.
     try #require(harness.store.withState { $0.archivedDirectories } == [archived.id])
-    let computedEarlier = TerminalClient.Command.prune(
-      keepingDirectories: [other.id], protectingRepositoryIDs: [], archivedDirectories: [archived.id])
-
-    // The archive is reversed before the command is delivered.
     repositories.$sidebar.withLock { $0.removeAnywhere(worktree: archived.id, in: RepositoryID("/tmp/repo")) }
     try #require(harness.store.withState { $0.archivedDirectories }.isEmpty)
-    harness.manager.handleCommand(computedEarlier)
+    harness.manager.handleCommand(.prune)
 
     #expect(harness.manager.hostIfExists(for: opened) != nil)
     #expect(harness.store.withState { Set($0.terminals.layouts.ids) } == [opened, neverOpened])
     #expect(harness.store.withState { Set($0.terminals.directories.keys) } == [opened, neverOpened])
-    // Anything the stale command had queued would land before this write.
+    // Anything the prune had queued would land before this write.
     harness.manager.handleCommand(.setSelectedLayoutID(opened))
     harness.manager.handleActiveTaskChanged(directoryID: archived.id)
     let written = await recorder.nextWrite { $0.activeTasks[archived.id.rawValue] == opened.persistenceKey }
@@ -693,10 +680,9 @@ struct WorktreeTerminalManagerAckTests {
     #expect(recorder.remoteKills.value.isEmpty)
   }
 
-  /// The recheck is the primitive's own, not only its command handler's: a
-  /// direct call with a stale archived set prunes nothing the store no longer
-  /// calls archived.
-  @Test(.dependencies) func thePrunePrimitiveItselfRechecksTheArchiveAtDelivery() async throws {
+  /// The archive is read by the primitive itself, not only its command
+  /// handler: a direct call prunes nothing the store no longer calls archived.
+  @Test(.dependencies) func thePrunePrimitiveItselfReadsTheArchiveAtDelivery() async throws {
     let archived = makeWorktree(id: "/tmp/repo/wt-archived")
     let other = makeWorktree(id: "/tmp/repo/wt-other")
     let repositories = roster(archiving: archived, beside: other)
@@ -707,16 +693,14 @@ struct WorktreeTerminalManagerAckTests {
     try #require(harness.store.withState { $0.archivedDirectories } == [archived.id])
 
     repositories.$sidebar.withLock { $0.removeAnywhere(worktree: archived.id, in: RepositoryID("/tmp/repo")) }
-    harness.manager.prune(
-      keepingDirectories: [other.id], protectingRepositoryIDs: [], archivedDirectories: [archived.id])
+    harness.manager.prune()
 
     #expect(harness.manager.hostIfExists(for: opened) != nil)
     #expect(harness.store.withState { Set($0.terminals.layouts.ids) } == [opened])
 
     // Archived again: the same call tears it down.
     archive(archived, in: harness)
-    harness.manager.prune(
-      keepingDirectories: [other.id], protectingRepositoryIDs: [], archivedDirectories: [archived.id])
+    harness.manager.prune()
     #expect(harness.manager.hostIfExists(for: opened) == nil)
     #expect(harness.store.withState { $0.terminals.layouts.isEmpty })
   }
@@ -733,7 +717,7 @@ struct WorktreeTerminalManagerAckTests {
     _ = manager.host(for: layoutID, context: DirectoryContext(worktree: directory))
 
     manager.handleCommand(
-      .prune(keepingDirectories: [], protectingRepositoryIDs: [], archivedDirectories: [directory.id]))
+      .prune)
 
     #expect(manager.hostIfExists(for: layoutID) != nil)
   }
@@ -844,9 +828,7 @@ struct WorktreeTerminalManagerAckTests {
     let fixture = await makeSharedDirectoryFixture(remote: remote, harness: harness, recorder: recorder)
 
     archive(directory, in: harness)
-    harness.manager.prune(
-      keepingDirectories: ["/tmp/repo/wt-other"], protectingRepositoryIDs: [],
-      archivedDirectories: [fixture.directory.id])
+    harness.manager.prune()
 
     await expectOnlyTheSharedDirectoryWasTornDown(fixture, harness: harness, recorder: recorder)
   }
@@ -881,7 +863,6 @@ struct WorktreeTerminalManagerAckTests {
         killSignal.yield()
       },
       repositories: roster([archivedWorktree, makeWorktree(id: "/tmp/repo/wt-other")]))
-    archive(archivedWorktree, in: harness)
     let archived = TaskRecord.Directory(worktreeID: "/tmp/repo/wt-archived")
     let other = TaskRecord.Directory(worktreeID: "/tmp/repo/wt-other")
     let first = LayoutID(task: UUID())
@@ -901,20 +882,13 @@ struct WorktreeTerminalManagerAckTests {
     // Hydrated, never selected: none of the three has a host.
     harness.store.send(.terminals(.layoutsHydrated(file)))
 
-    // Absence from the kept set alone prunes no hostless task: its repository
-    // may simply not be listed yet.
-    harness.manager.prune(keepingDirectories: [other.worktreeID], protectingRepositoryIDs: [])
+    // Nothing archived prunes no hostless task, listed or not: an unlisted
+    // directory's repository may simply not have loaded yet.
+    harness.manager.prune()
     #expect(harness.store.withState { $0.terminals.layouts.count } == 3)
 
-    // A directory still kept (its delete script is running) outranks the archive.
-    harness.manager.prune(
-      keepingDirectories: [archived.worktreeID, other.worktreeID], protectingRepositoryIDs: [],
-      archivedDirectories: [archived.worktreeID])
-    #expect(harness.store.withState { $0.terminals.layouts.count } == 3)
-
-    harness.manager.prune(
-      keepingDirectories: [other.worktreeID], protectingRepositoryIDs: [],
-      archivedDirectories: [archived.worktreeID])
+    archive(archivedWorktree, in: harness)
+    harness.manager.prune()
 
     try #require(harness.store.withState { Array($0.terminals.layouts.ids) } == [kept])
     #expect(harness.store.withState { $0.terminals.directories } == [kept: other])

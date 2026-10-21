@@ -747,15 +747,6 @@ struct AppFeature {
 
       case .repositories(.delegate(.repositoriesChanged(let repositories))):
         RepositoriesFeature.syncSidebar(&state.repositories)
-        // Directories, not layouts: every task on a kept directory stays. A
-        // task whose directory is no known worktree (deleted outside the app,
-        // its repository removed or not loaded) is never pruned; only an
-        // archived directory's tasks are.
-        let knownDirectories = Set(state.repositories.sidebarItems.ids)
-        let archivedDirectories = state.archivedDirectories
-        let keptRows = knownDirectories.subtracting(archivedDirectories)
-        let allowed = keptRows.union(
-          state.terminals.directories.values.map(\.worktreeID).filter { !knownDirectories.contains($0) })
         let recencyIDs = CommandPaletteFeature.recencyRetentionIDs(
           from: repositories,
           scripts: state.allScripts
@@ -782,20 +773,7 @@ struct AppFeature {
         // their placeholders have no rows yet, so pruning would delete restored
         // remote layouts and kill their zmx sessions before resolution lands.
         if state.repositories.resolvingRemoteRepositoryIDs.isEmpty {
-          // Failed/loading repos have no worktree rows yet, so shield their restored zmx sessions from prune.
-          // Environment-blocked git repos are suppressed with no rows either, so shield them too: a transient
-          // license/tools gate must not tear down their live terminal layouts.
-          let protectedRepositoryIDs = Set(state.repositories.loadFailuresByID.keys)
-            .union(state.repositories.environmentBlockedRepositoryIDs)
-          effects.append(
-            .run { [allowed, protectedRepositoryIDs, archivedDirectories] _ in
-              await terminalClient.send(
-                .prune(
-                  keepingDirectories: allowed, protectingRepositoryIDs: protectedRepositoryIDs,
-                  archivedDirectories: archivedDirectories)
-              )
-            }
-          )
+          effects.append(.run { _ in await terminalClient.send(.prune) })
         }
         // Drain layout-seeded surfaces (including any that piled up from prior
         // reconciles before this delegate fired) so restored presence records
@@ -4718,6 +4696,14 @@ extension AppFeature.State {
       repositories.sidebarItems
         .filter { archivedIDs.contains($0.id) && $0.lifecycle != .deletingScript }
         .map(\.id))
+  }
+
+  /// Repositories whose rows are not on screen for a reason other than
+  /// archiving: failed to load, or suppressed by a git environment gate. A
+  /// roster prune must not tear down their tasks, whatever its directory set
+  /// says.
+  var pruneShieldedRepositoryIDs: Set<Repository.ID> {
+    Set(repositories.loadFailuresByID.keys).union(repositories.environmentBlockedRepositoryIDs)
   }
 
   /// The persisted layout of the task the seam resolves this directory to.

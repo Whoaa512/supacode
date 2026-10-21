@@ -135,13 +135,11 @@ data today.
   (resume-settled, 2026-10-20): `resumeInput` always prefixes the `cd`, own
   directory included; `aResumeInTheTasksOwnDirectoryStillChangesToIt` covers
   a task whose focused tab recorded another pwd.
-- **`prune(keepingDirectories:protectingRepositoryIDs:archivedDirectories:)`
-  carries precomputed sets across the boundary.** The manager re-derives
-  what matters at delivery (a host goes only when its directory is named as
-  archived, and the primitive re-intersects with `archivedDirectories`), so
-  the kept and protection sets are advisory, but the command shape still
-  violates "carry identity". Retype to a bare `prune` that reads the roster
-  and archive state through the store at delivery, and drop the two sets.
+- ~~**`prune(keepingDirectories:protectingRepositoryIDs:archivedDirectories:)`
+  carries precomputed sets across the boundary.**~~ Fixed
+  (carry-identity-followups, 2026-10-21): `.prune` carries nothing; the
+  manager reads `archivedDirectories` and `pruneShieldedRepositoryIDs` from
+  the store at delivery. A host goes only when its directory is archived then.
 - **`deliveryContext` falls back to the carried `DirectoryContext` for an
   unknown layout.** For a layout with no task, no pending mint and not
   removed, a creating command is served with the context it carried
