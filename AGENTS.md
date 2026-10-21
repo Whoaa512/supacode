@@ -12,7 +12,7 @@ Requires [mise](https://mise.jdx.dev/) for zig, swiftlint, swift-format, xcbeaut
   ```bash
   make test LOCAL_XCODEBUILD_FLAGS='SWIFT_VERSION=5 -only-testing:supacodeTests/MyTests'
   ```
-- Tests are split across four bundles by filename globs in `Project.swift`; `-only-testing` with the wrong bundle matches nothing and the run "succeeds" with 0 tests. Verify with `xcrun xcresulttool get test-results summary --path build/supacode-tests.xcresult` (check `totalTestCount > 0`). Bundle routing:
+- Tests are split across four bundles by filename globs in `Project.swift`; `-only-testing` with the wrong bundle matches nothing and the run "succeeds" with 0 tests. Verify with `xcrun xcresulttool get test-results summary --path build/supacode-tests.xcresult` (check `totalTestCount > 0`). Per-function selectors (`bundle/Suite/testFunc`) also silently match 0 tests for Swift Testing suites; the suite level (`bundle/Suite`) is the finest granularity that reliably selects anything. The `totalTestCount` check is how you notice either case. Bundle routing:
   - `supacodeFeatureTests`: `AppFeature*.swift`, `RepositoriesFeature*.swift`
   - `supacodeTerminalTests`: `Ghostty*.swift`, `LayoutFeature*.swift`, `Layouts*.swift`, `SplitTree*.swift`, `WorktreeTerminalManager*.swift`, `Zmx*.swift`
   - `supacodeGitTests`: `AgentHook*.swift`, `Git*.swift`, `ShellClient*.swift`, and a few named files
