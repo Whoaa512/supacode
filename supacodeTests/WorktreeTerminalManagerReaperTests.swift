@@ -18,7 +18,10 @@ struct WorktreeTerminalManagerReaperTests {
       $0.zmxClient = ZmxClient(
         executableURL: { nil },
         isBundled: { true },
-        killSession: { id in killed.withValue { $0.append(id) } },
+        killSession: { id in
+          killed.withValue { $0.append(id) }
+          return true
+        },
         killRemoteSession: { _, _ in },
         listSessionsWithClients: { listing }
       )
@@ -78,7 +81,10 @@ struct WorktreeTerminalManagerReaperTests {
       $0.zmxClient = ZmxClient(
         executableURL: { nil },
         isBundled: { true },
-        killSession: { id in killed.withValue { $0.append(id) } },
+        killSession: { id in
+          killed.withValue { $0.append(id) }
+          return true
+        },
         killRemoteSession: { _, _ in },
         listSessionsWithClients: { listing.value }
       )
@@ -117,10 +123,11 @@ struct WorktreeTerminalManagerReaperTests {
             kills.append(id)
             return kills.count
           }
-          guard count == 1 else { return }
+          guard count == 1 else { return true }
           startedSignal.yield()
           var holds = held.makeAsyncIterator()
           _ = await holds.next()
+          return true
         },
         killRemoteSession: { _, _ in },
         listSessionsWithClients: { [] }
@@ -139,6 +146,48 @@ struct WorktreeTerminalManagerReaperTests {
     await clock.run()
 
     #expect(killed.value == [trackedSession])
+  }
+
+  /// The budgeted kill was cut short (cancelled or timed out mid-subprocess),
+  /// so the session may still be running its ssh reconnect loop: the fallback
+  /// must kill it again, uncancelled.
+  @Test func aKillCutShortByTheBudgetIsRetried() async {
+    let killed = LockIsolated<[String]>([])
+    let (started, startedSignal) = AsyncStream<Void>.makeStream()
+    let (held, holdSignal) = AsyncStream<Void>.makeStream()
+    let clock = TestClock()
+    let manager = withDependencies {
+      $0.zmxClient = ZmxClient(
+        executableURL: { nil },
+        isBundled: { true },
+        killSession: { id in
+          let count = killed.withValue { kills in
+            kills.append(id)
+            return kills.count
+          }
+          guard count == 1 else { return true }
+          startedSignal.yield()
+          var holds = held.makeAsyncIterator()
+          _ = await holds.next()
+          return false
+        },
+        killRemoteSession: { _, _ in },
+        listSessionsWithClients: { [] }
+      )
+    } operation: {
+      WorktreeTerminalManager(runtime: GhosttyRuntime(), clock: clock)
+    }
+    let trackedSession = trackOneSurface(in: manager)
+
+    let terminate = Task { await manager.terminateAllSessions(killBudget: .seconds(6)) }
+    var starts = started.makeAsyncIterator()
+    _ = await starts.next()
+    await clock.advance(by: .seconds(6))
+    holdSignal.finish()
+    await terminate.value
+    await clock.run()
+
+    #expect(killed.value == [trackedSession, trackedSession])
   }
 
   /// Gives `manager` one host with one tracked terminal surface; returns the

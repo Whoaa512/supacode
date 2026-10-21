@@ -212,7 +212,7 @@ struct WorktreeTerminalManagerSessionsTests {
       $0.zmxClient = ZmxClient(
         executableURL: { nil },
         isBundled: { true },
-        killSession: { _ in },
+        killSession: { _ in true },
         killRemoteSession: { _, _ in },
         listSessionsWithClients: { [] }
       )

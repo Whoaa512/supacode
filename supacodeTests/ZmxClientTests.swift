@@ -1,3 +1,4 @@
+import ConcurrencyExtras
 import Foundation
 import SupacodeSettingsShared
 import Testing
@@ -258,7 +259,10 @@ struct ZmxClientKillSurfaceSessionsTests {
     ZmxClient(
       executableURL: { nil },
       isBundled: { true },
-      killSession: { _ in await recorder.record("local") },
+      killSession: { _ in
+        await recorder.record("local")
+        return true
+      },
       killRemoteSession: { _, _ in await recorder.record("remote") },
       listSessionsWithClients: { nil },
     )
@@ -300,6 +304,21 @@ struct ZmxClientKillSurfaceSessionsTests {
     await client.killSurfaceSessions(sessionID: "supa-s", remoteHost: nil, killLocal: false)
 
     #expect(await recorder.calls.isEmpty)
+  }
+
+  @Test func reportsWhetherTheLocalKillLanded() async {
+    let outcome = LockIsolated(true)
+    let client = ZmxClient(
+      executableURL: { nil },
+      isBundled: { true },
+      killSession: { _ in outcome.value },
+      killRemoteSession: { _, _ in },
+      listSessionsWithClients: { nil }
+    )
+
+    #expect(await client.killSurfaceSessions(sessionID: "supa-s", remoteHost: nil, killLocal: true))
+    outcome.setValue(false)
+    #expect(!(await client.killSurfaceSessions(sessionID: "supa-s", remoteHost: nil, killLocal: true)))
   }
 
   @Test func skipsLocalKillUnderCancellation() async {

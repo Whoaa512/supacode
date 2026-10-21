@@ -61,7 +61,10 @@ struct WorktreeTerminalManagerTransferTests {
       $0.zmxClient = ZmxClient(
         executableURL: { nil },
         isBundled: { true },
-        killSession: { session in recorder.localKills.withValue { $0.append(session) } },
+        killSession: { session in
+          recorder.localKills.withValue { $0.append(session) }
+          return true
+        },
         killRemoteSession: { _, session in recorder.remoteKills.withValue { $0.append(session) } },
         listSessionsWithClients: listSessions
       )

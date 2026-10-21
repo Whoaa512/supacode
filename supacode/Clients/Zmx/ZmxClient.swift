@@ -24,8 +24,10 @@ struct ZmxClient: Sendable {
   /// bypass only means "don't wrap a new session", not "don't kill an old one".
   var isBundled: @Sendable () -> Bool
   /// Tear down a session. No-op on missing. Bounded by a 5-second timeout so a
-  /// stuck daemon can't hold the close path indefinitely.
-  var killSession: @Sendable (_ sessionID: String) async -> Void
+  /// stuck daemon can't hold the close path indefinitely. Returns whether the
+  /// kill ran to a clean exit: false on spawn failure, timeout or cancellation,
+  /// so a quit-time caller knows the session may still be alive.
+  var killSession: @Sendable (_ sessionID: String) async -> Bool
   /// Detach every client of a session over the daemon's IPC socket. The daemon
   /// closes each client's connection; the client exits on socket HUP and the
   /// session SURVIVES for later reattach. This is the only safe way to make an
@@ -99,10 +101,11 @@ extension ZmxClient {
       cachedBundledURL
     }
 
-    /// Runs a bounded subprocess and returns captured stdout on success, or nil
-    /// on any failure path (spawn error, timeout, non-zero exit). When
-    /// `captureStdout` is false the stdout pipe is replaced with `/dev/null`
-    /// so fire-and-forget callers can't deadlock the child on a full buffer.
+    /// Runs a bounded subprocess and returns captured stdout on success (an
+    /// empty string when not capturing), or nil on any failure path (spawn
+    /// error, timeout, non-zero exit). When `captureStdout` is false the
+    /// stdout pipe is replaced with `/dev/null` so fire-and-forget callers
+    /// can't deadlock the child on a full buffer.
     @Sendable func runProcess(
       invocation: (executableURL: URL, arguments: [String]),
       environment: [String: String]?,
@@ -205,7 +208,7 @@ extension ZmxClient {
         zmxLogger.warning("\(commandLabel) exit=\(exitStatus) stderr=\(stderr)")
         return nil
       }
-      guard captureStdout else { return nil }
+      guard captureStdout else { return "" }
       return stdoutBuffer.withValue { String(data: $0, encoding: .utf8) ?? "" }
     }
 
@@ -241,7 +244,7 @@ extension ZmxClient {
       executableURL: resolveExecutable,
       isBundled: { bundledExecutable() != nil },
       killSession: { sessionID in
-        _ = await runZmx(["kill", sessionID])
+        await runZmx(["kill", sessionID]) != nil
       },
       detachSessionClients: { sessionID in
         // `zmx detach` takes no session argument; it resolves the target from
@@ -270,7 +273,7 @@ extension ZmxClient {
   nonisolated static let noop = ZmxClient(
     executableURL: { nil },
     isBundled: { false },
-    killSession: { _ in },
+    killSession: { _ in true },
     detachSessionClients: { _ in },
     killRemoteSession: { _, _ in },
     listSessionsWithClients: { [] }
@@ -283,9 +286,9 @@ extension ZmxClient {
   /// local first would strand the host session. Skips either side when unset.
   /// Under cancellation the local kill is skipped instead of spawning a child
   /// that would be terminated on arrival; the caller owns any retry. Returns
-  /// whether the local kill was issued, so a caller deciding on a retry reads
-  /// that and not the cancellation flag, which may be raised after the kill
-  /// has already landed.
+  /// whether the local kill landed: false when skipped, or when the kill ran
+  /// but was cut short (cancelled mid-flight, timed out, failed), so the
+  /// caller retries exactly the sessions that may still be alive.
   @discardableResult
   func killSurfaceSessions(sessionID: String, remoteHost: RemoteHost?, killLocal: Bool) async -> Bool {
     if let remoteHost {
@@ -296,8 +299,7 @@ extension ZmxClient {
       zmxLogger.debug("Cancelled before local kill of \(sessionID); caller owns the retry")
       return false
     }
-    await killSession(sessionID)
-    return true
+    return await killSession(sessionID)
   }
 }
 

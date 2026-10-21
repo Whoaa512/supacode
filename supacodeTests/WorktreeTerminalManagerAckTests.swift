@@ -56,7 +56,10 @@ struct WorktreeTerminalManagerAckTests {
       $0.zmxClient = ZmxClient(
         executableURL: { nil },
         isBundled: { killingClosedTabsSessions },
-        killSession: { session in killSession(session) },
+        killSession: { session in
+          killSession(session)
+          return true
+        },
         killRemoteSession: { host, session in killRemoteSession(host, session) },
         listSessionsWithClients: { nil }
       )
