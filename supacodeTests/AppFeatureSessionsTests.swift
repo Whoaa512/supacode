@@ -4103,6 +4103,36 @@ struct AppFeatureSessionsTests {
     #expect(sidecar[piKey("primary")]?.settledAt != nil, "a tangent resuming leaves the primary's mark")
   }
 
+  /// A new tab inherits the focused tab's pwd, so a resume in the task's own
+  /// directory still names it: the focused tab here has `cd`ed elsewhere.
+  @Test(.dependencies) func aResumeInTheTasksOwnDirectoryStillChangesToIt() async throws {
+    let directory = try temporaryDirectory(named: "own-dir-task")
+    let elsewhere = try temporaryDirectory(named: "own-dir-elsewhere")
+    defer { for url in [directory, elsewhere] { try? FileManager.default.removeItem(at: url) } }
+    var (initial, onDisk) = closedTaskWithATangent(on: directory, tangentCwd: directory)
+    let paneID = PaneID()
+    let shellTab = TabItem(
+      id: TabID(rawValue: shell), title: "Shell",
+      content: ContentSnapshot(
+        id: ContentID(rawValue: shell),
+        state: .terminal(TerminalContentState(workingDirectory: elsewhere.path(percentEncoded: false)))))
+    initial.terminals.layouts[id: first]?.layout = PaneLayout(
+      tree: SplitTree(view: paneID), panes: [Pane(id: paneID, tabs: [shellTab], selectedTabID: shellTab.id)])
+    initial.repositories.$sessions.withLock { $0[piKey("tangent")] = SessionSidecarEntry(settledAt: .distantPast) }
+    let recorded = Recorded()
+    let store = mintingStore(initial, recorded: recorded)
+
+    await store.send(.repositories(.delegate(.resumeSession(piKey("tangent"), task: first))))
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    #expect(launches(recorded).map(\.layoutID) == [first])
+    #expect(
+      launches(recorded).map(\.input)
+        == ["cd \(ZmxAttach.shellQuote(directory.standardizedFileURL.path)) && pi --session tangent"])
+    #expect(store.state.pendingTaskLaunches == [PendingTaskLaunch(layoutID: first, directoryID: onDisk.id)])
+  }
+
   /// The task is only what the store holds: nothing of it is live this run.
   /// Its sessions are read at launch ahead of the layouts, so a resume can
   /// come either side of that read.
@@ -4170,21 +4200,6 @@ struct AppFeatureSessionsTests {
     let sidecar = store.state.repositories.sessions
     #expect(sidecar[piKey("tangent")]?.settledAt == nil)
     #expect(sidecar[piKey("primary")]?.settledAt != nil, "a tangent resuming leaves the primary's mark")
-  }
-
-  @Test(.dependencies) func aTangentInItsTasksDirectoryIsResumedWithTheBareCommand() async throws {
-    let directory = try temporaryDirectory(named: "tangent-home")
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let (initial, _) = closedTaskWithATangent(on: directory, tangentCwd: directory)
-    let recorded = Recorded()
-    let store = mintingStore(initial, recorded: recorded)
-
-    await store.send(.repositories(.delegate(.resumeSession(piKey("tangent"), task: first))))
-    await store.receive(\.launchSessionCompleted)
-    await store.finish()
-
-    #expect(launches(recorded).map(\.layoutID) == [first])
-    #expect(launches(recorded).map(\.input) == ["pi --session tangent"])
   }
 
   @Test(.dependencies) func theResumeDirectoryIsQuoted() async throws {

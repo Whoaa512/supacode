@@ -66,8 +66,7 @@ tab has `cd`ed away the agent resumes there, not in the task directory.
 Pre-existing (every same-directory resume and new session); S2 only added
 the `cd` prefix for a session that ran elsewhere.
 
-**Fix with**: whichever slice next touches `createTabWithInput`. Likely
-shape: always prefix the `cd`, or pass the working directory to the tab.
+**Fixed** (resume-settled, 2026-10-20): `resumeInput` always prefixes the `cd`.
 
 ## Assumptions confirmed by cj (2026-10-09)
 
@@ -132,13 +131,10 @@ Found by the Z1 reviews and the final decide-at-delivery audit, judged below
 the bar for a slice of their own. Each is pre-existing or guarded; none loses
 data today.
 
-- **Same-directory resume still inherits the focused tab's pwd.** The item
-  above ("A resume in the task's own directory…") stands: `resumeInput`
-  (`AppFeature+Sessions.swift`) only prefixes `cd` for a session that ran
-  elsewhere, so a resume into a task whose focused tab has `cd`ed away
-  starts the agent there. Fix in `createTabWithInput` / `resumeInput`: always
-  pass the working directory, with a reducer test on a task whose focused
-  surface reports another pwd.
+- ~~**Same-directory resume still inherits the focused tab's pwd.**~~ Fixed
+  (resume-settled, 2026-10-20): `resumeInput` always prefixes the `cd`, own
+  directory included; `aResumeInTheTasksOwnDirectoryStillChangesToIt` covers
+  a task whose focused tab recorded another pwd.
 - **`prune(keepingDirectories:protectingRepositoryIDs:archivedDirectories:)`
   carries precomputed sets across the boundary.** The manager re-derives
   what matters at delivery (a host goes only when its directory is named as

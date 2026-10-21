@@ -1085,14 +1085,11 @@ extension AppFeature {
     return directoryContext(forTask: layoutID, directoryID: recorded.worktreeID, state: state)
   }
 
-  /// A session resumes where it ran. In its task's own directory the command
-  /// is sent as is; elsewhere it is preceded by a `cd` there.
-  static func resumeInput(_ pending: PendingSessionLaunch, in directory: DirectoryContext) -> String {
-    // Paths, not URLs: either may carry a trailing slash.
-    let cwd = pending.cwd.standardizedFileURL.path
-    let home = directory.workingDirectory.standardizedFileURL.path
-    guard cwd != home else { return pending.command }
-    return "cd \(ZmxAttach.shellQuote(cwd)) && \(pending.command)"
+  /// A session resumes where it ran. The `cd` is always sent, even for the
+  /// task's own directory: a new tab inherits the focused tab's pwd, and that
+  /// tab may have `cd`ed away.
+  static func resumeInput(_ pending: PendingSessionLaunch) -> String {
+    "cd \(ZmxAttach.shellQuote(pending.cwd.standardizedFileURL.path)) && \(pending.command)"
   }
 
   private static func launchPendingSessionIfReady(
@@ -1149,7 +1146,7 @@ extension AppFeature {
     for index in state.pendingTaskLaunches.indices { state.pendingTaskLaunches[index].isShown = false }
     state.pendingTaskLaunches.append(
       PendingTaskLaunch(layoutID: layoutID, directoryID: directory.worktreeID, primary: primary))
-    let command = owner == nil ? pending.command : resumeInput(pending, in: directory)
+    let command = owner == nil ? pending.command : resumeInput(pending)
     let requestID = pending.requestID
     // Identity only crosses the boundary: the manager resolves the directory
     // again when the command lands, by the source's rule, and refuses what

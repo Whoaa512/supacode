@@ -954,7 +954,10 @@ struct AppFeatureSessionsTaskSettleTests {
       return (layoutID, input)
     }
     #expect(launches.map(\.0) == [task], "one tab, in the task that lists it")
-    #expect(launches.map(\.1) == ["pi --session a"], "the primary; the tangent waits for its own click")
+    #expect(
+      launches.map(\.1) == ["cd \(ZmxAttach.shellQuote(directory.path)) && pi --session a"],
+      "the primary, started in the task's directory whatever the focused tab's pwd; the tangent waits for its own click"
+    )
     #expect(settledAt("a", in: store) == nil)
     #expect(!AppFeature.isTaskSettled(task, state: store.state))
   }

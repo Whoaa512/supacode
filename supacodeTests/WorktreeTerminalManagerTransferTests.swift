@@ -2130,7 +2130,9 @@ struct WorktreeTerminalManagerTransferTests {
     }
     #expect(into == task)
     #expect(source == .resume(into: task, key), "a resume carries the task it goes into and the session, not a plan")
-    #expect(input == "pi --session tangent")
+    #expect(
+      input == "cd \(ZmxAttach.shellQuote(directory.workingDirectory.standardizedFileURL.path)) && pi --session tangent"
+    )
 
     await removeTask(task, removal, ownTab: own, in: harness)
     deliverQueuedCommands(in: harness)
