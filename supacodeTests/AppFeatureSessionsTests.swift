@@ -1863,7 +1863,7 @@ struct AppFeatureSessionsTests {
     await store.receive(\.repositories.delegate.focusSession)
   }
 
-  @Test(.dependencies) func nextSessionNeedsMeStartsAfterFocusedNonAttentionRowAndWraps() async {
+  @Test(.dependencies) func nextSessionNeedsMeTakesTheMostUrgentFirstThenTheRestAndWraps() async {
     var initial = state()
     let first = SessionKey(harness: .pi, sessionID: "first")
     let idle = SessionKey(harness: .pi, sessionID: "idle")
@@ -1911,6 +1911,11 @@ struct AppFeatureSessionsTests {
       $0.terminalClient.focusSurface = { _, _, _, _ in }
     }
     store.exhaustivity = .off
+
+    await store.send(.nextSessionNeedsMe) { appState in
+      appState.repositories.sessionSelection = .implicit(first)
+    }
+    await store.receive(\.repositories.delegate.focusSession)
 
     await store.send(.nextSessionNeedsMe) { appState in
       appState.repositories.sessionSelection = .implicit(next)

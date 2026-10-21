@@ -323,6 +323,8 @@ struct RepositoriesFeature {
     var expandedSessionTaskIDs: Set<LayoutID> = []
     var sessionSummaries: [SessionSummary] = []
     var sessionSnapshots: [SessionLiveSnapshot] = []
+    /// When each surface's agent started waiting on the user. Not persisted.
+    var attentionSince: [UUID: Date] = [:]
     var taskSnapshots: [TaskLiveSnapshot] = []
     /// Every task's sessions, primary first. Auto-settle judges a task as a whole.
     var taskSessions: [LayoutID: [SessionKey]] = [:]

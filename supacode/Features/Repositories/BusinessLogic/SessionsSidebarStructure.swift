@@ -146,10 +146,12 @@ extension RepositoriesFeature.State {
     return members
   }
 
-  /// The next agent waiting on the user, walking the live rows in order and
-  /// a task's agents in member order, from the focused agent and round again.
-  /// Worked out per press from the agents themselves: a task row only shows
-  /// its most urgent agent, which can mask a tangent that needs attention.
+  /// The agent most in need of the user: one that needs you before one that is
+  /// done unseen, the longest-waiting first, then sidebar order (live rows, and
+  /// a task's agents in member order). From a stop, the next in that ranking,
+  /// round again; from anywhere else, the top. Worked out per press from the
+  /// agents themselves: a task row only shows its most urgent agent, which can
+  /// mask a tangent that needs attention.
   func nextAttentionTarget(
     after current: SessionRowID?, focusedSurfaceID: UUID?
   ) -> SessionsSidebarStructure.AttentionTarget? {
@@ -157,33 +159,68 @@ extension RepositoriesFeature.State {
     var agentsByTask: [LayoutID: [SessionLiveSnapshot]] = [:]
     for agent in sessionSnapshots { agentsByTask[agent.location.layoutID, default: []].append(agent) }
 
-    // A stop is at (row, agent within the row).
-    var stops: [(at: (Int, Int), target: Target)] = []
-    var cursor: (Int, Int)?
+    var stops: [(rank: AttentionRank, target: Target)] = []
     for (rowIndex, id) in sessionsSidebarStructure.liveIDs.enumerated() {
       guard case .task(let layoutID) = id else {
-        if id == current { cursor = (rowIndex, 0) }
         guard let item = sessionItems[id: id], let location = item.location,
           Self.wantsAttention(item.status, jumpable: item.allowsAttentionNavigation)
         else { continue }
-        stops.append(((rowIndex, 0), Target(rowID: id, location: location)))
+        stops.append((rank(item.status, location, at: (rowIndex, 0)), Target(rowID: id, location: location)))
         continue
       }
       let agents = agentsInMemberOrder(of: layoutID, agents: agentsByTask[layoutID] ?? [])
-      if id == current {
-        // Two harnesses on one surface are one stop; a shell tab sits before every agent.
-        let focused = focusedSurfaceID.flatMap { surfaceID in
-          agents.lastIndex { $0.location.surfaceID == surfaceID }
-        }
-        cursor = (rowIndex, focused ?? -1)
-      }
       for (agentIndex, agent) in agents.enumerated()
       where Self.wantsAttention(agent.status, jumpable: agent.allowsAttentionNavigation) {
-        stops.append(((rowIndex, agentIndex), Target(rowID: id, location: agent.location)))
+        stops.append(
+          (rank(agent.status, agent.location, at: (rowIndex, agentIndex)), Target(rowID: id, location: agent.location)))
       }
     }
-    guard let cursor else { return stops.first?.target }
-    return (stops.first { $0.at > cursor } ?? stops.first)?.target
+    let ranked = stops.sorted { $0.rank < $1.rank }.map(\.target)
+    // A task row is on a stop only through its focused surface; a row of its
+    // own has one surface. Two harnesses on one surface are one stop.
+    let onTaskRow = if case .task = current { true } else { false }
+    let cursor = ranked.lastIndex { stop in
+      stop.rowID == current && (!onTaskRow || stop.location.surfaceID == focusedSurfaceID)
+    }
+    guard let cursor else { return ranked.first }
+    return ranked[(cursor + 1) % ranked.count]
+  }
+
+  private struct AttentionRank: Comparable {
+    var urgency: Int
+    var waitingSince: Date
+    var position: (Int, Int)
+
+    static func < (lhs: Self, rhs: Self) -> Bool {
+      (lhs.urgency, lhs.waitingSince, lhs.position.0, lhs.position.1)
+        < (rhs.urgency, rhs.waitingSince, rhs.position.0, rhs.position.1)
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+      lhs.urgency == rhs.urgency && lhs.waitingSince == rhs.waitingSince && lhs.position == rhs.position
+    }
+  }
+
+  private func rank(
+    _ status: SessionClassification.Status?, _ location: SessionLocation, at position: (Int, Int)
+  ) -> AttentionRank {
+    // Unstamped waits sort last among equals, leaving sidebar order to decide.
+    AttentionRank(
+      urgency: status == .needsYou ? 0 : 1,
+      waitingSince: attentionSince[location.surfaceID] ?? .distantFuture, position: position)
+  }
+
+  /// Records when each surface's agent started waiting on the user, so the
+  /// jump can take the longest-waiting first. A surface no longer waiting is
+  /// forgotten, so its next wait starts the clock afresh.
+  mutating func stampAttention(now: Date) {
+    var stamps: [UUID: Date] = [:]
+    for agent in sessionSnapshots
+    where Self.wantsAttention(agent.status, jumpable: agent.allowsAttentionNavigation) {
+      let surfaceID = agent.location.surfaceID
+      stamps[surfaceID] = attentionSince[surfaceID] ?? stamps[surfaceID] ?? now
+    }
+    if attentionSince != stamps { attentionSince = stamps }
   }
 
   private static func wantsAttention(_ status: SessionClassification.Status?, jumpable: Bool) -> Bool {

@@ -736,7 +736,56 @@ struct SessionsSidebarTaskRowsTests {
 
     #expect(target(state, after: .task(taskA), on: 2) == stop(taskB, 4))
     #expect(target(state, after: .task(taskB), on: 4) == stop(taskA, 2))
-    #expect(target(state, after: .task(taskB), on: 3) == stop(taskB, 4))
+    #expect(target(state, after: .task(taskB), on: 3) == stop(taskA, 2), "off any stop, the most urgent comes first")
+  }
+
+  @Test(.dependencies) func anAgentThatNeedsYouOutranksADoneOneAheadOfItInTheSidebar() {
+    var state = state()
+    state.taskSnapshots = [tabs(taskA, on: 1, created: 20), tabs(taskB, on: 3, created: 10)]
+    state.sessionSnapshots = [
+      agent("a", in: taskA, on: 1, status: .doneUnseen), agent("c", in: taskB, on: 3, status: .needsYou),
+    ]
+    state = rebuilt(state)
+    #expect(state.sessionsSidebarStructure.liveIDs == [.task(taskA), .task(taskB)])
+
+    #expect(target(state, after: nil) == stop(taskB, 3))
+    #expect(target(state, after: .task(taskA), on: 1) == stop(taskB, 3), "from the done one, round to the urgent one")
+    #expect(target(state, after: .task(taskB), on: 3) == stop(taskA, 1))
+  }
+
+  @Test(.dependencies) func amongAgentsThatNeedYouTheLongestWaitingComesFirst() {
+    var state = state()
+    state.taskSnapshots = [tabs(taskA, on: 1, created: 20), tabs(taskB, on: 3, created: 10)]
+    state.sessionSnapshots = [
+      agent("a", in: taskA, on: 1, status: .needsYou), agent("c", in: taskB, on: 3, status: .needsYou),
+    ]
+    state.attentionSince = [surface(1): Date(timeIntervalSince1970: 200), surface(3): Date(timeIntervalSince1970: 100)]
+    state = rebuilt(state)
+
+    #expect(target(state, after: nil) == stop(taskB, 3))
+    #expect(target(state, after: .task(taskB), on: 3) == stop(taskA, 1))
+  }
+
+  @Test(.dependencies) func aWaitStartsWhenTheAgentFirstAsksAndEndsWhenItStops() {
+    var state = state()
+    state.sessionSnapshots = [
+      agent("a", in: taskA, on: 1, status: .needsYou), agent("b", in: taskA, on: 2, status: .working),
+    ]
+    state.stampAttention(now: Date(timeIntervalSince1970: 100))
+    #expect(state.attentionSince == [surface(1): Date(timeIntervalSince1970: 100)])
+
+    state.sessionSnapshots[0].status = .doneUnseen
+    state.sessionSnapshots[1].status = .needsYou
+    state.stampAttention(now: Date(timeIntervalSince1970: 200))
+    #expect(
+      state.attentionSince == [
+        surface(1): Date(timeIntervalSince1970: 100), surface(2): Date(timeIntervalSince1970: 200),
+      ],
+      "needs-you turning into done-unseen is the same wait")
+
+    state.sessionSnapshots[0].status = .idle
+    state.stampAttention(now: Date(timeIntervalSince1970: 300))
+    #expect(state.attentionSince == [surface(2): Date(timeIntervalSince1970: 200)])
   }
 
   @Test(.dependencies) func theAttentionCountIsTheNumberOfStopsAcrossTasks() {
@@ -761,11 +810,11 @@ struct SessionsSidebarTaskRowsTests {
     #expect(state.sessionsAttentionCount == 1, "the error-only surface is skipped, the ungrouped row counted")
   }
 
-  @Test(.dependencies) func aShellTabOfTheTaskComesBeforeItsAgents() {
+  @Test(.dependencies) func aShellTabIsOnNoStop() {
     let state = twoTasksEachWithAMaskedTangent()
     #expect(state.sessionsSidebarStructure.liveIDs.last == .task(taskB))
 
-    #expect(target(state, after: .task(taskB), on: 77) == stop(taskB, 4), "its own task first, not the row above")
+    #expect(target(state, after: .task(taskB), on: 77) == stop(taskA, 2), "a shell tab is on no stop: the most urgent")
   }
 
   @Test(.dependencies) func theOnlyCandidateIsReturnedEvenWhenFocused() {
@@ -807,7 +856,7 @@ struct SessionsSidebarTaskRowsTests {
     #expect(target(state, after: .task(taskA), on: 2) == stop(taskA, 1))
   }
 
-  @Test(.dependencies) func ungroupedRowsKeepTheirPlaceAmongTasks() throws {
+  @Test(.dependencies) func ungroupedRowsKeepTheirPlaceAmongTasks() {
     var state = state()
     state.sessionSummaries = [summary("free", created: 5)]
     state.taskSnapshots = [tabs(taskA, on: 1)]
@@ -821,8 +870,7 @@ struct SessionsSidebarTaskRowsTests {
 
     #expect(target(state, after: .task(taskA), on: 1) == ungrouped)
     #expect(target(state, after: free, on: 9) == stop(taskA, 1))
-    let first = try #require(state.sessionsSidebarStructure.liveIDs.first)
-    #expect(target(state, after: nil)?.rowID == first)
+    #expect(target(state, after: nil) == stop(taskA, 1), "needs you outranks done unseen whatever the row order")
   }
 
   @Test(.dependencies) func aSessionListedByTwoTasksIsATargetOnlyWhereItRuns() {

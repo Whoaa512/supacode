@@ -113,6 +113,7 @@ extension RepositoriesFeature {
         // reads, so only a change in which sessions are live rescans.
         let needsRefresh = state.sessionSnapshots.map(\.withoutStatus) != snapshots.map(\.withoutStatus)
         state.sessionSnapshots = snapshots
+        state.stampAttention(now: date.now)
         state.reconcileSessionItems(now: date.now)
         return needsRefresh ? .send(.sessionsRefreshRequested) : .none
 
