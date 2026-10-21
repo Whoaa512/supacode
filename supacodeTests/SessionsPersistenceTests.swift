@@ -28,6 +28,17 @@ struct SessionsPersistenceTests {
     #expect(decoded.manualUnsettledAtActivity == watermark)
   }
 
+  @Test func hiddenAtRoundtripsAndIsAbsentFromOlderFiles() throws {
+    let hidden = Date(timeIntervalSince1970: 1_700_200_000)
+    let data = try JSONEncoder().encode(SessionSidecarEntry(hiddenAt: hidden))
+    let decoded = try JSONDecoder().decode(SessionSidecarEntry.self, from: data)
+    #expect(decoded.hiddenAt == hidden)
+    #expect(decoded.settledAt == nil)
+
+    let legacy = try JSONDecoder().decode(SessionSidecarEntry.self, from: Data("{}".utf8))
+    #expect(legacy.hiddenAt == nil)
+  }
+
   @Test func fullEntryRoundtrips() throws {
     let settled = Date(timeIntervalSince1970: 1_700_000_000)
     let watermark = Date(timeIntervalSince1970: 1_700_100_000)
