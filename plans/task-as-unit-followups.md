@@ -222,3 +222,16 @@ record (resume and roll-up still count them, settle unaffected), just drop
 out of the sub-row list; a small "+N hidden" affordance on the task row
 reveals them again. Never hide the primary or a live member. Factory item
 for run 3.
+
+## A pi question/questionnaire prompt shows the blue "working" gear (cj, 2026-10-20)
+
+When pi blocks on `question` / `questionnaire` / a tool permission prompt the
+row still shows the blue working gear (screenshot pi-clipboard-d3c7f4f7). cj
+wants a distinct needs-you glyph here (e.g. `questionmark.bubble` in the
+system orange/yellow used for needs-you) so a waiting prompt reads
+differently from "thinking". Check first whether the pi presence extension
+reports this state at all (tool call pending user input) or whether it is
+reported as busy; fix the signal if it is missing, then map it to its own
+glyph in the sessions row icon and the attention roll-up (needs-you).
+Reducer/structure test: a session with a pending user prompt classifies as
+needs-you and renders the question glyph. Factory item for run 3.
