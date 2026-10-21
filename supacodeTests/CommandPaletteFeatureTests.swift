@@ -260,12 +260,58 @@ struct CommandPaletteFeatureTests {
     #expect(items.map(\.priorityTier) == [0, 1, 2, 3], "sidebar order, then settle order, kept with no query")
     #expect(items.map(\.isCurrentWorktree) == [true, false, false, false])
     #expect(items[0].title == "Title run")
-    #expect(items[0].subtitle == "sub · Pi")
-    #expect(items[1].subtitle == "sub · Pi · Settled 1 hr. ago")
+    #expect(items[0].subtitle == "Repo · sub · Pi", "a task in a subdirectory still names its repository")
+    #expect(items[1].subtitle == "Repo · sub · Pi · Settled 1 hr. ago")
+    let byRepo = CommandPaletteFeature.taskSearchRows(items: items, query: "Repo", recencyByID: [:], now: now)
+    #expect(byRepo.map(\.kind).contains(.selectTask(.task(running))))
+    #expect(byRepo.map(\.kind).contains(.resumeTask(.task(fresh))))
     #expect(items[1].id == "task:\(fresh.persistenceKey).resume")
     #expect(
       CommandPaletteFeature.items(in: .taskSearch, from: state, now: now).map(\.kind)
         == items.map(\.kind) + [.worktreeSelect(worktree.id)])
+  }
+
+  /// A worktree named after its branch, in a directory named otherwise: the
+  /// task's subtitle names the repository, the worktree and the directory,
+  /// each once, so any of them finds it. A cwd outside the roster names
+  /// only its directory.
+  @Test func taskSearchItems_nameTheOwningRepositoryAndWorktree() {
+    let main = makeWorktree(id: "/tmp/acme", name: "acme", repoRoot: "/tmp/acme")
+    let branch = makeWorktree(
+      id: "/tmp/acme-wt/fix-1", name: "feat/login", repoRoot: "/tmp/acme", workingDirectory: "/tmp/acme-wt/fix-1")
+    let repository = makeRepository(rootPath: "/tmp/acme", name: "Acme", worktrees: [main, branch])
+    func key(_ id: String) -> SessionKey { SessionKey(harness: .pi, sessionID: id) }
+    var state = RepositoriesFeature.State(reconciledRepositories: [repository])
+    state.$sessions = Shared(value: [:])
+    state.$persistedLayouts = SharedReader(value: TaskLayoutsFile())
+    state.sessionsStarted = true
+    state.selection = .worktree(main.id)
+    let summaries: [(String, String)] = [
+      ("on-branch", "/tmp/acme-wt/fix-1/Sources"), ("on-main", "/tmp/acme"), ("elsewhere", "/tmp/other/thing"),
+    ]
+    state.sessionSummaries = summaries.map {
+      SessionSummary(
+        harness: .pi, sessionID: $0.0, createdAt: .distantPast, cwd: $0.1, title: "Fix \($0.0)", messageCount: 1,
+        lastActivity: .distantPast)
+    }
+    state.$sessions.withLock { sidecar in
+      sidecar[key("on-branch")] = SessionSidecarEntry(settledAt: Date(timeIntervalSince1970: 3000))
+      sidecar[key("on-main")] = SessionSidecarEntry(settledAt: Date(timeIntervalSince1970: 2000))
+      sidecar[key("elsewhere")] = SessionSidecarEntry(settledAt: Date(timeIntervalSince1970: -4000))
+    }
+    state.reconcileSessionItems(now: Date(timeIntervalSince1970: 4000))
+    state.recomputeSessionsSidebarStructureIfChanged()
+
+    let now = Date(timeIntervalSince1970: 3000 + 3600)
+    let items = CommandPaletteFeature.taskSearchItems(from: state, now: now)
+    #expect(
+      items.map(\.subtitle) == [
+        "Acme · feat/login · Sources · Pi · Settled 1 hr. ago",
+        "Acme · acme · Pi · Settled 1 hr. ago",
+        "thing · Pi · Settled 2 hr. ago",
+      ])
+    let found = CommandPaletteFeature.taskSearchRows(items: items, query: "login", recencyByID: [:], now: now)
+    #expect(found.map(\.kind) == [.resumeTask(.implicit(key("on-branch")))])
   }
 
   /// With a query, active matches stay above settled ones whatever the match

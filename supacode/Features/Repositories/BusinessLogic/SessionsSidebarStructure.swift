@@ -150,6 +150,28 @@ extension RepositoriesFeature.State {
       }.prefix(limit))
   }
 
+  /// The repository, and the worktree when it has a name of its own, that
+  /// hold a session's working directory: the deepest worktree whose
+  /// directory is the cwd or above it. Nil for a cwd outside the roster.
+  func ownerNames(forSessionCwd cwd: String) -> [String] {
+    let path = URL(fileURLWithPath: cwd).standardizedFileURL.pathComponents
+    var best: (repository: Repository, worktree: Worktree)?
+    var depth = -1
+    for repository in repositories {
+      for worktree in repository.worktrees {
+        let root = worktree.workingDirectory.standardizedFileURL.pathComponents
+        guard root.count <= path.count, root.count > depth, path.starts(with: root) else { continue }
+        best = (repository, worktree)
+        depth = root.count
+      }
+    }
+    guard let best else { return [] }
+    let dirName = best.worktree.workingDirectory.lastPathComponent
+    var names = [best.repository.name]
+    if best.worktree.name != dirName, best.worktree.name != best.repository.name { names.append(best.worktree.name) }
+    return names
+  }
+
   /// The session's surface, when an agent runs it: its own row's, or the
   /// surface of the task it is grouped under.
   func sessionLocation(for key: SessionKey) -> SessionLocation? {

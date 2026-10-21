@@ -834,7 +834,7 @@ struct CommandPaletteFeature {
       return CommandPaletteItem(
         id: CommandPaletteItemID.selectTask(id),
         title: row.title,
-        subtitle: taskSubtitle(cwd: row.cwd, harness: row.harness),
+        subtitle: taskSubtitle(cwd: row.cwd, harness: row.harness, repositories: repositories),
         kind: .selectTask(id),
         priorityTier: index,
         isCurrentWorktree: id == repositories.sessionSelection
@@ -845,7 +845,7 @@ struct CommandPaletteFeature {
       return CommandPaletteItem(
         id: CommandPaletteItemID.resumeTask(task.id),
         title: task.title,
-        subtitle: "\(taskSubtitle(cwd: task.cwd, harness: task.harness)) · Settled \(ago)",
+        subtitle: "\(taskSubtitle(cwd: task.cwd, harness: task.harness, repositories: repositories)) · Settled \(ago)",
         kind: .resumeTask(task.id),
         priorityTier: active.count + index
       )
@@ -853,10 +853,17 @@ struct CommandPaletteFeature {
     return active + settled
   }
 
-  private static func taskSubtitle(cwd: String, harness: SkillAgent?) -> String {
+  /// `repo · worktree · dir · Agent`, each part once: a task in a
+  /// subdirectory, or on a worktree named after its branch, is found by
+  /// the repository and worktree it belongs to, not only by its cwd.
+  private static func taskSubtitle(cwd: String, harness: SkillAgent?, repositories: RepositoriesFeature.State)
+    -> String
+  {
     let directory = URL(fileURLWithPath: cwd).lastPathComponent
-    guard let harness else { return directory }
-    return "\(directory) · \(harness.displayName)"
+    var parts = repositories.ownerNames(forSessionCwd: cwd).filter { $0 != directory }
+    parts.append(directory)
+    if let harness { parts.append(harness.displayName) }
+    return parts.joined(separator: " · ")
   }
 
   /// The ⌘P list for a query. `w:` hands the rest of the query to the
