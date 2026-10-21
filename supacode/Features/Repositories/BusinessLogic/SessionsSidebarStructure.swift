@@ -124,26 +124,29 @@ extension RepositoriesFeature.State {
   }
 
   /// A settled task the user may want back, with when its primary settled.
+  /// Implicit rows count too: an indexed session no task lists resumes the
+  /// same way, minting its record on the way back.
   struct RecentlySettledTask: Equatable, Identifiable, Sendable {
-    var id: LayoutID
+    var id: SessionRowID
     var title: String
+    var cwd: String
+    var harness: SkillAgent?
     var settledAt: Date
   }
 
-  /// The settled task rows, most recently settled first (ties by key), cut
-  /// to `limit`. A task row is settled only while it holds no tab, so every
-  /// one here is a resume, never a focus.
+  /// The settled rows, most recently settled first (ties by key), cut to
+  /// `limit`. A row is settled only while it holds no tab, so every one
+  /// here is a resume, never a focus.
   func recentlySettledTasks(limit: Int = 10) -> [RecentlySettledTask] {
     let settled = sessionItems.compactMap { row -> RecentlySettledTask? in
-      guard case .task(let layoutID) = row.id, row.lifecycle == .settled, let primary = row.primary,
-        let settledAt = sessions[primary]?.settledAt
+      guard row.lifecycle == .settled, let key = row.sessionKey, let settledAt = sessions[key]?.settledAt
       else { return nil }
-      return RecentlySettledTask(id: layoutID, title: row.title, settledAt: settledAt)
+      return RecentlySettledTask(id: row.id, title: row.title, cwd: row.cwd, harness: row.harness, settledAt: settledAt)
     }
     return Array(
       settled.sorted {
         if $0.settledAt != $1.settledAt { return $0.settledAt > $1.settledAt }
-        return $0.id.persistenceKey < $1.id.persistenceKey
+        return $0.id.sortKey < $1.id.sortKey
       }.prefix(limit))
   }
 

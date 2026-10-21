@@ -198,10 +198,10 @@ struct CommandPaletteFeatureTests {
 
     let now = Date(timeIntervalSince1970: 11 + 3600)
     let items = CommandPaletteFeature.resumeTaskItems(from: state, now: now)
-    #expect(items.map(\.kind) == (2...11).reversed().map { .resumeTask(task($0)) }, "newest first, ten at most")
+    #expect(items.map(\.kind) == (2...11).reversed().map { .resumeTask(.task(task($0))) }, "newest first, ten at most")
     #expect(items.first?.title == "Resume Task: Title 11")
     #expect(items.first?.subtitle == "Settled 1 hr. ago")
-    #expect(items.first?.id == "task.\(task(11).persistenceKey).resume")
+    #expect(items.first?.id == "task:\(task(11).persistenceKey).resume")
     #expect(items.allSatisfy { !$0.isGlobal && !$0.isRootAction })
     #expect(
       CommandPaletteFeature.commandPaletteItems(from: state, now: now).map(\.id).filter { $0.hasSuffix(".resume") }

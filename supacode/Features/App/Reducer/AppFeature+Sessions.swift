@@ -684,16 +684,20 @@ extension AppFeature {
     }
   }
 
-  /// A resume asked for by task id, from the palette or the menu. The task
-  /// is read again now: one removed since the list was built, or with no
-  /// row left to act on, gets nothing. The row's own activation does the
-  /// rest, so a task that is running by now is focused, not started twice.
-  static func handleResumeTask(_ layoutID: LayoutID, state: State) -> Effect<Action> {
-    guard hasTask(layoutID, state: state), state.repositories.sessionItems[id: .task(layoutID)] != nil else {
-      repositoriesLogger.warning("Resume task: \(layoutID.persistenceKey) is gone")
+  /// A task asked for by row id, from the palette or the menu. The row is
+  /// read again now: one removed since the list was built, or a task whose
+  /// record went, gets nothing. The row's own activation does the rest, so
+  /// a task that is running by now is focused, not started twice.
+  static func handleActivateTask(_ rowID: SessionRowID, state: State) -> Effect<Action> {
+    guard state.repositories.sessionItems[id: rowID] != nil else {
+      repositoriesLogger.warning("Activate task: \(rowID.sortKey) has no row")
       return .none
     }
-    return .send(.repositories(.activateSession(.task(layoutID))))
+    if case .task(let layoutID) = rowID, !hasTask(layoutID, state: state) {
+      repositoriesLogger.warning("Activate task: \(layoutID.persistenceKey) is gone")
+      return .none
+    }
+    return .send(.repositories(.activateSession(rowID)))
   }
 
   static func handleUnsettleCurrentSession(state: inout State) -> Effect<Action> {

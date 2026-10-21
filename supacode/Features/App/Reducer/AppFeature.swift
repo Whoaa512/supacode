@@ -360,9 +360,9 @@ struct AppFeature {
     case settleSessionAndAdvance
     case unsettleCurrentSession
     case nextSessionNeedsMe
-    /// Brings a settled task back on its primary; carries the id only, the
-    /// task is looked up again here.
-    case resumeTask(LayoutID)
+    /// Shows a task row: focuses a running one, brings a settled one back on
+    /// its primary. Carries the row id only; the row is looked up again here.
+    case activateTask(SessionRowID)
     case resumeMostRecentlySettledTask
     case renameSelectedTerminalTab
     case toggleWindowModeForFocusedPane
@@ -1238,12 +1238,12 @@ struct AppFeature {
       case .nextSessionNeedsMe:
         return Self.handleNextSessionNeedsMe(state: &state)
 
-      case .resumeTask(let layoutID):
-        return Self.handleResumeTask(layoutID, state: state)
+      case .activateTask(let rowID):
+        return Self.handleActivateTask(rowID, state: state)
 
       case .resumeMostRecentlySettledTask:
         guard let task = state.repositories.recentlySettledTasks(limit: 1).first else { return .none }
-        return Self.handleResumeTask(task.id, state: state)
+        return Self.handleActivateTask(task.id, state: state)
 
       case .renameSelectedTerminalTab:
         guard let shown = state.shownTerminal, let layoutID = shown.layoutID,
@@ -2136,8 +2136,8 @@ struct AppFeature {
       case .commandPalette(.delegate(.mergeTask(let source, let target))):
         return .send(.mergeTask(source, into: target))
 
-      case .commandPalette(.delegate(.resumeTask(let layoutID))):
-        return .send(.resumeTask(layoutID))
+      case .commandPalette(.delegate(.activateTask(let rowID))):
+        return .send(.activateTask(rowID))
 
       case .commandPalette(.delegate(.detachFocusedTab)):
         return .send(.detachFocusedTab)

@@ -161,7 +161,7 @@ struct CommandPaletteFeature {
     case runScript(ScriptDefinition)
     case mergeTask(LayoutID, into: LayoutID)
     case detachFocusedTab
-    case resumeTask(LayoutID)
+    case activateTask(SessionRowID)
     case stopScript(UUID, name: String)
     /// Palette closed without the user activating an item (Esc, outside
     /// tap, programmatic dismiss). AppFeature uses this to refocus the
@@ -1324,8 +1324,8 @@ private enum CommandPaletteItemID {
 
   static let detachFocusedTab: CommandPaletteItem.ID = "task.detach-focused-tab"
 
-  static func resumeTask(_ layoutID: LayoutID) -> CommandPaletteItem.ID {
-    "task.\(layoutID.persistenceKey).resume"
+  static func resumeTask(_ rowID: SessionRowID) -> CommandPaletteItem.ID {
+    "\(rowID.sortKey).resume"
   }
 
   static func ghosttyCommand(_ command: GhosttyCommand) -> CommandPaletteItem.ID {
@@ -1474,8 +1474,8 @@ private func delegateAction(  // swiftlint:disable:this cyclomatic_complexity
     return .mergeTask(source, into: target)
   case .detachFocusedTab:
     return .detachFocusedTab
-  case .resumeTask(let layoutID):
-    return .resumeTask(layoutID)
+  case .resumeTask(let rowID):
+    return .activateTask(rowID)
   #if DEBUG
     case .debugTestToast(let toast):
       return .debugTestToast(toast)

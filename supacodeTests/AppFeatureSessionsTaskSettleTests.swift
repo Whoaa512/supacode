@@ -1036,7 +1036,7 @@ struct AppFeatureSessionsTaskSettleTests {
     let recorded = Recorded()
     let store = store(settledTask(on: directory), recorded: recorded)
 
-    await store.send(.resumeTask(task))
+    await store.send(.activateTask(.task(task)))
     await store.receive(\.repositories.activateSession)
     await store.receive(\.launchSessionCompleted)
     await store.finish()
@@ -1068,7 +1068,7 @@ struct AppFeatureSessionsTaskSettleTests {
         harness: .pi, sessionID: "c", createdAt: .distantPast, cwd: directory.path(percentEncoded: false),
         title: "Later", messageCount: 4, lastActivity: .distantPast))
     initial.repositories.reconcileSessionItems(now: .distantPast)
-    #expect(initial.repositories.recentlySettledTasks().map(\.id) == [otherTask, task])
+    #expect(initial.repositories.recentlySettledTasks().map(\.id) == [.task(otherTask), .task(task)])
     #expect(initial.repositories.recentlySettledTasks(limit: 1).map(\.title) == ["Later"])
     let recorded = Recorded()
     let store = store(initial, recorded: recorded)
@@ -1082,19 +1082,46 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(settledAt("a", in: store) != nil)
   }
 
+  /// An indexed session no task lists is a task too: it is offered with the
+  /// recorded ones, ordered by its settle mark, and resumes by its row id.
+  @Test(.dependencies) func anImplicitSettledSessionIsListedAndResumesByRowID() async throws {
+    let directory = try temporaryDirectory(named: "resume-implicit")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var initial = settledTask(on: directory, settledAt: Date(timeIntervalSince1970: 10))
+    initial.repositories.$sessions.withLock {
+      $0[key("c")] = SessionSidecarEntry(settledAt: Date(timeIntervalSince1970: 20))
+    }
+    initial.repositories.sessionSummaries.append(
+      SessionSummary(
+        harness: .pi, sessionID: "c", createdAt: .distantPast, cwd: directory.path(percentEncoded: false),
+        title: "Loose", messageCount: 4, lastActivity: .distantPast))
+    initial.repositories.reconcileSessionItems(now: .distantPast)
+    #expect(initial.repositories.recentlySettledTasks().map(\.id) == [.implicit(key("c")), .task(task)])
+    let recorded = Recorded()
+    let store = store(initial, recorded: recorded)
+
+    await store.send(.activateTask(.implicit(key("c"))))
+    await store.receive(\.repositories.activateSession)
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    #expect(settledAt("c", in: store) == nil)
+    #expect(settledAt("a", in: store) != nil)
+  }
+
   /// The palette listed the task, then the task went before the pick landed.
   @Test(.dependencies) func resumingATaskWhoseRecordVanishedDoesNothing() async throws {
     let directory = try temporaryDirectory(named: "resume-vanished")
     defer { try? FileManager.default.removeItem(at: directory) }
     var initial = settledTask(on: directory)
-    #expect(initial.repositories.recentlySettledTasks().map(\.id) == [task])
+    #expect(initial.repositories.recentlySettledTasks().map(\.id) == [.task(task)])
     // The row still stands for one snapshot; the record and layout are gone.
     initial.terminals.layouts = []
     initial.terminals.removedLayoutIDs.insert(task)
     let recorded = Recorded()
     let store = store(initial, recorded: recorded)
 
-    await store.send(.resumeTask(task))
+    await store.send(.activateTask(.task(task)))
     await store.send(.resumeMostRecentlySettledTask)
     await store.finish()
 
@@ -1116,7 +1143,7 @@ struct AppFeatureSessionsTaskSettleTests {
       return nil
     }
 
-    await store.send(.resumeTask(task))
+    await store.send(.activateTask(.task(task)))
     await store.receive(\.repositories.activateSession)
     await store.receive(\.repositories.delegate.resumeSession)
     #expect(store.state.pendingSessionLaunch?.probing == true)

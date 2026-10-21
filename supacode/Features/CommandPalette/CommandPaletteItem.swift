@@ -102,8 +102,8 @@ struct CommandPaletteItem: Identifiable, Equatable {
     case stopScript(UUID, name: String)
     case mergeTask(LayoutID, into: LayoutID)
     case detachFocusedTab
-    /// Brings a settled task back; the id is all that is carried.
-    case resumeTask(LayoutID)
+    /// Brings a settled task back; the row id is all that is carried.
+    case resumeTask(SessionRowID)
     #if DEBUG
       case debugTestToast(RepositoriesFeature.StatusToast)
     #endif

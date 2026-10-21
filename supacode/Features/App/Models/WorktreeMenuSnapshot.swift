@@ -133,7 +133,7 @@ extension AppFeature.Action {
       .requestTerminateAllTerminalSessions, .newTerminal, .newSession, .newSessionInDirectory, .newTask,
       .mergeTask, .detachTab, .detachFocusedTab,
       .newSessionDirectorySelected, .settleSessionAndAdvance, .unsettleCurrentSession,
-      .nextSessionNeedsMe, .resumeTask, .resumeMostRecentlySettledTask,
+      .nextSessionNeedsMe, .activateTask, .resumeMostRecentlySettledTask,
       .renameSelectedTerminalTab,
       .selectTerminalTabAtIndex, .selectNextTerminalTab, .selectPreviousTerminalTab,
       .splitTerminal, .toggleWindowModeForFocusedPane, .toggleSplitZoom,
