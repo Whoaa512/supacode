@@ -255,3 +255,10 @@ reported as busy; fix the signal if it is missing, then map it to its own
 glyph in the sessions row icon and the attention roll-up (needs-you).
 Reducer/structure test: a session with a pending user prompt classifies as
 needs-you and renders the question glyph. Factory item for run 3.
+
+## Grok/Kimi hooks: split AskUserQuestion from permission (2026-10-20)
+
+Claude's PreToolUse hook now emits `awaiting_input;prompt=question` for
+AskUserQuestion (a7e06330); Grok/Kimi hooks still report it as a plain
+permission prompt, so those sessions show the exclamation instead of the
+question bubble. Copy the split. Trivial; next factory run.
