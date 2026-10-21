@@ -684,6 +684,18 @@ extension AppFeature {
     }
   }
 
+  /// A resume asked for by task id, from the palette or the menu. The task
+  /// is read again now: one removed since the list was built, or with no
+  /// row left to act on, gets nothing. The row's own activation does the
+  /// rest, so a task that is running by now is focused, not started twice.
+  static func handleResumeTask(_ layoutID: LayoutID, state: State) -> Effect<Action> {
+    guard hasTask(layoutID, state: state), state.repositories.sessionItems[id: .task(layoutID)] != nil else {
+      repositoriesLogger.warning("Resume task: \(layoutID.persistenceKey) is gone")
+      return .none
+    }
+    return .send(.repositories(.activateSession(.task(layoutID))))
+  }
+
   static func handleUnsettleCurrentSession(state: inout State) -> Effect<Action> {
     let currentID = focusedSessionRowID(state: state) ?? state.repositories.sessionSelection
     guard let currentID, let key = state.repositories.sessionItems[id: currentID]?.sessionKey else { return .none }

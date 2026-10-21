@@ -906,11 +906,9 @@ struct AppFeatureSessionsTaskSettleTests {
 
   // MARK: - Reopen (A19)
 
-  @Test(.dependencies) func reopeningASettledTaskResumesOnlyItsPrimary() async throws {
-    let directory = FileManager.default.temporaryDirectory
-      .appendingPathComponent("supacode-tests-\(UUID().uuidString)-reopen", isDirectory: true).standardizedFileURL
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
+  /// The fixture task settled on `directory`: every tab closed, the record
+  /// and its members ("a" primary, "b" tangent) kept, "a" marked at `settledAt`.
+  private func settledTask(on directory: URL, settledAt: Date = .distantPast) -> AppFeature.State {
     let path = directory.path(percentEncoded: false)
     let onDisk = Worktree(
       id: Worktree.ID(path), name: "disk", detail: "", workingDirectory: directory, repositoryRootURL: directory)
@@ -926,7 +924,7 @@ struct AppFeatureSessionsTaskSettleTests {
     initial.agentPresence.records = [:]
     initial.repositories.sessionSnapshots = []
     initial.repositories.taskSnapshots = []
-    initial.repositories.$sessions.withLock { $0[key("a")] = SessionSidecarEntry(settledAt: .distantPast) }
+    initial.repositories.$sessions.withLock { $0[key("a")] = SessionSidecarEntry(settledAt: settledAt) }
     initial.repositories.taskSessions = [task: [key("a"), key("b")]]
     initial.repositories.sessionSummaries = [("a", "Primary"), ("b", "Tangent")].map {
       SessionSummary(
@@ -934,6 +932,20 @@ struct AppFeatureSessionsTaskSettleTests {
         lastActivity: .distantPast)
     }
     initial.repositories.reconcileSessionItems(now: .distantPast)
+    return initial
+  }
+
+  private func temporaryDirectory(named name: String) throws -> URL {
+    let url = FileManager.default.temporaryDirectory
+      .appendingPathComponent("supacode-tests-\(UUID().uuidString)-\(name)", isDirectory: true).standardizedFileURL
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    return url
+  }
+
+  @Test(.dependencies) func reopeningASettledTaskResumesOnlyItsPrimary() async throws {
+    let directory = try temporaryDirectory(named: "reopen")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let initial = settledTask(on: directory)
     // One row, the task's, in Settled: neither session has a row of its own.
     #expect(initial.repositories.sessionItems.map(\.id) == [.task(task)])
     #expect(initial.repositories.sessionItems.first?.lifecycle == .settled)
@@ -960,6 +972,81 @@ struct AppFeatureSessionsTaskSettleTests {
     )
     #expect(settledAt("a", in: store) == nil)
     #expect(!AppFeature.isTaskSettled(task, state: store.state))
+  }
+
+  // MARK: - Resume by task id (palette, menu)
+
+  @Test(.dependencies) func resumingATaskByIdActivatesItsRow() async throws {
+    let directory = try temporaryDirectory(named: "resume-by-id")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let recorded = Recorded()
+    let store = store(settledTask(on: directory), recorded: recorded)
+
+    await store.send(.resumeTask(task))
+    await store.receive(\.repositories.activateSession)
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    let launched = recorded.commands.value.compactMap { command -> LayoutID? in
+      guard case .createTaskTab(let layoutID, .resume(let into, let key), _, _, _) = command, into == layoutID,
+        key == self.key("a")
+      else { return nil }
+      return layoutID
+    }
+    #expect(launched == [task])
+    #expect(settledAt("a", in: store) == nil)
+  }
+
+  @Test(.dependencies) func resumingTheMostRecentlySettledTaskPicksTheNewestMark() async throws {
+    let directory = try temporaryDirectory(named: "resume-newest")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var initial = settledTask(on: directory, settledAt: Date(timeIntervalSince1970: 10))
+    // A second settled task on the same directory, settled later.
+    initial.terminals.layouts.append(LayoutFeature.State(id: otherTask, layout: PaneLayout()))
+    initial.terminals.directories[otherTask] = initial.terminals.directories[task]
+    initial.terminals.members[otherTask] = [.session(key("c"))]
+    initial.repositories.taskSessions[otherTask] = [key("c")]
+    initial.repositories.$sessions.withLock {
+      $0[key("c")] = SessionSidecarEntry(settledAt: Date(timeIntervalSince1970: 20))
+    }
+    initial.repositories.sessionSummaries.append(
+      SessionSummary(
+        harness: .pi, sessionID: "c", createdAt: .distantPast, cwd: directory.path(percentEncoded: false),
+        title: "Later", messageCount: 4, lastActivity: .distantPast))
+    initial.repositories.reconcileSessionItems(now: .distantPast)
+    #expect(initial.repositories.recentlySettledTasks().map(\.id) == [otherTask, task])
+    #expect(initial.repositories.recentlySettledTasks(limit: 1).map(\.title) == ["Later"])
+    let recorded = Recorded()
+    let store = store(initial, recorded: recorded)
+
+    await store.send(.resumeMostRecentlySettledTask)
+    await store.receive(\.repositories.activateSession)
+    await store.receive(\.launchSessionCompleted)
+    await store.finish()
+
+    #expect(settledAt("c", in: store) == nil, "the later task is the one brought back")
+    #expect(settledAt("a", in: store) != nil)
+  }
+
+  /// The palette listed the task, then the task went before the pick landed.
+  @Test(.dependencies) func resumingATaskWhoseRecordVanishedDoesNothing() async throws {
+    let directory = try temporaryDirectory(named: "resume-vanished")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var initial = settledTask(on: directory)
+    #expect(initial.repositories.recentlySettledTasks().map(\.id) == [task])
+    // The row still stands for one snapshot; the record and layout are gone.
+    initial.terminals.layouts = []
+    initial.terminals.removedLayoutIDs.insert(task)
+    let recorded = Recorded()
+    let store = store(initial, recorded: recorded)
+
+    await store.send(.resumeTask(task))
+    await store.send(.resumeMostRecentlySettledTask)
+    await store.finish()
+
+    #expect(recorded.commands.value.isEmpty, "nothing is created for a task that is not there")
+    #expect(settledAt("a", in: store) != nil)
+    #expect(store.state.pendingSessionLaunch == nil)
   }
 
   /// Both fixture tasks closed on a directory that exists, each listing "a"

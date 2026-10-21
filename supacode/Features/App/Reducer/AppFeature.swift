@@ -360,6 +360,10 @@ struct AppFeature {
     case settleSessionAndAdvance
     case unsettleCurrentSession
     case nextSessionNeedsMe
+    /// Brings a settled task back on its primary; carries the id only, the
+    /// task is looked up again here.
+    case resumeTask(LayoutID)
+    case resumeMostRecentlySettledTask
     case renameSelectedTerminalTab
     case toggleWindowModeForFocusedPane
     case toggleSplitZoom
@@ -1255,6 +1259,13 @@ struct AppFeature {
 
       case .nextSessionNeedsMe:
         return Self.handleNextSessionNeedsMe(state: &state)
+
+      case .resumeTask(let layoutID):
+        return Self.handleResumeTask(layoutID, state: state)
+
+      case .resumeMostRecentlySettledTask:
+        guard let task = state.repositories.recentlySettledTasks(limit: 1).first else { return .none }
+        return Self.handleResumeTask(task.id, state: state)
 
       case .renameSelectedTerminalTab:
         guard let shown = state.shownTerminal, let layoutID = shown.layoutID,

@@ -123,6 +123,30 @@ extension RepositoriesFeature.State {
     sessionsSidebarStructure.subRows = subRows.rows
   }
 
+  /// A settled task the user may want back, with when its primary settled.
+  struct RecentlySettledTask: Equatable, Identifiable, Sendable {
+    var id: LayoutID
+    var title: String
+    var settledAt: Date
+  }
+
+  /// The settled task rows, most recently settled first (ties by key), cut
+  /// to `limit`. A task row is settled only while it holds no tab, so every
+  /// one here is a resume, never a focus.
+  func recentlySettledTasks(limit: Int = 10) -> [RecentlySettledTask] {
+    let settled = sessionItems.compactMap { row -> RecentlySettledTask? in
+      guard case .task(let layoutID) = row.id, row.lifecycle == .settled, let primary = row.primary,
+        let settledAt = sessions[primary]?.settledAt
+      else { return nil }
+      return RecentlySettledTask(id: layoutID, title: row.title, settledAt: settledAt)
+    }
+    return Array(
+      settled.sorted {
+        if $0.settledAt != $1.settledAt { return $0.settledAt > $1.settledAt }
+        return $0.id.persistenceKey < $1.id.persistenceKey
+      }.prefix(limit))
+  }
+
   /// The session's surface, when an agent runs it: its own row's, or the
   /// surface of the task it is grouped under.
   func sessionLocation(for key: SessionKey) -> SessionLocation? {
