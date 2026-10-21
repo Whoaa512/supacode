@@ -12,6 +12,7 @@ struct TerminalCommands: Commands {
   @FocusedValue(\.settleSessionAndAdvanceAction) private var settleSessionAndAdvanceAction
   @FocusedValue(\.unsettleSessionAction) private var unsettleSessionAction
   @FocusedValue(\.nextSessionNeedsMeAction) private var nextSessionNeedsMeAction
+  @FocusedValue(\.resumeMostRecentlySettledTaskAction) private var resumeMostRecentlySettledTaskAction
   @FocusedValue(\.renameTabAction) private var renameTabAction
   @FocusedValue(\.splitTerminalAction) private var splitTerminalAction
   @FocusedValue(\.toggleWindowModeAction) private var toggleWindowModeAction
@@ -77,6 +78,16 @@ struct TerminalCommands: Commands {
       .disabled(nextSessionNeedsMeAction?.isEnabled != true)
       .help(
         "Next session that needs me (\(AppShortcuts.nextSessionNeedsMe.effective(from: overrides)?.display ?? "none"))"
+      )
+
+      Button("Resume Most Recently Settled Task") {
+        resumeMostRecentlySettledTaskAction?()
+      }
+      .appKeyboardShortcut(AppShortcuts.resumeMostRecentlySettledTask.effective(from: overrides))
+      .disabled(resumeMostRecentlySettledTaskAction?.isEnabled != true)
+      .help(
+        "Reopen the task settled last on its primary session "
+          + "(\(AppShortcuts.resumeMostRecentlySettledTask.effective(from: overrides)?.display ?? "none"))"
       )
 
       Button("Rename Tab", systemImage: "pencil") {
@@ -292,6 +303,10 @@ private struct NextSessionNeedsMeActionKey: FocusedValueKey {
   typealias Value = FocusedAction<Void>
 }
 
+private struct ResumeMostRecentlySettledTaskActionKey: FocusedValueKey {
+  typealias Value = FocusedAction<Void>
+}
+
 private struct ToggleTerminalGridActionKey: FocusedValueKey {
   typealias Value = FocusedAction<Void>
 }
@@ -330,6 +345,11 @@ extension FocusedValues {
   var nextSessionNeedsMeAction: FocusedAction<Void>? {
     get { self[NextSessionNeedsMeActionKey.self] }
     set { self[NextSessionNeedsMeActionKey.self] = newValue }
+  }
+
+  var resumeMostRecentlySettledTaskAction: FocusedAction<Void>? {
+    get { self[ResumeMostRecentlySettledTaskActionKey.self] }
+    set { self[ResumeMostRecentlySettledTaskActionKey.self] = newValue }
   }
 }
 

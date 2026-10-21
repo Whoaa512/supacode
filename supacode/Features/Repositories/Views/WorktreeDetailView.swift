@@ -413,6 +413,9 @@ struct WorktreeDetailView: View {
       .focusedSceneAction(\.nextSessionNeedsMeAction, enabled: true) {
         store.send(.nextSessionNeedsMe)
       }
+      .focusedSceneAction(\.resumeMostRecentlySettledTaskAction, enabled: true) {
+        store.send(.resumeMostRecentlySettledTask)
+      }
       // Lock and validity are enforced by the terminal model, so this only gates on an active worktree.
       .focusedSceneAction(\.renameTabAction, enabled: hasShownTerminal) {
         store.send(.renameSelectedTerminalTab)
