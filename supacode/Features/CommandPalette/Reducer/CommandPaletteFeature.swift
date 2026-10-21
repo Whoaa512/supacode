@@ -235,7 +235,7 @@ struct CommandPaletteFeature {
         }
         state.isPresented = false
         state.resetForDismiss()
-        guard let delegate = delegateAction(for: item.kind) else {
+        guard let delegate = Delegate.resolve(for: item.kind) else {
           commandPaletteLogger.warning("No delegate for activated palette item \(item.id).")
           return .none
         }
@@ -1528,93 +1528,89 @@ private func commandPaletteRecencyScore(
   return pow(0.5, cappedAgeDays / 7)
 }
 
-/// The delegate an activated item resolves to, or `nil` for a kind the reducer handles
-/// itself: `.openRepository` switches the palette into browse mode and never leaves it.
-private func delegateAction(
-  for kind: CommandPaletteItem.Kind
-) -> CommandPaletteFeature.Delegate? {
-  switch kind {
-  case .worktreeSelect, .branchSelect, .newWorktree, .forkWorktree, .removeWorktree, .archiveWorktree,
-    .viewArchivedWorktrees, .refreshWorktrees:
-    return worktreeDelegateAction(for: kind)!
-  case .checkForUpdates:
-    return .checkForUpdates
-  case .openSettings:
-    return .openSettings
-  case .openRepository:
-    return nil
-  case .addRemoteRepository:
-    return .addRemoteRepository
-  case .renameBranch, .customizeRepositoryAppearance, .customizeWorktreeAppearance, .toggleWindowMode,
-    .layoutCommand:
-    return selectedEntryDelegateAction(for: kind)!
-  case .ghosttyCommand(let action):
-    return .ghosttyCommand(action)
-  case .toggleCollapseRepository(let repositoryID):
-    return .toggleCollapseRepository(repositoryID)
-  case .openPullRequest,
-    .markPullRequestReady,
-    .mergePullRequest,
-    .closePullRequest,
-    .copyFailingJobURL,
-    .copyCiFailureLogs,
-    .rerunFailedJobs,
-    .openFailingCheckDetails:
-    return pullRequestDelegateAction(for: kind)!
-  case .runScript, .stopScript:
-    return scriptDelegateAction(for: kind)!
-  case .mergeTask, .detachFocusedTab, .resumeMostRecentlySettledTask, .resumeTask, .selectTask:
-    return taskDelegateAction(for: kind)!
-  #if DEBUG
-    case .debugTestToast(let toast):
-      return .debugTestToast(toast)
-  #endif
+extension CommandPaletteFeature.Delegate {
+  /// The delegate an activated item resolves to, or `nil` for a kind the reducer handles
+  /// itself: `.openRepository` switches the palette into browse mode and never leaves it.
+  static func resolve(for kind: CommandPaletteItem.Kind) -> Self? {
+    switch kind {
+    case .worktreeSelect, .branchSelect, .newWorktree, .forkWorktree, .removeWorktree, .archiveWorktree,
+      .viewArchivedWorktrees, .refreshWorktrees:
+      return worktreeAction(for: kind)!
+    case .checkForUpdates:
+      return .checkForUpdates
+    case .openSettings:
+      return .openSettings
+    case .openRepository:
+      return nil
+    case .addRemoteRepository:
+      return .addRemoteRepository
+    case .renameBranch, .customizeRepositoryAppearance, .customizeWorktreeAppearance, .toggleWindowMode,
+      .layoutCommand:
+      return selectedEntryDelegateAction(for: kind)!
+    case .ghosttyCommand(let action):
+      return .ghosttyCommand(action)
+    case .toggleCollapseRepository(let repositoryID):
+      return .toggleCollapseRepository(repositoryID)
+    case .openPullRequest,
+      .markPullRequestReady,
+      .mergePullRequest,
+      .closePullRequest,
+      .copyFailingJobURL,
+      .copyCiFailureLogs,
+      .rerunFailedJobs,
+      .openFailingCheckDetails:
+      return pullRequestDelegateAction(for: kind)!
+    case .runScript, .stopScript:
+      return scriptDelegateAction(for: kind)!
+    case .mergeTask, .detachFocusedTab, .resumeMostRecentlySettledTask, .resumeTask, .selectTask:
+      return taskAction(for: kind)!
+    #if DEBUG
+      case .debugTestToast(let toast):
+        return .debugTestToast(toast)
+    #endif
+    }
   }
-}
 
-/// Delegates for the worktree and branch rows: selecting, creating, forking,
-/// removing, archiving and refreshing them.
-private func worktreeDelegateAction(
-  for kind: CommandPaletteItem.Kind
-) -> CommandPaletteFeature.Delegate? {
-  switch kind {
-  case .worktreeSelect(let id):
-    return .selectWorktree(id)
-  case .branchSelect(let repositoryID, let branch):
-    return .selectBranch(repositoryID, branch: branch)
-  case .newWorktree:
-    return .newWorktree
-  case .forkWorktree(let worktreeID, let repositoryID):
-    return .forkWorktree(worktreeID, repositoryID)
-  case .removeWorktree(let worktreeID, let repositoryID):
-    return .removeWorktree(worktreeID, repositoryID)
-  case .archiveWorktree(let worktreeID, let repositoryID):
-    return .archiveWorktree(worktreeID, repositoryID)
-  case .viewArchivedWorktrees:
-    return .viewArchivedWorktrees
-  case .refreshWorktrees:
-    return .refreshWorktrees
-  default:
-    return nil
+  /// Delegates for the worktree and branch rows: selecting, creating, forking,
+  /// removing, archiving and refreshing them.
+  private static func worktreeAction(for kind: CommandPaletteItem.Kind) -> Self? {
+    switch kind {
+    case .worktreeSelect(let id):
+      return .selectWorktree(id)
+    case .branchSelect(let repositoryID, let branch):
+      return .selectBranch(repositoryID, branch: branch)
+    case .newWorktree:
+      return .newWorktree
+    case .forkWorktree(let worktreeID, let repositoryID):
+      return .forkWorktree(worktreeID, repositoryID)
+    case .removeWorktree(let worktreeID, let repositoryID):
+      return .removeWorktree(worktreeID, repositoryID)
+    case .archiveWorktree(let worktreeID, let repositoryID):
+      return .archiveWorktree(worktreeID, repositoryID)
+    case .viewArchivedWorktrees:
+      return .viewArchivedWorktrees
+    case .refreshWorktrees:
+      return .refreshWorktrees
+    default:
+      return nil
+    }
   }
-}
 
-/// Delegates for the task rows: moving tabs between tasks and bringing a
-/// task to the front or back from settled.
-private func taskDelegateAction(
-  for kind: CommandPaletteItem.Kind
-) -> CommandPaletteFeature.Delegate? {
-  switch kind {
-  case .mergeTask(let source, let target):
-    return .mergeTask(source, into: target)
-  case .detachFocusedTab:
-    return .detachFocusedTab
-  case .resumeMostRecentlySettledTask:
-    return .resumeMostRecentlySettledTask
-  case .resumeTask(let rowID), .selectTask(let rowID):
-    return .activateTask(rowID)
-  default:
-    return nil
+  /// Delegates for the task rows: moving tabs between tasks and bringing a
+  /// task to the front or back from settled.
+  private static func taskAction(for kind: CommandPaletteItem.Kind) -> Self? {
+    switch kind {
+    case .mergeTask(let source, let target):
+      return .mergeTask(source, into: target)
+    case .detachFocusedTab:
+      return .detachFocusedTab
+    case .resumeMostRecentlySettledTask:
+      return .resumeMostRecentlySettledTask
+    case .resumeTask(let rowID), .selectTask(let rowID):
+      return .activateTask(rowID)
+    default:
+      return nil
+    }
   }
 }
 
