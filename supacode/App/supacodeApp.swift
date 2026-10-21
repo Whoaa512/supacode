@@ -944,6 +944,12 @@ struct SupacodeApp: App {
       }
       WindowCommands()
       CommandGroup(after: .textEditing) {
+        Button("Go to Task") {
+          guard NSApp.currentEvent?.isAutoRepeatKeyDown != true else { return }
+          store.send(.commandPalette(.togglePresentInMode(.taskSearch)))
+        }
+        .appKeyboardShortcut(AppShortcuts.taskSearch.effective(from: store.settings.shortcutOverrides))
+        .help("Search active and recently settled tasks; type w: to search worktrees")
         Button("Go to Worktree") {
           guard NSApp.currentEvent?.isAutoRepeatKeyDown != true else { return }
           store.send(.commandPalette(.togglePresentInMode(.worktreeSwitcher)))

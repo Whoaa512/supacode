@@ -8,14 +8,17 @@ private nonisolated let commandPaletteLogger = SupaLogger("CommandPalette")
 
 @Reducer
 struct CommandPaletteFeature {
-  /// Two narrow surfaces sharing one palette UI. `.commands` is the full
+  /// Narrow surfaces sharing one palette UI. `.commands` is the full
   /// command palette (scripts, ghostty actions, PR actions, settings);
-  /// `.worktreeSwitcher` shows only worktrees, sorted by
-  /// `RepositoriesFeature.State.worktreeMRU`. `.browse` is the in-app
-  /// project browser. Mode lives in State so the items builder, the view,
-  /// and the dismiss handler all read the same source of truth.
+  /// `.taskSearch` (⌘P) lists active tasks, then recently settled ones,
+  /// with worktrees behind a `w:` prefix; `.worktreeSwitcher` shows only
+  /// worktrees, sorted by `RepositoriesFeature.State.worktreeMRU`.
+  /// `.browse` is the in-app project browser. Mode lives in State so the
+  /// items builder, the view, and the dismiss handler all read the same
+  /// source of truth.
   enum PaletteMode: Equatable, Sendable {
     case commands
+    case taskSearch
     case worktreeSwitcher
     case branchSearch
     case browse
@@ -616,6 +619,9 @@ struct CommandPaletteFeature {
     now: Date = .now
   ) -> [CommandPaletteItem] {
     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    if mode == .taskSearch {
+      return taskSearchRows(items: items, query: trimmed, recencyByID: recencyByID, now: now)
+    }
     guard !trimmed.isEmpty else {
       switch mode {
       case .commands, .browse:
@@ -623,7 +629,7 @@ struct CommandPaletteFeature {
         // actions; scripts and PR actions surface once you type.
         let visibleItems = items.filter { $0.isGlobal && !$0.isRootAction }
         return prioritizeItems(items: visibleItems, recencyByID: recencyByID, now: now)
-      case .worktreeSwitcher, .branchSearch:
+      case .taskSearch, .worktreeSwitcher, .branchSearch:
         // The switcher is a navigation surface: every worktree row is visible
         // with no query, already ordered MRU-first via `priorityTier`.
         return prioritizeItems(items: items, recencyByID: recencyByID, now: now)
@@ -809,6 +815,76 @@ struct CommandPaletteFeature {
     }
   }
 
+  /// How many settled tasks the ⌘P search offers.
+  static let taskSearchSettledLimit = 30
+
+  /// The query prefix that turns the ⌘P search into the worktree switcher.
+  static let taskSearchWorktreePrefix = "w:"
+
+  /// ⌘P rows: every active task in sidebar order, then the settled ones
+  /// newest-settled first. The subtitle carries the directory name and the
+  /// agent so the scorer can hit either; settled rows add how long ago.
+  /// The selected row is flagged current so Enter on an empty query moves.
+  static func taskSearchItems(from repositories: RepositoriesFeature.State, now: Date) -> [CommandPaletteItem] {
+    let formatter = RelativeDateTimeFormatter()
+    formatter.unitsStyle = .short
+    let activeIDs = repositories.sessionsSidebarStructure.sections.first { $0.id == .active }?.rowIDs ?? []
+    let active = activeIDs.enumerated().compactMap { index, id -> CommandPaletteItem? in
+      guard let row = repositories.sessionItems[id: id] else { return nil }
+      return CommandPaletteItem(
+        id: CommandPaletteItemID.selectTask(id),
+        title: row.title,
+        subtitle: taskSubtitle(cwd: row.cwd, harness: row.harness),
+        kind: .selectTask(id),
+        priorityTier: index,
+        isCurrentWorktree: id == repositories.sessionSelection
+      )
+    }
+    let settled = repositories.recentlySettledTasks(limit: taskSearchSettledLimit).enumerated().map { index, task in
+      let ago = formatter.localizedString(for: task.settledAt, relativeTo: now)
+      return CommandPaletteItem(
+        id: CommandPaletteItemID.resumeTask(task.id),
+        title: task.title,
+        subtitle: "\(taskSubtitle(cwd: task.cwd, harness: task.harness)) · Settled \(ago)",
+        kind: .resumeTask(task.id),
+        priorityTier: active.count + index
+      )
+    }
+    return active + settled
+  }
+
+  private static func taskSubtitle(cwd: String, harness: SkillAgent?) -> String {
+    let directory = URL(fileURLWithPath: cwd).lastPathComponent
+    guard let harness else { return directory }
+    return "\(directory) · \(harness.displayName)"
+  }
+
+  /// The ⌘P list for a query. `w:` hands the rest of the query to the
+  /// worktree rows alone. Otherwise active tasks are ranked among
+  /// themselves and settled ones among themselves, so the two groups never
+  /// interleave; worktrees whose name matches follow as a third group, and
+  /// stay out of the empty-query list.
+  static func taskSearchRows(
+    items: [CommandPaletteItem],
+    query: String,
+    recencyByID: [CommandPaletteItem.ID: TimeInterval],
+    now: Date
+  ) -> [CommandPaletteItem] {
+    let worktrees = items.filter { $0.kind.isWorktreeSelect }
+    let active = items.filter { $0.kind.isSelectTask }
+    let settled = items.filter { $0.kind.isResumeTask }
+    func ranked(_ group: [CommandPaletteItem], _ query: String) -> [CommandPaletteItem] {
+      guard !query.isEmpty else { return prioritizeItems(items: group, recencyByID: recencyByID, now: now) }
+      return CommandPaletteFuzzyScorer(query: query, recencyByID: recencyByID, now: now).rankedItems(from: group)
+    }
+    if query.lowercased().hasPrefix(taskSearchWorktreePrefix) {
+      let rest = query.dropFirst(taskSearchWorktreePrefix.count).trimmingCharacters(in: .whitespaces)
+      return ranked(worktrees, rest)
+    }
+    guard !query.isEmpty else { return ranked(active, "") + ranked(settled, "") }
+    return ranked(active, query) + ranked(settled, query) + ranked(worktrees, query)
+  }
+
   /// The "Rename Branch" action for the selected git worktree, or `nil` when the
   /// selection isn't an idle, attached, non-folder worktree that can be renamed.
   static func renameBranchItem(from repositories: RepositoriesFeature.State) -> CommandPaletteItem? {
@@ -949,6 +1025,8 @@ struct CommandPaletteFeature {
         runningScriptIDs: runningScriptIDs,
         now: now
       )
+    case .taskSearch:
+      return taskSearchItems(from: repositories, now: now) + worktreeSwitcherItems(from: repositories)
     case .worktreeSwitcher:
       return worktreeSwitcherItems(from: repositories)
     case .branchSearch:
@@ -1328,6 +1406,10 @@ private enum CommandPaletteItemID {
     "\(rowID.sortKey).resume"
   }
 
+  static func selectTask(_ rowID: SessionRowID) -> CommandPaletteItem.ID {
+    "\(rowID.sortKey).select"
+  }
+
   static func ghosttyCommand(_ command: GhosttyCommand) -> CommandPaletteItem.ID {
     "\(ghosttyPrefix)\(command.action)|\(command.title)"
   }
@@ -1474,7 +1556,7 @@ private func delegateAction(  // swiftlint:disable:this cyclomatic_complexity
     return .mergeTask(source, into: target)
   case .detachFocusedTab:
     return .detachFocusedTab
-  case .resumeTask(let rowID):
+  case .resumeTask(let rowID), .selectTask(let rowID):
     return .activateTask(rowID)
   #if DEBUG
     case .debugTestToast(let toast):
@@ -1505,7 +1587,7 @@ private func selectedEntryDelegateAction(
     .viewArchivedWorktrees, .refreshWorktrees, .ghosttyCommand, .toggleCollapseRepository,
     .openPullRequest, .markPullRequestReady, .mergePullRequest,
     .closePullRequest, .copyFailingJobURL, .copyCiFailureLogs, .rerunFailedJobs,
-    .openFailingCheckDetails, .runScript, .stopScript, .mergeTask, .detachFocusedTab, .resumeTask:
+    .openFailingCheckDetails, .runScript, .stopScript, .mergeTask, .detachFocusedTab, .resumeTask, .selectTask:
     return nil
   #if DEBUG
     case .debugTestToast:
@@ -1570,7 +1652,8 @@ private func pullRequestDelegateAction(
     .stopScript,
     .mergeTask,
     .detachFocusedTab,
-    .resumeTask:
+    .resumeTask,
+    .selectTask:
     return nil
   #if DEBUG
     case .debugTestToast:

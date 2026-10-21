@@ -18,7 +18,7 @@ struct CommandPaletteOverlayView: View {
     // `CommandPalettePanel`, not this view.
     Group {
       switch store.mode {
-      case .commands, .worktreeSwitcher, .branchSearch:
+      case .commands, .taskSearch, .worktreeSwitcher, .branchSearch:
         CommandPaletteCard(
           query: $store.query,
           selectedIndex: $store.selectedIndex,
@@ -84,11 +84,13 @@ struct CommandPaletteOverlayView: View {
     )
   }
 
-  /// Query-field placeholder, matched to the active surface. The worktree
-  /// switcher (⌘P) only navigates to worktrees; the full command palette (⌘⇧P)
-  /// lists actions (worktree navigation moved to the switcher).
+  /// Query-field placeholder, matched to the active surface. The task search
+  /// (⌘P) navigates to tasks, the worktree switcher (⌘⌥P) to worktrees; the
+  /// full command palette (⌘⇧P) lists actions only.
   private var queryPlaceholder: String {
     switch store.mode {
+    case .taskSearch:
+      return "Go to task… (w: for worktrees)"
     case .worktreeSwitcher:
       return "Go to worktree…"
     case .branchSearch:
@@ -306,8 +308,12 @@ private struct CommandPaletteRowView: View {
       return "Script"
     case .stopScript:
       return "Script"
-    case .mergeTask, .detachFocusedTab, .resumeTask:
+    case .mergeTask, .detachFocusedTab:
       return "Task"
+    case .resumeTask:
+      return "Settled"
+    case .selectTask:
+      return "Active"
     #if DEBUG
       case .debugTestToast:
         return "Debug"
@@ -377,6 +383,8 @@ private struct CommandPaletteRowView: View {
       return "rectangle.portrait.and.arrow.right"
     case .resumeTask:
       return "arrow.uturn.backward.circle"
+    case .selectTask:
+      return "sparkles.rectangle.stack"
     #if DEBUG
       case .debugTestToast:
         return "ladybug"
@@ -401,7 +409,7 @@ private struct CommandPaletteRowView: View {
       return false
     case .renameBranch, .customizeRepositoryAppearance, .customizeWorktreeAppearance:
       return true
-    case .runScript, .stopScript, .mergeTask, .detachFocusedTab, .resumeTask:
+    case .runScript, .stopScript, .mergeTask, .detachFocusedTab, .resumeTask, .selectTask:
       return true
     #if DEBUG
       case .debugTestToast:
@@ -573,6 +581,8 @@ private struct CommandPaletteRowView: View {
       base = "Move the focused tab into a task of its own"
     case .resumeTask:
       base = "Reopen this settled task on its primary session"
+    case .selectTask:
+      base = "Show this task and focus its primary session"
     #if DEBUG
       case .debugTestToast:
         base = row.title

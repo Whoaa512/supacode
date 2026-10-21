@@ -208,6 +208,105 @@ struct CommandPaletteFeatureTests {
         == items.map(\.id))
   }
 
+  /// ⌘P lists running tasks in sidebar order, then settled ones by when
+  /// they settled, newest first, however old the session is. A session no
+  /// task lists counts; the selected row is flagged so Enter moves off it.
+  @Test func taskSearchItems_activeInSidebarOrderThenSettledBySettledAt() {
+    let worktree = makeWorktree(id: "/tmp/repo", name: "repo", repoRoot: "/tmp/repo")
+    let repository = makeRepository(rootPath: "/tmp/repo", name: "Repo", worktrees: [worktree])
+    let (running, old, fresh) = (
+      LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000B1")!),
+      LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000B2")!),
+      LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000B3")!)
+    )
+    func key(_ id: String) -> SessionKey { SessionKey(harness: .pi, sessionID: id) }
+    let surface = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+    var state = RepositoriesFeature.State(reconciledRepositories: [repository])
+    state.$sessions = Shared(value: [:])
+    state.$persistedLayouts = SharedReader(value: TaskLayoutsFile())
+    state.sessionsStarted = true
+    state.selection = .worktree(worktree.id)
+    // "old" was created last but settled first; "fresh" the other way round;
+    // "loose" belongs to no task and settled in between.
+    let created: [(String, TimeInterval)] = [("run", 10), ("old", 300), ("fresh", 100), ("loose", 200)]
+    state.sessionSummaries = created.map {
+      SessionSummary(
+        harness: .pi, sessionID: $0.0, createdAt: Date(timeIntervalSince1970: $0.1), cwd: "/tmp/repo/sub",
+        title: "Title \($0.0)", messageCount: 1, lastActivity: Date(timeIntervalSince1970: $0.1))
+    }
+    state.taskSessions = [running: [key("run")], old: [key("old")], fresh: [key("fresh")]]
+    state.taskSnapshots = [
+      TaskLiveSnapshot(
+        title: "repo", cwd: "/tmp/repo/sub", createdAt: nil,
+        location: SessionLocation(
+          layoutID: running, directoryID: worktree.id, tabID: TabID(rawValue: surface), surfaceID: surface))
+    ]
+    state.$sessions.withLock { sidecar in
+      sidecar[key("old")] = SessionSidecarEntry(settledAt: Date(timeIntervalSince1970: 1000))
+      sidecar[key("loose")] = SessionSidecarEntry(settledAt: Date(timeIntervalSince1970: 2000))
+      sidecar[key("fresh")] = SessionSidecarEntry(settledAt: Date(timeIntervalSince1970: 3000))
+    }
+    state.reconcileSessionItems(now: Date(timeIntervalSince1970: 4000))
+    state.recomputeSessionsSidebarStructureIfChanged()
+    state.sessionSelection = .task(running)
+
+    let now = Date(timeIntervalSince1970: 3000 + 3600)
+    let items = CommandPaletteFeature.taskSearchItems(from: state, now: now)
+    #expect(
+      items.map(\.kind) == [
+        .selectTask(.task(running)), .resumeTask(.task(fresh)), .resumeTask(.implicit(key("loose"))),
+        .resumeTask(.task(old)),
+      ])
+    #expect(items.map(\.priorityTier) == [0, 1, 2, 3], "sidebar order, then settle order, kept with no query")
+    #expect(items.map(\.isCurrentWorktree) == [true, false, false, false])
+    #expect(items[0].title == "Title run")
+    #expect(items[0].subtitle == "sub · Pi")
+    #expect(items[1].subtitle == "sub · Pi · Settled 1 hr. ago")
+    #expect(items[1].id == "task:\(fresh.persistenceKey).resume")
+    #expect(
+      CommandPaletteFeature.items(in: .taskSearch, from: state, now: now).map(\.kind)
+        == items.map(\.kind) + [.worktreeSelect(worktree.id)])
+  }
+
+  /// With a query, active matches stay above settled ones whatever the match
+  /// quality; worktrees follow when their name matches; `w:` lists worktrees
+  /// alone. With no query, worktrees are not shown.
+  @Test func taskSearchRows_groupsActiveThenSettledThenWorktrees() {
+    func key(_ id: String) -> SessionKey { SessionKey(harness: .pi, sessionID: id) }
+    func active(_ id: String, _ title: String, tier: Int) -> CommandPaletteItem {
+      CommandPaletteItem(
+        id: "task:\(id).select", title: title, subtitle: "repo · Pi", kind: .selectTask(.implicit(key(id))),
+        priorityTier: tier)
+    }
+    func settled(_ id: String, _ title: String, tier: Int) -> CommandPaletteItem {
+      CommandPaletteItem(
+        id: "task:\(id).resume", title: title, subtitle: "repo · Pi · Settled 1 hr. ago",
+        kind: .resumeTask(.implicit(key(id))), priorityTier: tier)
+    }
+    let worktree = CommandPaletteItem(
+      id: "worktree.fix", title: "fix-login", subtitle: "Repo", kind: .worktreeSelect(Worktree.ID("/tmp/fix")),
+      priorityTier: 0)
+    let other = CommandPaletteItem(
+      id: "worktree.other", title: "docs", subtitle: "Repo", kind: .worktreeSelect(Worktree.ID("/tmp/docs")),
+      priorityTier: 1)
+    let items = [
+      active("a1", "Refactor parser", tier: 0), active("a2", "Fix tests", tier: 1),
+      settled("s1", "Fix login bug", tier: 2), settled("s2", "Write docs", tier: 3),
+      worktree, other,
+    ]
+    func rows(_ query: String) -> [String] {
+      CommandPaletteFeature.filterItems(items: items, query: query, mode: .taskSearch).map(\.id)
+    }
+
+    #expect(rows("") == ["task:a1.select", "task:a2.select", "task:s1.resume", "task:s2.resume"])
+    // The settled "Fix login bug" is the better hit for "fix", still below the active "Fix tests".
+    #expect(rows("fix") == ["task:a2.select", "task:s1.resume", "worktree.fix"])
+    #expect(rows("fix login") == ["task:s1.resume", "worktree.fix"])
+    #expect(rows("w:") == ["worktree.fix", "worktree.other"])
+    #expect(rows("W: doc") == ["worktree.other"])
+    #expect(rows("zzz").isEmpty)
+  }
+
   @Test func commandPaletteItems_includesRenameBranchOnlyForSelectedWorktree() {
     let rootPath = "/tmp/repo-rename"
     let main = makeWorktree(id: "\(rootPath)/main", name: "main", repoRoot: rootPath)

@@ -307,6 +307,9 @@ final class CommandPalettePanelHostView: NSView {
     for event: NSEvent,
     overrides: [AppShortcutID: AppShortcutOverride]
   ) -> CommandPaletteFeature.PaletteMode? {
+    if AppShortcuts.taskSearch.effective(from: overrides)?.matches(event) == true {
+      return .taskSearch
+    }
     if AppShortcuts.worktreeSwitcher.effective(from: overrides)?.matches(event) == true {
       return .worktreeSwitcher
     }

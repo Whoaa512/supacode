@@ -6,7 +6,7 @@ import SwiftUI
 
 // Compile-time checkable shortcut identifier.
 public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRepresentable {
-  case commandPalette, worktreeSwitcher, branchSearch, openSettings, checkForUpdates, showMainWindow
+  case commandPalette, taskSearch, worktreeSwitcher, branchSearch, openSettings, checkForUpdates, showMainWindow
   case toggleLeftSidebar, revealInSidebar, cycleSidebarTab
   case expandAllSidebarGroups, collapseAllSidebarGroups
   case newWorktree, refreshWorktrees, archivedWorktrees, archiveWorktree
@@ -49,6 +49,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
   private var stableKey: String {
     switch self {
     case .commandPalette: "commandPalette"
+    case .taskSearch: "taskSearch"
     case .worktreeSwitcher: "worktreeSwitcher"
     case .branchSearch: "branchSearch"
     case .openSettings: "openSettings"
@@ -118,6 +119,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
 
   private static let stableKeyMap: [String: AppShortcutID] = [
     "commandPalette": .commandPalette,
+    "taskSearch": .taskSearch,
     "worktreeSwitcher": .worktreeSwitcher,
     "branchSearch": .branchSearch,
     "openSettings": .openSettings,
@@ -205,6 +207,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
   public var displayName: String {
     switch self {
     case .commandPalette: "Command Palette"
+    case .taskSearch: "Go to Task"
     case .worktreeSwitcher: "Go to Worktree"
     case .branchSearch: "Go to Branch"
     case .openSettings: "Open Settings"
@@ -489,7 +492,8 @@ public enum AppShortcuts {
   // MARK: - Shortcut definitions.
 
   public static let commandPalette = AppShortcut(id: .commandPalette, key: "p", modifiers: [.command, .shift])
-  public static let worktreeSwitcher = AppShortcut(id: .worktreeSwitcher, key: "p", modifiers: .command)
+  public static let taskSearch = AppShortcut(id: .taskSearch, key: "p", modifiers: .command)
+  public static let worktreeSwitcher = AppShortcut(id: .worktreeSwitcher, key: "p", modifiers: [.command, .option])
   public static let branchSearch = AppShortcut(id: .branchSearch, key: "b", modifiers: [.command, .shift])
   public static let openSettings = AppShortcut(id: .openSettings, key: ",", modifiers: .command)
   public static let checkForUpdates = AppShortcut(id: .checkForUpdates, key: "u", modifiers: .command)
@@ -704,7 +708,9 @@ public enum AppShortcuts {
   public static let groups: [AppShortcutGroup] = [
     AppShortcutGroup(
       category: .general,
-      shortcuts: [worktreeSwitcher, commandPalette, branchSearch, openSettings, checkForUpdates, showMainWindow]
+      shortcuts: [
+        taskSearch, worktreeSwitcher, commandPalette, branchSearch, openSettings, checkForUpdates, showMainWindow,
+      ]
     ),
     AppShortcutGroup(
       category: .sidebar,

@@ -1109,6 +1109,23 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(settledAt("a", in: store) != nil)
   }
 
+  /// The palette listed a loose session, then its row went (index pruned,
+  /// or a task claimed it) before the pick landed: nothing is started.
+  @Test(.dependencies) func activatingAnImplicitRowThatVanishedDoesNothing() async throws {
+    let directory = try temporaryDirectory(named: "resume-implicit-vanished")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let initial = settledTask(on: directory)
+    #expect(initial.repositories.sessionItems[id: .implicit(key("c"))] == nil)
+    let recorded = Recorded()
+    let store = store(initial, recorded: recorded)
+
+    await store.send(.activateTask(.implicit(key("c"))))
+    await store.finish()
+
+    #expect(recorded.commands.value.isEmpty)
+    #expect(store.state.pendingSessionLaunch == nil)
+  }
+
   /// The palette listed the task, then the task went before the pick landed.
   @Test(.dependencies) func resumingATaskWhoseRecordVanishedDoesNothing() async throws {
     let directory = try temporaryDirectory(named: "resume-vanished")

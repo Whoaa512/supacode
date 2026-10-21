@@ -18,6 +18,9 @@ The sidebar's unit of work is a task: an agent session (or a plain shell) with i
 splits. A task is never made by hand. ⌘N starts one in the current task's directory with the
 default agent; ⌘⇧N opens a picker (directory, agent or shell); ⌘⌥⇧N creates a new worktree.
 Every indexed agent session shows as a task from day one; clicking a history row resumes it.
+⌘P searches tasks by title, directory and agent: active ones first, then the recently settled
+with how long ago; Enter shows the task, or resumes it when settled. Type `w:` to search
+worktrees instead (⌘⌥P opens that switcher directly).
 
 An agent started inside a task's tab joins that task. The first session is the primary and gives
 the task its title; the others show as sub-rows while the task is selected, dimmed once they

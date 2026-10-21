@@ -34,28 +34,31 @@ struct AppShortcutsTests {
   }
 
   @Test func matchesRequiresAnExactModifierSet() {
-    let worktreeSwitcher = AppShortcuts.worktreeSwitcher  // ⌘P.
+    let taskSearch = AppShortcuts.taskSearch  // ⌘P.
     let commandPalette = AppShortcuts.commandPalette  // ⌘⇧P.
+    let worktreeSwitcher = AppShortcuts.worktreeSwitcher  // ⌘⌥P.
 
     let command = Self.keyEvent(keyCode: kVK_ANSI_P, modifiers: .command)
-    #expect(worktreeSwitcher.matches(command))
+    #expect(taskSearch.matches(command))
     // ⌘P must not match ⌘⇧P: a character-based match would invert the two palettes.
     #expect(commandPalette.matches(command) == false)
+    #expect(worktreeSwitcher.matches(command) == false)
 
     let commandShift = Self.keyEvent(keyCode: kVK_ANSI_P, modifiers: [.command, .shift])
     #expect(commandPalette.matches(commandShift))
-    #expect(worktreeSwitcher.matches(commandShift) == false)
+    #expect(taskSearch.matches(commandShift) == false)
 
     // A superset of the bound modifiers is not a match.
     let commandOption = Self.keyEvent(keyCode: kVK_ANSI_P, modifiers: [.command, .option])
-    #expect(worktreeSwitcher.matches(commandOption) == false)
+    #expect(worktreeSwitcher.matches(commandOption))
+    #expect(taskSearch.matches(commandOption) == false)
     #expect(commandPalette.matches(commandOption) == false)
   }
 
   @Test func matchesIgnoresIncidentalModifierFlags() {
     // Caps Lock (and the function / numeric-pad flags) must not defeat the match.
     let event = Self.keyEvent(keyCode: kVK_ANSI_P, modifiers: [.command, .capsLock, .function])
-    #expect(AppShortcuts.worktreeSwitcher.matches(event))
+    #expect(AppShortcuts.taskSearch.matches(event))
   }
 
   @Test func matchesFollowsUserRebind() {

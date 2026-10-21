@@ -10,11 +10,11 @@ struct CommandPaletteItem: Identifiable, Equatable {
   let subtitle: String?
   let kind: Kind
   let priorityTier: Int
-  /// `true` for the worktree-switcher row that represents the worktree the
-  /// user is already in. The switcher still renders it (so you can see
-  /// where you are), but the overlay skips it for the default selection so
-  /// ⌘P then Enter lands on the previous worktree instead of being a
-  /// no-op. Always `false` outside the worktree switcher.
+  /// `true` for the navigation row that represents where the user already
+  /// is: the selected task in the task search, the current worktree in the
+  /// switcher. The list still renders it (so you can see where you are), but
+  /// the overlay skips it for the default selection so ⌘P then Enter lands
+  /// somewhere else instead of being a no-op. Always `false` elsewhere.
   let isCurrentWorktree: Bool
   /// Presentation for a worktree-switcher row: text tints, leading icon, and
   /// the remote host, mirroring the sidebar. `nil` for every non-switcher item.
@@ -104,6 +104,23 @@ struct CommandPaletteItem: Identifiable, Equatable {
     case detachFocusedTab
     /// Brings a settled task back; the row id is all that is carried.
     case resumeTask(SessionRowID)
+    /// Shows a running task; the row id is all that is carried.
+    case selectTask(SessionRowID)
+
+    var isWorktreeSelect: Bool {
+      if case .worktreeSelect = self { return true }
+      return false
+    }
+
+    var isSelectTask: Bool {
+      if case .selectTask = self { return true }
+      return false
+    }
+
+    var isResumeTask: Bool {
+      if case .resumeTask = self { return true }
+      return false
+    }
     #if DEBUG
       case debugTestToast(RepositoriesFeature.StatusToast)
     #endif
@@ -131,7 +148,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
       true
     case .runScript, .stopScript:
       true
-    case .mergeTask, .detachFocusedTab, .resumeTask:
+    case .mergeTask, .detachFocusedTab, .resumeTask, .selectTask:
       false
     #if DEBUG
       case .debugTestToast:
@@ -164,7 +181,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .customizeWorktreeAppearance,
       .forkWorktree:
       false
-    case .runScript, .stopScript, .mergeTask, .detachFocusedTab, .resumeTask:
+    case .runScript, .stopScript, .mergeTask, .detachFocusedTab, .resumeTask, .selectTask:
       false
     #if DEBUG
       case .debugTestToast:
@@ -205,7 +222,8 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .stopScript,
       .mergeTask,
       .detachFocusedTab,
-      .resumeTask:
+      .resumeTask,
+      .selectTask:
       nil
     case .runScript(let definition):
       definition.kind == .run ? AppShortcuts.runScript : nil
