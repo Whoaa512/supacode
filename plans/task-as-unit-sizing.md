@@ -82,16 +82,16 @@ worktree sidebar rows, all of which assume one layout per directory.
   Assumed: they follow the task's directory.
 - Detach of a plain shell tab: assumed allowed, yielding a shell-only task.
 - Merge when A has splits: assumed flattened to tabs in B's focused pane.
-- Bar from `sessions-sidebar-scope.md` still applies: task cycling must be at
+- Bar from `done/sessions-sidebar-scope.md` still applies: task cycling must be at
   least as fast as today's session cycling.
 
 ## TODO (after the departure lands)
 
-- [ ] Decide whether this fork is still supacode. The task-owned layout
-  rewrites the terminal layer upstream keeps changing, so the
-  `upstream-rebase` skill's cherry-pick-onto-fresh-upstream flow may stop
-  working. Work out the replacement process (selective ports, as in
-  `upstream-sync-2026-09-16-ports.md`?) and whether to rename.
+- [x] Decided 2026-10-20: the fork is its own thing. Full upstream rebases
+  stop; upstream commits are classified port / skip and cherry-picked one
+  at a time (`.pi/skills/upstream-ports.md`, first run in
+  `upstream-sync-2026-10-20-ports.md`). Renaming is deferred until the
+  divergence has settled.
 
 ## Landed (2026-10-12)
 
@@ -100,5 +100,5 @@ layouts (`TaskRecord`, `LayoutID` a real UUID type), v2 → v3 migration, sub-ro
 tangent keyboard, merge and detach, the picker, task-scoped CLI and deeplinks
 (`SUPACODE_TASK_ID`, `--task`, `/task/<id>/`). Decisions 1–12 hold as written;
 the assumptions cj confirmed on 2026-10-09 are in `task-as-unit-followups.md`.
-The TODO below is now live: the terminal layer no longer matches upstream, so
-the next `upstream-rebase` attempt must start by deciding the process there.
+The TODO above is resolved: the terminal layer no longer matches upstream, so
+upstream changes arrive as selective ports, never a rebase of the fork.
