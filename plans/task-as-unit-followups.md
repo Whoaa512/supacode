@@ -5,6 +5,8 @@ Fold each into the named slice when that slice is implemented.
 
 ## Workflow sub-agents disturb the parent session's row (reported 2026-10-08)
 
+Resolved `ba4dfb27`, `8026b3d3` (see the 2026-10-20 section below for the verified cause).
+
 **Folded into T9 (2026-10-09)**: fixed app-side by ignoring events from a
 process the surface's own agent started. See the T9 Progress entry; the live
 UI still has to confirm the symptom is gone.
@@ -45,6 +47,8 @@ with no source as positively unreadable), so absence can release the hold.
 
 ## Agent commands cannot tell two same-harness agents on one directory apart (T11, 2026-10-09)
 
+Resolved `149fbdc6`.
+
 **Folded into Z1 (2026-10-12)**: `149fbdc6`. See the Z1 Progress entry.
 
 `supacode agent prompt|send-keys|resume|read` address `(worktree, agent
@@ -59,6 +63,8 @@ task segment / `--task` on agent routes, narrowing the surface set to that
 task's before the kind lookup.
 
 ## A resume in the task's own directory starts in the focused tab's pwd (S2, 2026-10-09)
+
+Resolved `bc1d23eb`.
 
 A resume into a task sends the bare command when the session ran in the
 task's directory. A new tab inherits the focused surface's pwd, so if that
@@ -88,6 +94,8 @@ they are decisions now and need no further change.
 
 ## Chords: rebind to D3 (cj, 2026-10-10) — do in Z1
 
+Resolved `08cab125`, `5a59be35`.
+
 **Folded into Z1 (2026-10-12)**: `08cab125`, `5a59be35`. See the Z1 Progress entry.
 
 P1 left the chords as found because ⌘N was New Worktree. cj chose D3's
@@ -106,6 +114,8 @@ and docs:
 User overrides of any of the three are kept as they are.
 
 ## Decide-at-delivery sweep of older paths — do in Z1
+
+Resolved `c4e71f9d`.
 
 **Folded into Z1 (2026-10-12)**: `c4e71f9d`. See the Z1 Progress entry.
 
@@ -126,6 +136,8 @@ in the plan's fixed-design section, with a stale-delivery test each:
   resurrected.
 
 ## Left after the final audits (Z2, 2026-10-12)
+
+Resolved: resume pwd `bc1d23eb`, prune `d58564b0`, deliveryContext `3caeee08`, reaper `51096f6c` / `8fc2521e`.
 
 Found by the Z1 reviews and the final decide-at-delivery audit, judged below
 the bar for a slice of their own. Each is pre-existing or guarded; none loses
@@ -158,6 +170,8 @@ data today.
 
 
 ## Workflow sub-agents still disturb the parent task's row (cj, live, 2026-10-20)
+
+Resolved `ba4dfb27`, `8026b3d3`, `7199b07f`.
 
 **Fixed 2026-10-21** (`ba4dfb27` extension, `8026b3d3` app). Root cause,
 read from the signal path rather than the hypothesis above:
@@ -207,6 +221,8 @@ Screenshot evidence: pi-clipboard-2cf85d72 (2026-10-20).
 
 ## ⌘P should search tasks, not worktrees (cj, 2026-10-20)
 
+Resolved `211fdde7`, `6dc618e2`, `560baf2f`.
+
 ⌘P today is "jump to worktree". With tasks as the unit cj wants ⌘P to fuzzy
 search active tasks plus recently settled ones (title, directory, agent) and
 jump to the chosen task (resuming it if settled, decide-at-delivery). Keep a
@@ -214,6 +230,8 @@ way to reach worktrees from the same palette (e.g. a `w:` prefix or a second
 section below tasks). Factory item for the next run.
 
 ## Dismiss / hide an inactive sub-row on a task (cj, 2026-10-20)
+
+Resolved `efe3c2d0`, `907ce73c`, `db174403`, `101af803`, `7ed1ffde`.
 
 A task with several members keeps every tangent as a sub-row forever. cj
 wants a per-sub-row "hide" (context menu + chord) for a member that is
@@ -224,6 +242,8 @@ reveals them again. Never hide the primary or a live member. Factory item
 for run 3.
 
 ## A pi question/questionnaire prompt shows the blue "working" gear (cj, 2026-10-20)
+
+Resolved `a7e06330`, `f08cdbc7`, `f8745053`, `90810da4`.
 
 When pi blocks on `question` / `questionnaire` / a tool permission prompt the
 row still shows the blue working gear (screenshot pi-clipboard-d3c7f4f7). cj
