@@ -140,13 +140,13 @@ data today.
   (carry-identity-followups, 2026-10-21): `.prune` carries nothing; the
   manager reads `archivedDirectories` and `pruneShieldedRepositoryIDs` from
   the store at delivery. A host goes only when its directory is archived then.
-- **`deliveryContext` falls back to the carried `DirectoryContext` for an
-  unknown layout.** For a layout with no task, no pending mint and not
-  removed, a creating command is served with the context it carried
-  (`WorktreeTerminalManager.deliveryContext`). Only test harnesses reach
-  it today (every app first tab is minted), but it is the one place a
-  carried directory is still read. Replace with a refusal plus a test-only
-  seed, then delete the `carried:` parameter.
+- ~~**`deliveryContext` falls back to the carried `DirectoryContext` for an
+  unknown layout.**~~ Fixed (carry-identity-followups, 2026-10-21): an
+  unknown layout is refused; `carried:` is gone from `deliveryContext` and
+  the creating paths. Manager tests that open a layout without the reducer
+  seed it with `seedDirectoryForTesting` (DEBUG only).
+  `aCreatingCommandOnAnUnknownLayoutCreatesNothingFromItsCarriedContext`
+  covers the refusal.
 - **Reaper race not covered.**
   `WorktreeTerminalManagerReaperTests/terminateKillsTrackedEvenWithLiveClientsButSparesUntrackedInUse`
   flaked once in the Z1 r2 full run (tracked session killed twice; passes

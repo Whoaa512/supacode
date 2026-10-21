@@ -291,7 +291,27 @@ final class WorktreeTerminalManager {
     /// resume removes its key only after it emits, so a non-zero count means a
     /// pending idle event has not yet landed in the stream.
     var pendingIdleHookCountForTesting: Int { pendingIdleHookEvents.count }
+
+    /// Directories for layouts no task, mint or removal names (test-only).
+    /// The app mints every first tab, so a manager test that opens a layout
+    /// without going through the reducer seeds it here instead; the delivery
+    /// rule reads it as state, never from the command.
+    @ObservationIgnored private var seededDirectoriesForTesting: [LayoutID: DirectoryContext] = [:]
+
+    func seedDirectoryForTesting(_ layoutID: LayoutID, context: DirectoryContext) {
+      seededDirectoriesForTesting[layoutID] = context
+    }
   #endif
+
+  /// The directory a creating command on a layout that no task, mint or
+  /// removal names may use. None in the app: every first tab is minted.
+  private func unmintedDirectory(_ layoutID: LayoutID) -> DirectoryContext? {
+    #if DEBUG
+      return seededDirectoriesForTesting[layoutID]
+    #else
+      return nil
+    #endif
+  }
 
   // MARK: - CLI queries.
 
@@ -336,7 +356,6 @@ final class WorktreeTerminalManager {
   // swiftlint:disable:next function_parameter_count
   private func scheduleTabCreation(  // swiftlint:disable:this function_parameter_count
     in layoutID: LayoutID,
-    context: DirectoryContext,
     runSetupScriptIfNew: Bool,
     input: String?,
     tabID: UUID?,
@@ -348,7 +367,7 @@ final class WorktreeTerminalManager {
       // Decided in the turn the creation runs, after the hop: a task closed
       // or merged away meanwhile is not brought back by its own new tab.
       guard
-        let context = deliveryContext(for: layoutID, carried: context, creating: true, command: "createTab")
+        let context = deliveryContext(for: layoutID, creating: true, command: "createTab")
       else {
         emitTabCreationFailure(for: layoutID, attemptedID: tabID ?? UUID(), isInitialTab: false)
         return
@@ -376,13 +395,12 @@ final class WorktreeTerminalManager {
   /// mint it was asked for must still name a live roster row. Every first
   /// tab the app sends is minted, so a layout the app never heard of (no
   /// task, no mint, not removed) has nothing current to decide against and
-  /// is created from the carried context. A blocking script names its kind:
+  /// is refused; only a test seed answers for it. A blocking script names its kind:
   /// the delete and archive scripts run inside the row phase a plain creation
   /// would refuse as terminating, so they are permitted in exactly that phase
   /// and refused in any other. Nil refuses: no host, layout or tab.
   private func deliveryContext(
-    for layoutID: LayoutID, carried: DirectoryContext, creating: Bool, script: BlockingScriptKind? = nil,
-    command: StaticString
+    for layoutID: LayoutID, creating: Bool, script: BlockingScriptKind? = nil, command: StaticString
   ) -> DirectoryContext? {
     guard let appStore else {
       terminalLogger.info("\(command): no store to decide \(layoutID) against; nothing attached.")
@@ -401,7 +419,7 @@ final class WorktreeTerminalManager {
         if let script { return AppFeature.scriptDirectory(pending.directoryID, kind: script, state: state) }
         return AppFeature.rosterDirectory(pending.directoryID, state: state)
       }
-      return carried
+      return unmintedDirectory(layoutID)
     }
     if context == nil {
       terminalLogger.info("\(command): \(layoutID) is no live target any more; nothing attached or created.")
@@ -444,23 +462,23 @@ final class WorktreeTerminalManager {
   // swiftlint:disable:next cyclomatic_complexity
   private func handleTabCommand(_ command: TerminalClient.Command) -> Bool {
     switch command {
-    case .createTab(let layoutID, let context, let runSetupScriptIfNew, let id, let title, let focusing, let anchor):
+    case .createTab(let layoutID, _, let runSetupScriptIfNew, let id, let title, let focusing, let anchor):
       scheduleTabCreation(
-        in: layoutID, context: context, runSetupScriptIfNew: runSetupScriptIfNew, input: nil,
+        in: layoutID, runSetupScriptIfNew: runSetupScriptIfNew, input: nil,
         tabID: id, customTitle: title, focusing: focusing, anchor: anchor)
     case .createTabWithInput(
-      let layoutID, let context, let input, let runSetupScriptIfNew, let id, let title, let focusing, let anchor
+      let layoutID, _, let input, let runSetupScriptIfNew, let id, let title, let focusing, let anchor
     ):
       scheduleTabCreation(
-        in: layoutID, context: context, runSetupScriptIfNew: runSetupScriptIfNew, input: input,
+        in: layoutID, runSetupScriptIfNew: runSetupScriptIfNew, input: input,
         tabID: id, customTitle: title, focusing: focusing, anchor: anchor)
     case .createTaskTab(let layoutID, let source, let input, let runSetupScriptIfNew, let focusing):
       createTaskTab(
         in: layoutID, source: source, input: input, runSetupScriptIfNew: runSetupScriptIfNew, focusing: focusing)
-    case .openFileWithScript(let layoutID, let context, let input):
-      openFileWithScript(in: layoutID, context: context, input: input)
-    case .ensureInitialTab(let layoutID, let context, let runSetupScriptIfNew, let focusing):
-      ensureInitialTab(in: layoutID, context: context, runSetupScriptIfNew: runSetupScriptIfNew, focusing: focusing)
+    case .openFileWithScript(let layoutID, _, let input):
+      openFileWithScript(in: layoutID, input: input)
+    case .ensureInitialTab(let layoutID, _, let runSetupScriptIfNew, let focusing):
+      ensureInitialTab(in: layoutID, runSetupScriptIfNew: runSetupScriptIfNew, focusing: focusing)
     case .showTask(let layoutID, let context, let focusing):
       showTask(layoutID, context: context, focusing: focusing)
     case .stopRunScript(let layoutID, let context, let focusing):
@@ -474,14 +492,14 @@ final class WorktreeTerminalManager {
           return definition.id == definitionID
         }
       }
-    case .runBlockingScript(let layoutID, let context, let kind, let script, let focusing):
-      runBlockingScript(in: layoutID, context: context, kind: kind, script: script, focusing: focusing)
-    case .closeFocusedTab(let layoutID, let context), .closeFocusedSurface(let layoutID, let context):
-      guard let tab = existingHost(for: layoutID, context: context, command: "close")?.focusedTab else { break }
+    case .runBlockingScript(let layoutID, _, let kind, let script, let focusing):
+      runBlockingScript(in: layoutID, kind: kind, script: script, focusing: focusing)
+    case .closeFocusedTab(let layoutID, _), .closeFocusedSurface(let layoutID, _):
+      guard let tab = existingHost(for: layoutID, command: "close")?.focusedTab else { break }
       markUserCloseIntent(worktreeID: layoutID, surfaceIDs: [tab.content.id.rawValue])
       sendLayout(layoutID, .contentRequestedClose(content: tab.content.id, scope: .tab))
-    case .beginTabRename(let layoutID, let context, let tabID):
-      guard let host = existingHost(for: layoutID, context: context, command: "beginTabRename"),
+    case .beginTabRename(let layoutID, _, let tabID):
+      guard let host = existingHost(for: layoutID, command: "beginTabRename"),
         let target = tabID ?? host.focusedTab?.id
       else { break }
       sendLayout(layoutID, .beginTabRename(id: target))
@@ -492,11 +510,11 @@ final class WorktreeTerminalManager {
         sendLayout(layoutID, .renameTab(id: tabID, title: title))
       }
       emit(.tabRenamed(layoutID: layoutID, tabID: tabID, applied: applied))
-    case .selectTab(let layoutID, let context, let tabID):
-      guard existingTask(layoutID, context: context, command: "selectTab") else { break }
+    case .selectTab(let layoutID, _, let tabID):
+      guard existingTask(layoutID, command: "selectTab") else { break }
       sendLayout(layoutID, .wakeTab(id: tabID))
       sendLayout(layoutID, .selectTab(id: tabID))
-      existingHost(for: layoutID, context: context, command: "selectTab")?.focusSelectedTab()
+      existingHost(for: layoutID, command: "selectTab")?.focusSelectedTab()
     case .selectTabAtIndex(let layoutID, let index):
       selectTab(atIndex: index, in: layoutID)
     case .selectRelativeTab(let layoutID, let forward):
@@ -520,8 +538,8 @@ final class WorktreeTerminalManager {
       markUserCloseIntent(worktreeID: layoutID, tabID: tabID)
       sendLayout(layoutID, .closeTab(id: tabID))
       emit(.tabRemoved(layoutID: layoutID, tabID: tabID))
-    case .destroySurface(let layoutID, let context, let tabID, let surfaceID, let focusing):
-      guard let host = existingHost(for: layoutID, context: context, command: "destroySurface") else { break }
+    case .destroySurface(let layoutID, _, let tabID, let surfaceID, let focusing):
+      guard let host = existingHost(for: layoutID, command: "destroySurface") else { break }
       // Surface-first: the surface's actual owner wins over the tab hint.
       guard let owningTab = host.tabID(containing: surfaceID) ?? presentTab(tabID, in: layoutID) else {
         terminalLogger.warning("destroySurface: surface \(surfaceID) not found in worktree \(layoutID).")
@@ -600,17 +618,17 @@ final class WorktreeTerminalManager {
 
   private func handleSearchCommand(_ command: TerminalClient.Command) -> Bool {
     switch command {
-    case .startSearch(let layoutID, let context):
-      existingHost(for: layoutID, context: context, command: "startSearch")?
+    case .startSearch(let layoutID, _):
+      existingHost(for: layoutID, command: "startSearch")?
         .performBindingActionOnFocusedSurface("start_search")
-    case .searchSelection(let layoutID, let context):
-      existingHost(for: layoutID, context: context, command: "searchSelection")?
+    case .searchSelection(let layoutID, _):
+      existingHost(for: layoutID, command: "searchSelection")?
         .performBindingActionOnFocusedSurface("search_selection")
-    case .navigateSearchNext(let layoutID, let context):
-      existingHost(for: layoutID, context: context, command: "navigateSearchNext")?
+    case .navigateSearchNext(let layoutID, _):
+      existingHost(for: layoutID, command: "navigateSearchNext")?
         .navigateSearchOnFocusedSurface(.next)
-    case .navigateSearchPrevious(let layoutID, let context):
-      existingHost(for: layoutID, context: context, command: "navigateSearchPrevious")?
+    case .navigateSearchPrevious(let layoutID, _):
+      existingHost(for: layoutID, command: "navigateSearchPrevious")?
         .navigateSearchOnFocusedSurface(.previous)
     case .createTab, .createTabWithInput, .createTaskTab, .openFileWithScript, .ensureInitialTab, .showTask,
       .stopRunScript,
@@ -660,11 +678,11 @@ final class WorktreeTerminalManager {
       toggleWindowModeForPane(in: layoutID, paneToken: token)
     case .moveTabToSplit(let layoutID, let tabID, let direction, let focusing):
       moveTabToSplit(in: layoutID, tabID: tabID, direction: direction, focusing: focusing)
-    case .performBindingAction(let layoutID, let context, let action):
-      existingHost(for: layoutID, context: context, command: "performBindingAction")?
+    case .performBindingAction(let layoutID, _, let action):
+      existingHost(for: layoutID, command: "performBindingAction")?
         .performBindingActionOnFocusedSurface(action)
-    case .performBindingActionOnSurface(let layoutID, let context, let surfaceID, let action):
-      existingHost(for: layoutID, context: context, command: "performBindingActionOnSurface")?
+    case .performBindingActionOnSurface(let layoutID, _, let surfaceID, let action):
+      existingHost(for: layoutID, command: "performBindingActionOnSurface")?
         .performBindingAction(action, onSurfaceID: surfaceID)
     case .setImagePasteAgents(let surfaceID, let agents):
       setImagePasteAgents(agents, onSurfaceID: surfaceID)
@@ -903,8 +921,8 @@ final class WorktreeTerminalManager {
   /// Whether a non-creating command may act on the task now: it exists, is
   /// not removed and holds a tab. Decided at delivery, so a task removed by
   /// transfer or close since the command was sent is refused.
-  private func existingTask(_ layoutID: LayoutID, context carried: DirectoryContext, command: StaticString) -> Bool {
-    deliveryContext(for: layoutID, carried: carried, creating: false, command: command) != nil
+  private func existingTask(_ layoutID: LayoutID, command: StaticString) -> Bool {
+    deliveryContext(for: layoutID, creating: false, command: command) != nil
   }
 
   /// The host of a task that holds tabs now, when it has one. For the
@@ -913,10 +931,8 @@ final class WorktreeTerminalManager {
   /// task hydrated at launch and not shown yet gets no host, layout or tab
   /// from a queued command; `provisionHydratedTask` is the one path that
   /// gives it its host, and the creating commands keep `host(for:context:)`.
-  private func existingHost(
-    for layoutID: LayoutID, context carried: DirectoryContext, command: StaticString
-  ) -> WorktreeContentHost? {
-    guard existingTask(layoutID, context: carried, command: command) else { return nil }
+  private func existingHost(for layoutID: LayoutID, command: StaticString) -> WorktreeContentHost? {
+    guard existingTask(layoutID, command: command) else { return nil }
     guard let host = hosts[layoutID] else {
       terminalLogger.info("\(command): \(layoutID) has no host yet (not shown this run); nothing attached.")
       return nil
@@ -1546,10 +1562,10 @@ final class WorktreeTerminalManager {
   }
 
   /// Runs the open-file script in a terminal, placed per `openFilePlacement`.
-  private func openFileWithScript(in layoutID: LayoutID, context carried: DirectoryContext, input: String) {
+  private func openFileWithScript(in layoutID: LayoutID, input: String) {
     Task {
       guard
-        let context = deliveryContext(for: layoutID, carried: carried, creating: true, command: "openFileWithScript")
+        let context = deliveryContext(for: layoutID, creating: true, command: "openFileWithScript")
       else { return }
       guard let layout = layoutState(for: layoutID)?.layout else {
         // A minted task with no tab yet: the editor is its first tab.
@@ -1637,10 +1653,10 @@ final class WorktreeTerminalManager {
   /// Creates the first tab when the layout is empty, matching the legacy
   /// ensure-initial-tab semantics; restored layouts already have tabs.
   private func ensureInitialTab(
-    in layoutID: LayoutID, context carried: DirectoryContext, runSetupScriptIfNew: Bool, focusing: Bool
+    in layoutID: LayoutID, runSetupScriptIfNew: Bool, focusing: Bool
   ) {
     guard
-      let context = deliveryContext(for: layoutID, carried: carried, creating: true, command: "ensureInitialTab")
+      let context = deliveryContext(for: layoutID, creating: true, command: "ensureInitialTab")
     else {
       // A first tab that cannot be: the worktree-new ack waiting on it fails now.
       emitTabCreationFailure(for: layoutID, attemptedID: UUID(), isInitialTab: true)
@@ -1669,7 +1685,7 @@ final class WorktreeTerminalManager {
   ) {
     // Decided here, not when the row was activated: a task removed since
     // must not come back as an empty layout with a host.
-    guard existingTask(layoutID, context: context, command: "focusSurface") else { return }
+    guard existingTask(layoutID, command: "focusSurface") else { return }
     // Surface-first: the tab ID is a hint; the surface's actual owner wins.
     guard let owningTab = owningTab(of: surfaceID, in: layoutID) ?? presentTab(tabID, in: layoutID) else {
       terminalLogger.warning("focusSurface: surface \(surfaceID) not found in worktree \(layoutID).")
@@ -1679,7 +1695,7 @@ final class WorktreeTerminalManager {
     sendLayout(layoutID, .selectTab(id: owningTab))
     // A task not shown this run has no host to focus: the tab is picked, and
     // the selection that provisions the task shows it on that tab.
-    guard let host = existingHost(for: layoutID, context: context, command: "focusSurface") else { return }
+    guard let host = existingHost(for: layoutID, command: "focusSurface") else { return }
     host.liveSurface(surfaceID)?.requestFocus()
     // A hibernated or not yet mounted surface has nothing to ask: latch the
     // request so it lands once the renderer is live and its window is key.
@@ -1700,7 +1716,7 @@ final class WorktreeTerminalManager {
   /// gets no host, no layout and no tab; `ensureInitialTab` is the
   /// bootstrap for a fresh directory and never a way to show a task.
   private func showTask(_ layoutID: LayoutID, context: DirectoryContext, focusing: Bool) {
-    guard let host = existingHost(for: layoutID, context: context, command: "showTask") else { return }
+    guard let host = existingHost(for: layoutID, command: "showTask") else { return }
     guard focusing else { return }
     host.focusSelectedTab()
   }
@@ -1719,14 +1735,12 @@ final class WorktreeTerminalManager {
   /// Launches a blocking script in a locked, ephemeral tab.
   private func runBlockingScript(
     in layoutID: LayoutID,
-    context: DirectoryContext,
     kind: BlockingScriptKind,
     script: String,
     focusing: Bool
   ) {
     guard
-      let context = deliveryContext(
-        for: layoutID, carried: context, creating: true, script: kind, command: "runBlockingScript")
+      let context = deliveryContext(for: layoutID, creating: true, script: kind, command: "runBlockingScript")
     else { return }
     let host = host(for: layoutID, context: context)
     // User-script dedup: a still-running script keeps its tab.
@@ -1839,7 +1853,7 @@ final class WorktreeTerminalManager {
     id: UUID?,
     focusing: Bool
   ) {
-    guard let host = existingHost(for: layoutID, context: context, command: "splitSurface") else {
+    guard let host = existingHost(for: layoutID, command: "splitSurface") else {
       if let id {
         emit(.surfaceCreationFailed(layoutID: layoutID, attemptedID: id, message: "Task not found."))
       }
@@ -1938,7 +1952,7 @@ final class WorktreeTerminalManager {
         .surfaceCreationFailed(
           layoutID: layoutID, attemptedID: id, message: "Could not split the pane."))
     }
-    guard existingHost(for: layoutID, context: context, command: "splitPane") != nil else {
+    guard existingHost(for: layoutID, command: "splitPane") != nil else {
       fail()
       return
     }

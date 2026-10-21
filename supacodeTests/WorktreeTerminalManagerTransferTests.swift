@@ -127,6 +127,7 @@ struct WorktreeTerminalManagerTransferTests {
       ).finish()
       return surfaceID
     }
+    harness.manager.seedDirectoryForTesting(layoutID, context: DirectoryContext(worktree: directory))
     harness.manager.handleCommand(
       .createTab(
         layoutID, DirectoryContext(worktree: directory), runSetupScriptIfNew: false, id: surfaceID,
