@@ -5,6 +5,8 @@ nonisolated enum SessionClassification {
   enum Runtime: String, Equatable, Sendable { case live, dormant }
   enum Status: String, Equatable, Sendable {
     case needsYou = "needs-you"
+    /// Blocked on a prompt the user has to answer (a question tool, a permission ask).
+    case awaitingInput = "awaiting-input"
     case working
     case doneUnseen = "done-unseen"
     case idle

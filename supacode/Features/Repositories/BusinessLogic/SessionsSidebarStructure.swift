@@ -303,7 +303,7 @@ extension RepositoriesFeature.State {
   ) -> AttentionRank {
     // Unstamped waits sort last among equals, leaving sidebar order to decide.
     AttentionRank(
-      urgency: status == .needsYou ? 0 : 1,
+      urgency: status?.urgency == 0 ? 0 : 1,
       waitingSince: attentionSince[location.surfaceID] ?? .distantFuture, position: position)
   }
 
@@ -321,7 +321,7 @@ extension RepositoriesFeature.State {
   }
 
   private static func wantsAttention(_ status: SessionClassification.Status?, jumpable: Bool) -> Bool {
-    jumpable && (status == .needsYou || status == .doneUnseen)
+    jumpable && (status?.urgency == 0 || status == .doneUnseen)
   }
 
   /// The stops `nextAttentionTarget` cycles through, counted by the same rule.

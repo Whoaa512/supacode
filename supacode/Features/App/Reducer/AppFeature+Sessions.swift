@@ -1506,7 +1506,9 @@ extension AppFeature {
     for record: AgentPresenceFeature.PresenceRecord
   ) -> SessionClassification.Status {
     switch record.activity {
-    case .awaitingInput, .error:
+    case .awaitingInput:
+      return .awaitingInput
+    case .error:
       return .needsYou
     case .busy, .compacting:
       return .working

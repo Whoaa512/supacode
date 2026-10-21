@@ -384,6 +384,8 @@ struct SessionsSidebarTaskRowsTests {
       ([.doneUnseen, .working], .working),
       ([.working, .needsYou], .needsYou),
       ([.needsYou, .idle, .working, .doneUnseen], .needsYou),
+      ([.working, .awaitingInput], .awaitingInput),
+      ([.awaitingInput, .idle, .working, .doneUnseen], .awaitingInput),
       ([.idle, .working, .doneUnseen], .working),
       ([.doneUnseen, .idle, .idle], .doneUnseen),
       ([.working], .working),
@@ -765,6 +767,18 @@ struct SessionsSidebarTaskRowsTests {
     #expect(target(state, after: nil) == stop(taskB, 3))
     #expect(target(state, after: .task(taskA), on: 1) == stop(taskB, 3), "from the done one, round to the urgent one")
     #expect(target(state, after: .task(taskB), on: 3) == stop(taskA, 1))
+  }
+
+  @Test(.dependencies) func anAgentWaitingOnAnAnswerIsAJumpTargetAheadOfAWorkingOne() {
+    var state = state()
+    state.taskSnapshots = [tabs(taskA, on: 1, created: 20), tabs(taskB, on: 3, created: 10)]
+    state.sessionSnapshots = [
+      agent("a", in: taskA, on: 1, status: .working), agent("c", in: taskB, on: 3, status: .awaitingInput),
+    ]
+    state = rebuilt(state)
+    #expect(state.sessionItems[id: .task(taskB)]?.status == .awaitingInput)
+    #expect(target(state, after: nil) == stop(taskB, 3))
+    #expect(target(state, after: .task(taskB), on: 3) == stop(taskB, 3), "the working one is not a stop")
   }
 
   @Test(.dependencies) func amongAgentsThatNeedYouTheLongestWaitingComesFirst() {

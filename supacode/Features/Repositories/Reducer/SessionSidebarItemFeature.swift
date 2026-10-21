@@ -79,7 +79,7 @@ extension SessionClassification.Status {
   /// Lower is more urgent: needs you, working, done unseen, idle.
   nonisolated var urgency: Int {
     switch self {
-    case .needsYou: 0
+    case .needsYou, .awaitingInput: 0
     case .working: 1
     case .doneUnseen: 2
     case .idle: 3
