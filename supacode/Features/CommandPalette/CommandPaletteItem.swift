@@ -102,6 +102,8 @@ struct CommandPaletteItem: Identifiable, Equatable {
     case stopScript(UUID, name: String)
     case mergeTask(LayoutID, into: LayoutID)
     case detachFocusedTab
+    /// Brings a settled task back; the id is all that is carried.
+    case resumeTask(LayoutID)
     #if DEBUG
       case debugTestToast(RepositoriesFeature.StatusToast)
     #endif
@@ -129,7 +131,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
       true
     case .runScript, .stopScript:
       true
-    case .mergeTask, .detachFocusedTab:
+    case .mergeTask, .detachFocusedTab, .resumeTask:
       false
     #if DEBUG
       case .debugTestToast:
@@ -162,7 +164,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .customizeWorktreeAppearance,
       .forkWorktree:
       false
-    case .runScript, .stopScript, .mergeTask, .detachFocusedTab:
+    case .runScript, .stopScript, .mergeTask, .detachFocusedTab, .resumeTask:
       false
     #if DEBUG
       case .debugTestToast:
@@ -202,7 +204,8 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .forkWorktree,
       .stopScript,
       .mergeTask,
-      .detachFocusedTab:
+      .detachFocusedTab,
+      .resumeTask:
       nil
     case .runScript(let definition):
       definition.kind == .run ? AppShortcuts.runScript : nil

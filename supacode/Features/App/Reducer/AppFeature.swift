@@ -2158,6 +2158,9 @@ struct AppFeature {
       case .commandPalette(.delegate(.mergeTask(let source, let target))):
         return .send(.mergeTask(source, into: target))
 
+      case .commandPalette(.delegate(.resumeTask(let layoutID))):
+        return .send(.resumeTask(layoutID))
+
       case .commandPalette(.delegate(.detachFocusedTab)):
         return .send(.detachFocusedTab)
 

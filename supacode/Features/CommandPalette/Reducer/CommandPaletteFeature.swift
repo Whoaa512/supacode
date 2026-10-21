@@ -161,6 +161,7 @@ struct CommandPaletteFeature {
     case runScript(ScriptDefinition)
     case mergeTask(LayoutID, into: LayoutID)
     case detachFocusedTab
+    case resumeTask(LayoutID)
     case stopScript(UUID, name: String)
     /// Palette closed without the user activating an item (Esc, outside
     /// tap, programmatic dismiss). AppFeature uses this to refocus the
@@ -693,7 +694,8 @@ struct CommandPaletteFeature {
     from repositories: RepositoriesFeature.State,
     ghosttyCommands: [GhosttyCommand] = [],
     scripts: [ScriptDefinition] = [],
-    runningScriptIDs: Set<UUID> = []
+    runningScriptIDs: Set<UUID> = [],
+    now: Date = .now
   ) -> [CommandPaletteItem] {
     var items = globalActionItems()
     if repositories.selectedWorktreeID != nil {
@@ -742,6 +744,7 @@ struct CommandPaletteFeature {
     items.append(contentsOf: customizeAppearanceItems(from: repositories))
     items.append(contentsOf: toggleCollapseRepositoryItems(from: repositories))
     items.append(contentsOf: taskTransferItems(from: repositories))
+    items.append(contentsOf: resumeTaskItems(from: repositories, now: now))
     // Worktree navigation is the ⌘P switcher's job (see `worktreeSwitcherItems`);
     // the ⌘⇧P command palette lists actions only, not worktree rows. Fork
     // worktree remains an action, so it stays here.
@@ -789,6 +792,21 @@ struct CommandPaletteFeature {
         ))
     }
     return items
+  }
+
+  /// The most recently settled tasks, newest first, each a resume of that
+  /// task on its primary. Typing "resume" lists them.
+  static func resumeTaskItems(from repositories: RepositoriesFeature.State, now: Date) -> [CommandPaletteItem] {
+    let formatter = RelativeDateTimeFormatter()
+    formatter.unitsStyle = .short
+    return repositories.recentlySettledTasks().map { task in
+      CommandPaletteItem(
+        id: CommandPaletteItemID.resumeTask(task.id),
+        title: "Resume Task: \(task.title)",
+        subtitle: "Settled \(formatter.localizedString(for: task.settledAt, relativeTo: now))",
+        kind: .resumeTask(task.id)
+      )
+    }
   }
 
   /// The "Rename Branch" action for the selected git worktree, or `nil` when the
@@ -919,7 +937,8 @@ struct CommandPaletteFeature {
     ghosttyCommands: [GhosttyCommand] = [],
     scripts: [ScriptDefinition] = [],
     runningScriptIDs: Set<UUID> = [],
-    branchesByRepository: [Repository.ID: [String]] = [:]
+    branchesByRepository: [Repository.ID: [String]] = [:],
+    now: Date = .now
   ) -> [CommandPaletteItem] {
     switch mode {
     case .commands, .browse:
@@ -927,7 +946,8 @@ struct CommandPaletteFeature {
         from: repositories,
         ghosttyCommands: ghosttyCommands,
         scripts: scripts,
-        runningScriptIDs: runningScriptIDs
+        runningScriptIDs: runningScriptIDs,
+        now: now
       )
     case .worktreeSwitcher:
       return worktreeSwitcherItems(from: repositories)
@@ -1304,6 +1324,10 @@ private enum CommandPaletteItemID {
 
   static let detachFocusedTab: CommandPaletteItem.ID = "task.detach-focused-tab"
 
+  static func resumeTask(_ layoutID: LayoutID) -> CommandPaletteItem.ID {
+    "task.\(layoutID.persistenceKey).resume"
+  }
+
   static func ghosttyCommand(_ command: GhosttyCommand) -> CommandPaletteItem.ID {
     "\(ghosttyPrefix)\(command.action)|\(command.title)"
   }
@@ -1450,6 +1474,8 @@ private func delegateAction(  // swiftlint:disable:this cyclomatic_complexity
     return .mergeTask(source, into: target)
   case .detachFocusedTab:
     return .detachFocusedTab
+  case .resumeTask(let layoutID):
+    return .resumeTask(layoutID)
   #if DEBUG
     case .debugTestToast(let toast):
       return .debugTestToast(toast)
@@ -1479,7 +1505,7 @@ private func selectedEntryDelegateAction(
     .viewArchivedWorktrees, .refreshWorktrees, .ghosttyCommand, .toggleCollapseRepository,
     .openPullRequest, .markPullRequestReady, .mergePullRequest,
     .closePullRequest, .copyFailingJobURL, .copyCiFailureLogs, .rerunFailedJobs,
-    .openFailingCheckDetails, .runScript, .stopScript, .mergeTask, .detachFocusedTab:
+    .openFailingCheckDetails, .runScript, .stopScript, .mergeTask, .detachFocusedTab, .resumeTask:
     return nil
   #if DEBUG
     case .debugTestToast:
@@ -1543,7 +1569,8 @@ private func pullRequestDelegateAction(
     .runScript,
     .stopScript,
     .mergeTask,
-    .detachFocusedTab:
+    .detachFocusedTab,
+    .resumeTask:
     return nil
   #if DEBUG
     case .debugTestToast:

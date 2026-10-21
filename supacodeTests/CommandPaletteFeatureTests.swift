@@ -167,6 +167,47 @@ struct CommandPaletteFeatureTests {
         == [.mergeTask(dormant, into: first), .mergeTask(dormant, into: second)])
   }
 
+  /// Settled tasks are offered newest-settled first, cut to ten; a task with
+  /// a tab open is active and never offered.
+  @Test func commandPaletteItems_resumeTaskListsRecentlySettledTasksNewestFirst() {
+    let worktree = makeWorktree(id: "/tmp/repo", name: "repo", repoRoot: "/tmp/repo")
+    let repository = makeRepository(rootPath: "/tmp/repo", name: "Repo", worktrees: [worktree])
+    func task(_ number: Int) -> LayoutID {
+      LayoutID(task: UUID(uuidString: String(format: "00000000-0000-0000-0000-0000000000%02X", number))!)
+    }
+    func key(_ number: Int) -> SessionKey { SessionKey(harness: .pi, sessionID: "s\(number)") }
+    var state = RepositoriesFeature.State(reconciledRepositories: [repository])
+    state.$sessions = Shared(value: [:])
+    state.$persistedLayouts = SharedReader(value: TaskLayoutsFile())
+    state.sessionsStarted = true
+    state.selection = .worktree(worktree.id)
+    let numbers = Array(1...12)
+    state.sessionSummaries = numbers.map {
+      SessionSummary(
+        harness: .pi, sessionID: "s\($0)", createdAt: Date(timeIntervalSince1970: 10), cwd: "/tmp/repo",
+        title: "Title \($0)", messageCount: 1, lastActivity: Date(timeIntervalSince1970: 10))
+    }
+    state.taskSessions = Dictionary(uniqueKeysWithValues: numbers.map { (task($0), [key($0)]) })
+    // Task n settled at n seconds; task 12 is still open and not settled.
+    state.$sessions.withLock { sidecar in
+      for number in numbers where number != 12 {
+        sidecar[key(number)] = SessionSidecarEntry(settledAt: Date(timeIntervalSince1970: TimeInterval(number)))
+      }
+    }
+    state.reconcileSessionItems(now: Date(timeIntervalSince1970: 20))
+
+    let now = Date(timeIntervalSince1970: 11 + 3600)
+    let items = CommandPaletteFeature.resumeTaskItems(from: state, now: now)
+    #expect(items.map(\.kind) == (2...11).reversed().map { .resumeTask(task($0)) }, "newest first, ten at most")
+    #expect(items.first?.title == "Resume Task: Title 11")
+    #expect(items.first?.subtitle == "Settled 1 hr. ago")
+    #expect(items.first?.id == "task.\(task(11).persistenceKey).resume")
+    #expect(items.allSatisfy { !$0.isGlobal && !$0.isRootAction })
+    #expect(
+      CommandPaletteFeature.commandPaletteItems(from: state, now: now).map(\.id).filter { $0.hasSuffix(".resume") }
+        == items.map(\.id))
+  }
+
   @Test func commandPaletteItems_includesRenameBranchOnlyForSelectedWorktree() {
     let rootPath = "/tmp/repo-rename"
     let main = makeWorktree(id: "\(rootPath)/main", name: "main", repoRoot: rootPath)

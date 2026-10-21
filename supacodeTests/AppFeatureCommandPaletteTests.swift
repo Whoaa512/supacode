@@ -603,6 +603,17 @@ struct AppFeatureCommandPaletteTests {
     await store.receive(\.mergeTask)
   }
 
+  @Test(.dependencies) func resumeTaskDispatchesTheAppAction() async {
+    let store = TestStore(initialState: AppFeature.State()) {
+      AppFeature()
+    }
+    store.exhaustivity = .off
+    let task = LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!)
+
+    await store.send(.commandPalette(.delegate(.resumeTask(task))))
+    await store.receive(\.resumeTask)
+  }
+
   @Test(.dependencies) func detachFocusedTabDispatchesTheAppAction() async {
     let store = TestStore(initialState: AppFeature.State()) {
       AppFeature()

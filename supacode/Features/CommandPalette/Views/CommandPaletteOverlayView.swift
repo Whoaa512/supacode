@@ -306,7 +306,7 @@ private struct CommandPaletteRowView: View {
       return "Script"
     case .stopScript:
       return "Script"
-    case .mergeTask, .detachFocusedTab:
+    case .mergeTask, .detachFocusedTab, .resumeTask:
       return "Task"
     #if DEBUG
       case .debugTestToast:
@@ -375,6 +375,8 @@ private struct CommandPaletteRowView: View {
       return "arrow.triangle.merge"
     case .detachFocusedTab:
       return "rectangle.portrait.and.arrow.right"
+    case .resumeTask:
+      return "arrow.uturn.backward.circle"
     #if DEBUG
       case .debugTestToast:
         return "ladybug"
@@ -399,7 +401,7 @@ private struct CommandPaletteRowView: View {
       return false
     case .renameBranch, .customizeRepositoryAppearance, .customizeWorktreeAppearance:
       return true
-    case .runScript, .stopScript, .mergeTask, .detachFocusedTab:
+    case .runScript, .stopScript, .mergeTask, .detachFocusedTab, .resumeTask:
       return true
     #if DEBUG
       case .debugTestToast:
@@ -569,6 +571,8 @@ private struct CommandPaletteRowView: View {
       base = "Move this task's tabs and sessions into the named task"
     case .detachFocusedTab:
       base = "Move the focused tab into a task of its own"
+    case .resumeTask:
+      base = "Reopen this settled task on its primary session"
     #if DEBUG
       case .debugTestToast:
         base = row.title
