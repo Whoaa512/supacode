@@ -376,14 +376,20 @@ extension RepositoriesFeature.State {
     // Plain tuples: sorting the observable rows directly pays an observation
     // access per comparison, which dominates at a few thousand rows.
     // Active rows order by creation; settled ones by when they settled, so
-    // the task that just finished tops the history whatever its age.
+    // the task that just finished tops the history whatever its age. A
+    // settle pass stamps a whole batch with one date, so the key tiebreak is
+    // the common case there: build it once per row, not once per comparison.
+    let sidecar = sessions
     let ordered = sessionItems.map { row in
-      let settledAt = row.lifecycle == .settled ? row.sessionKey.flatMap { sessions[$0]?.settledAt } : nil
-      return (id: row.id, sortDate: settledAt ?? row.createdAt, lifecycle: row.lifecycle, isLive: row.isLive)
+      let settledAt = row.lifecycle == .settled ? row.sessionKey.flatMap { sidecar[$0]?.settledAt } : nil
+      return (
+        id: row.id, sortKey: row.id.sortKey, sortDate: settledAt ?? row.createdAt, lifecycle: row.lifecycle,
+        isLive: row.isLive
+      )
     }
     .sorted {
       if $0.sortDate != $1.sortDate { return $0.sortDate > $1.sortDate }
-      return $0.id.sortKey < $1.id.sortKey
+      return $0.sortKey < $1.sortKey
     }
     var sections: [SessionsSidebarStructure.Section] = []
     var liveIDs: [SessionRowID] = []
