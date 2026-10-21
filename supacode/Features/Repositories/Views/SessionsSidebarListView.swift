@@ -45,6 +45,7 @@ struct SessionsSidebarListView: View {
   @Environment(CommandKeyObserver.self) private var commandKeyObserver
   @Shared(.settingsFile) private var settingsFile
   @State private var isSettledExpanded = false
+  @State private var settledLimit = SessionsSidebarStructure.settledPageSize
 
   var body: some View {
     let shortcutHintByID: [SessionRowID: String]
@@ -86,16 +87,24 @@ struct SessionsSidebarListView: View {
         if section.id == .active {
           Section(section.title) { rows(section.rowIDs, shortcutHintByID: shortcutHintByID, subRows: subRows) }
         } else {
-          // Settled is the whole history, thousands of rows; they are only
-          // built while the section is open.
+          // Settled is the whole history, thousands of rows; only the
+          // most recent page is built, and only while the section is open.
           Section("\(section.title) (\(section.rowIDs.count))", isExpanded: $isSettledExpanded) {
-            if isSettledExpanded { rows(section.rowIDs, shortcutHintByID: shortcutHintByID, subRows: subRows) }
+            if isSettledExpanded {
+              rows(Array(section.rowIDs.prefix(settledLimit)), shortcutHintByID: shortcutHintByID, subRows: subRows)
+              if section.rowIDs.count > settledLimit {
+                showMoreRow(remaining: section.rowIDs.count - settledLimit)
+              }
+            }
           }
         }
       }
     }
     .listStyle(.sidebar)
     .onAppear { store.send(.sessionsSidebarShown) }
+    .onChange(of: isSettledExpanded) { _, expanded in
+      if !expanded { settledLimit = SessionsSidebarStructure.settledPageSize }
+    }
     .onKeyPress(.upArrow) { moveSelection(by: -1) }
     .onKeyPress(.downArrow) { moveSelection(by: 1) }
     .onKeyPress(.return) {
@@ -163,10 +172,21 @@ struct SessionsSidebarListView: View {
     }
   }
 
+  private func showMoreRow(remaining: Int) -> some View {
+    let step = min(remaining, SessionsSidebarStructure.settledPageSize)
+    return Button("Show \(step) more") {
+      settledLimit += SessionsSidebarStructure.settledPageSize
+    }
+    .buttonStyle(.plain)
+    .foregroundStyle(.secondary)
+    .frame(maxWidth: .infinity)
+    .help("Load the next \(step) settled sessions (\(remaining) not shown)")
+  }
+
   private func moveSelection(by offset: Int) -> KeyPress.Result {
     guard
       let id = store.sessionsSidebarStructure.selection(
-        byOffset: offset, from: store.sessionSelection, includingSettled: isSettledExpanded)
+        byOffset: offset, from: store.sessionSelection, settledLimit: isSettledExpanded ? settledLimit : 0)
     else { return .ignored }
     store.send(.sessionSelectionChanged(id))
     return .handled
