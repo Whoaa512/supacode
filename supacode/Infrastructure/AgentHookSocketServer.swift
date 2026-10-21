@@ -502,6 +502,12 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
   /// Convenience: the event name as a known case, or nil for an unrecognized event.
   var eventName: EventName? { EventName(rawValue: event) }
 
+  /// `data.prompt`, the `awaiting_input` qualifier the OSC `prompt=` field
+  /// carries. Nil for a permission / plan prompt, which has no qualifier.
+  var prompt: String? {
+    AgentPresenceOSC.sanitizedPrompt(data?.objectValue?[AgentPresenceOSC.promptField]?.stringValue)
+  }
+
   /// Decode the per-event `data` payload into a concrete type. Returns nil
   /// when `data` is missing. Returns nil and logs a warning when `data` is
   /// present but fails to decode against `T`; silent nil there would make a

@@ -20,12 +20,14 @@ nonisolated enum ClaudeHookSettingsError: Error {
 // Atomic state-set: UserPromptSubmit / PreToolUse fire `busy`; PostToolUse
 // fires `idle` so the shimmer tracks active tool execution, not the whole turn
 // (the socket debounces idle to bridge between-tool gaps). AskUserQuestion /
-// ExitPlanMode / Notification overwrite to `awaitingInput`; Stop and SessionEnd
+// ExitPlanMode / Notification overwrite to `awaitingInput`, AskUserQuestion
+// qualified as a question so the app can tell it from a permission ask; Stop and SessionEnd
 // reset to `idle`. The pid liveness sweep is the safety net for crashed turns.
 // Only Claude has tool-level granularity; Codex and Kiro stay turn-level, so
 // their shimmer spans the whole turn.
 private nonisolated struct ClaudeHooksPayload: Encodable {
-  static let awaitingInputToolMatcher = "AskUserQuestion|ExitPlanMode"
+  static let questionToolMatcher = "AskUserQuestion"
+  static let approvalToolMatcher = "ExitPlanMode"
 
   private static let busy = AgentHookSettingsCommand.compositeCommand(
     events: [.busy], forwardStdinAsNotification: false, agent: .claude)
@@ -35,6 +37,9 @@ private nonisolated struct ClaudeHooksPayload: Encodable {
     events: [.awaitingInput], forwardStdinAsNotification: true, agent: .claude)
   private static let awaitingInput = AgentHookSettingsCommand.compositeCommand(
     events: [.awaitingInput], forwardStdinAsNotification: false, agent: .claude)
+  private static let awaitingQuestion = AgentHookSettingsCommand.compositeCommand(
+    events: [.awaitingInput], forwardStdinAsNotification: false, agent: .claude,
+    prompt: AgentPresenceOSC.questionPrompt)
   private static let stop = AgentHookSettingsCommand.claudeStopCommand(agent: .claude)
   // PostCompact is intentionally NOT mapped: compaction finishing is not turn
   // completion. `SessionStart(source: compact)` is what ends the compacting state.
@@ -60,8 +65,12 @@ private nonisolated struct ClaudeHooksPayload: Encodable {
       .init(matcher: "", hooks: [.init(command: Self.busy, timeout: AgentHookSettingsCommand.timeoutSeconds)]),
       // Array-order: matched-by-name fires AFTER matcher-"", so awaiting wins.
       .init(
-        matcher: Self.awaitingInputToolMatcher,
+        matcher: Self.approvalToolMatcher,
         hooks: [.init(command: Self.awaitingInput, timeout: AgentHookSettingsCommand.timeoutSeconds)]
+      ),
+      .init(
+        matcher: Self.questionToolMatcher,
+        hooks: [.init(command: Self.awaitingQuestion, timeout: AgentHookSettingsCommand.timeoutSeconds)]
       ),
     ],
     "PostToolUse": [

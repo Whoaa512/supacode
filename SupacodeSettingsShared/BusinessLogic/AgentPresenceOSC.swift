@@ -39,7 +39,19 @@ public nonisolated enum AgentPresenceOSC {
   /// `codex resume <id>`). Rides presence signals so a session whose process is
   /// gone after a relaunch is still addressable. Optional on every event.
   static let sessionField = "sid"
+  /// What an `awaiting_input` is blocked on. Absent means a permission or
+  /// plan approval (the historical meaning); `question` means the agent asked
+  /// the user something through a question tool. Old apps ignore the field
+  /// and keep treating the event as a plain awaiting_input.
+  public static let promptField = "prompt"
+  public static let questionPrompt = "question"
   static let kindField = "kind"
+
+  /// The only prompt kind the wire carries today. Nil for a missing or
+  /// unrecognized value, so a forged field degrades to the plain state.
+  public static func sanitizedPrompt(_ raw: String?) -> String? {
+    raw == questionPrompt ? raw : nil
+  }
   static let titleField = "title"
   static let bodyField = "body"
   static let notifyKind = "notify"
@@ -69,6 +81,8 @@ public nonisolated enum AgentPresenceOSC {
     /// later splices it into a shell command line.
     public let sessionRef: String?
     public let shutdownReason: String?
+    /// `questionPrompt` when an `awaiting_input` came from a question tool.
+    public var prompt: String?
   }
 
   /// Byte cap for a session ref on the wire. Every agent we resume uses a UUID
@@ -117,6 +131,7 @@ public nonisolated enum AgentPresenceOSC {
       pid: parsePid(fields[Substring(pidField)]),
       sessionRef: sanitizedSessionRef(fields[Substring(sessionField)].map(String.init)),
       shutdownReason: sanitizedShutdownReason(fields["reason"].map(String.init)),
+      prompt: sanitizedPrompt(fields[Substring(promptField)].map(String.init)),
     )
   }
 
@@ -228,8 +243,9 @@ public nonisolated enum AgentPresenceOSC {
   /// is appended verbatim (e.g. `;pid=123;sid=abc`) so the emit can splice in a
   /// shell-built, conditionally-empty tail. See `notifyMetadata` for the
   /// notify counterpart.
-  static func metadata(event: HookEvent, suffix: String = "") -> String {
-    "\(eventField)=\(event.rawValue)\(suffix)"
+  static func metadata(event: HookEvent, prompt: String? = nil, suffix: String = "") -> String {
+    let promptPart = prompt.map { ";\(promptField)=\($0)" } ?? ""
+    return "\(eventField)=\(event.rawValue)\(promptPart)\(suffix)"
   }
 
   /// Shell that resolves `$__ppid` (the hook's parent agent) and its `$__tty`, since
@@ -266,10 +282,10 @@ public nonisolated enum AgentPresenceOSC {
   /// is NOT gated on the socket path: a resume ref is just as useful for an agent
   /// that ran over SSH, and it carries no local-process meaning to go stale.
   static func emitShell(
-    event: HookEvent, agent: SkillAgent, includesSessionRef: Bool = false
+    event: HookEvent, agent: SkillAgent, includesSessionRef: Bool = false, prompt: String? = nil
   ) -> String {
     // Trailing %s for the shell-built, conditionally-empty pid + sid suffix.
-    let meta = metadata(event: event, suffix: "%s")
+    let meta = metadata(event: event, prompt: prompt, suffix: "%s")
     let payload = #"\033]3008;\#(action(for: event))=\#(agent.rawValue);\#(meta)\033\\"#
     var build =
       #"__sp=""; [ -n "${SUPACODE_SOCKET_PATH:-}" ] && [ -n "$__ppid" ] "#

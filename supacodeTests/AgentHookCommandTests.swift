@@ -58,23 +58,30 @@ struct AgentHookCommandTests {
   }
 
   @Test func claudePreToolUseOrdersAwaitingAfterBusy() throws {
-    // Order is load-bearing: the "" matcher (busy) must precede the
-    // AskUserQuestion / ExitPlanMode matcher (awaiting) so the named match fires
-    // last and wins, keeping a permission / plan prompt from shimmering under
-    // busy-only hasActivity. Assert by index, not by predicate.
+    // Order is load-bearing: the "" matcher (busy) must precede the named
+    // matchers (awaiting) so the named match fires last and wins, keeping a
+    // permission / plan prompt from shimmering under busy-only hasActivity.
+    // Only AskUserQuestion carries `prompt=question`: ExitPlanMode is an
+    // approval and must keep the plain awaiting_input a permission ask has.
     let groups = try ClaudeHookSettings.hooksByEvent()
     let preToolUse = try #require(groups["PreToolUse"])
-    #expect(preToolUse.count == 2)
+    #expect(preToolUse.count == 3)
 
     let first = try #require(preToolUse.first)
     #expect(first.objectValue?["matcher"]?.stringValue == "")
     let firstCommand = try #require(Self.commandStrings(in: [first]).first)
     #expect(firstCommand.contains("event=busy"))
 
-    let second = try #require(preToolUse.last)
-    #expect(second.objectValue?["matcher"]?.stringValue == "AskUserQuestion|ExitPlanMode")
-    let secondCommand = try #require(Self.commandStrings(in: [second]).first)
-    #expect(secondCommand.contains("event=awaiting_input"))
+    let approval = preToolUse[1]
+    #expect(approval.objectValue?["matcher"]?.stringValue == "ExitPlanMode")
+    let approvalCommand = try #require(Self.commandStrings(in: [approval]).first)
+    #expect(approvalCommand.contains("event=awaiting_input"))
+    #expect(!approvalCommand.contains("prompt=question"))
+
+    let question = try #require(preToolUse.last)
+    #expect(question.objectValue?["matcher"]?.stringValue == "AskUserQuestion")
+    let questionCommand = try #require(Self.commandStrings(in: [question]).first)
+    #expect(questionCommand.contains("event=awaiting_input;prompt=question"))
   }
 
   private static func commandStrings(in groups: [JSONValue]) -> [String] {

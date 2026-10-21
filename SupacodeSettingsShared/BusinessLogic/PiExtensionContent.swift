@@ -29,7 +29,7 @@ nonisolated enum PiExtensionContent {
      *   Pi session_start   -> session_start + sid=<session id>  (early link)
      *   Pi agent_start      -> busy + sid=<session id>  (resume ref)
      *   Pi agent_end        -> idle + sid=<session id>  (sticky ref)
-     *   Pi tool_execution_start of a prompt tool -> awaiting_input
+     *   Pi tool_execution_start of a prompt tool -> awaiting_input;prompt=question
      *   Pi tool_execution_end of a prompt tool   -> busy (turn continues)
      *   Pi session_shutdown -> session_end + sid + reason
      */
@@ -133,9 +133,12 @@ nonisolated enum PiExtensionContent {
       return `;reason=${reason}`;
     }
 
-    function emitPresence(event: string, sessionRef?: string, reason?: unknown): void {
+    function emitPresence(event: string, sessionRef?: string, reason?: unknown, prompt?: string): void {
       const action = event === "session_end" ? "end" : "start";
-      const meta = `event=${event}${localPidSuffix()}${sessionRefSuffix(sessionRef)}${shutdownReasonSuffix(reason)}`;
+      const promptSuffix = prompt ? `;prompt=${prompt}` : "";
+      const meta =
+        `event=${event}${promptSuffix}${localPidSuffix()}` +
+        `${sessionRefSuffix(sessionRef)}${shutdownReasonSuffix(reason)}`;
       writeToTerminal(`\\x1b]3008;${action}=${AGENT};${meta}\\x1b\\\\`);
     }
 
@@ -244,7 +247,7 @@ nonisolated enum PiExtensionContent {
 
       pi.on("tool_execution_start", (event, ctx) => {
         if (!ownsSurface(ctx) || !PROMPT_TOOLS.has(event.toolName)) return;
-        emitPresence("awaiting_input", sessionRef(ctx));
+        emitPresence("awaiting_input", sessionRef(ctx), undefined, "question");
       });
 
       pi.on("tool_execution_end", (event, ctx) => {

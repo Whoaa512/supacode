@@ -1931,16 +1931,18 @@ struct AppFeatureSessionsTests {
     await store.receive(\.repositories.delegate.focusSession)
   }
 
-  @Test(.dependencies) func aPromptWaitingOnTheUserClassifiesAsAwaitingInputNotWorking() {
+  @Test(.dependencies, arguments: [(true, SessionClassification.Status.question), (false, .needsYou)])
+  func aPromptWaitingOnTheUserClassifiesByWhatItAsks(isQuestion: Bool, expected: SessionClassification.Status) {
     var initial = state()
     initial.agentPresence.records[
       AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
-    ] = AgentPresenceFeature.PresenceRecord(activity: .awaitingInput, pids: [], sessionRef: "real")
+    ] = AgentPresenceFeature.PresenceRecord(
+      activity: .awaitingInput, isQuestion: isQuestion, pids: [], sessionRef: "real")
     initial.repositories.sessionSnapshots = AppFeature.sessionSnapshots(state: initial)
     initial.repositories.reconcileSessionItems(now: .distantPast)
     initial.repositories.recomputeSessionsSidebarStructureIfChanged()
     let item = initial.repositories.sessionItems.first
-    #expect(item?.status == .awaitingInput)
+    #expect(item?.status == expected)
     #expect(item?.allowsAttentionNavigation == true)
   }
 
@@ -4546,7 +4548,7 @@ struct AppFeatureSessionsTests {
     var initial = oneTaskWithTwoAgents(firstRef: "one", secondRef: "two")
     initial.agentPresence.records[.init(agent: .pi, surfaceID: secondSurface)]?.activity = .awaitingInput
     initial = withRows(initial)
-    #expect(initial.repositories.sessionItems[id: .task(first)]?.status == .awaitingInput)
+    #expect(initial.repositories.sessionItems[id: .task(first)]?.status == .needsYou)
     let recorded = Recorded()
     let store = taskStore(initial, recorded: recorded)
 

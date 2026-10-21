@@ -69,7 +69,8 @@ nonisolated enum AgentHookSettingsCommand {
     events: [HookEvent],
     forwardStdinAsNotification: Bool,
     agent: SkillAgent,
-    capturesSessionRef: Bool = false
+    capturesSessionRef: Bool = false,
+    prompt: String? = nil
   ) -> String {
     precondition(
       !events.isEmpty || forwardStdinAsNotification,
@@ -78,7 +79,8 @@ nonisolated enum AgentHookSettingsCommand {
     var steps: [String] = [AgentPresenceOSC.ttyResolveSnippet]
     if capturesSessionRef { steps.append(AgentPresenceOSC.sessionRefProbeShell()) }
     steps += events.map {
-      AgentPresenceOSC.emitShell(event: $0, agent: agent, includesSessionRef: capturesSessionRef)
+      AgentPresenceOSC.emitShell(
+        event: $0, agent: agent, includesSessionRef: capturesSessionRef, prompt: prompt)
     }
     if forwardStdinAsNotification {
       // The session probe already consumed stdin into `$__in`; a second `cat`

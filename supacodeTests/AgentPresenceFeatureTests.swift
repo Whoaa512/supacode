@@ -715,6 +715,33 @@ struct AgentPresenceFeatureTests {
     #expect(claude?.activity == .awaitingInput)
   }
 
+  @Test func aQuestionPromptIsRememberedOnTheRecordUntilTheNextActivity() {
+    // Same activity, different ask: a question arriving over a plain permission
+    // prompt must still flip the record, and anything else clears the mark.
+    var harness = Harness()
+    let surfaceID = UUID()
+    let key = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surfaceID)
+    let question = AgentHookEvent(
+      agent: "pi", event: "awaiting_input", surfaceID: surfaceID,
+      data: .object([AgentPresenceOSC.promptField: .string(AgentPresenceOSC.questionPrompt)]))
+
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .pi, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.hookEventReceived(makeEvent(.awaitingInput, agent: .pi, surfaceID: surfaceID)))
+    #expect(harness.state.records[key]?.isQuestion == false)
+
+    harness.send(.hookEventReceived(question))
+    #expect(harness.state.records[key]?.activity == .awaitingInput)
+    #expect(harness.state.records[key]?.isQuestion == true)
+
+    harness.send(.hookEventReceived(makeEvent(.busy, agent: .pi, surfaceID: surfaceID)))
+    #expect(harness.state.records[key]?.isQuestion == false)
+
+    harness.send(.hookEventReceived(question))
+    harness.send(.clearAttention(surfaces: [surfaceID]))
+    #expect(harness.state.records[key]?.activity == .idle)
+    #expect(harness.state.records[key]?.isQuestion == false)
+  }
+
   @Test func nextBusyOverwritesAwaitingInput() {
     // When the user resumes after a permission prompt, Claude's next
     // PreToolUse fires `busy`: atomic overwrite, awaiting flag clears.

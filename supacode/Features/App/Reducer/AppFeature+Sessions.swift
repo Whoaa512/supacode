@@ -1507,7 +1507,7 @@ extension AppFeature {
   ) -> SessionClassification.Status {
     switch record.activity {
     case .awaitingInput:
-      return .awaitingInput
+      return record.isQuestion ? .question : .needsYou
     case .error:
       return .needsYou
     case .busy, .compacting:

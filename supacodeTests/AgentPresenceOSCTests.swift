@@ -20,6 +20,18 @@ struct AgentPresenceOSCTests {
     #expect(SkillAgent(rawValue: signal?.agent ?? "") == .antigravity)
   }
 
+  @Test func promptQualifierRidesAwaitingInputAndOnlyKnowsQuestion() {
+    let question = AgentPresenceOSC.parse(id: "pi", metadata: "event=awaiting_input;prompt=question;pid=7")
+    #expect(question?.eventRawValue == "awaiting_input")
+    #expect(question?.prompt == "question")
+    #expect(question?.pid == 7)
+    #expect(AgentPresenceOSC.parse(id: "pi", metadata: "event=awaiting_input")?.prompt == nil)
+    #expect(AgentPresenceOSC.parse(id: "pi", metadata: "event=awaiting_input;prompt=evil")?.prompt == nil)
+    #expect(
+      AgentPresenceOSC.emitShell(event: .awaitingInput, agent: .claude, prompt: "question")
+        .contains("event=awaiting_input;prompt=question"))
+  }
+
   @Test func rejectsEmptyId() {
     #expect(AgentPresenceOSC.parse(id: "", metadata: "event=busy") == nil)
   }

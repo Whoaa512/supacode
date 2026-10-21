@@ -444,7 +444,7 @@ extension SessionClassification.Status {
   fileprivate var systemImage: String {
     switch self {
     case .needsYou: "exclamationmark.circle.fill"
-    case .awaitingInput: "questionmark.bubble.fill"
+    case .question: "questionmark.bubble.fill"
     case .working: "gearshape.fill"
     case .doneUnseen: "checkmark.circle.fill"
     case .idle: "circle"
@@ -453,7 +453,7 @@ extension SessionClassification.Status {
 
   fileprivate var tint: AnyShapeStyle {
     switch self {
-    case .needsYou, .awaitingInput: AnyShapeStyle(.orange)
+    case .needsYou, .question: AnyShapeStyle(.orange)
     case .working: AnyShapeStyle(.blue)
     case .doneUnseen: AnyShapeStyle(.green)
     case .idle: AnyShapeStyle(.secondary)
@@ -463,7 +463,7 @@ extension SessionClassification.Status {
   fileprivate var accessibilityLabel: String {
     switch self {
     case .needsYou: "Needs you"
-    case .awaitingInput: "Waiting for your answer"
+    case .question: "Waiting for your answer"
     case .working: "Working"
     case .doneUnseen: "Done unseen"
     case .idle: "Idle"

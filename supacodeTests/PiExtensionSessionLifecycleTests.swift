@@ -99,6 +99,7 @@ struct PiExtensionSessionLifecycleTests {
         handlers.get("agent_end")({}, ctx("session-1"));
         """)
     #expect(events.map(\.event) == ["session_start", "busy", "awaiting_input", "busy", "idle"])
+    #expect(events.map(\.prompt) == [nil, nil, "question", nil, nil])
     #expect(events.allSatisfy { $0.sessionRef == "session-1" })
   }
 
