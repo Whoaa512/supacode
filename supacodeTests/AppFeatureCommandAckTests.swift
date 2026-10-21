@@ -1195,6 +1195,11 @@ struct AppFeatureCommandAckTests {
 
   @Test(.dependencies) func deleteSocketDeeplinkFailsOnScriptCancellation() async {
     let worktree = makeWorktree()
+    // Without a delete script the confirm applies the delete directly and
+    // `.worktreeDeleted` races the cancellation below to resolve the ack.
+    @Shared(.repositorySettings(worktree.repositoryRootURL, host: worktree.host)) var settings
+    $settings.withLock { $0.deleteScript = "echo delete" }
+    defer { $settings.withLock { $0.deleteScript = "" } }
     let store = makeStore(worktree: worktree, tabExists: true)
     let (readFD, writeFD) = makePipe()
     defer { close(readFD) }
