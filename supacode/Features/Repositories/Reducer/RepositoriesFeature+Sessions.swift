@@ -241,8 +241,12 @@ extension RepositoriesFeature {
         if state.revealedHiddenTaskIDs.contains(layoutID) {
           state.revealedHiddenTaskIDs.remove(layoutID)
         } else {
+          // Hidden members are sub-rows, and only the selected, open task has
+          // those: revealing on a collapsed or unselected task opens it too.
           state.revealedHiddenTaskIDs.insert(layoutID)
+          state.expandedSessionTaskIDs.insert(layoutID)
         }
+        state.selectSessionRow(.task(layoutID))
         return .none
 
       case .unsettleSession(let key):

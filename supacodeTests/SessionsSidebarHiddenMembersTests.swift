@@ -146,6 +146,31 @@ struct SessionsSidebarHiddenMembersTests {
     #expect(state.sessionItems[id: .task(taskA)]?.hiddenCount == 0)
   }
 
+  @Test(.dependencies) func revealingOpensACollapsedUnselectedTask() async {
+    @Shared(.sessionsExpandSelectedTask) var expandSelected
+    $expandSelected.withLock { $0 = false }
+    var initial = state()
+    initial.applyHide(key: key("c"), in: taskA, now: now)
+    initial.sessionSelection = nil
+    initial = rebuilt(initial)
+    #expect(initial.sessionsSidebarStructure.subRows.isEmpty)
+
+    let store = TestStore(initialState: initial) {
+      RepositoriesFeature()
+    } withDependencies: {
+      $0.date = .constant(now)
+    }
+    store.exhaustivity = .off
+
+    await store.send(.toggleHiddenSessionsRevealed(taskA))
+    #expect(store.state.sessionSelection == .task(taskA))
+    #expect(store.state.sessionsSidebarStructure.subRowsTaskID == taskA)
+    #expect(store.state.sessionsSidebarStructure.subRows.map(\.isHidden) == [false, false, true])
+
+    await store.send(.toggleHiddenSessionsRevealed(taskA))
+    #expect(store.state.sessionsSidebarStructure.subRows.count == 2, "the task stays open, the hidden row goes")
+  }
+
   @Test(.dependencies) func theChordHidesEveryEndedTangentOfTheSelectedTask() async {
     var initial = state()
     initial.selectedTask = SelectedTask(id: taskA, directoryID: directory)
