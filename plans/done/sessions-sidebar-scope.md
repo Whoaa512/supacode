@@ -2,7 +2,7 @@
 
 Status: **scope agreed** (2026-10-02 interview, two rounds). Implementation
 planning is a follow-up. Supersedes `task-inbox-sidebar-scope.md` (see
-`ideas-graveyard.md` for that post-mortem).
+`../ideas-graveyard.md` for that post-mortem).
 
 ## The problem
 

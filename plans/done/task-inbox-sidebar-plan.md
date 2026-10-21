@@ -1,6 +1,6 @@
 # Task Inbox Sidebar — Implementation Plan (v1.0, final)
 
-Scope: `plans/task-inbox-sidebar-scope.md` (locked — do not relitigate).
+Scope: `plans/done/task-inbox-sidebar-scope.md` (locked — do not relitigate).
 Inspiration source: `~/code/t3code` (`apps/web/src/components/SidebarV2.tsx`,
 `Sidebar.logic.ts`, `packages/client-runtime/src/state/threadSettled.ts`).
 

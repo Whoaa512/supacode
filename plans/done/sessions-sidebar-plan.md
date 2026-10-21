@@ -1,5 +1,5 @@
 # Sessions sidebar implementation plan
-Scope: `plans/sessions-sidebar-scope.md` is locked. Execute all four slices,
+Scope: `plans/done/sessions-sidebar-scope.md` is locked. Execute all four slices,
 serially on `cj-main`; finish with a dogfoodable daily build, not a feature branch.
 Do not resurrect Task Inbox entities, event logs, workflows, or archived code.
 Read-only planning; no builds/tests. Line references are discovery anchors.

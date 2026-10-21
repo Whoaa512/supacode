@@ -47,8 +47,8 @@ to check.
 **Concept**: a port of t3code's Sidebar V2. A new first-class `Task` entity
 owning surfaces and a directory, with settle, snooze, pin, PR-driven
 auto-settle, auto-managed worktrees and forward navigation. 303 commits and
-about 61k lines; plans in `task-inbox-sidebar-scope.md` and
-`task-inbox-sidebar-plan.md`.
+about 61k lines; plans in `done/task-inbox-sidebar-scope.md` and
+`done/task-inbox-sidebar-plan.md`.
 
 **Why it didn't land**:
 - Wrong unit. A Task had to be created or promoted; the agent session is the
@@ -62,7 +62,7 @@ about 61k lines; plans in `task-inbox-sidebar-scope.md` and
 - Never reached the daily build. The branch fell 210 commits behind `cj-main`
   across the terminal rewrite and the rebase stalled.
 
-**If retried**: don't. `sessions-sidebar-scope.md` replaces it: index the
+**If retried**: don't. `done/sessions-sidebar-scope.md` replaces it: index the
 sessions that already exist, land thin slices on `cj-main`, and beat keyboard
 worktree cycling before adding anything else. Only the ideas carry over
 (static creation order, settled section, status vocabulary), not the code.
