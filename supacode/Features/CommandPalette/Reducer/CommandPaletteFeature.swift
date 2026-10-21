@@ -1530,37 +1530,24 @@ private func commandPaletteRecencyScore(
 
 /// The delegate an activated item resolves to, or `nil` for a kind the reducer handles
 /// itself: `.openRepository` switches the palette into browse mode and never leaves it.
-private func delegateAction(  // swiftlint:disable:this cyclomatic_complexity
+private func delegateAction(
   for kind: CommandPaletteItem.Kind
 ) -> CommandPaletteFeature.Delegate? {
   switch kind {
-  case .worktreeSelect(let id):
-    return .selectWorktree(id)
-  case .branchSelect(let repositoryID, let branch):
-    return .selectBranch(repositoryID, branch: branch)
+  case .worktreeSelect, .branchSelect, .newWorktree, .forkWorktree, .removeWorktree, .archiveWorktree,
+    .viewArchivedWorktrees, .refreshWorktrees:
+    return worktreeDelegateAction(for: kind)!
   case .checkForUpdates:
     return .checkForUpdates
   case .openSettings:
     return .openSettings
-  case .newWorktree:
-    return .newWorktree
-  case .forkWorktree(let worktreeID, let repositoryID):
-    return .forkWorktree(worktreeID, repositoryID)
   case .openRepository:
     return nil
   case .addRemoteRepository:
     return .addRemoteRepository
-  case .removeWorktree(let worktreeID, let repositoryID):
-    return .removeWorktree(worktreeID, repositoryID)
-  case .archiveWorktree(let worktreeID, let repositoryID):
-    return .archiveWorktree(worktreeID, repositoryID)
   case .renameBranch, .customizeRepositoryAppearance, .customizeWorktreeAppearance, .toggleWindowMode,
     .layoutCommand:
     return selectedEntryDelegateAction(for: kind)!
-  case .viewArchivedWorktrees:
-    return .viewArchivedWorktrees
-  case .refreshWorktrees:
-    return .refreshWorktrees
   case .ghosttyCommand(let action):
     return .ghosttyCommand(action)
   case .toggleCollapseRepository(let repositoryID):
@@ -1576,6 +1563,48 @@ private func delegateAction(  // swiftlint:disable:this cyclomatic_complexity
     return pullRequestDelegateAction(for: kind)!
   case .runScript, .stopScript:
     return scriptDelegateAction(for: kind)!
+  case .mergeTask, .detachFocusedTab, .resumeMostRecentlySettledTask, .resumeTask, .selectTask:
+    return taskDelegateAction(for: kind)!
+  #if DEBUG
+    case .debugTestToast(let toast):
+      return .debugTestToast(toast)
+  #endif
+  }
+}
+
+/// Delegates for the worktree and branch rows: selecting, creating, forking,
+/// removing, archiving and refreshing them.
+private func worktreeDelegateAction(
+  for kind: CommandPaletteItem.Kind
+) -> CommandPaletteFeature.Delegate? {
+  switch kind {
+  case .worktreeSelect(let id):
+    return .selectWorktree(id)
+  case .branchSelect(let repositoryID, let branch):
+    return .selectBranch(repositoryID, branch: branch)
+  case .newWorktree:
+    return .newWorktree
+  case .forkWorktree(let worktreeID, let repositoryID):
+    return .forkWorktree(worktreeID, repositoryID)
+  case .removeWorktree(let worktreeID, let repositoryID):
+    return .removeWorktree(worktreeID, repositoryID)
+  case .archiveWorktree(let worktreeID, let repositoryID):
+    return .archiveWorktree(worktreeID, repositoryID)
+  case .viewArchivedWorktrees:
+    return .viewArchivedWorktrees
+  case .refreshWorktrees:
+    return .refreshWorktrees
+  default:
+    return nil
+  }
+}
+
+/// Delegates for the task rows: moving tabs between tasks and bringing a
+/// task to the front or back from settled.
+private func taskDelegateAction(
+  for kind: CommandPaletteItem.Kind
+) -> CommandPaletteFeature.Delegate? {
+  switch kind {
   case .mergeTask(let source, let target):
     return .mergeTask(source, into: target)
   case .detachFocusedTab:
@@ -1584,10 +1613,8 @@ private func delegateAction(  // swiftlint:disable:this cyclomatic_complexity
     return .resumeMostRecentlySettledTask
   case .resumeTask(let rowID), .selectTask(let rowID):
     return .activateTask(rowID)
-  #if DEBUG
-    case .debugTestToast(let toast):
-      return .debugTestToast(toast)
-  #endif
+  default:
+    return nil
   }
 }
 
