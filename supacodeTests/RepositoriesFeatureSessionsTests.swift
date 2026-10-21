@@ -480,6 +480,7 @@ struct RepositoriesFeatureSessionsTests {
     #expect(structure.selection(byOffset: 1, from: .implicit(dormant.id)) == .implicit(settled.id))
     #expect(structure.selection(byOffset: 1, from: .implicit(settled.id)) == .implicit(live.id))
     #expect(structure.selection(byOffset: -1, from: nil) == .implicit(settled.id))
+    #expect(structure.selection(byOffset: 1, from: .implicit(dormant.id), settledLimit: 0) == .implicit(live.id))
     let store = TestStore(initialState: initial) { RepositoriesFeature() }
     await store.send(.sessionSelectionChanged(.implicit(dormant.id))) {
       $0.sessionSelection = .implicit(dormant.id)
@@ -487,6 +488,29 @@ struct RepositoriesFeatureSessionsTests {
     await store.send(.activateSession(.implicit(dormant.id)))
     await store.receive(\.delegate.resumeSession)
     await store.finish()
+  }
+
+  @Test(.dependencies) func settledPageIsMostRecentFirstAndBoundsCycling() {
+    var initial = state()
+    let active = summary("active", created: 100)
+    let settledSummaries = (0..<5).map { summary("settled\($0)", created: TimeInterval(50 - $0)) }
+    initial.sessionSummaries = [active] + settledSummaries.reversed()
+    initial.$sessions.withLock { sidecar in
+      for summary in settledSummaries { sidecar[summary.id] = SessionSidecarEntry(settledAt: .distantPast) }
+    }
+    initial.reconcileSessionItems(now: .distantPast)
+    initial.applyCacheRecomputes(.sessionsStructure)
+    let structure = initial.sessionsSidebarStructure
+    let settledIDs = settledSummaries.map { SessionRowID.implicit($0.id) }
+    #expect(structure.sections.first { $0.id == .settled }?.rowIDs == settledIDs)
+
+    #expect(structure.visibleIDs(settledLimit: 2) == [.implicit(active.id)] + settledIDs.prefix(2))
+    #expect(structure.visibleIDs(settledLimit: 0) == [.implicit(active.id)])
+    #expect(structure.visibleIDs(settledLimit: 99) == structure.allIDs)
+    #expect(structure.selection(byOffset: 1, from: settledIDs[1], settledLimit: 2) == .implicit(active.id))
+    #expect(structure.selection(byOffset: -1, from: .implicit(active.id), settledLimit: 2) == settledIDs[1])
+    #expect(structure.selection(byOffset: -1, from: .implicit(active.id), settledLimit: 0) == .implicit(active.id))
+    #expect(structure.selection(byOffset: 1, from: settledIDs[4], settledLimit: 2) == .implicit(active.id))
   }
 
   @Test(.dependencies) func sessionRowIDAtSlotReturnsNthLive() {

@@ -53,10 +53,22 @@ struct SessionsSidebarStructure: Equatable, Sendable {
     var location: SessionLocation
   }
 
+  /// How many settled rows the sidebar shows per "Show more" step.
+  static let settledPageSize = 30
+
+  /// The row ids in the sidebar's order, with the settled section cut to
+  /// the rows it has paged in. Settled is the whole history, so the view
+  /// only ever renders and cycles through a prefix of it.
+  func visibleIDs(settledLimit: Int) -> [SessionRowID] {
+    sections.flatMap { section -> ArraySlice<SessionRowID> in
+      section.id == .settled ? section.rowIDs.prefix(max(0, settledLimit)) : section.rowIDs[...]
+    }
+  }
+
   func selection(
-    byOffset offset: Int, from current: SessionRowID?, includingSettled: Bool = true
+    byOffset offset: Int, from current: SessionRowID?, settledLimit: Int = .max
   ) -> SessionRowID? {
-    let ids = includingSettled ? allIDs : sections.filter { $0.id == .active }.flatMap(\.rowIDs)
+    let ids = visibleIDs(settledLimit: settledLimit)
     guard !ids.isEmpty else { return nil }
     guard let current, let index = ids.firstIndex(of: current) else {
       return offset > 0 ? ids.first : ids.last
