@@ -299,11 +299,15 @@ private struct SessionSidebarRowView: View {
 
 extension SessionSidebarRowView {
   private var helpText: String {
+    let settled = store.lifecycle == .settled ? "settled " : ""
     if store.isTask {
       return store.isLive
-        ? "Show this task (Return when selected)" : "Reopen this task on its primary session (Return when selected)"
+        ? "Show this task (Return when selected)"
+        : "Resume this \(settled)task on its primary session (click or Return when selected)"
     }
-    return store.isLive ? "Focus this session (Return when selected)" : "Dormant session — \(store.cwd)"
+    return store.isLive
+      ? "Focus this session (Return when selected)"
+      : "Resume this \(settled)session in a new tab (click or Return when selected) — \(store.cwd)"
   }
 }
 
