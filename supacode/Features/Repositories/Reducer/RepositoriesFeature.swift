@@ -314,6 +314,10 @@ struct RepositoriesFeature {
     // MARK: - Sidebar items (per-row TCA collection).
     var sessionItems: IdentifiedArrayOf<SessionSidebarItemFeature.State> = []
     var sessionsSidebarStructure = SessionsSidebarStructure()
+    /// How many live agents "next session that needs me" would visit. Kept
+    /// beside the structure so a status flip redraws only the header badge,
+    /// not the list.
+    var sessionsAttentionCount = 0
     var sessionSelection: SessionRowID?
     /// Tasks opened by their chevron while `sessionsExpandSelectedTask` is off. Not persisted.
     var expandedSessionTaskIDs: Set<LayoutID> = []

@@ -190,6 +190,29 @@ extension RepositoriesFeature.State {
     jumpable && (status == .needsYou || status == .doneUnseen)
   }
 
+  /// The stops `nextAttentionTarget` cycles through, counted by the same rule.
+  private func attentionCount(liveIDs: [SessionRowID]) -> Int {
+    var tasks = Set<LayoutID>()
+    var count = 0
+    for id in liveIDs {
+      if case .task(let layoutID) = id {
+        tasks.insert(layoutID)
+        continue
+      }
+      guard let item = sessionItems[id: id], item.location != nil,
+        Self.wantsAttention(item.status, jumpable: item.allowsAttentionNavigation)
+      else { continue }
+      count += 1
+    }
+    for agent in sessionSnapshots
+    where tasks.contains(agent.location.layoutID)
+      && Self.wantsAttention(agent.status, jumpable: agent.allowsAttentionNavigation)
+    {
+      count += 1
+    }
+    return count
+  }
+
   private func agentsInMemberOrder(of layoutID: LayoutID, agents: [SessionLiveSnapshot]) -> [SessionLiveSnapshot] {
     guard agents.count > 1 else { return agents }
     var rank: [TaskMember: Int] = [:]
@@ -261,6 +284,8 @@ extension RepositoriesFeature.State {
       sections: sections, liveIDs: liveIDs, subRowsTaskID: subRows.taskID, subRows: subRows.rows,
       mergeTargets: mergeTargets)
     if sessionsSidebarStructure != structure { sessionsSidebarStructure = structure }
+    let attention = attentionCount(liveIDs: liveIDs)
+    if sessionsAttentionCount != attention { sessionsAttentionCount = attention }
   }
 
   /// What a task row is built from: its tabs, the agents on them and the

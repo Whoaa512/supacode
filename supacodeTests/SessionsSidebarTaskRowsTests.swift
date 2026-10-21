@@ -739,6 +739,28 @@ struct SessionsSidebarTaskRowsTests {
     #expect(target(state, after: .task(taskB), on: 3) == stop(taskB, 4))
   }
 
+  @Test(.dependencies) func theAttentionCountIsTheNumberOfStopsAcrossTasks() {
+    var state = twoTasksEachWithAMaskedTangent()
+    #expect(state.sessionsAttentionCount == 2, "b needs you and d is done unseen; both are masked by their rows")
+
+    state.sessionSnapshots[1].status = .idle
+    state = rebuilt(state)
+    #expect(state.sessionsAttentionCount == 1)
+  }
+
+  @Test(.dependencies) func anErroredAgentAndAnUngroupedRowCountLikeTheyJump() {
+    var state = state()
+    state.sessionSummaries = [summary("free", created: 5)]
+    state.taskSnapshots = [tabs(taskA, on: 1)]
+    state.sessionSnapshots = [
+      agent("a", in: taskA, on: 1, status: .needsYou, attention: false),
+      agent("free", in: taskB, on: 9, status: .doneUnseen),
+    ]
+    state = rebuilt(state)
+
+    #expect(state.sessionsAttentionCount == 1, "the error-only surface is skipped, the ungrouped row counted")
+  }
+
   @Test(.dependencies) func aShellTabOfTheTaskComesBeforeItsAgents() {
     let state = twoTasksEachWithAMaskedTangent()
     #expect(state.sessionsSidebarStructure.liveIDs.last == .task(taskB))
