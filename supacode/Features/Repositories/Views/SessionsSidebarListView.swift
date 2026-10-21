@@ -432,41 +432,31 @@ private struct SessionKindIcon: View {
         .foregroundStyle(.secondary)
         .accessibilityLabel("Dormant session")
     } else if let status {
-      Image(systemName: status.systemImage)
-        .foregroundStyle(status.tint)
-        .accessibilityLabel(status.accessibilityLabel)
-        .help(status.accessibilityLabel)
+      let glyph = status.glyph
+      Image(systemName: glyph.symbol)
+        .foregroundStyle(glyph.tint)
+        .accessibilityLabel(glyph.label)
+        .help(glyph.label)
     }
   }
 }
 
 extension SessionClassification.Status {
-  fileprivate var systemImage: String {
-    switch self {
-    case .needsYou: "exclamationmark.circle.fill"
-    case .question: "questionmark.bubble.fill"
-    case .working: "gearshape.fill"
-    case .doneUnseen: "checkmark.circle.fill"
-    case .idle: "circle"
-    }
+  /// What the sessions row draws for a status. One value so a test can pin a
+  /// status to its symbol and tooltip without rendering the row.
+  struct Glyph: Equatable {
+    var symbol: String
+    var label: String
+    var tint: Color
   }
 
-  fileprivate var tint: AnyShapeStyle {
+  var glyph: Glyph {
     switch self {
-    case .needsYou, .question: AnyShapeStyle(.orange)
-    case .working: AnyShapeStyle(.blue)
-    case .doneUnseen: AnyShapeStyle(.green)
-    case .idle: AnyShapeStyle(.secondary)
-    }
-  }
-
-  fileprivate var accessibilityLabel: String {
-    switch self {
-    case .needsYou: "Needs you"
-    case .question: "Waiting for your answer"
-    case .working: "Working"
-    case .doneUnseen: "Done unseen"
-    case .idle: "Idle"
+    case .needsYou: Glyph(symbol: "exclamationmark.circle.fill", label: "Needs you", tint: .orange)
+    case .question: Glyph(symbol: "questionmark.bubble.fill", label: "Waiting for your answer", tint: .orange)
+    case .working: Glyph(symbol: "gearshape.fill", label: "Working", tint: .blue)
+    case .doneUnseen: Glyph(symbol: "checkmark.circle.fill", label: "Done unseen", tint: .green)
+    case .idle: Glyph(symbol: "circle", label: "Idle", tint: .secondary)
     }
   }
 }

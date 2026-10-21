@@ -3,6 +3,7 @@ import DependenciesTestSupport
 import Foundation
 import Observation
 import Sharing
+import SwiftUI
 import Testing
 
 @testable import SupacodeSettingsShared
@@ -767,6 +768,16 @@ struct SessionsSidebarTaskRowsTests {
     #expect(target(state, after: nil) == stop(taskB, 3))
     #expect(target(state, after: .task(taskA), on: 1) == stop(taskB, 3), "from the done one, round to the urgent one")
     #expect(target(state, after: .task(taskB), on: 3) == stop(taskA, 1))
+  }
+
+  @Test func aQuestionDrawsItsOwnGlyphApartFromWorkingAndFromAPermissionAsk() {
+    let question = Status.question.glyph
+    #expect(question.symbol == "questionmark.bubble.fill")
+    #expect(question.label == "Waiting for your answer")
+    #expect(question.symbol != Status.working.glyph.symbol)
+    #expect(question.tint != Status.working.glyph.tint)
+    #expect(question.symbol != Status.needsYou.glyph.symbol)
+    #expect(question.label != Status.needsYou.glyph.label)
   }
 
   @Test(.dependencies) func anAgentWaitingOnAnAnswerIsAJumpTargetAheadOfAWorkingOne() {
