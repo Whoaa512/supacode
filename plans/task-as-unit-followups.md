@@ -160,3 +160,23 @@ data today.
   of two terminate paths racing on one tracked session before changing the
   reaper.
 
+
+## Workflow sub-agents still disturb the parent task's row (cj, live, 2026-10-20)
+
+T9's app-side fix (ignore events from a process the surface's own agent
+started) did not clear it. Observed in the sessions sidebar while a pi
+session ran a `workflow` in the same surface: the task row was titled by an
+older session ("Improve Session Sidebar Row Icons"), that session showed as
+sub-row one, a "New session" member appeared as sub-row two, and the live pi
+session (the one actually in the tab) was sub-row three. So a sub-agent ref
+is being adopted as a task member and the primary is not the live session.
+
+**Investigate (factory, after the current run)**: capture presence signals
+during a workflow run (which pid/ref reports, whether the index ever lists
+refs under `~/.pi/agent/subagent-sessions`, whether the ref replacement path
+mints a member instead of ignoring). Likely fixes: pi extension stops
+reporting for sub-agent sessions, or the app drops refs whose process is
+not the surface's root agent pid; and the primary must stay the session the
+surface is actually running. Reducer test: child ref arrives and ends while
+the parent is live; the row keeps title, primary, and no new member appears.
+Screenshot evidence: pi-clipboard-2cf85d72 (2026-10-20).
