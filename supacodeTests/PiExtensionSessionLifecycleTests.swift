@@ -5,7 +5,12 @@ import Testing
 @testable import supacode
 
 struct PiExtensionSessionLifecycleTests {
-  @Test func generatedExtensionEmitsSessionIdentityAndOnlyOneShutdownSignal() throws {
+  /// Runs the generated extension under node with the terminal write
+  /// replaced by a recorder, drives it with `fixture`, and returns the
+  /// presence events it emitted. `fixture` sees `handlers` (event name to
+  /// handler) and `ctx(id)`, which makes a session context with a stable
+  /// session manager per id.
+  private func presenceEvents(fixture: String) throws -> [AgentHookEvent] {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -21,21 +26,20 @@ struct PiExtensionSessionLifecycleTests {
           return count;
         };
         """)
-    let fixture = """
+    let prelude = """
       const handlers = new Map();
       extension({ on: (name, handler) => handlers.set(name, handler) });
-      const ctx = { sessionManager: { getSessionId: () => "session-1", getEntries: () => [] } };
-      handlers.get("session_start")({}, ctx);
-      handlers.get("agent_start")({}, ctx);
-      handlers.get("agent_end")({}, ctx);
-      for (const reason of ["quit", "reload", "new", "resume", "fork", "unknown", "quit;sid=evil"]) {
-        handlers.get("session_shutdown")({ reason }, ctx);
-      }
-      process.stdout.write(JSON.stringify(signals));
+      const managers = new Map();
+      const ctx = (id) => {
+        if (!managers.has(id)) managers.set(id, { getSessionId: () => id, getEntries: () => [] });
+        return { sessionManager: managers.get(id) };
+      };
       """
+    let epilogue = "process.stdout.write(JSON.stringify(signals));"
     let runnable = source.replacing(
       "export default function (pi: ExtensionAPI)", with: "function extension(pi: ExtensionAPI)")
-    try (runnable + "\n" + fixture).write(to: script, atomically: true, encoding: .utf8)
+    try [runnable, prelude, fixture, epilogue].joined(separator: "\n")
+      .write(to: script, atomically: true, encoding: .utf8)
     let process = Process()
     let miseNode = FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent(".local/share/mise/shims/node")
@@ -58,7 +62,7 @@ struct PiExtensionSessionLifecycleTests {
     #expect(process.terminationStatus == 0, "\(errorText)")
     let signals = try JSONDecoder().decode([String].self, from: data)
     let surface = UUID()
-    let events = try signals.compactMap { signal -> AgentHookEvent? in
+    return try signals.compactMap { signal -> AgentHookEvent? in
       let payload = String(signal.dropFirst("\u{1b}]3008;".count).dropLast(2))
       let fields = try #require(AgentSignal.contextSignalFields(payload: payload))
       if fields.metadata.contains("kind=notify") { return nil }
@@ -66,8 +70,54 @@ struct PiExtensionSessionLifecycleTests {
         id: fields.id, metadata: fields.metadata, surfaceID: surface, surfaceExists: true
       ).get()
     }
+  }
+
+  @Test func generatedExtensionEmitsSessionIdentityAndOnlyOneShutdownSignal() throws {
+    let events = try presenceEvents(
+      fixture: """
+        handlers.get("session_start")({}, ctx("session-1"));
+        handlers.get("agent_start")({}, ctx("session-1"));
+        handlers.get("agent_end")({}, ctx("session-1"));
+        for (const reason of ["quit", "reload", "new", "resume", "fork", "unknown", "quit;sid=evil"]) {
+          handlers.get("session_shutdown")({ reason }, ctx("session-1"));
+        }
+        """)
     #expect(events.map(\.event) == ["session_start", "busy", "idle"] + Array(repeating: "session_end", count: 7))
     #expect(events.allSatisfy { $0.sessionRef == "session-1" && $0.pid == nil })
     #expect(events.suffix(7).map(\.shutdownReason) == ["quit", "reload", "new", "resume", "fork", nil, nil])
+  }
+
+  /// The `workflow` tool runs sub-agent sessions inside the Pi process, each
+  /// with its own session manager and no session_start. Their turns must not
+  /// reach the surface while the session that owns it is live.
+  @Test func aSessionNestedInTheProcessReportsNothingWhileTheOwnerIsLive() throws {
+    let events = try presenceEvents(
+      fixture: """
+        handlers.get("session_start")({}, ctx("parent"));
+        handlers.get("agent_start")({}, ctx("parent"));
+        handlers.get("agent_start")({}, ctx("child-1"));
+        handlers.get("agent_start")({}, ctx("child-2"));
+        handlers.get("agent_end")({}, ctx("child-1"));
+        handlers.get("session_shutdown")({ reason: "quit" }, ctx("child-1"));
+        handlers.get("agent_end")({}, ctx("child-2"));
+        handlers.get("agent_end")({}, ctx("parent"));
+        """)
+    #expect(events.map(\.event) == ["session_start", "busy", "idle"])
+    #expect(events.allSatisfy { $0.sessionRef == "parent" })
+  }
+
+  /// Pi ends a session before it starts the next one in the same process, so
+  /// the owner's shutdown hands the surface to whichever session starts next.
+  @Test func theSessionAfterTheOwnersShutdownTakesOverTheSurface() throws {
+    let events = try presenceEvents(
+      fixture: """
+        handlers.get("session_start")({}, ctx("first"));
+        handlers.get("session_shutdown")({ reason: "new" }, ctx("first"));
+        handlers.get("session_start")({}, ctx("second"));
+        handlers.get("agent_start")({}, ctx("first"));
+        handlers.get("agent_start")({}, ctx("second"));
+        """)
+    #expect(events.map(\.event) == ["session_start", "session_end", "session_start", "busy"])
+    #expect(events.map(\.sessionRef) == ["first", "first", "second", "second"])
   }
 }

@@ -143,6 +143,28 @@ nonisolated enum PiExtensionContent {
       }
     }
 
+    /**
+     * One session per process owns the surface. The `workflow` tool runs
+     * sub-agent sessions inside the Pi process (createAgentSession loads this
+     * extension again for each), and they would otherwise report their own
+     * session ids and turns against the parent's surface, which the app reads
+     * as the parent being replaced. Pi loads each extension as a fresh module,
+     * so the owner lives on globalThis. The owning session releases on
+     * shutdown so the session that follows a /new, /resume, /fork or /reload
+     * claims the surface; a sub-agent's events while the owner is live are
+     * dropped.
+     */
+    const OWNER_KEY = Symbol.for("supacode.presenceOwner");
+
+    function ownsSurface(ctx: { sessionManager?: unknown }, release = false): boolean {
+      const owners = globalThis as unknown as Record<symbol, unknown>;
+      const owner = owners[OWNER_KEY];
+      const mine = ctx.sessionManager;
+      if (owner !== undefined && owner !== mine) return false;
+      owners[OWNER_KEY] = release ? undefined : mine;
+      return true;
+    }
+
     // JSON-escape (minus the surrounding quotes) so the wire matches the shell
     // awk path, byte-cap to the same budget, then base64. App-side
     // decodeNotifyValue reverses both and tolerates a mid-escape cut.
@@ -191,14 +213,17 @@ nonisolated enum PiExtensionContent {
       // restored and freshly resumed surfaces link without waiting for the
       // first turn. Replaces the unconditional load-time emitPresence above.
       pi.on("session_start", (_event, ctx) => {
+        if (!ownsSurface(ctx)) return;
         emitPresence("session_start", sessionRef(ctx));
       });
 
       pi.on("agent_start", (_event, ctx) => {
+        if (!ownsSurface(ctx)) return;
         emitPresence("busy", sessionRef(ctx));
       });
 
       pi.on("agent_end", (_event, ctx) => {
+        if (!ownsSurface(ctx)) return;
         // Emit the sid on idle too so Supacode can associate the last-known
         // session id with the surface even when no busy turn occurred yet.
         emitPresence("idle", sessionRef(ctx));
@@ -206,6 +231,7 @@ nonisolated enum PiExtensionContent {
       });
 
       pi.on("session_shutdown", (event, ctx) => {
+        if (!ownsSurface(ctx, true)) return;
         emitPresence("session_end", sessionRef(ctx), event.reason);
       });
     }
