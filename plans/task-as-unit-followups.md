@@ -159,22 +159,50 @@ data today.
 
 ## Workflow sub-agents still disturb the parent task's row (cj, live, 2026-10-20)
 
-T9's app-side fix (ignore events from a process the surface's own agent
-started) did not clear it. Observed in the sessions sidebar while a pi
-session ran a `workflow` in the same surface: the task row was titled by an
-older session ("Improve Session Sidebar Row Icons"), that session showed as
-sub-row one, a "New session" member appeared as sub-row two, and the live pi
-session (the one actually in the tab) was sub-row three. So a sub-agent ref
-is being adopted as a task member and the primary is not the live session.
+**Fixed 2026-10-21** (`ba4dfb27` extension, `8026b3d3` app). Root cause,
+read from the signal path rather than the hypothesis above:
 
-**Investigate (factory, after the current run)**: capture presence signals
-during a workflow run (which pid/ref reports, whether the index ever lists
-refs under `~/.pi/agent/subagent-sessions`, whether the ref replacement path
-mints a member instead of ignoring). Likely fixes: pi extension stops
-reporting for sub-agent sessions, or the app drops refs whose process is
-not the surface's root agent pid; and the primary must stay the session the
-surface is actually running. Reducer test: child ref arrives and ends while
-the parent is live; the row keeps title, primary, and no new member appears.
+- The `workflow` tool does not spawn a child process. It calls
+  `createAgentSession` inside the parent Pi process (quintinshaw-pi-dynamic-
+  workflows `src/agent.ts`), one session per `agent()`, with the default
+  resource loader, so each child session loads the supacode extension again.
+  Pi loads extensions with `moduleCache: false`, so each is a fresh module
+  with no shared state.
+- Those sessions never call `bindExtensions`, so they emit no `session_start`
+  or `session_shutdown`; they emit `agent_start` / `agent_end` only. The
+  extension turned those into `busy` / `idle` with the child's sid and the
+  **parent's pid** (it is the same process). Their session files live under
+  `~/.pi/agent/subagent-sessions`, which the index excludes, hence the
+  untitled "New session" member.
+- App side, T9's `isFromNestedAgent` is pid-ancestry based and explicitly
+  trusts a pid already on the record, so the child's `busy` passed. Presence
+  takes a changed ref from any event on a live record, so
+  `settleReplacedOrEndedSession` read it as a replacement: the parent was
+  marked settled and dropped from the primary slot, the child took it, then
+  the parent's next `idle` swapped them back, and so on per turn. A child's
+  `session_end` with reason `quit` from the same pid removed the record
+  entirely (seen in the negative test).
+- The `subagent` tool (dotfiles `extensions/subagent/index.ts`) spawns a
+  separate `pi -p` process, not detached, which shares the controlling tty;
+  that is the case T9 already covered by pid ancestry and it still is.
+
+**Fix**, both layers:
+- Extension (`PiExtensionContent.swift`): one session per process owns the
+  surface, tracked on `globalThis` keyed by `ctx.sessionManager` identity;
+  non-owner sessions emit nothing. The owner releases on `session_shutdown`,
+  so `/new`, `/resume`, `/fork`, `/reload` hand over as before. The installer
+  sees the content change as `.outdated` and reinstalls.
+- App (`AgentPresenceFeature.isFromNestedAgent`): a Pi process changes its
+  session only through `session_start` (it ends the old one first), so any
+  other event from a tracked pid under a different ref is a nested session
+  and is dropped. Covers an older installed extension.
+- Tests: `PiExtensionSessionLifecycleTests` (node-driven, nested session
+  silent while owner live; handover after shutdown) and
+  `AppFeatureSessionsTaskSettleTests.aSessionNestedInTheParentsProcess…`
+  (child busy/idle/quit under the parent's pid: title, primary, members and
+  record unchanged, nothing settled). The two tests that modelled a harness
+  swapping sessions without an end now run on Claude; Pi never does that.
+
 Screenshot evidence: pi-clipboard-2cf85d72 (2026-10-20).
 
 ## ⌘P should search tasks, not worktrees (cj, 2026-10-20)
