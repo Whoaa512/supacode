@@ -212,3 +212,13 @@ search active tasks plus recently settled ones (title, directory, agent) and
 jump to the chosen task (resuming it if settled, decide-at-delivery). Keep a
 way to reach worktrees from the same palette (e.g. a `w:` prefix or a second
 section below tasks). Factory item for the next run.
+
+## Dismiss / hide an inactive sub-row on a task (cj, 2026-10-20)
+
+A task with several members keeps every tangent as a sub-row forever. cj
+wants a per-sub-row "hide" (context menu + chord) for a member that is
+inactive (no live surface, not needs-you). Hidden members stay in the task
+record (resume and roll-up still count them, settle unaffected), just drop
+out of the sub-row list; a small "+N hidden" affordance on the task row
+reveals them again. Never hide the primary or a live member. Factory item
+for run 3.
