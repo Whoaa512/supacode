@@ -1054,7 +1054,13 @@ extension AppFeature {
     let requestID = reservedID ?? uuid()
     var pending = PendingSessionLaunch(
       key: prepared.key, cwd: prepared.cwd, command: prepared.command, requestID: requestID, task: target)
-    if let target, let directory = taskDirectory(target, listing: prepared.key, state: state) {
+    if let target {
+      // A resume named a task; a task gone since the probe began is not
+      // replaced by a fresh one on its directory.
+      guard let directory = taskDirectory(target, listing: prepared.key, state: state) else {
+        state.pendingSessionLaunch = nil
+        return .none
+      }
       pending.launched = true
       state.pendingSessionLaunch = pending
       return launchSessionTab(pending, directory: directory, into: target, state: &state)

@@ -1049,6 +1049,36 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(store.state.pendingSessionLaunch == nil)
   }
 
+  /// The task went while its branch probe was still out: the resume that
+  /// named it lands on nothing, and no task is minted on the directory.
+  @Test(.dependencies) func aTaskRemovedDuringTheBranchProbeIsNotResumedIntoANewTask() async throws {
+    let directory = try temporaryDirectory(named: "resume-vanished-mid-probe")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let branches = AsyncStream<String>.makeStream()
+    let recorded = Recorded()
+    let store = store(settledTask(on: directory), recorded: recorded)
+    store.dependencies[GitClientDependency.self].branchName = { _ in
+      for await branch in branches.stream { return branch }
+      return nil
+    }
+
+    await store.send(.resumeTask(task))
+    await store.receive(\.repositories.activateSession)
+    await store.receive(\.repositories.delegate.resumeSession)
+    #expect(store.state.pendingSessionLaunch?.probing == true)
+    await store.send(.terminals(.detachLayout(worktreeID: task)))
+    branches.continuation.yield("main")
+    await store.receive(\.resumeBranchProbeCompleted)
+    await store.finish()
+
+    let created = recorded.commands.value.filter {
+      if case .createTaskTab = $0 { return true }
+      return false
+    }
+    #expect(created.isEmpty, "a task gone since the probe started is not replaced by a new one")
+    #expect(store.state.pendingSessionLaunch == nil)
+  }
+
   /// Both fixture tasks closed on a directory that exists, each listing "a"
   /// as its primary: the state a session resumed by hand in a second task
   /// leaves once both are settled.
