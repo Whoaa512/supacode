@@ -12,7 +12,7 @@ struct GhosttyRuntimeBundledOverridesTests {
   // that the bundled themes actually differ so a missing embed hard-fails
   // instead of passing vacuously (both sides would be `windowBackgroundColor`).
   @Test func backgroundColorTracksColorScheme() throws {
-    let runtime = GhosttyRuntime(initialColorScheme: .light)
+    let runtime = GhosttyRuntime(initialColorScheme: .light, loadsUserConfig: false)
     let light = runtime.backgroundColor()
     runtime.setColorScheme(.dark)
     let dark = runtime.backgroundColor()
@@ -30,13 +30,13 @@ struct GhosttyRuntimeBundledOverridesTests {
   // resolution. Asserting with no interim `setColorScheme` also documents that
   // the seed's config swap lands synchronously within `init`.
   @Test func initSeedsResolvedColorSchemeBeforeFirstRead() {
-    let dark = GhosttyRuntime(initialColorScheme: .dark)
+    let dark = GhosttyRuntime(initialColorScheme: .dark, loadsUserConfig: false)
     #expect(!dark.backgroundColor().isLightColor)
     #expect(!dark.windowTintColor().isLightColor)
     // With no focused-surface provider installed (the launch state),
     // `windowTintColor()` falls through to exactly `backgroundColor()`.
     #expect(dark.windowTintColor().matchesTint(dark.backgroundColor()))
-    let light = GhosttyRuntime(initialColorScheme: .light)
+    let light = GhosttyRuntime(initialColorScheme: .light, loadsUserConfig: false)
     #expect(light.backgroundColor().isLightColor)
     #expect(light.windowTintColor().isLightColor)
   }

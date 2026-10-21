@@ -42,6 +42,10 @@ final class GhosttyRuntime {
   private var observers: [NSObjectProtocol] = []
   private var surfaceRefs: Set<SurfaceReference> = []
   let surfaceTeardownQueue: SurfaceTeardownQueue
+  /// False only in tests that assert on the bundled theme: the user's own
+  /// Ghostty and Supacode config files are skipped so the host machine's
+  /// `background` cannot leak into the expected colors.
+  private let loadsUserConfig: Bool
   private var lastColorScheme: ghostty_color_scheme_e?
   /// Whether the user has toggled background opacity to force
   /// an opaque window, overriding the configured transparency.
@@ -55,16 +59,21 @@ final class GhosttyRuntime {
   }
   var onConfigChange: (() -> Void)?
 
-  init(initialColorScheme: ColorScheme? = nil, surfaceTeardownQueue: SurfaceTeardownQueue? = nil) {
+  init(
+    initialColorScheme: ColorScheme? = nil,
+    surfaceTeardownQueue: SurfaceTeardownQueue? = nil,
+    loadsUserConfig: Bool = true
+  ) {
     @Dependency(\.zmxClient) var zmxClient
     @Dependency(\.analyticsClient) var analyticsClient
+    self.loadsUserConfig = loadsUserConfig
     self.surfaceTeardownQueue =
       surfaceTeardownQueue
       ?? SurfaceTeardownQueue(
         detachClients: zmxClient.detachSessionClients,
         analytics: analyticsClient
       )
-    guard let loaded = Self.loadConfig() else {
+    guard let loaded = Self.loadConfig(userConfig: loadsUserConfig) else {
       preconditionFailure("ghostty_config_new failed")
     }
     self.config = loaded.config
@@ -219,7 +228,7 @@ final class GhosttyRuntime {
     }
     var target = ghostty_target_s()
     target.tag = GHOSTTY_TARGET_APP
-    guard let loaded = Self.loadConfig() else {
+    guard let loaded = Self.loadConfig(userConfig: loadsUserConfig) else {
       Self.logger.warning("Failed to reload app config.")
       return
     }
@@ -244,14 +253,14 @@ final class GhosttyRuntime {
       // Soft reload reuses the in-memory config (already overridden), so we
       // re-snapshot the user's `background-opacity` from disk to keep the
       // window tint in lockstep with what the user actually has configured.
-      if let snapshot = Self.loadConfig() {
+      if let snapshot = Self.loadConfig(userConfig: loadsUserConfig) {
         userBackgroundOpacity = snapshot.userBackgroundOpacity
         ghostty_config_free(snapshot.config)
       }
       notifyConfigChanged()
       return
     }
-    guard let loaded = Self.loadConfig() else { return }
+    guard let loaded = Self.loadConfig(userConfig: loadsUserConfig) else { return }
     userBackgroundOpacity = loaded.userBackgroundOpacity
     applyConfig(loaded.config, target: target, app: app)
     ghostty_config_free(loaded.config)
@@ -484,7 +493,7 @@ final class GhosttyRuntime {
         // config may already carry our `loadBundledOverrides` overlay, so
         // reading it from the clone would return the override (0) instead of
         // the user's intended value.
-        if let snapshot = Self.loadConfig() {
+        if let snapshot = Self.loadConfig(userConfig: runtime.loadsUserConfig) {
           runtime.userBackgroundOpacity = snapshot.userBackgroundOpacity
           ghostty_config_free(snapshot.config)
         }
@@ -589,14 +598,19 @@ final class GhosttyRuntime {
     }
   }
 
-  private static func loadConfig() -> (config: ghostty_config_t, userBackgroundOpacity: Double)? {
+  private static func loadConfig(
+    userConfig: Bool
+  ) -> (config: ghostty_config_t, userBackgroundOpacity: Double)? {
     @Shared(.settingsFile) var settingsFile
     let themeSyncEnabled = settingsFile.global.terminalThemeSyncEnabled
     let supacodeUserConfigURL = SupacodePaths.ghosttyUserConfigURL
-    let plan = ConfigResolution.plan(
-      mode: settingsFile.global.ghosttyUserConfigMode,
-      supacodeUserConfigExists: SupacodePaths.ghosttyUserConfigHasContent()
-    )
+    let plan =
+      userConfig
+      ? ConfigResolution.plan(
+        mode: settingsFile.global.ghosttyUserConfigMode,
+        supacodeUserConfigExists: SupacodePaths.ghosttyUserConfigHasContent()
+      )
+      : ConfigResolution.Plan(loadUserDefaultFiles: false, loadSupacodeUserConfig: false)
     guard let config = ghostty_config_new() else {
       logger.error("ghostty_config_new returned nil; config load aborted.")
       return nil
