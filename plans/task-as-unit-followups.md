@@ -180,3 +180,11 @@ not the surface's root agent pid; and the primary must stay the session the
 surface is actually running. Reducer test: child ref arrives and ends while
 the parent is live; the row keeps title, primary, and no new member appears.
 Screenshot evidence: pi-clipboard-2cf85d72 (2026-10-20).
+
+## ⌘P should search tasks, not worktrees (cj, 2026-10-20)
+
+⌘P today is "jump to worktree". With tasks as the unit cj wants ⌘P to fuzzy
+search active tasks plus recently settled ones (title, directory, agent) and
+jump to the chosen task (resuming it if settled, decide-at-delivery). Keep a
+way to reach worktrees from the same palette (e.g. a `w:` prefix or a second
+section below tasks). Factory item for the next run.
