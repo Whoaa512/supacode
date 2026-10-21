@@ -102,6 +102,8 @@ struct CommandPaletteItem: Identifiable, Equatable {
     case stopScript(UUID, name: String)
     case mergeTask(LayoutID, into: LayoutID)
     case detachFocusedTab
+    /// Brings back whichever task settled last, read when the pick lands.
+    case resumeMostRecentlySettledTask
     /// Brings a settled task back; the row id is all that is carried.
     case resumeTask(SessionRowID)
     /// Shows a running task; the row id is all that is carried.
@@ -148,6 +150,8 @@ struct CommandPaletteItem: Identifiable, Equatable {
       true
     case .runScript, .stopScript:
       true
+    case .resumeMostRecentlySettledTask:
+      true
     case .mergeTask, .detachFocusedTab, .resumeTask, .selectTask:
       false
     #if DEBUG
@@ -181,7 +185,8 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .customizeWorktreeAppearance,
       .forkWorktree:
       false
-    case .runScript, .stopScript, .mergeTask, .detachFocusedTab, .resumeTask, .selectTask:
+    case .runScript, .stopScript, .mergeTask, .detachFocusedTab, .resumeMostRecentlySettledTask, .resumeTask,
+      .selectTask:
       false
     #if DEBUG
       case .debugTestToast:
@@ -225,6 +230,8 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .resumeTask,
       .selectTask:
       nil
+    case .resumeMostRecentlySettledTask:
+      AppShortcuts.resumeMostRecentlySettledTask
     case .runScript(let definition):
       definition.kind == .run ? AppShortcuts.runScript : nil
     #if DEBUG

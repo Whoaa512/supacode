@@ -165,6 +165,7 @@ struct CommandPaletteFeature {
     case mergeTask(LayoutID, into: LayoutID)
     case detachFocusedTab
     case activateTask(SessionRowID)
+    case resumeMostRecentlySettledTask
     case stopScript(UUID, name: String)
     /// Palette closed without the user activating an item (Esc, outside
     /// tap, programmatic dismiss). AppFeature uses this to refocus the
@@ -801,11 +802,15 @@ struct CommandPaletteFeature {
   }
 
   /// The most recently settled tasks, newest first, each a resume of that
-  /// task on its primary. Typing "resume" lists them.
+  /// task on its primary. Typing "resume" lists them. The first is also
+  /// offered as a root row before any typing, naming the task it will
+  /// bring back; the pick carries no id and the app re-reads which task
+  /// settled last when it lands.
   static func resumeTaskItems(from repositories: RepositoriesFeature.State, now: Date) -> [CommandPaletteItem] {
     let formatter = RelativeDateTimeFormatter()
     formatter.unitsStyle = .short
-    return repositories.recentlySettledTasks().map { task in
+    let settled = repositories.recentlySettledTasks()
+    var items = settled.map { task in
       CommandPaletteItem(
         id: CommandPaletteItemID.resumeTask(task.id),
         title: "Resume Task: \(task.title)",
@@ -813,6 +818,16 @@ struct CommandPaletteFeature {
         kind: .resumeTask(task.id)
       )
     }
+    if let latest = settled.first {
+      items.insert(
+        CommandPaletteItem(
+          id: CommandPaletteItemID.resumeMostRecentlySettledTask,
+          title: "Resume Recent Task: \(latest.title)",
+          subtitle: "Settled \(formatter.localizedString(for: latest.settledAt, relativeTo: now))",
+          kind: .resumeMostRecentlySettledTask
+        ), at: 0)
+    }
+    return items
   }
 
   /// How many settled tasks the ⌘P search offers.
@@ -1409,6 +1424,8 @@ private enum CommandPaletteItemID {
 
   static let detachFocusedTab: CommandPaletteItem.ID = "task.detach-focused-tab"
 
+  static let resumeMostRecentlySettledTask: CommandPaletteItem.ID = "task.resume-recent"
+
   static func resumeTask(_ rowID: SessionRowID) -> CommandPaletteItem.ID {
     "\(rowID.sortKey).resume"
   }
@@ -1563,6 +1580,8 @@ private func delegateAction(  // swiftlint:disable:this cyclomatic_complexity
     return .mergeTask(source, into: target)
   case .detachFocusedTab:
     return .detachFocusedTab
+  case .resumeMostRecentlySettledTask:
+    return .resumeMostRecentlySettledTask
   case .resumeTask(let rowID), .selectTask(let rowID):
     return .activateTask(rowID)
   #if DEBUG
@@ -1594,7 +1613,8 @@ private func selectedEntryDelegateAction(
     .viewArchivedWorktrees, .refreshWorktrees, .ghosttyCommand, .toggleCollapseRepository,
     .openPullRequest, .markPullRequestReady, .mergePullRequest,
     .closePullRequest, .copyFailingJobURL, .copyCiFailureLogs, .rerunFailedJobs,
-    .openFailingCheckDetails, .runScript, .stopScript, .mergeTask, .detachFocusedTab, .resumeTask, .selectTask:
+    .openFailingCheckDetails, .runScript, .stopScript, .mergeTask, .detachFocusedTab, .resumeMostRecentlySettledTask,
+    .resumeTask, .selectTask:
     return nil
   #if DEBUG
     case .debugTestToast:
@@ -1659,6 +1679,7 @@ private func pullRequestDelegateAction(
     .stopScript,
     .mergeTask,
     .detachFocusedTab,
+    .resumeMostRecentlySettledTask,
     .resumeTask,
     .selectTask:
     return nil

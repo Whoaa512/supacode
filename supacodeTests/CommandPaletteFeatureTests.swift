@@ -197,7 +197,8 @@ struct CommandPaletteFeatureTests {
     state.reconcileSessionItems(now: Date(timeIntervalSince1970: 20))
 
     let now = Date(timeIntervalSince1970: 11 + 3600)
-    let items = CommandPaletteFeature.resumeTaskItems(from: state, now: now)
+    let all = CommandPaletteFeature.resumeTaskItems(from: state, now: now)
+    let items = Array(all.dropFirst())
     #expect(items.map(\.kind) == (2...11).reversed().map { .resumeTask(.task(task($0))) }, "newest first, ten at most")
     #expect(items.first?.title == "Resume Task: Title 11")
     #expect(items.first?.subtitle == "Settled 1 hr. ago")
@@ -206,6 +207,28 @@ struct CommandPaletteFeatureTests {
     #expect(
       CommandPaletteFeature.commandPaletteItems(from: state, now: now).map(\.id).filter { $0.hasSuffix(".resume") }
         == items.map(\.id))
+
+    // The root row names the task that settled last and is offered before
+    // any typing; it carries no id, the app re-reads the latest when it lands.
+    let root = all.first
+    #expect(root?.kind == .resumeMostRecentlySettledTask)
+    #expect(root?.title == "Resume Recent Task: Title 11")
+    #expect(root?.isGlobal == true && root?.isRootAction == false)
+    let untyped = CommandPaletteFeature.filterItems(
+      items: CommandPaletteFeature.commandPaletteItems(from: state, now: now), query: "", now: now)
+    #expect(untyped.contains { $0.kind == .resumeMostRecentlySettledTask })
+    #expect(!untyped.contains { $0.kind.isResumeTask })
+  }
+
+  @Test func commandPaletteItems_noRootResumeRowWithoutSettledTasks() {
+    let worktree = makeWorktree(id: "/tmp/repo", name: "repo", repoRoot: "/tmp/repo")
+    let repository = makeRepository(rootPath: "/tmp/repo", name: "Repo", worktrees: [worktree])
+    var state = RepositoriesFeature.State(reconciledRepositories: [repository])
+    state.$sessions = Shared(value: [:])
+    state.$persistedLayouts = SharedReader(value: TaskLayoutsFile())
+    state.sessionsStarted = true
+    state.selection = .worktree(worktree.id)
+    #expect(CommandPaletteFeature.resumeTaskItems(from: state, now: .now).isEmpty)
   }
 
   /// ⌘P lists running tasks in sidebar order, then settled ones by when

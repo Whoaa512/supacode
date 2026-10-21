@@ -2139,6 +2139,9 @@ struct AppFeature {
       case .commandPalette(.delegate(.activateTask(let rowID))):
         return .send(.activateTask(rowID))
 
+      case .commandPalette(.delegate(.resumeMostRecentlySettledTask)):
+        return .send(.resumeMostRecentlySettledTask)
+
       case .commandPalette(.delegate(.detachFocusedTab)):
         return .send(.detachFocusedTab)
 
