@@ -40,6 +40,33 @@ private struct SessionContextMenu: View {
   }
 }
 
+/// How many agents wait on the user, and the jump the chord makes, for
+/// the mouse. Its own view: the count flips with every agent, and only this
+/// should redraw when it does.
+private struct AttentionBadge: View {
+  let store: StoreOf<RepositoriesFeature>
+  @FocusedValue(\.nextSessionNeedsMeAction) private var jump
+  @Shared(.settingsFile) private var settingsFile
+
+  var body: some View {
+    let count = store.sessionsAttentionCount
+    if count > 0 {
+      let chord = AppShortcuts.nextSessionNeedsMe.effective(from: settingsFile.global.shortcutOverrides)?.display
+      Button {
+        jump?()
+      } label: {
+        Label("\(count)", systemImage: "exclamationmark.circle.fill")
+          .font(.caption.monospacedDigit())
+          .foregroundStyle(.orange)
+      }
+      .buttonStyle(.plain)
+      .disabled(jump?.isEnabled != true)
+      .help("\(count) waiting on you. Jump to the next session that needs you (\(chord ?? "none"))")
+      .accessibilityLabel("\(count) sessions need you")
+    }
+  }
+}
+
 struct SessionsSidebarListView: View {
   let store: StoreOf<RepositoriesFeature>
   @Environment(CommandKeyObserver.self) private var commandKeyObserver
@@ -87,7 +114,15 @@ struct SessionsSidebarListView: View {
       }
       ForEach(structure.sections) { section in
         if section.id == .active {
-          Section(section.title) { rows(section.rowIDs, shortcutHintByID: shortcutHintByID, subRows: subRows) }
+          Section {
+            rows(section.rowIDs, shortcutHintByID: shortcutHintByID, subRows: subRows)
+          } header: {
+            HStack {
+              Text(section.title)
+              Spacer()
+              AttentionBadge(store: store)
+            }
+          }
         } else {
           // Settled is the whole history, thousands of rows; only the
           // most recent page is built, and only while the section is open.
