@@ -687,8 +687,8 @@ struct PaneWindowShortcutTests {
     #expect(AppShortcuts.selectPreviousTab.keyEquivalent.character == "[")
     #expect(AppShortcuts.selectPreviousTab.modifiers == [.command, .shift])
     let lines = Set(AppShortcuts.ghosttyKeybindConfigLines(from: [:]))
-    #expect(lines.contains("keybind = super+shift+left_bracket=unbind"))
-    #expect(lines.contains("keybind = super+shift+right_bracket=unbind"))
+    #expect(lines.contains("keybind = shift+super+[=unbind"))
+    #expect(lines.contains("keybind = shift+super+]=unbind"))
   }
 
   @Test func layoutAndTabSelectionChordsAreUnboundInGhostty() {
