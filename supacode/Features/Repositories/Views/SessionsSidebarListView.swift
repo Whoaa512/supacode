@@ -232,9 +232,13 @@ struct SessionsSidebarListView: View {
   }
 
   private func moveSelection(by offset: Int) -> KeyPress.Result {
-    guard
-      let id = store.sessionsSidebarStructure.selection(
-        byOffset: offset, from: store.sessionSelection, settledLimit: isSettledExpanded ? settledLimit : 0)
+    let structure = store.sessionsSidebarStructure
+    var limit = isSettledExpanded ? settledLimit : 0
+    if structure.reachesSettledPageEnd(from: store.sessionSelection, offset: offset, settledLimit: limit) {
+      limit += SessionsSidebarStructure.settledPageSize
+      settledLimit = limit
+    }
+    guard let id = structure.selection(byOffset: offset, from: store.sessionSelection, settledLimit: limit)
     else { return .ignored }
     store.send(.sessionSelectionChanged(id))
     return .handled

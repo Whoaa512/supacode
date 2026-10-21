@@ -511,6 +511,27 @@ struct RepositoriesFeatureSessionsTests {
     #expect(structure.selection(byOffset: -1, from: .implicit(active.id), settledLimit: 2) == settledIDs[1])
     #expect(structure.selection(byOffset: -1, from: .implicit(active.id), settledLimit: 0) == .implicit(active.id))
     #expect(structure.selection(byOffset: 1, from: settledIDs[4], settledLimit: 2) == .implicit(active.id))
+
+    #expect(structure.reachesSettledPageEnd(from: settledIDs[1], offset: 1, settledLimit: 2))
+    #expect(!structure.reachesSettledPageEnd(from: settledIDs[1], offset: -1, settledLimit: 2))
+    #expect(!structure.reachesSettledPageEnd(from: settledIDs[0], offset: 1, settledLimit: 2))
+    #expect(!structure.reachesSettledPageEnd(from: settledIDs[4], offset: 1, settledLimit: 5))
+    #expect(!structure.reachesSettledPageEnd(from: .implicit(active.id), offset: 1, settledLimit: 0))
+  }
+
+  @Test(.dependencies) func settledSectionOrdersByWhenSettledNotWhenCreated() {
+    var initial = state()
+    let old = summary("old", created: 10)
+    let recent = summary("recent", created: 100)
+    initial.sessionSummaries = [recent, old]
+    initial.$sessions.withLock { sidecar in
+      sidecar[old.id] = SessionSidecarEntry(settledAt: Date(timeIntervalSince1970: 500))
+      sidecar[recent.id] = SessionSidecarEntry(settledAt: Date(timeIntervalSince1970: 200))
+    }
+    initial.reconcileSessionItems(now: .distantPast)
+    initial.applyCacheRecomputes(.sessionsStructure)
+    let settled = initial.sessionsSidebarStructure.sections.first { $0.id == .settled }
+    #expect(settled?.rowIDs == [.implicit(old.id), .implicit(recent.id)])
   }
 
   @Test(.dependencies) func sessionRowIDAtSlotReturnsNthLive() {

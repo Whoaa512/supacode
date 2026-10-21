@@ -65,6 +65,15 @@ struct SessionsSidebarStructure: Equatable, Sendable {
     }
   }
 
+  /// Whether stepping down from `current` runs off the end of the settled
+  /// page while more history remains: the keyboard's "Show more".
+  func reachesSettledPageEnd(from current: SessionRowID?, offset: Int, settledLimit: Int) -> Bool {
+    guard offset > 0, let current, let settled = sections.first(where: { $0.id == .settled }),
+      settled.rowIDs.count > settledLimit, settledLimit > 0
+    else { return false }
+    return settled.rowIDs[settledLimit - 1] == current
+  }
+
   func selection(
     byOffset offset: Int, from current: SessionRowID?, settledLimit: Int = .max
   ) -> SessionRowID? {
@@ -345,11 +354,16 @@ extension RepositoriesFeature.State {
   mutating func recomputeSessionsSidebarStructureIfChanged() {
     // Plain tuples: sorting the observable rows directly pays an observation
     // access per comparison, which dominates at a few thousand rows.
-    let ordered = sessionItems.map { (id: $0.id, createdAt: $0.createdAt, lifecycle: $0.lifecycle, isLive: $0.isLive) }
-      .sorted {
-        if $0.createdAt != $1.createdAt { return $0.createdAt > $1.createdAt }
-        return $0.id.sortKey < $1.id.sortKey
-      }
+    // Active rows order by creation; settled ones by when they settled, so
+    // the task that just finished tops the history whatever its age.
+    let ordered = sessionItems.map { row in
+      let settledAt = row.lifecycle == .settled ? row.sessionKey.flatMap { sessions[$0]?.settledAt } : nil
+      return (id: row.id, sortDate: settledAt ?? row.createdAt, lifecycle: row.lifecycle, isLive: row.isLive)
+    }
+    .sorted {
+      if $0.sortDate != $1.sortDate { return $0.sortDate > $1.sortDate }
+      return $0.id.sortKey < $1.id.sortKey
+    }
     var sections: [SessionsSidebarStructure.Section] = []
     var liveIDs: [SessionRowID] = []
     for lifecycle in [SessionClassification.Lifecycle.active, .settled] {
