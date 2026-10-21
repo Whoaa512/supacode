@@ -4236,10 +4236,13 @@ struct AppFeatureSessionsTests {
     #expect(AppFeature.primarySession(of: first, state: state) == piKey("primary"))
   }
 
+  /// The tangent's task went while its branch probe was out: the resume
+  /// that named it lands on nothing, and no task is minted on the
+  /// tangent's directory in its place.
   @Test(.dependencies) func aTaskRemovedWhileTheProbeRunsIsNotLaunchedInto() async throws {
     let directory = try temporaryDirectory(named: "tangent-removed")
     defer { try? FileManager.default.removeItem(at: directory) }
-    let (initial, onDisk) = closedTaskWithATangent(on: directory, tangentCwd: directory)
+    let (initial, _) = closedTaskWithATangent(on: directory, tangentCwd: directory)
     let recorded = Recorded()
     let store = mintingStore(initial, recorded: recorded)
     let branches = AsyncStream<String>.makeStream()
@@ -4252,12 +4255,12 @@ struct AppFeatureSessionsTests {
     #expect(store.state.pendingSessionLaunch?.probing == true)
     await store.send(.terminals(.detachLayout(worktreeID: first)))
     branches.continuation.yield("main")
-    await store.receive(\.launchSessionCompleted)
+    await store.receive(\.resumeBranchProbeCompleted)
     await store.finish()
 
-    #expect(launches(recorded).count == 1)
-    #expect(launches(recorded).first?.layoutID != first, "a tab on a removed task's id would bring it back")
-    #expect(launches(recorded).first?.directory == onDisk.id)
+    #expect(
+      launches(recorded).isEmpty, "a tab on a removed task's id would bring it back; a fresh task is not it either")
+    #expect(store.state.pendingSessionLaunch == nil)
     #expect(!AppFeature.hasTask(first, state: store.state))
   }
 
