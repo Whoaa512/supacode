@@ -25,14 +25,14 @@ struct UpdatesFeature {
     Reduce { state, action in
       switch action {
       case .applySettings(let channel, let checks, let downloads):
+        let firstConfigure = !state.didConfigureUpdates
+        state.didConfigureUpdates = true
         #if DEBUG
           return .none
         #else
-          let checkInBackground = !state.didConfigureUpdates
-          state.didConfigureUpdates = true
           return .run { _ in
             await updaterClient.setUpdateChannel(channel)
-            await updaterClient.configure(checks, downloads, checkInBackground)
+            await updaterClient.configure(checks, downloads, firstConfigure)
           }
         #endif
 
