@@ -102,6 +102,8 @@ nonisolated struct SessionRowDraft: Equatable, Sendable {
   var isSynthetic = false
   /// A task's primary session. A shell-only task has none.
   var primary: SessionKey?
+  /// A task with more than one session to list under its row.
+  var hasTangents = false
 }
 
 @Reducer
@@ -119,6 +121,7 @@ struct SessionSidebarItemFeature {
     var branchAnnotation: String?
     var isSynthetic = false
     var primary: SessionKey?
+    var hasTangents = false
 
     var isLive: Bool { location != nil }
     /// The session whose sidecar entry is the row's settle state: the session
@@ -142,7 +145,7 @@ struct SessionSidebarItemFeature {
         && lifecycle == draft.lifecycle && location == draft.location && status == draft.status
         && allowsAttentionNavigation == draft.allowsAttentionNavigation
         && branchAnnotation == draft.branchAnnotation && isSynthetic == draft.isSynthetic
-        && primary == draft.primary
+        && primary == draft.primary && hasTangents == draft.hasTangents
     }
 
     mutating func apply(_ draft: SessionRowDraft) {
@@ -156,6 +159,7 @@ struct SessionSidebarItemFeature {
       branchAnnotation = draft.branchAnnotation
       isSynthetic = draft.isSynthetic
       primary = draft.primary
+      hasTangents = draft.hasTangents
     }
   }
 
@@ -173,6 +177,7 @@ extension SessionSidebarItemFeature.State {
       id: draft.id, title: draft.title, cwd: draft.cwd, createdAt: draft.createdAt,
       lifecycle: draft.lifecycle, location: draft.location, status: draft.status,
       allowsAttentionNavigation: draft.allowsAttentionNavigation,
-      branchAnnotation: draft.branchAnnotation, isSynthetic: draft.isSynthetic, primary: draft.primary)
+      branchAnnotation: draft.branchAnnotation, isSynthetic: draft.isSynthetic, primary: draft.primary,
+      hasTangents: draft.hasTangents)
   }
 }

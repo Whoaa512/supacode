@@ -203,8 +203,14 @@ extension RepositoriesFeature.State {
     }.map(\.element)
   }
 
+  /// Whether the selected task lists its sessions: every selected task does
+  /// by default; with that off, only one the user opened by its chevron.
+  func isSessionTaskExpanded(_ layoutID: LayoutID) -> Bool {
+    SharedReader(.sessionsExpandSelectedTask).wrappedValue || expandedSessionTaskIDs.contains(layoutID)
+  }
+
   private func selectedTaskSubRows() -> (taskID: LayoutID?, rows: [SessionsSidebarStructure.SubRow]) {
-    guard case .task(let layoutID) = sessionSelection else { return (nil, []) }
+    guard case .task(let layoutID) = sessionSelection, isSessionTaskExpanded(layoutID) else { return (nil, []) }
     let agents = sessionSnapshots.filter { $0.location.layoutID == layoutID }
     let members = members(of: layoutID, agents: agents)
     guard members.count > 1 else { return (nil, []) }
@@ -461,6 +467,10 @@ extension RepositoriesFeature.State {
     let members = members(of: layoutID, agents: group.agents)
     guard group.tabs != nil || !members.isEmpty else { return nil }
     let keys = members.compactMap(\.sessionKey)
+    // The same cut as the sub-rows: a member neither running nor on disk is not listed.
+    let shown = members.filter { member in
+      member.sessionKey.map { group.indexed[$0] != nil } == true || group.agents.contains { $0.member == member }
+    }
     let primary = members.first?.sessionKey
     // The row speaks for its most urgent agent, and leads to that agent.
     // Among equals the one the row already leads to stays, so it does not hop.
@@ -485,7 +495,7 @@ extension RepositoriesFeature.State {
       cwd: group.tabs?.cwd ?? group.agents.first?.cwd ?? indexedCwd ?? existing?.cwd ?? "",
       createdAt: createdAt, location: leading?.location ?? group.tabs?.location, status: leading?.status,
       allowsAttentionNavigation: leading?.allowsAttentionNavigation ?? true,
-      isSynthetic: !members.isEmpty && group.indexed.isEmpty, primary: primary)
+      isSynthetic: !members.isEmpty && group.indexed.isEmpty, primary: primary, hasTangents: shown.count > 1)
   }
 
   private func currentBranch(forSessionCwd cwd: String) -> String? {

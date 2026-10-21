@@ -100,6 +100,13 @@ nonisolated extension SharedReaderKey where Self == AppStorageKey<Bool>.Default 
   static var sidebarAgentsGroupByState: Self {
     Self[.appStorage("sidebarAgentsGroupByState"), default: false]
   }
+
+  /// Whether selecting a task in the Sessions tab lists its sessions under
+  /// the row. Off, a task with several sessions shows a chevron to open it
+  /// by hand, so a big task does not swallow the sidebar on every click.
+  static var sessionsExpandSelectedTask: Self {
+    Self[.appStorage("sessionsExpandSelectedTask"), default: true]
+  }
 }
 
 nonisolated extension SharedReaderKey

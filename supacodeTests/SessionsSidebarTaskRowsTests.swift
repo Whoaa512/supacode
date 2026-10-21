@@ -502,6 +502,63 @@ struct SessionsSidebarTaskRowsTests {
     #expect(SessionQueryResponse.rows(repositories: state).allSatisfy { $0[SessionQueryResponse.Key.id] != "pi:ghost" })
   }
 
+  @Test(.dependencies) func withExpandSelectedTaskOffOnlyAChevronOpensATask() {
+    @Shared(.sessionsExpandSelectedTask) var expandSelected
+    $expandSelected.withLock { $0 = false }
+    var state = twoTasksWithMembers()
+    #expect(state.sessionItems[id: .task(taskA)]?.hasTangents == true, "the chevron's row")
+    #expect(state.sessionItems[id: .task(taskB)]?.hasTangents == false)
+    #expect(state.sessionItems[id: .implicit(key("free"))]?.hasTangents == false)
+
+    state.selectSessionRow(.task(taskA))
+    #expect(state.sessionsSidebarStructure.subRows.isEmpty, "selection alone opens nothing")
+    #expect(state.sessionsSidebarStructure.subRowsTaskID == nil)
+    // The row still speaks for its most urgent hidden tangent, and the jump still lands on it.
+    #expect(state.sessionItems[id: .task(taskA)]?.status == .needsYou)
+    #expect(state.sessionItems[id: .task(taskA)]?.location == location(taskA, 3))
+    let target = state.nextAttentionTarget(after: .task(taskA), focusedSurfaceID: surface(1))
+    #expect(target == .init(rowID: .task(taskA), location: location(taskA, 3)))
+
+    state.expandedSessionTaskIDs.insert(taskA)
+    state.selectSessionRow(.task(taskA))
+    #expect(state.sessionsSidebarStructure.subRowsTaskID == taskA)
+    #expect(state.sessionsSidebarStructure.subRows.count == 3)
+
+    // A rebuild keeps the hand-opened task open, and the setting back on opens every selection.
+    state = rebuilt(state)
+    #expect(state.sessionsSidebarStructure.subRows.count == 3)
+    state.expandedSessionTaskIDs = []
+    state = rebuilt(state)
+    #expect(state.sessionsSidebarStructure.subRows.isEmpty)
+    $expandSelected.withLock { $0 = true }
+    state = rebuilt(state)
+    #expect(state.sessionsSidebarStructure.subRows.count == 3)
+  }
+
+  @Test(.dependencies) func theChevronTogglesAndSelectsItsTask() async {
+    @Shared(.sessionsExpandSelectedTask) var expandSelected
+    $expandSelected.withLock { $0 = false }
+    let store = TestStore(initialState: twoTasksWithMembers()) {
+      RepositoriesFeature()
+    } withDependencies: {
+      $0.date.now = now
+    }
+    store.exhaustivity = .off
+
+    await store.send(.toggleSessionTaskExpanded(taskA))
+    #expect(store.state.sessionSelection == .task(taskA))
+    #expect(store.state.expandedSessionTaskIDs == [taskA])
+    #expect(store.state.sessionsSidebarStructure.subRows.count == 3)
+
+    await store.send(.toggleSessionTaskExpanded(taskA))
+    #expect(store.state.expandedSessionTaskIDs.isEmpty)
+    #expect(store.state.sessionsSidebarStructure.subRows.isEmpty)
+
+    $expandSelected.withLock { $0 = true }
+    await store.send(.sessionsExpandSelectedTaskChanged)
+    #expect(store.state.sessionsSidebarStructure.subRows.count == 3)
+  }
+
   @Test(.dependencies) func subRowsFollowTheSelectionAndMembershipThroughTheReducer() async {
     var initial = twoTasksWithMembers()
     initial.taskSessions[taskB] = [key("solo")]

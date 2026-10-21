@@ -333,6 +333,8 @@ struct RepositoriesFeature {
     var sessionItems: IdentifiedArrayOf<SessionSidebarItemFeature.State> = []
     var sessionsSidebarStructure = SessionsSidebarStructure()
     var sessionSelection: SessionRowID?
+    /// Tasks opened by their chevron while `sessionsExpandSelectedTask` is off. Not persisted.
+    var expandedSessionTaskIDs: Set<LayoutID> = []
     var sessionSummaries: [SessionSummary] = []
     var sessionSnapshots: [SessionLiveSnapshot] = []
     var taskSnapshots: [TaskLiveSnapshot] = []
@@ -434,6 +436,10 @@ struct RepositoriesFeature {
     case activateSession(SessionRowID)
     /// A click on one session listed under the selected task's row.
     case activateSessionSubRow(task: LayoutID, member: TaskMember)
+    /// The chevron on a task row: opens or closes its sessions, selecting the task.
+    case toggleSessionTaskExpanded(LayoutID)
+    /// No-op handler: the post-reduce hook reads `sessionsExpandSelectedTask`.
+    case sessionsExpandSelectedTaskChanged
     case settleSession(SessionKey)
     /// A manual settle from the sidebar: also closes the session's tabs.
     case settleSessionRequested(SessionKey)
@@ -5034,7 +5040,8 @@ struct RepositoriesFeature {
         .sessionItems, .sessionsStarted, .sessionsCacheLoaded, .sessionsSidebarShown,
         .sessionsRefreshRequested, .sessionsRefreshDebounced, .sessionsRefreshCompleted,
         .sessionsRefreshFailed, .sessionSnapshotsChanged, .sessionSelectionChanged, .activateSession,
-        .activateSessionSubRow, .taskSnapshotsChanged, .taskSessionsChanged, .selectTask, .selectedTaskRemoved,
+        .activateSessionSubRow, .toggleSessionTaskExpanded, .sessionsExpandSelectedTaskChanged,
+        .taskSnapshotsChanged, .taskSessionsChanged, .selectTask, .selectedTaskRemoved,
         .settleSession, .settleSessionRequested, .settleTaskRequested, .markRowUnreadRequested, .mergeTaskRequested,
         .detachTabRequested,
         .unsettleSession, .sessionBranchCaptured:

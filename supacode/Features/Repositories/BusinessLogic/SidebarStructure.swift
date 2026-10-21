@@ -445,14 +445,16 @@ extension RepositoriesFeature.Action {
     case .sessionsCacheLoaded, .sessionsRefreshCompleted, .sessionSnapshotsChanged, .taskSnapshotsChanged,
       .taskSessionsChanged:
       return .sessionsStructure
-    case .settleSession, .unsettleSession:
+    case .settleSession, .unsettleSession, .sessionsExpandSelectedTaskChanged:
       return .sessionsStructure
     case .sessionsRestorationCompleted, .sessionsLiveKeysChanged, .sessionActivityObserved,
       .sessionsCoarseClockFired, .sessionsStopped,
       .sessionItems, .sessionsStarted, .sessionsSidebarShown, .sessionsRefreshRequested,
       .sessionsRefreshDebounced, .sessionsRefreshFailed, .sessionSelectionChanged, .activateSession,
       .registerSessionFolder, .sessionBranchCaptured, .settleSessionRequested, .settleTaskRequested,
-      .mergeTaskRequested, .detachTabRequested, .selectedTaskRemoved, .activateSessionSubRow, .markRowUnreadRequested:
+      .mergeTaskRequested, .detachTabRequested, .selectedTaskRemoved, .activateSessionSubRow,
+      .toggleSessionTaskExpanded,
+      .markRowUnreadRequested:
       return []
     case .sidebarItems(.element(id: _, action: let inner)):
       return inner.cacheInvalidations

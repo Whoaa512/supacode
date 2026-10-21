@@ -182,6 +182,14 @@ extension RepositoriesFeature {
         }
         return .send(.delegate(.resumeSession(key, task: layoutID)))
 
+      case .toggleSessionTaskExpanded(let layoutID):
+        if !state.expandedSessionTaskIDs.insert(layoutID).inserted { state.expandedSessionTaskIDs.remove(layoutID) }
+        state.selectSessionRow(.task(layoutID))
+        return .none
+
+      case .sessionsExpandSelectedTaskChanged:
+        return .none
+
       case .settleSession(let key):
         state.applySettle(key: key, now: date.now)
         state.reconcileSessionItems(now: date.now)
