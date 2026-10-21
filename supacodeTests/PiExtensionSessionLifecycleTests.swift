@@ -78,13 +78,45 @@ struct PiExtensionSessionLifecycleTests {
         handlers.get("session_start")({}, ctx("session-1"));
         handlers.get("agent_start")({}, ctx("session-1"));
         handlers.get("agent_end")({}, ctx("session-1"));
+        handlers.get("session_shutdown")({ reason: "quit" }, ctx("session-1"));
+        handlers.get("session_shutdown")({ reason: "quit" }, ctx("session-1"));
+        """)
+    #expect(events.map(\.event) == ["session_start", "busy", "idle", "session_end"])
+    #expect(events.allSatisfy { $0.sessionRef == "session-1" && $0.pid == nil })
+    #expect(events.last?.shutdownReason == "quit")
+  }
+
+  @Test func shutdownReasonsReachTheWireAsPiNamesThem() throws {
+    let events = try presenceEvents(
+      fixture: """
         for (const reason of ["quit", "reload", "new", "resume", "fork", "unknown", "quit;sid=evil"]) {
-          handlers.get("session_shutdown")({ reason }, ctx("session-1"));
+          handlers.get("session_start")({}, ctx(reason));
+          handlers.get("session_shutdown")({ reason }, ctx(reason));
         }
         """)
-    #expect(events.map(\.event) == ["session_start", "busy", "idle"] + Array(repeating: "session_end", count: 7))
-    #expect(events.allSatisfy { $0.sessionRef == "session-1" && $0.pid == nil })
-    #expect(events.suffix(7).map(\.shutdownReason) == ["quit", "reload", "new", "resume", "fork", nil, nil])
+    let ends = events.filter { $0.event == "session_end" }
+    #expect(ends.count == 7)
+    #expect(ends.map(\.shutdownReason) == ["quit", "reload", "new", "resume", "fork", nil, nil])
+  }
+
+  /// Pi's reload awaits resource loading between the owner's shutdown and
+  /// the next session_start, so a sub-agent turn can land while the surface
+  /// is unowned. Only session_start may claim it; the child stays silent and
+  /// the parent resumes reporting.
+  @Test func aNestedSessionCannotClaimTheSurfaceBetweenShutdownAndTheNextStart() throws {
+    let events = try presenceEvents(
+      fixture: """
+        handlers.get("session_start")({}, ctx("parent"));
+        handlers.get("session_shutdown")({ reason: "reload" }, ctx("parent"));
+        handlers.get("agent_start")({}, ctx("child"));
+        handlers.get("agent_end")({}, ctx("child"));
+        handlers.get("session_shutdown")({ reason: "quit" }, ctx("child"));
+        handlers.get("session_start")({}, ctx("parent"));
+        handlers.get("agent_start")({}, ctx("child"));
+        handlers.get("agent_start")({}, ctx("parent"));
+        """)
+    #expect(events.map(\.event) == ["session_start", "session_end", "session_start", "busy"])
+    #expect(events.allSatisfy { $0.sessionRef == "parent" })
   }
 
   /// The `workflow` tool runs sub-agent sessions inside the Pi process, each

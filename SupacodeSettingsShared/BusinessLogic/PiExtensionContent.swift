@@ -151,17 +151,28 @@ nonisolated enum PiExtensionContent {
      * as the parent being replaced. Pi loads each extension as a fresh module,
      * so the owner lives on globalThis. The owning session releases on
      * shutdown so the session that follows a /new, /resume, /fork or /reload
-     * claims the surface; a sub-agent's events while the owner is live are
-     * dropped.
+     * claims the surface with its session_start. Only session_start may
+     * claim: a sub-agent turn that lands between the owner's shutdown and
+     * the next session_start (reload awaits resource loading first) would
+     * otherwise take the surface and silence the real session for good.
      */
     const OWNER_KEY = Symbol.for("supacode.presenceOwner");
+    const owners = globalThis as unknown as Record<symbol, unknown>;
 
-    function ownsSurface(ctx: { sessionManager?: unknown }, release = false): boolean {
-      const owners = globalThis as unknown as Record<symbol, unknown>;
+    function claimSurface(ctx: { sessionManager?: unknown }): boolean {
       const owner = owners[OWNER_KEY];
-      const mine = ctx.sessionManager;
-      if (owner !== undefined && owner !== mine) return false;
-      owners[OWNER_KEY] = release ? undefined : mine;
+      if (owner !== undefined && owner !== ctx.sessionManager) return false;
+      owners[OWNER_KEY] = ctx.sessionManager;
+      return true;
+    }
+
+    function ownsSurface(ctx: { sessionManager?: unknown }): boolean {
+      return owners[OWNER_KEY] !== undefined && owners[OWNER_KEY] === ctx.sessionManager;
+    }
+
+    function releaseSurface(ctx: { sessionManager?: unknown }): boolean {
+      if (!ownsSurface(ctx)) return false;
+      owners[OWNER_KEY] = undefined;
       return true;
     }
 
@@ -213,7 +224,7 @@ nonisolated enum PiExtensionContent {
       // restored and freshly resumed surfaces link without waiting for the
       // first turn. Replaces the unconditional load-time emitPresence above.
       pi.on("session_start", (_event, ctx) => {
-        if (!ownsSurface(ctx)) return;
+        if (!claimSurface(ctx)) return;
         emitPresence("session_start", sessionRef(ctx));
       });
 
@@ -231,7 +242,7 @@ nonisolated enum PiExtensionContent {
       });
 
       pi.on("session_shutdown", (event, ctx) => {
-        if (!ownsSurface(ctx, true)) return;
+        if (!releaseSurface(ctx)) return;
         emitPresence("session_end", sessionRef(ctx), event.reason);
       });
     }
