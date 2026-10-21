@@ -2643,13 +2643,13 @@ final class WorktreeTerminalManager {
     // for the full remote ssh timeout; stragglers are cancelled (best-effort).
     let plan = Self.killPlan(localSessionIDs: allSessions, remoteSessions: trackedRemoteSessions)
     let attemptedLocalKills = LockIsolated<Set<String>>([])
-    await Self.raceKillBudget(killBudget) {
+    await raceKillBudget(killBudget) {
       await withTaskGroup(of: Void.self) { kills in
         for entry in plan {
           kills.addTask {
-            await client.killSurfaceSessions(
+            let issued = await client.killSurfaceSessions(
               sessionID: entry.sessionID, remoteHost: entry.host, killLocal: entry.killLocal)
-            guard entry.killLocal, !Task.isCancelled else { return }
+            guard issued else { return }
             attemptedLocalKills.withValue { _ = $0.insert(entry.sessionID) }
           }
         }
@@ -2672,7 +2672,7 @@ final class WorktreeTerminalManager {
     terminalLogger.warning(
       "Quit kill budget expired; retrying local kill for: \(survivors.joined(separator: ", "))")
     let client = zmxClient
-    await Self.raceKillBudget(Self.quitLocalFallbackBudget) {
+    await raceKillBudget(Self.quitLocalFallbackBudget) {
       await withTaskGroup(of: Void.self) { kills in
         for id in survivors {
           kills.addTask { await client.killSession(id) }
@@ -2681,14 +2681,14 @@ final class WorktreeTerminalManager {
     }
   }
 
-  /// Runs `work` racing a `budget` timeout; whichever finishes first cancels
-  /// the other, so a stuck kill cannot outlast the budget.
-  private static func raceKillBudget(
-    _ budget: Duration, _ work: @escaping @Sendable () async -> Void
-  ) async {
+  /// Runs `work` racing a `budget` timeout on the injected clock; whichever
+  /// finishes first cancels the other, so a stuck kill cannot outlast the
+  /// budget.
+  private func raceKillBudget(_ budget: Duration, _ work: @escaping @Sendable () async -> Void) async {
+    let clock = clock
     await withTaskGroup(of: Void.self) { group in
       group.addTask { await work() }
-      group.addTask { try? await Task.sleep(for: budget) }
+      group.addTask { try? await clock.sleep(for: budget) }
       defer { group.cancelAll() }
       await group.next()
     }

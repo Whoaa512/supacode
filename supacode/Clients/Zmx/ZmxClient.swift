@@ -282,17 +282,22 @@ extension ZmxClient {
   /// SSH reuses the ControlMaster held open by the local zmx session, so killing
   /// local first would strand the host session. Skips either side when unset.
   /// Under cancellation the local kill is skipped instead of spawning a child
-  /// that would be terminated on arrival; the caller owns any retry.
-  func killSurfaceSessions(sessionID: String, remoteHost: RemoteHost?, killLocal: Bool) async {
+  /// that would be terminated on arrival; the caller owns any retry. Returns
+  /// whether the local kill was issued, so a caller deciding on a retry reads
+  /// that and not the cancellation flag, which may be raised after the kill
+  /// has already landed.
+  @discardableResult
+  func killSurfaceSessions(sessionID: String, remoteHost: RemoteHost?, killLocal: Bool) async -> Bool {
     if let remoteHost {
       await killRemoteSession(remoteHost, sessionID)
     }
-    guard killLocal else { return }
+    guard killLocal else { return false }
     guard !Task.isCancelled else {
       zmxLogger.debug("Cancelled before local kill of \(sessionID); caller owns the retry")
-      return
+      return false
     }
     await killSession(sessionID)
+    return true
   }
 }
 

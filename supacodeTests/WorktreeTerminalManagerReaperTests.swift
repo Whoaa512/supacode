@@ -1,3 +1,4 @@
+import Clocks
 import Dependencies
 import Foundation
 import IdentifiedCollections
@@ -84,7 +85,65 @@ struct WorktreeTerminalManagerReaperTests {
     } operation: {
       WorktreeTerminalManager(runtime: GhosttyRuntime())
     }
+    let trackedSession = trackOneSurface(in: manager)
+    let untrackedSession = session(for: UUID())
+    // The tracked session reports clients>0 (must still die) and an untracked
+    // session is in use (must be spared).
+    listing.setValue([
+      .init(name: trackedSession, clients: 2),
+      .init(name: untrackedSession, clients: 3),
+    ])
 
+    await manager.terminateAllSessions()
+
+    #expect(killed.value == [trackedSession])
+  }
+
+  /// Two terminate paths meet on one tracked session: the budgeted kill lands
+  /// at the daemon but the budget expires before it returns, and the
+  /// post-budget fallback decides whether to kill it again. The ordering is
+  /// forced: the first kill blocks until the budget has been cancelled.
+  @Test func aKillThatLandedBeforeTheBudgetExpiredIsNotKilledAgain() async {
+    let killed = LockIsolated<[String]>([])
+    let (started, startedSignal) = AsyncStream<Void>.makeStream()
+    let (held, holdSignal) = AsyncStream<Void>.makeStream()
+    let clock = TestClock()
+    let manager = withDependencies {
+      $0.zmxClient = ZmxClient(
+        executableURL: { nil },
+        isBundled: { true },
+        killSession: { id in
+          let count = killed.withValue { kills in
+            kills.append(id)
+            return kills.count
+          }
+          guard count == 1 else { return }
+          startedSignal.yield()
+          var holds = held.makeAsyncIterator()
+          _ = await holds.next()
+        },
+        killRemoteSession: { _, _ in },
+        listSessionsWithClients: { [] }
+      )
+    } operation: {
+      WorktreeTerminalManager(runtime: GhosttyRuntime(), clock: clock)
+    }
+    let trackedSession = trackOneSurface(in: manager)
+
+    let terminate = Task { await manager.terminateAllSessions(killBudget: .seconds(6)) }
+    var starts = started.makeAsyncIterator()
+    _ = await starts.next()
+    await clock.advance(by: .seconds(6))
+    holdSignal.finish()
+    await terminate.value
+    await clock.run()
+
+    #expect(killed.value == [trackedSession])
+  }
+
+  /// Gives `manager` one host with one tracked terminal surface; returns the
+  /// zmx session that surface maps to.
+  private func trackOneSurface(in manager: WorktreeTerminalManager) -> String {
     let worktree = makeWorktree()
     let host = manager.host(for: worktree.id.layoutID, context: DirectoryContext(worktree: worktree))
     let trackedSurfaceID = UUID()
@@ -111,18 +170,7 @@ struct WorktreeTerminalManagerReaperTests {
       focusedPaneID: paneID
     )
     host.layout = { layout }
-    let trackedSession = session(for: trackedSurfaceID)
-    let untrackedSession = session(for: UUID())
-    // The tracked session reports clients>0 (must still die) and an untracked
-    // session is in use (must be spared).
-    listing.setValue([
-      .init(name: trackedSession, clients: 2),
-      .init(name: untrackedSession, clients: 3),
-    ])
-
-    await manager.terminateAllSessions()
-
-    #expect(killed.value == [trackedSession])
+    return session(for: trackedSurfaceID)
   }
 
   private func makeWorktree(id: String = "/tmp/repo/wt-1") -> Worktree {

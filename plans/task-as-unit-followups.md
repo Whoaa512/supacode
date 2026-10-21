@@ -147,12 +147,14 @@ data today.
   seed it with `seedDirectoryForTesting` (DEBUG only).
   `aCreatingCommandOnAnUnknownLayoutCreatesNothingFromItsCarriedContext`
   covers the refusal.
-- **Reaper race not covered.**
-  `WorktreeTerminalManagerReaperTests/terminateKillsTrackedEvenWithLiveClientsButSparesUntrackedInUse`
-  flaked once in the Z1 r2 full run (tracked session killed twice; passes
-  alone). Nothing in the slice touches that path; add a deterministic test
-  of two terminate paths racing on one tracked session before changing the
-  reaper.
+- ~~**Reaper race not covered.**~~ Fixed (carry-identity-followups,
+  2026-10-21): `aKillThatLandedBeforeTheBudgetExpiredIsNotKilledAgain`
+  forces the ordering on a `TestClock` (the kill budget now sleeps on the
+  manager's injected clock) and exposed a real double kill: a local kill
+  that landed just before the budget cancelled its task was not recorded as
+  attempted, so `killSurvivingLocalSessions` killed it again.
+  `ZmxClient.killSurfaceSessions` now reports whether it issued the local
+  kill and the manager records that instead of reading the cancellation flag.
 
 
 ## Workflow sub-agents still disturb the parent task's row (cj, live, 2026-10-20)
