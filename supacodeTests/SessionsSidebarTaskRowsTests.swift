@@ -554,6 +554,20 @@ struct SessionsSidebarTaskRowsTests {
     #expect(store.state.expandedSessionTaskIDs.isEmpty)
     #expect(store.state.sessionsSidebarStructure.subRows.isEmpty)
 
+    // A → B → A: the chevron on a non-selected row opens it in one click,
+    // even when that task is still remembered as expanded.
+    await store.send(.toggleSessionTaskExpanded(taskA))
+    await store.send(.toggleSessionTaskExpanded(taskB))
+    #expect(store.state.sessionSelection == .task(taskB))
+    #expect(store.state.expandedSessionTaskIDs == [taskA, taskB])
+    let structure = store.state.sessionsSidebarStructure
+    #expect(!structure.isTaskVisiblyExpanded(taskA, selection: .task(taskB), expanded: [taskA, taskB]))
+    #expect(structure.isTaskVisiblyExpanded(taskB, selection: .task(taskB), expanded: [taskA, taskB]))
+    await store.send(.toggleSessionTaskExpanded(taskA))
+    #expect(store.state.sessionSelection == .task(taskA))
+    #expect(store.state.sessionsSidebarStructure.subRowsTaskID == taskA)
+    #expect(store.state.sessionsSidebarStructure.subRows.count == 3)
+
     $expandSelected.withLock { $0 = true }
     await store.send(.sessionsExpandSelectedTaskChanged)
     #expect(store.state.sessionsSidebarStructure.subRows.count == 3)

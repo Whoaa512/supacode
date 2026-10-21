@@ -65,6 +65,12 @@ struct SessionsSidebarStructure: Equatable, Sendable {
     }
   }
 
+  /// What the chevron shows: sub-rows only ever render under the selected
+  /// task, so a remembered expansion on another row is not an open one.
+  func isTaskVisiblyExpanded(_ layoutID: LayoutID, selection: SessionRowID?, expanded: Set<LayoutID>) -> Bool {
+    selection == .task(layoutID) && expanded.contains(layoutID)
+  }
+
   /// Whether stepping down from `current` runs off the end of the settled
   /// page while more history remains: the keyboard's "Show more".
   func reachesSettledPageEnd(from current: SessionRowID?, offset: Int, settledLimit: Int) -> Bool {

@@ -184,7 +184,16 @@ extension RepositoriesFeature {
         return .send(.delegate(.resumeSession(key, task: layoutID)))
 
       case .toggleSessionTaskExpanded(let layoutID):
-        if !state.expandedSessionTaskIDs.insert(layoutID).inserted { state.expandedSessionTaskIDs.remove(layoutID) }
+        // Only the selected task shows its sessions, so a chevron on any
+        // other row can only be asking to open it; toggling there would
+        // collapse a remembered expansion the user never saw.
+        let visiblyExpanded = state.sessionsSidebarStructure.isTaskVisiblyExpanded(
+          layoutID, selection: state.sessionSelection, expanded: state.expandedSessionTaskIDs)
+        if visiblyExpanded {
+          state.expandedSessionTaskIDs.remove(layoutID)
+        } else {
+          state.expandedSessionTaskIDs.insert(layoutID)
+        }
         state.selectSessionRow(.task(layoutID))
         return .none
 

@@ -85,7 +85,8 @@ struct SessionsSidebarListView: View {
       nextTab: AppShortcuts.selectNextTab.effective(from: overrides)?.display,
       previousTab: AppShortcuts.selectPreviousTab.effective(from: overrides)?.display,
       mergeTargets: structure.mergeTargets,
-      chevronTaskIDs: expandSelectedTask ? nil : store.expandedSessionTaskIDs)
+      chevronTaskIDs: expandSelectedTask ? nil : store.expandedSessionTaskIDs,
+      selection: store.sessionSelection)
     if commandKeyObserver.isPressed {
       shortcutHintByID = structure.liveIDs.enumerated().reduce(into: [:]) { dict, pair in
         let (index, rowID) = pair
@@ -162,11 +163,12 @@ struct SessionsSidebarListView: View {
     let mergeTargets: [SessionsSidebarStructure.MergeTarget]
     /// The tasks opened by hand, while selecting a task does not open it. Nil when it does.
     let chevronTaskIDs: Set<LayoutID>?
+    let selection: SessionRowID?
 
     /// A chevron for a task the user opens by hand: nil when selection opens it.
     func chevron(for id: SessionRowID) -> (isExpanded: Bool, layoutID: LayoutID)? {
       guard let chevronTaskIDs, case .task(let layoutID) = id else { return nil }
-      return (chevronTaskIDs.contains(layoutID), layoutID)
+      return (selection == id && chevronTaskIDs.contains(layoutID), layoutID)
     }
   }
 
