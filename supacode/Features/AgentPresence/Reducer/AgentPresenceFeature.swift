@@ -324,9 +324,14 @@ struct AgentPresenceFeature {
   /// child then has no record of its own to be compared with.
   static func isFromNestedAgent(_ event: AgentHookEvent, in state: State) -> Bool {
     guard let agent = SkillAgent(rawValue: event.agent), let pid = event.pid else { return false }
-    // A process already tracked as its own agent stays one.
-    if state.records[PresenceKey(agent: agent, surfaceID: event.surfaceID)]?.pids.contains(pid) == true {
-      return false
+    // A process already tracked as its own agent stays one. Except that a Pi
+    // process changes its session only through a start (it ends the old one
+    // first): any other event it reports under another ref is a session
+    // running inside it, a workflow sub-agent, and not the surface's own.
+    if let record = state.records[PresenceKey(agent: agent, surfaceID: event.surfaceID)], record.pids.contains(pid) {
+      guard agent == .pi, event.eventName != .sessionStart, let ref = event.sessionRef, let current = record.sessionRef
+      else { return false }
+      return ref != current
     }
     @Dependency(\.processAncestry) var processAncestry
     return state.records.contains {

@@ -182,21 +182,25 @@ struct AppFeatureSessionsTaskSettleTests {
   @Test(.dependencies, arguments: ["new", "fork", "resume", "swap"])
   func replacingThePrimaryKeepsTheTaskOpenAndPromotesTheNewSession(how: String) async {
     let recorded = Recorded()
-    let store = store(state(second: live("b", pid: 12)), recorded: recorded)
+    // Pi ends a session before it starts the next; a harness that reports
+    // the next session without ending the last (swap) is another one.
+    let harness: SkillAgent = how == "swap" ? .claude : .pi
+    let store = store(state(primary: harness, second: live("b", pid: 12)), recorded: recorded)
 
     if how == "swap" {
-      // A harness that reports the next session without ending the last.
-      await send("busy", on: primarySurface, ref: "n", to: store)
+      await send("busy", on: primarySurface, ref: "n", agent: harness.rawValue, to: store)
     } else {
       await send("session_end", on: primarySurface, ref: "a", reason: how, to: store)
       #expect(store.state.terminals.members[task] == [.session(key("a")), .session(key("b"))])
       await send("session_start", on: primarySurface, ref: "n", to: store)
     }
 
-    #expect(store.state.terminals.members[task] == [.session(key("n")), .session(key("a")), .session(key("b"))])
-    #expect(AppFeature.primarySession(of: task, state: store.state) == key("n"))
-    #expect(settledAt("a", in: store) == now, "the replaced session is marked")
-    #expect(settledAt("n", in: store) == nil)
+    let replaced = key("a", harness)
+    let next = key("n", harness)
+    #expect(store.state.terminals.members[task] == [.session(next), .session(replaced), .session(key("b"))])
+    #expect(AppFeature.primarySession(of: task, state: store.state) == next)
+    #expect(settledAt("a", harness, in: store) == now, "the replaced session is marked")
+    #expect(settledAt("n", harness, in: store) == nil)
     #expect(settledAt("b", in: store) == nil)
     #expect(!AppFeature.isTaskSettled(task, state: store.state), "the task follows its current primary")
     #expect(recorded.closed.value.isEmpty, "no surface closes")
@@ -205,24 +209,26 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(store.state.terminals.members[otherTask] == [.session(key("other"))], "no other task changes")
     #expect(store.state.terminals.layouts.count == 2, "and none is minted")
     let row = store.state.repositories.sessionItems[id: .task(task)]
-    #expect(row?.primary == key("n"), "the task's row follows its new primary")
+    #expect(row?.primary == next, "the task's row follows its new primary")
     #expect(row?.lifecycle == .active)
-    #expect(store.state.repositories.sessionItems[id: .implicit(key("a"))] == nil, "the replaced one has no row")
+    #expect(store.state.repositories.sessionItems[id: .implicit(replaced)] == nil, "the replaced one has no row")
   }
 
   /// Presence takes a changed ref from any event, so the first event of the
-  /// new session need not be a start or a busy.
+  /// new session need not be a start or a busy. Not for Pi, whose process
+  /// only changes session through a start (see the nested-session tests).
   @Test(.dependencies, arguments: ["idle", "awaiting_input", "error", "notification"])
   func aReplacementFirstSeenOnAnotherEventStillTakesTheSlot(first: String) async {
     let recorded = Recorded()
-    let store = store(state(second: live("b", pid: 12)), recorded: recorded)
+    let store = store(state(primary: .claude, second: live("b", pid: 12)), recorded: recorded)
 
-    await send(first, on: primarySurface, ref: "n", to: store)
-    await send("busy", on: primarySurface, ref: "n", to: store)
+    await send(first, on: primarySurface, ref: "n", agent: "claude", to: store)
+    await send("busy", on: primarySurface, ref: "n", agent: "claude", to: store)
 
-    #expect(store.state.terminals.members[task] == [.session(key("n")), .session(key("a")), .session(key("b"))])
-    #expect(settledAt("a", in: store) == now, "the replaced session is marked")
-    #expect(settledAt("n", in: store) == nil)
+    let members = store.state.terminals.members[task]
+    #expect(members == [.session(key("n", .claude)), .session(key("a", .claude)), .session(key("b"))])
+    #expect(settledAt("a", .claude, in: store) == now, "the replaced session is marked")
+    #expect(settledAt("n", .claude, in: store) == nil)
     #expect(!AppFeature.isTaskSettled(task, state: store.state))
     #expect(recorded.closed.value.isEmpty, "no surface closes")
     #expect(surfaces(of: task, in: store) == [primarySurface, secondSurface])
@@ -539,6 +545,54 @@ struct AppFeatureSessionsTaskSettleTests {
     #expect(row?.location?.surfaceID == primarySurface)
     #expect(store.state.repositories.sessionItems[id: .implicit(key("child"))] == nil)
     #expect(store.state.endedSessions.isEmpty)
+  }
+
+  /// The `workflow` tool runs its sub-agents inside the Pi process, so they
+  /// report with the parent's pid and no session_start: only their turns,
+  /// under their own session ids. Those must not replace or join anything.
+  @Test(.dependencies) func aSessionNestedInTheParentsProcessLeavesTheSurfacesSessionAlone() async {
+    let recorded = Recorded()
+    var initial = state()
+    initial.repositories.sessionSummaries = [
+      SessionSummary(
+        harness: .pi, sessionID: "a", createdAt: .distantPast, cwd: "/workspace", title: "Parent",
+        messageCount: 9, lastActivity: now)
+    ]
+    initial = withRows(initial)
+    let store = store(initial, recorded: recorded)
+    let presenceKey = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: primarySurface)
+    let before = store.state.agentPresence.records[presenceKey]
+
+    await send("busy", on: primarySurface, ref: "a", to: store)
+    await send("busy", on: primarySurface, ref: "child-1", to: store)
+    await send("busy", on: primarySurface, ref: "child-2", to: store)
+    await send("idle", on: primarySurface, ref: "child-1", to: store)
+    await send("session_end", on: primarySurface, ref: "child-1", reason: "quit", to: store)
+    await send("idle", on: primarySurface, ref: "child-2", to: store)
+
+    #expect(store.state.agentPresence.records[presenceKey]?.sessionRef == before?.sessionRef)
+    #expect(store.state.agentPresence.records[presenceKey]?.pids == before?.pids)
+    #expect(store.state.terminals.members[task] == [.session(key("a"))], "still the primary, and the only member")
+    #expect(store.state.repositories.sessions.isEmpty, "nothing settles")
+    #expect(recorded.closed.value.isEmpty)
+    let row = store.state.repositories.sessionItems[id: .task(task)]
+    #expect(row?.title == "Parent")
+    #expect(row?.primary == key("a"))
+    #expect(row?.lifecycle == .active)
+    #expect(store.state.repositories.sessionItems[id: .implicit(key("child-1"))] == nil)
+    #expect(store.state.repositories.sessionItems[id: .implicit(key("child-2"))] == nil)
+    #expect(store.state.endedSessions.isEmpty)
+  }
+
+  /// A start from the same process under a new ref is still Pi moving on.
+  @Test(.dependencies) func aStartFromTheSameProcessUnderANewRefIsAReplacement() async {
+    let recorded = Recorded()
+    let store = store(state(), recorded: recorded)
+
+    await send("session_start", on: primarySurface, ref: "n", to: store)
+
+    #expect(store.state.terminals.members[task] == [.session(key("n")), .session(key("a"))])
+    #expect(settledAt("a", in: store) == now)
   }
 
   /// The child need not be the parent's harness: Pi can start Claude.
