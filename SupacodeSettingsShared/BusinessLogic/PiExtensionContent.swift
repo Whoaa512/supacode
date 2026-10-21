@@ -29,6 +29,8 @@ nonisolated enum PiExtensionContent {
      *   Pi session_start   -> session_start + sid=<session id>  (early link)
      *   Pi agent_start      -> busy + sid=<session id>  (resume ref)
      *   Pi agent_end        -> idle + sid=<session id>  (sticky ref)
+     *   Pi tool_execution_start of a prompt tool -> awaiting_input
+     *   Pi tool_execution_end of a prompt tool   -> busy (turn continues)
      *   Pi session_shutdown -> session_end + sid + reason
      */
 
@@ -41,6 +43,13 @@ nonisolated enum PiExtensionContent {
     }
 
     const AGENT = "pi";
+
+    /**
+     * Tools that block the turn on the user answering in the TUI. Pi has no
+     * permission hook (extensions confirm inside tool_call, invisible here),
+     * so a prompt tool starting is the only observable "needs you" signal.
+     */
+    const PROMPT_TOOLS = new Set(["question", "questionnaire", "ask_user", "AskUserQuestion"]);
 
     let lastWarnedAt = 0;
     const WARN_INTERVAL_MS = 60_000;
@@ -230,6 +239,16 @@ nonisolated enum PiExtensionContent {
 
       pi.on("agent_start", (_event, ctx) => {
         if (!ownsSurface(ctx)) return;
+        emitPresence("busy", sessionRef(ctx));
+      });
+
+      pi.on("tool_execution_start", (event, ctx) => {
+        if (!ownsSurface(ctx) || !PROMPT_TOOLS.has(event.toolName)) return;
+        emitPresence("awaiting_input", sessionRef(ctx));
+      });
+
+      pi.on("tool_execution_end", (event, ctx) => {
+        if (!ownsSurface(ctx) || !PROMPT_TOOLS.has(event.toolName)) return;
         emitPresence("busy", sessionRef(ctx));
       });
 

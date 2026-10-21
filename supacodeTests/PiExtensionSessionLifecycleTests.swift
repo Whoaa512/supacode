@@ -86,6 +86,22 @@ struct PiExtensionSessionLifecycleTests {
     #expect(events.last?.shutdownReason == "quit")
   }
 
+  @Test func aPromptToolReportsAwaitingInputUntilItReturnsAndOtherToolsStaySilent() throws {
+    let events = try presenceEvents(
+      fixture: """
+        handlers.get("session_start")({}, ctx("session-1"));
+        handlers.get("agent_start")({}, ctx("session-1"));
+        handlers.get("tool_execution_start")({ toolName: "bash" }, ctx("session-1"));
+        handlers.get("tool_execution_end")({ toolName: "bash" }, ctx("session-1"));
+        handlers.get("tool_execution_start")({ toolName: "question" }, ctx("session-1"));
+        handlers.get("tool_execution_end")({ toolName: "question" }, ctx("session-1"));
+        handlers.get("tool_execution_start")({ toolName: "questionnaire" }, ctx("session-2"));
+        handlers.get("agent_end")({}, ctx("session-1"));
+        """)
+    #expect(events.map(\.event) == ["session_start", "busy", "awaiting_input", "busy", "idle"])
+    #expect(events.allSatisfy { $0.sessionRef == "session-1" })
+  }
+
   @Test func shutdownReasonsReachTheWireAsPiNamesThem() throws {
     let events = try presenceEvents(
       fixture: """
