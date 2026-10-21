@@ -7,7 +7,7 @@ import SwiftUI
 // Compile-time checkable shortcut identifier.
 public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRepresentable {
   case commandPalette, worktreeSwitcher, branchSearch, openSettings, checkForUpdates, showMainWindow
-  case toggleLeftSidebar, revealInSidebar, toggleAgentsSidebarTab
+  case toggleLeftSidebar, revealInSidebar, cycleSidebarTab
   case expandAllSidebarGroups, collapseAllSidebarGroups
   case newWorktree, refreshWorktrees, archivedWorktrees, archiveWorktree
   case deleteWorktree, confirmWorktreeAction
@@ -56,7 +56,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     case .showMainWindow: "showMainWindow"
     case .toggleLeftSidebar: "toggleLeftSidebar"
     case .revealInSidebar: "revealInSidebar"
-    case .toggleAgentsSidebarTab: "toggleAgentsSidebarTab"
+    case .cycleSidebarTab: "cycleSidebarTab"
     case .expandAllSidebarGroups: "expandAllSidebarGroups"
     case .collapseAllSidebarGroups: "collapseAllSidebarGroups"
     case .newWorktree: "newWorktree"
@@ -124,7 +124,8 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     "showMainWindow": .showMainWindow,
     "toggleLeftSidebar": .toggleLeftSidebar,
     "revealInSidebar": .revealInSidebar,
-    "toggleAgentsSidebarTab": .toggleAgentsSidebarTab,
+    "cycleSidebarTab": .cycleSidebarTab,
+    "toggleAgentsSidebarTab": .cycleSidebarTab,
     "expandAllSidebarGroups": .expandAllSidebarGroups,
     "collapseAllSidebarGroups": .collapseAllSidebarGroups,
     "newWorktree": .newWorktree,
@@ -209,7 +210,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     case .showMainWindow: "Show Main Window"
     case .toggleLeftSidebar: "Toggle Left Sidebar"
     case .revealInSidebar: "Reveal in Sidebar"
-    case .toggleAgentsSidebarTab: "Toggle Agents Sidebar Tab"
+    case .cycleSidebarTab: "Switch Sidebar Panel"
     case .expandAllSidebarGroups: "Expand All Sidebar Groups"
     case .collapseAllSidebarGroups: "Collapse All Sidebar Groups"
     case .newWorktree: "New Worktree"
@@ -497,8 +498,8 @@ public enum AppShortcuts {
   public static let revealInSidebar = AppShortcut(id: .revealInSidebar, key: "e", modifiers: [.command, .shift])
   // Toggles the sidebar between the Agents and Worktrees panels. ⌘⇧A is free:
   // ⌘⇧B is branch search and ⌘⌃A is archived worktrees.
-  public static let toggleAgentsSidebarTab = AppShortcut(
-    id: .toggleAgentsSidebarTab, key: "a", modifiers: [.command, .shift]
+  public static let cycleSidebarTab = AppShortcut(
+    id: .cycleSidebarTab, key: "a", modifiers: [.command, .shift]
   )
   // `]` expands (opens rightward), `[` collapses, mirroring the outline-view
   // Right/Left arrow convention.
@@ -702,7 +703,7 @@ public enum AppShortcuts {
     AppShortcutGroup(
       category: .sidebar,
       shortcuts: [
-        toggleLeftSidebar, revealInSidebar, toggleAgentsSidebarTab,
+        toggleLeftSidebar, revealInSidebar, cycleSidebarTab,
         expandAllSidebarGroups, collapseAllSidebarGroups,
       ]
     ),

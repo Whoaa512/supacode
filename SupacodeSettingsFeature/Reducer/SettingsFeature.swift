@@ -97,13 +97,6 @@ public struct SettingsFeature {
     public var globalHotkeyRegistrationFailed = false
     public var persistScrollbackEnabled: Bool
     public var pruneBareSurfacesOnRestore: Bool
-    /// Agents-tab row layout as editable text: one row per line, tokens
-    /// separated by spaces. Round-trips through `AgentsSidebarSettings`, so
-    /// unsupported tokens are dropped on persist exactly as a file edit would be.
-    public var agentsSidebarRowsText: String
-    /// Per-agent overrides are file-only (`global.agentsSidebar.rowsByAgent`);
-    /// held here so editing the shared rows can't discard them.
-    public var agentsSidebarRowsByAgent: [String: [[String]]]
     public var sessionIdleDays: Int
     public var browseSearchDepth: Int
     public var cliInstallState = CLIInstallState.checking
@@ -128,15 +121,6 @@ public struct SettingsFeature {
     public var repositorySummaries: [SettingsRepositorySummary] = []
     public var repositorySettings: RepositorySettingsFeature.State?
     @Presents public var alert: AlertState<Alert>?
-
-    /// The editor's text plus the file-only per-agent overrides, as the value
-    /// that gets persisted and mirrored into the Agents tab.
-    public var agentsSidebar: AgentsSidebarSettings {
-      AgentsSidebarSettings(
-        rows: AgentsSidebarSettings.rows(fromText: agentsSidebarRowsText),
-        rowsByAgent: agentsSidebarRowsByAgent
-      )
-    }
 
     /// True when at least one notification delivery channel (macOS banner or
     /// the fallback sound) can fire, so surface-mute has something to mute.
@@ -252,8 +236,6 @@ public struct SettingsFeature {
       globalToggleVisibilityHotkey = settings.globalToggleVisibilityHotkey
       persistScrollbackEnabled = settings.persistScrollbackEnabled
       pruneBareSurfacesOnRestore = settings.pruneBareSurfacesOnRestore
-      agentsSidebarRowsText = settings.agentsSidebar.rowsText
-      agentsSidebarRowsByAgent = settings.agentsSidebar.rowsByAgent
       sessionIdleDays = settings.sessionIdleDays
       browseSearchDepth = settings.browseSearchDepth
       defaultWorktreeBaseDirectoryPath =
@@ -277,7 +259,6 @@ public struct SettingsFeature {
     case toggleShortcutEnabled(id: AppShortcutID, enabled: Bool)
     case resetAllShortcuts
     /// Restores the built-in Agents-tab row layout, dropping per-agent overrides.
-    case resetAgentsSidebarRows
     case requestAutoDeleteDaysChange(AutoDeletePeriod?)
     case resolvedAutoDeleteAffectedCount(AutoDeletePeriod, affectedCount: Int)
     case cliInstallChecked(installed: Bool)
@@ -452,8 +433,6 @@ public struct SettingsFeature {
         state.globalToggleVisibilityHotkey = normalizedSettings.globalToggleVisibilityHotkey
         state.persistScrollbackEnabled = normalizedSettings.persistScrollbackEnabled
         state.pruneBareSurfacesOnRestore = normalizedSettings.pruneBareSurfacesOnRestore
-        state.agentsSidebarRowsText = normalizedSettings.agentsSidebar.rowsText
-        state.agentsSidebarRowsByAgent = normalizedSettings.agentsSidebar.rowsByAgent
         state.sessionIdleDays = normalizedSettings.sessionIdleDays
         state.browseSearchDepth = normalizedSettings.browseSearchDepth
         state.defaultWorktreeBaseDirectoryPath = normalizedSettings.defaultWorktreeBaseDirectoryPath ?? ""
@@ -515,12 +494,6 @@ public struct SettingsFeature {
 
       case .setAutomatedActionPolicy(let policy):
         state.automatedActionPolicy = policy
-        state.syncGlobalDefaults()
-        return persist(state)
-
-      case .resetAgentsSidebarRows:
-        state.agentsSidebarRowsText = AgentsSidebarSettings.default.rowsText
-        state.agentsSidebarRowsByAgent = [:]
         state.syncGlobalDefaults()
         return persist(state)
 
@@ -1248,7 +1221,6 @@ extension SettingsFeature.State {
     settings.globalToggleVisibilityHotkey = globalToggleVisibilityHotkey
     settings.persistScrollbackEnabled = persistScrollbackEnabled
     settings.pruneBareSurfacesOnRestore = pruneBareSurfacesOnRestore
-    settings.agentsSidebar = agentsSidebar
     settings.resumeAgentsOnRestore = resumeAgentsOnRestore
     settings.sessionIdleDays = max(0, sessionIdleDays)
     settings.browseSearchDepth = browseSearchDepth

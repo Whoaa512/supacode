@@ -12,7 +12,7 @@ struct SidebarView: View {
 
   private var sidebarTab: Binding<SidebarTab> {
     Binding(
-      get: { SidebarTab(rawValue: sidebarTabRawValue) ?? .sessions },
+      get: { SidebarTab.stored(sidebarTabRawValue) },
       set: { newTab in $sidebarTabRawValue.withLock { $0 = newTab.rawValue } }
     )
   }
@@ -25,15 +25,15 @@ struct SidebarView: View {
     let archiveTargets = state.sidebarSelectionSlice.archiveTargets
     let deleteTargets = state.sidebarSelectionSlice.deleteTargets
     let openRepo = AppShortcuts.openRepository.effective(from: settingsFile.global.shortcutOverrides)
-    let toggleAgentsTab = AppShortcuts.toggleAgentsSidebarTab.effective(from: settingsFile.global.shortcutOverrides)
-    let tabShortcut = toggleAgentsTab?.display ?? "none"
+    let cycleTab = AppShortcuts.cycleSidebarTab.effective(from: settingsFile.global.shortcutOverrides)
+    let tabShortcut = cycleTab?.display ?? "none"
 
     return VStack(spacing: 0) {
       Picker("Sidebar Panel", selection: sidebarTab) {
         ForEach(SidebarTab.allCases, id: \.self) { tab in
           Text(tab.title)
             .tag(tab)
-            .help("\(tab.help) (\(tabShortcut) switches Worktrees/Agents)")
+            .help("\(tab.help) (\(tabShortcut) switches panels)")
         }
       }
       .pickerStyle(.segmented)
@@ -41,7 +41,7 @@ struct SidebarView: View {
       .controlSize(.small)
       .padding(.horizontal, 8)
       .padding(.vertical, 6)
-      .help("\(sidebarTab.wrappedValue.help) (\(tabShortcut) switches Worktrees/Agents)")
+      .help("\(sidebarTab.wrappedValue.help) (\(tabShortcut) switches panels)")
 
       Divider()
 
@@ -53,8 +53,6 @@ struct SidebarView: View {
           store: store,
           terminalManager: terminalManager
         )
-      case .agents:
-        AgentDashboardListView(store: store)
       }
     }
     .toolbar {

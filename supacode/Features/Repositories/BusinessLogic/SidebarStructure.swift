@@ -467,7 +467,6 @@ extension RepositoriesFeature.Action {
     // without rewriting persisted drag order.
     case .sidebarGroupingTogglesChanged, .sidebarNestByBranchChanged,
       .sidebarSectionSortChanged,
-      .sidebarAgentsGroupByStateChanged, .agentsSidebarRowsChanged,
       .repositoryExpansionChanged, .branchNestExpansionChanged,
       .setAllSidebarGroupsExpanded,
       .setMoveNotifiedWorktreeToTop,
@@ -568,12 +567,6 @@ extension RepositoriesFeature.Action {
       .setSidebarSelectedWorktreeIDs:
       return [.selectedWorktreeSlice, .sidebarSelectionSlice]
 
-    // Agents-tab selection. It projects into no cache; the activate arms
-    // delegate the real jump to `.selectionChanged`, which declares its own bits.
-    case .agentDashboardSelectionChanged, .activateAgentDashboardSelection,
-      .activateAgentDashboardEntry:
-      return []
-
     // Repo customization save mutates the section title / color, which flow
     // into the sidebar layout's highlight tag and the notification group name.
     case .repositoryCustomization(.presented(.delegate(.save))):
@@ -651,12 +644,11 @@ extension RepositoriesFeature.Action {
       .toggleInspectorPane, .setInspectorPresented,
       .fileExplorer,
       // Swaps which sidebar panel is on screen; both panels' caches already exist.
-      .toggleAgentsSidebarTab,
+      .cycleSidebarTab,
       .delayedPullRequestRefresh,
       .openRepositorySettings, .requestCustomizeRepository,
       .requestCustomizeWorktree,
       .requestRenameBranch,
-      .requestRenameAgent, .agentRename,
       .contextMenuOpenWorktree,
       .worktreeCreationPrompt,
       .delegate:
@@ -681,10 +673,6 @@ extension RepositoriesFeature.State {
     }
     if invalidations.contains(.sidebarStructure) {
       recomputeSidebarStructureIfChanged()
-      // The Agents tab shares every input of the sidebar structure (per-row
-      // agent snapshots, titles, branch names, lifecycle), so it rides the same
-      // bit instead of adding one every action arm would have to classify.
-      recomputeAgentDashboardStructureIfChanged()
     }
     if invalidations.contains(.selectedWorktreeSlice) {
       recomputeSelectedWorktreeSliceIfChanged()

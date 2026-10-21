@@ -225,9 +225,6 @@ struct AppFeature {
       var repositories = repositories
       let installed = settings.installedOpenActions
       repositories.installedOpenActions = installed
-      // Seeded here so the Agents tab honors a configured row layout on the very
-      // first structure computation, before the first `settingsChanged` delegate.
-      repositories.agentsSidebar = settings.agentsSidebar
       installedOpenActions = installed
       self.repositories = repositories
       self.settings = settings
@@ -944,8 +941,6 @@ struct AppFeature {
           .merge(forgeTeardownEffects),
           .send(.repositories(.setMergedWorktreeAction(settings.mergedWorktreeAction))),
           .send(.repositories(.setMoveNotifiedWorktreeToTop(settings.moveNotifiedWorktreeToTop))),
-          // Re-resolves the Agents tab's configured row segments.
-          .send(.repositories(.agentsSidebarRowsChanged(settings.agentsSidebar))),
           state.repositories.sessionsStarted ? .send(.repositories(.sessionsRefreshRequested)) : .none,
           // The global default editor feeds every repo's resolved open action, and the
           // selected worktree's own open action resolves against it too.

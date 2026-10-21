@@ -94,8 +94,7 @@ extension RepositoriesFeature.State {
   }
 
   var isSessionsSidebarTabActive: Bool {
-    let sidebarTabRawValue = SharedReader(.sidebarTab).wrappedValue
-    return SidebarTab(rawValue: sidebarTabRawValue) == .sessions
+    SidebarTab.stored(SharedReader(.sidebarTab).wrappedValue) == .sessions
   }
 
   func sessionRowID(atSlot index: Int) -> SessionRowID? {

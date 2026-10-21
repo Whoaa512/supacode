@@ -103,11 +103,6 @@ struct ContentView: View {
       WorktreeCustomizationView(store: customizationStore)
     }
     .sheet(
-      item: $repositoriesStore.scope(state: \.agentRename, action: \.agentRename)
-    ) { renameStore in
-      AgentRenameView(store: renameStore)
-    }
-    .sheet(
       item: $repositoriesStore.scope(
         state: \.renameBranchPrompt,
         action: \.renameBranchPrompt
@@ -141,12 +136,12 @@ struct ContentView: View {
       }
       store.send(.repositories(.revealSelectedWorktreeInSidebar))
     }
-    .focusedSceneAction(\.toggleAgentsSidebarTabAction, enabled: true) {
+    .focusedSceneAction(\.cycleSidebarTabAction, enabled: true) {
       // A hidden sidebar would swallow the jump, so reveal it first.
       withAnimation(.easeOut(duration: 0.2)) {
         leftSidebarVisibility = .all
       }
-      store.send(.repositories(.toggleAgentsSidebarTab))
+      store.send(.repositories(.cycleSidebarTab))
     }
     .focusedSceneAction(
       \.expandAllSidebarGroupsAction,

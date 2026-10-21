@@ -195,11 +195,6 @@ struct RepositoriesFeature {
     /// Global fallback applied when a repository has no `mergedWorktreeAction` override.
     var mergedWorktreeAction: MergedWorktreeAction = .ignore
     var moveNotifiedWorktreeToTop = false
-    /// Agents-tab row layout, mirrored down from `AppFeature` on every settings
-    /// change. Mirrored rather than read from `@Shared(.settingsFile)` in the
-    /// recompute: that key seeds defaults on read, so touching it from the
-    /// post-reduce hook mutates shared state on every action.
-    var agentsSidebar: AgentsSidebarSettings = .default
     /// Installed editors in menu order, mirrored down from `AppFeature` so the
     /// sidebar context menu never probes LaunchServices while building.
     var installedOpenActions: [OpenWorktreeAction] = []
@@ -285,18 +280,6 @@ struct RepositoriesFeature {
     /// in the recompute helper keeps a no-op rebuild from invalidating
     /// SwiftUI when the user-visible layout didn't actually change.
     var sidebarStructure: SidebarStructure = .placeholder
-    /// Single source of truth the Agents sidebar tab renders against. Same
-    /// cached-structure contract as `sidebarStructure`: built in the reducer's
-    /// post-reduce hook and Equatable-diffed before publish, so the view body
-    /// never touches `sidebarItems[id:]`.
-    var agentDashboardStructure: AgentDashboardStructure = .empty
-    /// Keyboard-driven selection in the Agents tab, in the flat visual order of
-    /// `agentDashboardStructure.entries`. Moving it jumps the main view to the
-    /// row's worktree and focuses its terminal, matching the Worktrees tab.
-    /// Pruned to `nil` when the row it points at disappears (the agent finished,
-    /// the worktree got archived), so a tab switch preserves the selection
-    /// whenever the row survived. In-memory only.
-    var agentDashboardSelection: AgentDashboardEntry.EntryID?
     /// Cached projection of the focused row's display fields. The detail body
     /// reads this directly instead of `sidebarItems[id: id]` so per-leaf agent
     /// / notification mutations on the focused row don't invalidate the
@@ -323,7 +306,6 @@ struct RepositoriesFeature {
     @Presents var worktreeCreationPrompt: WorktreeCreationPromptFeature.State?
     @Presents var repositoryCustomization: RepositoryCustomizationFeature.State?
     @Presents var worktreeCustomization: WorktreeCustomizationFeature.State?
-    @Presents var agentRename: AgentRenameFeature.State?
     @Presents var renameBranchPrompt: RenameBranchFeature.State?
     @Presents var remoteConnectionForm: RemoteConnectionFormFeature.State?
     @Presents var cloneRepositoryForm: CloneRepositoryFormFeature.State?
@@ -473,17 +455,9 @@ struct RepositoriesFeature {
     /// structure so repo/folder sections follow the selected sort. Does not
     /// rewrite `sidebar.sections`.
     case sidebarSectionSortChanged
-    /// Fired by `AgentDashboardListView.onChange` whenever
-    /// `@Shared(.sidebarAgentsGroupByState)` mutates, so the post-reduce hook
-    /// rebuilds the cached `agentDashboardStructure` with the new projection.
-    case sidebarAgentsGroupByStateChanged
-    /// ⌘⇧A (or the View menu item): shows the Agents panel, or returns to
-    /// Worktrees when Agents is already showing.
-    case toggleAgentsSidebarTab
-    /// Fired when `settingsFile.global.agentsSidebar` changes (file edit or the
-    /// Settings editor), so the post-reduce hook re-resolves every row's
-    /// configured segments.
-    case agentsSidebarRowsChanged(AgentsSidebarSettings)
+    /// ⌘⇧A (or the View menu item): advances the sidebar to its next panel,
+    /// wrapping, so one chord reaches every tab.
+    case cycleSidebarTab
     case presentOpenPanel(OpenPanelPurpose)
     case setOpenPanelPresented(Bool)
     case openPanelCompleted([URL]?)
@@ -532,14 +506,6 @@ struct RepositoriesFeature {
     case selectWorktreeAtHotkeySlot(Int)
     case selectNextWorktree
     case selectPreviousWorktree
-    /// The Agents list's own selection binding moved (a native List click or
-    /// clearing the selection). Selection only — the jump rides on
-    /// `.activateAgentDashboardEntry`, which the row Button and the nav chords send.
-    case agentDashboardSelectionChanged(AgentDashboardEntry.EntryID?)
-    /// ↵ in the Agents tab: jump to the selected agent's worktree and focus it.
-    case activateAgentDashboardSelection
-    /// Click, ↵, or a nav chord on one agent row: select it and jump to its worktree.
-    case activateAgentDashboardEntry(AgentDashboardEntry.EntryID)
     case worktreeHistoryBack
     case worktreeHistoryForward
     case revealSelectedWorktreeInSidebar
@@ -726,9 +692,6 @@ struct RepositoriesFeature {
     /// `nil` clears the field; omit-vs-clear was already resolved upstream in `AppFeature`.
     case setWorktreeAppearance(Worktree.ID, Repository.ID, title: String?, color: RepositoryColor?)
     case requestRenameBranch(Worktree.ID, Repository.ID)
-    /// Agents-tab context menu: present the rename sheet for one dashboard row.
-    case requestRenameAgent(AgentDashboardEntry.EntryID)
-    case agentRename(PresentationAction<AgentRenameFeature.Action>)
     case contextMenuOpenWorktree(Worktree.ID, OpenWorktreeAction)
     case worktreeCreationPrompt(PresentationAction<WorktreeCreationPromptFeature.Action>)
     case repositoryCustomization(PresentationAction<RepositoryCustomizationFeature.Action>)
@@ -3731,20 +3694,10 @@ struct RepositoriesFeature {
         // rebuilds `sidebarStructure`.
         return .none
 
-      case .sidebarAgentsGroupByStateChanged:
-        // No-op handler: the post-reduce hook reads `sidebarAgentsGroupByState`
-        // and rebuilds `agentDashboardStructure` with (or without) sections.
-        return .none
-
-      case .toggleAgentsSidebarTab:
+      case .cycleSidebarTab:
         @Shared(.sidebarTab) var sidebarTabRawValue
-        let current = SidebarTab(rawValue: sidebarTabRawValue) ?? .worktrees
-        $sidebarTabRawValue.withLock { $0 = (current == .agents ? SidebarTab.worktrees : .agents).rawValue }
-        return .none
-
-      case .agentsSidebarRowsChanged(let config):
-        // The post-reduce hook re-resolves every row's segments from this.
-        state.agentsSidebar = config
+        let next = SidebarTab.stored(sidebarTabRawValue).next
+        $sidebarTabRawValue.withLock { $0 = next.rawValue }
         return .none
 
       case .sidebarNestByBranchChanged:
@@ -4185,12 +4138,6 @@ struct RepositoriesFeature {
         if state.isSessionsSidebarTabActive {
           return Self.focusSessionNavigation(state: &state, id: state.sessionRowID(atSlot: index))
         }
-        if state.isAgentsSidebarTabActive {
-          guard let entryID = state.agentDashboardEntryID(atSlot: index) else {
-            return .run { _ in NSSound.beep() }
-          }
-          return .send(.activateAgentDashboardEntry(entryID))
-        }
         let slots = state.sidebarStructure.hotkeySlots
         guard slots.indices.contains(index) else {
           return .run { _ in NSSound.beep() }
@@ -4201,12 +4148,6 @@ struct RepositoriesFeature {
         if state.isSessionsSidebarTabActive {
           return Self.focusSessionNavigation(state: &state, id: state.sessionRowID(byOffset: 1, focusedRowID: nil))
         }
-        if state.isAgentsSidebarTabActive {
-          guard let entryID = state.agentDashboardEntryID(byOffset: 1) else {
-            return .run { _ in NSSound.beep() }
-          }
-          return .send(.activateAgentDashboardEntry(entryID))
-        }
         guard let id = state.worktreeID(byOffset: 1) else {
           return .run { _ in NSSound.beep() }
         }
@@ -4216,30 +4157,10 @@ struct RepositoriesFeature {
         if state.isSessionsSidebarTabActive {
           return Self.focusSessionNavigation(state: &state, id: state.sessionRowID(byOffset: -1, focusedRowID: nil))
         }
-        if state.isAgentsSidebarTabActive {
-          guard let entryID = state.agentDashboardEntryID(byOffset: -1) else {
-            return .run { _ in NSSound.beep() }
-          }
-          return .send(.activateAgentDashboardEntry(entryID))
-        }
         guard let id = state.worktreeID(byOffset: -1) else {
           return .run { _ in NSSound.beep() }
         }
         return .send(.selectWorktree(id, focusTerminal: true))
-
-      case .agentDashboardSelectionChanged(let entryID):
-        state.agentDashboardSelection = entryID
-        return .none
-
-      case .activateAgentDashboardSelection:
-        guard let entryID = state.agentDashboardSelection else {
-          return .run { _ in NSSound.beep() }
-        }
-        return .send(.activateAgentDashboardEntry(entryID))
-
-      case .activateAgentDashboardEntry(let entryID):
-        state.agentDashboardSelection = entryID
-        return .send(.selectionChanged([.worktree(entryID.worktreeID)], focusTerminal: true))
 
       case .worktreeHistoryBack:
         return state.navigateWorktreeHistoryEffect(direction: .back)
@@ -4946,10 +4867,6 @@ struct RepositoriesFeature {
       case .repositoryCustomization:
         return .none
 
-      case .requestRenameAgent, .agentRename:
-        // Handled by `agentRenameReducer` below, for the same type-checker reason.
-        return .none
-
       case .requestCustomizeWorktree,
         .setWorktreeAppearance,
         .worktreeCustomization:
@@ -5076,10 +4993,6 @@ struct RepositoriesFeature {
     Self.worktreeCustomizationReducer
       .ifLet(\.$worktreeCustomization, action: \.worktreeCustomization) {
         WorktreeCustomizationFeature()
-      }
-    Self.agentRenameReducer
-      .ifLet(\.$agentRename, action: \.agentRename) {
-        AgentRenameFeature()
       }
     // Dedicated reducer + chained `ifLet` so the form's child reducer runs
     // before the delegate handler nils the presented state (mirrors the

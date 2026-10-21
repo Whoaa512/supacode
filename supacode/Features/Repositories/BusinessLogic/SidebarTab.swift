@@ -3,13 +3,11 @@ import Sharing
 enum SidebarTab: String, CaseIterable, Codable, Sendable {
   case sessions
   case worktrees
-  case agents
 
   var title: String {
     switch self {
     case .sessions: "Sessions"
     case .worktrees: "Worktrees"
-    case .agents: "Agents"
     }
   }
 
@@ -17,8 +15,19 @@ enum SidebarTab: String, CaseIterable, Codable, Sendable {
     switch self {
     case .sessions: "Show agent sessions across directories"
     case .worktrees: "Show repositories and worktrees"
-    case .agents: "Show every running agent across repositories"
     }
+  }
+
+  /// Resolves a persisted raw value. Unknown strings (including the retired
+  /// `agents` panel) land on `sessions`, so every reader agrees on one panel.
+  static func stored(_ rawValue: String) -> SidebarTab {
+    SidebarTab(rawValue: rawValue) ?? .sessions
+  }
+
+  var next: SidebarTab {
+    let all = Self.allCases
+    let index = all.firstIndex(of: self) ?? 0
+    return all[(index + 1) % all.count]
   }
 }
 

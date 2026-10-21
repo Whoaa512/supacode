@@ -33,7 +33,6 @@ struct AppFeatureSettingsChangedTests {
     await store.receive(\.repositories.setMoveNotifiedWorktreeToTop) {
       $0.repositories.moveNotifiedWorktreeToTop = true
     }
-    await store.receive(\.repositories.agentsSidebarRowsChanged)
     await store.receive(\.repositories.openActionSettingsChanged)
     await store.receive(\.repositories.setAutoDeleteArchivedWorktreesAfterDays)
     await store.receive(\.updates.applySettings) {

@@ -95,12 +95,6 @@ nonisolated extension SharedReaderKey where Self == AppStorageKey<Bool>.Default 
     Self[.appStorage("sidebarGroupActiveRows"), default: true]
   }
 
-  /// "Group by State" toggle for the Agents tab. Off by default: the flat,
-  /// urgency-sorted list is the cheaper read when only a couple of agents run.
-  static var sidebarAgentsGroupByState: Self {
-    Self[.appStorage("sidebarAgentsGroupByState"), default: false]
-  }
-
   /// Whether selecting a task in the Sessions tab lists its sessions under
   /// the row. Off, a task with several sessions shows a chevron to open it
   /// by hand, so a big task does not swallow the sidebar on every click.
