@@ -1433,16 +1433,21 @@ struct AppFeatureDeeplinkTests {
       AppFeature()
     }
     store.exhaustivity = .off
+    let (readFD, writeFD) = makePipe()
+    defer {
+      close(readFD)
+      close(writeFD)
+    }
 
     await store.send(
       .deeplink(
         .worktree(id: worktree.id, action: .runScript(scriptID: definition.id)),
         source: .socket,
-        responseFD: 42,
+        responseFD: writeFD,
         timeoutSeconds: 0
       )
     )
-    #expect(store.state.deeplinkInputConfirmation?.responseFD == 42)
+    #expect(store.state.deeplinkInputConfirmation?.responseFD == writeFD)
     #expect(store.state.deeplinkInputConfirmation?.action == .runScript(scriptID: definition.id))
   }
 
@@ -2983,16 +2988,21 @@ struct AppFeatureDeeplinkTests {
       AppFeature()
     }
     store.exhaustivity = .off
+    let (readFD, writeFD) = makePipe()
+    defer {
+      close(readFD)
+      close(writeFD)
+    }
 
     await store.send(
       .deeplink(
         .worktree(id: worktree.id, action: .tabNew(input: "echo test", id: nil)),
         source: .socket,
-        responseFD: 42,
+        responseFD: writeFD,
         timeoutSeconds: 0
       )
     )
-    #expect(store.state.deeplinkInputConfirmation?.responseFD == 42)
+    #expect(store.state.deeplinkInputConfirmation?.responseFD == writeFD)
   }
 
   @Test(.dependencies) func socketDeeplinkSupersededConfirmationClosesOldFD() async {

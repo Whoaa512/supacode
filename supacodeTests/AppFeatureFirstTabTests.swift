@@ -1,4 +1,5 @@
 import ComposableArchitecture
+import Darwin
 import DependenciesTestSupport
 import Foundation
 import Testing
@@ -148,7 +149,10 @@ struct AppFeatureFirstTabTests {
 
   @Test(.dependencies) func aNewWorktreeMintsItsFirstTaskAndAFailedFirstTabFailsTheAck() async {
     var initial = state(selected: nil, pending: true)
-    let writeFD = Int32(999)
+    var fds: [Int32] = [0, 0]
+    precondition(fds.withUnsafeMutableBufferPointer { Darwin.pipe($0.baseAddress!) } == 0)
+    let (readFD, writeFD) = (fds[0], fds[1])
+    defer { close(readFD) }
     initial.pendingCommandAcks[id: writeFD] = AppFeature.PendingCommandAck(
       responseFD: writeFD, token: 1,
       match: .worktreeNew(pendingID: WorktreeID("pending:cli-1"), worktreeID: worktree.id))
