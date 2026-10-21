@@ -20,12 +20,30 @@ struct SessionsSidebarStructure: Equatable, Sendable {
     var location: SessionLocation?
     /// A running tangent: its tab can leave for a task of its own (D8, Q8).
     var isDetachable = false
+    /// Hidden by the user and listed only while the task reveals its hidden members.
+    var isHidden = false
+    /// Why "Hide from task" is refused; nil when the member can be hidden.
+    var hideRefusal: HideRefusal?
 
     var isDormant: Bool { location == nil }
+    var isHideable: Bool { hideRefusal == nil && !isHidden }
     var harness: SkillAgent? {
       switch id {
       case .session(let key): key.harness
       case .provisional(let harness, _): harness
+      }
+    }
+  }
+
+  /// Why a member stays listed: only an ended tangent can be hidden.
+  enum HideRefusal: Equatable, Sendable {
+    case primary
+    case live
+
+    var reason: String {
+      switch self {
+      case .primary: "The primary session titles the task and cannot be hidden"
+      case .live: "A running session cannot be hidden; it unhides itself anyway"
       }
     }
   }
@@ -360,16 +378,76 @@ extension RepositoriesFeature.State {
     }
     var agentByMember: [TaskMember: SessionLiveSnapshot] = [:]
     for agent in agents where agentByMember[agent.member] == nil { agentByMember[agent.member] = agent }
+    let sidecar = sessions
+    let revealsHidden = revealedHiddenTaskIDs.contains(layoutID)
     let rows = members.compactMap { member -> SessionsSidebarStructure.SubRow? in
       let agent = agentByMember[member]
       let title = member.sessionKey.flatMap { titles[$0] }
       // One that is neither running nor on disk cannot be shown or resumed.
       guard agent != nil || title != nil else { return nil }
+      let refusal = Self.hideRefusal(member, isPrimary: member == members.first, isLive: agent != nil)
+      let isHidden = refusal == nil && Self.isHidden(member, sidecar: sidecar)
+      guard !isHidden || revealsHidden else { return nil }
       return SessionsSidebarStructure.SubRow(
         id: member, title: title ?? "New session", status: agent?.status, location: agent?.location,
-        isDetachable: agent != nil && member != members.first)
+        isDetachable: agent != nil && member != members.first, isHidden: isHidden, hideRefusal: refusal)
     }
     return rows.count > 1 ? (layoutID, rows) : (nil, [])
+  }
+
+  /// A hide mark counts only on a member that could be hidden now: the
+  /// primary and a running member are listed whatever the sidecar says.
+  static func hideRefusal(
+    _ member: TaskMember, isPrimary: Bool, isLive: Bool
+  ) -> SessionsSidebarStructure.HideRefusal? {
+    if isPrimary { return .primary }
+    if isLive { return .live }
+    return nil
+  }
+
+  static func isHidden(_ member: TaskMember, sidecar: SessionSidecar) -> Bool {
+    guard let key = member.sessionKey else { return false }
+    return sidecar[key]?.hiddenAt != nil
+  }
+
+  /// Members the task may hide right now, in member order.
+  func hideableMembers(of layoutID: LayoutID) -> [SessionKey] {
+    let agents = sessionSnapshots.filter { $0.location.layoutID == layoutID }
+    let members = members(of: layoutID, agents: agents)
+    let live = Set(agents.map(\.member))
+    let sidecar = sessions
+    return members.enumerated().compactMap { index, member in
+      guard let key = member.sessionKey,
+        Self.hideRefusal(member, isPrimary: index == 0, isLive: live.contains(member)) == nil,
+        sidecar[key]?.hiddenAt == nil
+      else { return nil }
+      return key
+    }
+  }
+
+  mutating func applyHide(key: SessionKey, in layoutID: LayoutID, now: Date) {
+    guard hideableMembers(of: layoutID).contains(key) else { return }
+    $sessions.withLock { sidecar in
+      var entry = sidecar[key] ?? SessionSidecarEntry()
+      entry.hiddenAt = now
+      sidecar[key] = entry
+    }
+  }
+
+  mutating func applyUnhide(key: SessionKey) {
+    guard sessions[key]?.hiddenAt != nil else { return }
+    $sessions.withLock { $0[key]?.hiddenAt = nil }
+  }
+
+  /// A hidden member that runs again is back in view: the mark is dropped
+  /// rather than overridden so the user's own "hide" is the only one left.
+  mutating func unhideLiveSessions() {
+    let sidecar = sessions
+    let live = sessionSnapshots.compactMap(\.sessionKey).filter { sidecar[$0]?.hiddenAt != nil }
+    guard !live.isEmpty else { return }
+    $sessions.withLock { sidecar in
+      for key in live { sidecar[key]?.hiddenAt = nil }
+    }
   }
 
   mutating func recomputeSessionsSidebarStructureIfChanged() {
@@ -495,6 +573,7 @@ extension RepositoriesFeature.State {
   /// ended and still has no file on disk never had a turn and cannot be
   /// resumed, so its placeholder row goes away instead of lingering.
   mutating func reconcileSessionItems(now: Date, droppingUnindexedEnded: Bool = false) {
+    unhideLiveSessions()
     var facts = SidecarFacts(sidecar: sessions)
     var groups = SessionGroups(taskSessions: taskSessions, tabs: taskSnapshots, agents: sessionSnapshots)
     var rows = RowDrafts()
@@ -595,7 +674,7 @@ extension RepositoriesFeature.State {
     for layoutID in groups.tasks.keys.sorted(by: { $0.persistenceKey < $1.persistenceKey }) {
       guard let group = groups.tasks[layoutID] else { continue }
       let existing = sessionItems[id: .task(layoutID)]
-      guard var row = taskDraft(layoutID, group: group, existing: existing, now: now) else { continue }
+      guard var row = taskDraft(layoutID, group: group, existing: existing, facts: facts, now: now) else { continue }
       // A task with no tab, no agent and no session on disk has nothing to show or resume.
       let isPlaceholder = existing?.isSynthetic == true && keepingPlaceholders
       guard row.location != nil || !group.indexed.isEmpty || isPlaceholder else { continue }
@@ -613,7 +692,7 @@ extension RepositoriesFeature.State {
   /// A task's row, less the two fields read from the sidecar. Nil for a
   /// task that is neither open nor lists anything.
   private func taskDraft(
-    _ layoutID: LayoutID, group: TaskGroup, existing: SessionSidebarItemFeature.State?, now: Date
+    _ layoutID: LayoutID, group: TaskGroup, existing: SessionSidebarItemFeature.State?, facts: SidecarFacts, now: Date
   ) -> SessionRowDraft? {
     let members = members(of: layoutID, agents: group.agents)
     guard group.tabs != nil || !members.isEmpty else { return nil }
@@ -623,6 +702,11 @@ extension RepositoriesFeature.State {
       member.sessionKey.map { group.indexed[$0] != nil } == true || group.agents.contains { $0.member == member }
     }
     let primary = members.first?.sessionKey
+    let hiddenCount = shown.filter { member in
+      guard member != members.first, let key = member.sessionKey, facts.sidecar[key]?.hiddenAt != nil
+      else { return false }
+      return !group.agents.contains { $0.member == member }
+    }.count
     // The row speaks for its most urgent agent, and leads to that agent.
     // Among equals the one the row already leads to stays, so it does not hop.
     let leading = group.agents.min {
@@ -646,7 +730,8 @@ extension RepositoriesFeature.State {
       cwd: group.tabs?.cwd ?? group.agents.first?.cwd ?? indexedCwd ?? existing?.cwd ?? "",
       createdAt: createdAt, location: leading?.location ?? group.tabs?.location, status: leading?.status,
       allowsAttentionNavigation: leading?.allowsAttentionNavigation ?? true,
-      isSynthetic: !members.isEmpty && group.indexed.isEmpty, primary: primary, hasTangents: shown.count > 1)
+      isSynthetic: !members.isEmpty && group.indexed.isEmpty, primary: primary, hasTangents: shown.count > 1,
+      hiddenCount: hiddenCount)
   }
 
   private func currentBranch(forSessionCwd cwd: String) -> String? {

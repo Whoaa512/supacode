@@ -104,6 +104,8 @@ nonisolated struct SessionRowDraft: Equatable, Sendable {
   var primary: SessionKey?
   /// A task with more than one session to list under its row.
   var hasTangents = false
+  /// Members the user hid from the sub-rows.
+  var hiddenCount = 0
 }
 
 @Reducer
@@ -122,6 +124,7 @@ struct SessionSidebarItemFeature {
     var isSynthetic = false
     var primary: SessionKey?
     var hasTangents = false
+    var hiddenCount = 0
 
     var isLive: Bool { location != nil }
     /// The session whose sidecar entry is the row's settle state: the session
@@ -145,7 +148,7 @@ struct SessionSidebarItemFeature {
         && lifecycle == draft.lifecycle && location == draft.location && status == draft.status
         && allowsAttentionNavigation == draft.allowsAttentionNavigation
         && branchAnnotation == draft.branchAnnotation && isSynthetic == draft.isSynthetic
-        && primary == draft.primary && hasTangents == draft.hasTangents
+        && primary == draft.primary && hasTangents == draft.hasTangents && hiddenCount == draft.hiddenCount
     }
 
     mutating func apply(_ draft: SessionRowDraft) {
@@ -160,6 +163,7 @@ struct SessionSidebarItemFeature {
       isSynthetic = draft.isSynthetic
       primary = draft.primary
       hasTangents = draft.hasTangents
+      hiddenCount = draft.hiddenCount
     }
   }
 
@@ -178,6 +182,6 @@ extension SessionSidebarItemFeature.State {
       lifecycle: draft.lifecycle, location: draft.location, status: draft.status,
       allowsAttentionNavigation: draft.allowsAttentionNavigation,
       branchAnnotation: draft.branchAnnotation, isSynthetic: draft.isSynthetic, primary: draft.primary,
-      hasTangents: draft.hasTangents)
+      hasTangents: draft.hasTangents, hiddenCount: draft.hiddenCount)
   }
 }

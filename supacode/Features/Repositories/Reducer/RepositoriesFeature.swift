@@ -321,6 +321,8 @@ struct RepositoriesFeature {
     var sessionSelection: SessionRowID?
     /// Tasks opened by their chevron while `sessionsExpandSelectedTask` is off. Not persisted.
     var expandedSessionTaskIDs: Set<LayoutID> = []
+    /// Tasks showing their hidden members, dimmed, via "+N hidden". Not persisted.
+    var revealedHiddenTaskIDs: Set<LayoutID> = []
     var sessionSummaries: [SessionSummary] = []
     var sessionSnapshots: [SessionLiveSnapshot] = []
     /// When each surface's agent started waiting on the user. Not persisted.
@@ -438,6 +440,13 @@ struct RepositoriesFeature {
     case mergeTaskRequested(LayoutID, into: LayoutID)
     /// From a sub-row's "Detach into New Task".
     case detachTabRequested(LayoutID, tabID: TabID)
+    /// From a sub-row's "Hide from task". Refused for the primary or a running member.
+    case hideSessionFromTask(LayoutID, SessionKey)
+    case unhideSessionInTask(LayoutID, SessionKey)
+    /// The chord: hides every inactive tangent of the selected task.
+    case hideInactiveSessionsInSelectedTask
+    /// The task row's "+N hidden": lists the hidden members dimmed, or stops.
+    case toggleHiddenSessionsRevealed(LayoutID)
     case unsettleSession(SessionKey)
     case registerSessionFolder(URL)
     case sessionBranchCaptured(key: SessionKey, branch: String)
@@ -4966,7 +4975,8 @@ struct RepositoriesFeature {
         .activateSessionSubRow, .toggleSessionTaskExpanded, .sessionsExpandSelectedTaskChanged,
         .taskSnapshotsChanged, .taskSessionsChanged, .selectTask, .selectedTaskRemoved,
         .settleSession, .settleSessionRequested, .settleTaskRequested, .markRowUnreadRequested, .mergeTaskRequested,
-        .detachTabRequested,
+        .detachTabRequested, .hideSessionFromTask, .unhideSessionInTask, .hideInactiveSessionsInSelectedTask,
+        .toggleHiddenSessionsRevealed,
         .unsettleSession, .sessionBranchCaptured:
         return .none
 

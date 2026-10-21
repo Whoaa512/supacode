@@ -445,7 +445,8 @@ extension RepositoriesFeature.Action {
     case .sessionsCacheLoaded, .sessionsRefreshCompleted, .sessionSnapshotsChanged, .taskSnapshotsChanged,
       .taskSessionsChanged:
       return .sessionsStructure
-    case .settleSession, .unsettleSession, .sessionsExpandSelectedTaskChanged:
+    case .settleSession, .unsettleSession, .sessionsExpandSelectedTaskChanged, .hideSessionFromTask,
+      .unhideSessionInTask, .hideInactiveSessionsInSelectedTask, .toggleHiddenSessionsRevealed:
       return .sessionsStructure
     case .sessionsRestorationCompleted, .sessionsLiveKeysChanged, .sessionActivityObserved,
       .sessionsCoarseClockFired, .sessionsStopped,

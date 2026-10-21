@@ -221,6 +221,30 @@ extension RepositoriesFeature {
       case .detachTabRequested(let source, let tabID):
         return .send(.delegate(.detachTab(source, tabID: tabID)))
 
+      case .hideSessionFromTask(let layoutID, let key):
+        state.applyHide(key: key, in: layoutID, now: date.now)
+        state.reconcileSessionItems(now: date.now)
+        return .none
+
+      case .hideInactiveSessionsInSelectedTask:
+        guard let layoutID = state.selectedTaskID else { return .none }
+        for key in state.hideableMembers(of: layoutID) { state.applyHide(key: key, in: layoutID, now: date.now) }
+        state.reconcileSessionItems(now: date.now)
+        return .none
+
+      case .unhideSessionInTask(_, let key):
+        state.applyUnhide(key: key)
+        state.reconcileSessionItems(now: date.now)
+        return .none
+
+      case .toggleHiddenSessionsRevealed(let layoutID):
+        if state.revealedHiddenTaskIDs.contains(layoutID) {
+          state.revealedHiddenTaskIDs.remove(layoutID)
+        } else {
+          state.revealedHiddenTaskIDs.insert(layoutID)
+        }
+        return .none
+
       case .unsettleSession(let key):
         state.applyUnsettle(key: key, summaries: state.sessionSummaries, now: date.now)
         return .none
