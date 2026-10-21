@@ -119,6 +119,7 @@ struct AppFeatureSessionsTaskSettleTests {
     let closed = LockIsolated<Set<UUID>>([])
     let written = LockIsolated<[LayoutID]>([])
     let focused = LockIsolated<[LayoutID]>([])
+    let focusedSurfaces = LockIsolated<[UUID]>([])
     let commands = LockIsolated<[TerminalClient.Command]>([])
 
     /// Every task shown through its row, with whatever it had focused.
@@ -141,7 +142,10 @@ struct AppFeatureSessionsTaskSettleTests {
       $0.uuid = .incrementing
       $0.continuousClock = ImmediateClock()
       $0.terminalClient.send = { command in recorded.commands.withValue { $0.append(command) } }
-      $0.terminalClient.focusSurface = { layoutID, _, _, _ in recorded.focused.withValue { $0.append(layoutID) } }
+      $0.terminalClient.focusSurface = { layoutID, _, _, surfaceID in
+        recorded.focused.withValue { $0.append(layoutID) }
+        recorded.focusedSurfaces.withValue { $0.append(surfaceID) }
+      }
       $0.terminalClient.markUserCloseIntent = { _, ids in recorded.closed.withValue { $0.formUnion(ids) } }
       $0.terminalClient.saveLayoutsWithAgents = { _ in }
       $0.worktreeInfoWatcher.send = { _ in }
@@ -1124,6 +1128,44 @@ struct AppFeatureSessionsTaskSettleTests {
 
     #expect(recorded.commands.value.isEmpty)
     #expect(store.state.pendingSessionLaunch == nil)
+  }
+
+  /// The palette picked a running task whose tangent was the last tab
+  /// focused: it lands on the primary's surface, not back on the tangent.
+  @Test(.dependencies) func activatingARunningTaskFocusesItsPrimaryNotTheTangent() async throws {
+    var initial = state(second: live("b", pid: 12))
+    initial.terminals.layouts[id: task]?.layout.panes[0].selectedTabID = TabID(rawValue: secondSurface)
+    initial.repositories.selectSessionRow(.task(otherTask))
+    let recorded = Recorded()
+    let store = store(initial, recorded: recorded)
+
+    await store.send(.activateTask(.task(task)))
+    await store.finish()
+
+    #expect(recorded.focusedSurfaces.value == [primarySurface])
+    #expect(store.state.repositories.sessionSelection == .task(task))
+  }
+
+  /// The task's primary left its surface before the pick landed: the task is
+  /// shown as it is, and nothing is started for the primary.
+  @Test(.dependencies) func activatingATaskWhosePrimaryStoppedShowsTheTaskAsIs() async throws {
+    var initial = state(second: live("b", pid: 12))
+    initial.agentPresence.records[.init(agent: .pi, surfaceID: primarySurface)] = nil
+    initial = withRows(initial)
+    let recorded = Recorded()
+    let store = store(initial, recorded: recorded)
+
+    await store.send(.activateTask(.task(task)))
+    await store.receive(\.repositories.activateSession)
+    await store.finish()
+
+    #expect(recorded.focusedSurfaces.value.isEmpty)
+    #expect(recorded.shown.contains(task))
+    let created = recorded.commands.value.filter {
+      if case .createTaskTab = $0 { return true }
+      return false
+    }
+    #expect(created.isEmpty)
   }
 
   /// The palette listed the task, then the task went before the pick landed.

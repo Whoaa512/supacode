@@ -1239,11 +1239,11 @@ struct AppFeature {
         return Self.handleNextSessionNeedsMe(state: &state)
 
       case .activateTask(let rowID):
-        return Self.handleActivateTask(rowID, state: state)
+        return Self.handleActivateTask(rowID, state: &state)
 
       case .resumeMostRecentlySettledTask:
         guard let task = state.repositories.recentlySettledTasks(limit: 1).first else { return .none }
-        return Self.handleActivateTask(task.id, state: state)
+        return Self.handleActivateTask(task.id, state: &state)
 
       case .renameSelectedTerminalTab:
         guard let shown = state.shownTerminal, let layoutID = shown.layoutID,

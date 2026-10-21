@@ -686,18 +686,35 @@ extension AppFeature {
 
   /// A task asked for by row id, from the palette or the menu. The row is
   /// read again now: one removed since the list was built, or a task whose
-  /// record went, gets nothing. The row's own activation does the rest, so
-  /// a task that is running by now is focused, not started twice.
-  static func handleActivateTask(_ rowID: SessionRowID, state: State) -> Effect<Action> {
+  /// record went, gets nothing. A task whose primary is running lands on
+  /// the primary's surface, not on whatever tab the task last had focused;
+  /// otherwise the row's own activation does the rest, so a task that is
+  /// running by now is focused, not started twice.
+  static func handleActivateTask(_ rowID: SessionRowID, state: inout State) -> Effect<Action> {
     guard state.repositories.sessionItems[id: rowID] != nil else {
       repositoriesLogger.warning("Activate task: \(rowID.sortKey) has no row")
       return .none
     }
-    if case .task(let layoutID) = rowID, !hasTask(layoutID, state: state) {
+    guard case .task(let layoutID) = rowID else { return .send(.repositories(.activateSession(rowID))) }
+    guard hasTask(layoutID, state: state) else {
       repositoriesLogger.warning("Activate task: \(layoutID.persistenceKey) is gone")
       return .none
     }
-    return .send(.repositories(.activateSession(rowID)))
+    guard let primary = primarySurfaceLocation(of: layoutID, state: state) else {
+      return .send(.repositories(.activateSession(rowID)))
+    }
+    state.repositories.selectSessionRow(rowID)
+    return focusSession(primary, state: state)
+  }
+
+  /// Where the task's primary session runs right now, within the task. Nil
+  /// for a dormant primary, a shell-only task, or one whose primary ran off
+  /// into another task.
+  static func primarySurfaceLocation(of layoutID: LayoutID, state: State) -> SessionLocation? {
+    guard let primary = primarySession(of: layoutID, state: state) else { return nil }
+    return state.repositories.sessionSnapshots.first {
+      $0.sessionKey == primary && $0.location.layoutID == layoutID
+    }?.location
   }
 
   static func handleUnsettleCurrentSession(state: inout State) -> Effect<Action> {
