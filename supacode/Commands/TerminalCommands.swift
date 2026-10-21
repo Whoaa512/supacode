@@ -13,6 +13,7 @@ struct TerminalCommands: Commands {
   @FocusedValue(\.unsettleSessionAction) private var unsettleSessionAction
   @FocusedValue(\.nextSessionNeedsMeAction) private var nextSessionNeedsMeAction
   @FocusedValue(\.resumeMostRecentlySettledTaskAction) private var resumeMostRecentlySettledTaskAction
+  @FocusedValue(\.hideInactiveSessionsAction) private var hideInactiveSessionsAction
   @FocusedValue(\.renameTabAction) private var renameTabAction
   @FocusedValue(\.splitTerminalAction) private var splitTerminalAction
   @FocusedValue(\.toggleWindowModeAction) private var toggleWindowModeAction
@@ -88,6 +89,16 @@ struct TerminalCommands: Commands {
       .help(
         "Reopen the task settled last on its primary session "
           + "(\(AppShortcuts.resumeMostRecentlySettledTask.effective(from: overrides)?.display ?? "none"))"
+      )
+
+      Button("Hide Inactive Sessions") {
+        hideInactiveSessionsAction?()
+      }
+      .appKeyboardShortcut(AppShortcuts.hideInactiveSessions.effective(from: overrides))
+      .disabled(hideInactiveSessionsAction?.isEnabled != true)
+      .help(
+        "Hide every ended tangent of the selected task from its sub-rows "
+          + "(\(AppShortcuts.hideInactiveSessions.effective(from: overrides)?.display ?? "none"))"
       )
 
       Button("Rename Tab", systemImage: "pencil") {
@@ -307,6 +318,10 @@ private struct ResumeMostRecentlySettledTaskActionKey: FocusedValueKey {
   typealias Value = FocusedAction<Void>
 }
 
+private struct HideInactiveSessionsActionKey: FocusedValueKey {
+  typealias Value = FocusedAction<Void>
+}
+
 private struct ToggleTerminalGridActionKey: FocusedValueKey {
   typealias Value = FocusedAction<Void>
 }
@@ -350,6 +365,11 @@ extension FocusedValues {
   var resumeMostRecentlySettledTaskAction: FocusedAction<Void>? {
     get { self[ResumeMostRecentlySettledTaskActionKey.self] }
     set { self[ResumeMostRecentlySettledTaskActionKey.self] = newValue }
+  }
+
+  var hideInactiveSessionsAction: FocusedAction<Void>? {
+    get { self[HideInactiveSessionsActionKey.self] }
+    set { self[HideInactiveSessionsActionKey.self] = newValue }
   }
 }
 

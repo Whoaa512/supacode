@@ -39,6 +39,12 @@ source task, while a blocking script runs on a moved tab, while a close confirma
 pending on either task, while the layouts store is unreadable or read-only, and while
 Supacode is quitting.
 
+**Hide a tangent** that has ended from the row's context menu ("Hide from Task"), or ⌘⌃H to
+hide every ended tangent of the selected task. The primary and any running session cannot be
+hidden. A hidden session stays in the task: resume, settle, merge and detach count it as
+before, and it unhides itself the moment it runs again. The task row shows "+N hidden";
+click it to list them dimmed and "Unhide" from their menu.
+
 ### Worktrees
 
 A worktree is optional directory isolation: create one when agents must not collide, and start

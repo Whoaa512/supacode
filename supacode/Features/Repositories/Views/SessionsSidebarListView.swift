@@ -86,7 +86,9 @@ struct SessionsSidebarListView: View {
       rows: structure.subRows,
       nextTab: AppShortcuts.selectNextTab.effective(from: overrides)?.display,
       previousTab: AppShortcuts.selectPreviousTab.effective(from: overrides)?.display,
+      hideChord: AppShortcuts.hideInactiveSessions.effective(from: overrides)?.display,
       mergeTargets: structure.mergeTargets,
+      revealedTaskIDs: store.revealedHiddenTaskIDs,
       chevronTaskIDs: expandSelectedTask ? nil : store.expandedSessionTaskIDs,
       selection: store.sessionSelection)
     if commandKeyObserver.isPressed {
@@ -173,10 +175,16 @@ struct SessionsSidebarListView: View {
     let rows: [SessionsSidebarStructure.SubRow]
     let nextTab: String?
     let previousTab: String?
+    let hideChord: String?
     let mergeTargets: [SessionsSidebarStructure.MergeTarget]
+    let revealedTaskIDs: Set<LayoutID>
     /// The tasks opened by hand, while selecting a task does not open it. Nil when it does.
     let chevronTaskIDs: Set<LayoutID>?
     let selection: SessionRowID?
+
+    var hideHelp: String {
+      "Drop this ended session from the task's list; it stays in the task (\(hideChord ?? "none"))"
+    }
 
     /// A chevron for a task the user opens by hand: nil when selection opens it.
     func chevron(for id: SessionRowID) -> (isExpanded: Bool, layoutID: LayoutID)? {
@@ -193,9 +201,12 @@ struct SessionsSidebarListView: View {
         // Only a task row merges; an implicit row has no record to move.
         let mergeTargets: [SessionsSidebarStructure.MergeTarget] =
           if case .task(let layoutID) = id { subRows.mergeTargets.filter { $0.id != layoutID } } else { [] }
-        SessionSidebarRowView(store: rowStore, shortcutHint: shortcutHintByID[id], chevron: subRows.chevron(for: id)) {
-          store.send(.toggleSessionTaskExpanded($0))
-        }
+        SessionSidebarRowView(
+          store: rowStore, shortcutHint: shortcutHintByID[id], chevron: subRows.chevron(for: id),
+          revealsHidden: subRows.revealedTaskIDs.contains(where: { .task($0) == id }),
+          toggleExpanded: { store.send(.toggleSessionTaskExpanded($0)) },
+          toggleHidden: { store.send(.toggleHiddenSessionsRevealed($0)) }
+        )
         .tag(id)
         .contextMenu {
           SessionContextMenu(
@@ -228,6 +239,16 @@ struct SessionsSidebarListView: View {
                 store.send(.detachTabRequested(location.layoutID, tabID: location.tabID))
               }
               .help("Move this session's tab into its own task")
+            }
+            if let key = row.id.sessionKey {
+              if row.isHidden {
+                Button("Unhide") { store.send(.unhideSessionInTask(layoutID, key)) }
+                  .help("List this session under the task again")
+              } else {
+                Button("Hide from Task") { store.send(.hideSessionFromTask(layoutID, key)) }
+                  .disabled(!row.isHideable)
+                  .help(row.hideRefusal?.reason ?? subRows.hideHelp)
+              }
             }
           }
         }
@@ -277,7 +298,9 @@ private struct SessionSidebarRowView: View {
   let store: StoreOf<SessionSidebarItemFeature>
   let shortcutHint: String?
   let chevron: (isExpanded: Bool, layoutID: LayoutID)?
+  let revealsHidden: Bool
   let toggleExpanded: (LayoutID) -> Void
+  let toggleHidden: (LayoutID) -> Void
 
   var body: some View {
     Button {
@@ -307,6 +330,22 @@ private struct SessionSidebarRowView: View {
           Text(hint)
             .font(.caption)
             .foregroundStyle(.quaternary)
+        }
+        if case .task(let layoutID) = store.id, store.hiddenCount > 0 {
+          Button {
+            toggleHidden(layoutID)
+          } label: {
+            Text("+\(store.hiddenCount) hidden")
+              .font(.caption)
+              .foregroundStyle(revealsHidden ? .primary : .secondary)
+          }
+          .buttonStyle(.plain)
+          .help(
+            revealsHidden
+              ? "Stop listing the \(store.hiddenCount) hidden sessions of this task"
+              : "List the \(store.hiddenCount) sessions hidden from this task, dimmed"
+          )
+          .accessibilityLabel("\(store.hiddenCount) hidden sessions")
         }
         if let chevron, store.hasTangents {
           Button {
@@ -360,6 +399,7 @@ private struct SessionSubRowView: View {
         Spacer()
       }
       .foregroundStyle(row.isDormant ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+      .opacity(row.isHidden ? 0.6 : 1)
       .contentShape(.rect)
     }
     .buttonStyle(.plain)
@@ -368,6 +408,7 @@ private struct SessionSubRowView: View {
   }
 
   private var helpText: String {
+    if row.isHidden { return "Hidden from this task. Click to resume it, or Unhide from its menu" }
     guard !row.isDormant else { return "Resume this session in a new tab of this task" }
     let chords = [nextTab.map { "Next Tab \($0)" }, previousTab.map { "Previous Tab \($0)" }].compactMap { $0 }
     return chords.isEmpty ? "Focus this session" : "Focus this session (\(chords.joined(separator: ", ")))"

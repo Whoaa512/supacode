@@ -19,7 +19,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
   case openWorktree, revealInFinder, openRepository, addRemoteRepository, cloneRepository, openPullRequest, copyPath
   case runScript, stopRunScript, renameTab, toggleWindowMode
   case newTerminalTab, newSession, newSessionInDirectory, settleSessionAndAdvance, unsettleSession
-  case nextSessionNeedsMe, resumeMostRecentlySettledTask, closeTab
+  case nextSessionNeedsMe, resumeMostRecentlySettledTask, hideInactiveSessions, closeTab
   case splitRight, splitLeft, splitDown, splitUp
   case focusSplitLeft, focusSplitRight, focusSplitUp, focusSplitDown
   case focusNextPane, focusPreviousPane
@@ -92,6 +92,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     case .unsettleSession: "unsettleSession"
     case .nextSessionNeedsMe: "nextSessionNeedsMe"
     case .resumeMostRecentlySettledTask: "resumeMostRecentlySettledTask"
+    case .hideInactiveSessions: "hideInactiveSessions"
     case .closeTab: "closeTab"
     case .splitRight: "splitRight"
     case .splitLeft: "splitLeft"
@@ -160,6 +161,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     "unsettleSession": .unsettleSession,
     "nextSessionNeedsMe": .nextSessionNeedsMe,
     "resumeMostRecentlySettledTask": .resumeMostRecentlySettledTask,
+    "hideInactiveSessions": .hideInactiveSessions,
     "closeTab": .closeTab,
     "splitRight": .splitRight,
     "splitLeft": .splitLeft,
@@ -250,6 +252,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     case .unsettleSession: "Unsettle Session"
     case .nextSessionNeedsMe: "Next Session That Needs Me"
     case .resumeMostRecentlySettledTask: "Resume Most Recently Settled Task"
+    case .hideInactiveSessions: "Hide Inactive Sessions"
     case .closeTab: "Close Tab"
     case .splitRight: "Split Right"
     case .splitLeft: "Split Left"
@@ -605,6 +608,9 @@ public enum AppShortcuts {
   public static let resumeMostRecentlySettledTask = AppShortcut(
     id: .resumeMostRecentlySettledTask, key: "r", modifiers: [.command, .control]
   )
+  public static let hideInactiveSessions = AppShortcut(
+    id: .hideInactiveSessions, key: "h", modifiers: [.command, .control]
+  )
   // Hardcoded to the platform's close chord: no settings row, and the
   // recorder refuses ⌘W for anything else.
   public static let closeTab = AppShortcut(id: .closeTab, key: "w", modifiers: .command, isCustomizable: false)
@@ -742,7 +748,7 @@ public enum AppShortcuts {
       shortcuts: [
         newTerminalTab, newSession, newSessionInDirectory,
         settleSessionAndAdvance, unsettleSession, nextSessionNeedsMe, resumeMostRecentlySettledTask,
-        closeTab, renameTab,
+        hideInactiveSessions, closeTab, renameTab,
       ]
         + tabSelection + [selectPreviousTab, selectNextTab]
         + [startSearch, findNext, findPrevious, useSelectionForFind]
