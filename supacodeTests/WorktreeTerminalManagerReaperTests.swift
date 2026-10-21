@@ -143,7 +143,6 @@ struct WorktreeTerminalManagerReaperTests {
     await clock.advance(by: .seconds(6))
     holdSignal.finish()
     await terminate.value
-    await clock.run()
 
     #expect(killed.value == [trackedSession])
   }
@@ -185,7 +184,6 @@ struct WorktreeTerminalManagerReaperTests {
     await clock.advance(by: .seconds(6))
     holdSignal.finish()
     await terminate.value
-    await clock.run()
 
     #expect(killed.value == [trackedSession, trackedSession])
   }
