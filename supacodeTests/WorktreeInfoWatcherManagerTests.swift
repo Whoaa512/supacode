@@ -1,4 +1,5 @@
 import Clocks
+import CoreServices
 import Foundation
 import Testing
 
@@ -726,6 +727,23 @@ struct WorktreeInfoWatcherManagerTests {
     #expect(WorktreeFileEventMonitor.isRelevant("/r/.git/HEAD"))
     #expect(WorktreeFileEventMonitor.isRelevant("/r/src/objects/main.swift"))
     #expect(WorktreeFileEventMonitor.isRelevant("/r/src/fsmonitor--daemon.md"))
+  }
+
+  @Test func recoveryFlagsOnExcludedPathsStillDeliver() {
+    let filter = WorktreeFileEventFilter(gitDirectoryURL: URL(fileURLWithPath: "/r/.git"))
+    let cookie = "/r/.git/fsmonitor--daemon/cookies/abc"
+    let objects = "/r/.git/objects/ab/cdef"
+    for flag in [kFSEventStreamEventFlagMustScanSubDirs, kFSEventStreamEventFlagUserDropped] {
+      #expect(
+        WorktreeFileEventMonitor.shouldDeliver(
+          paths: [cookie], flags: [FSEventStreamEventFlags(flag)], filter: filter))
+      #expect(
+        WorktreeFileEventMonitor.shouldDeliver(
+          paths: [objects], flags: [FSEventStreamEventFlags(flag)], filter: filter))
+    }
+    #expect(!WorktreeFileEventMonitor.shouldDeliver(paths: [cookie], flags: [0], filter: filter))
+    #expect(!WorktreeFileEventMonitor.shouldDeliver(paths: [objects], flags: [0], filter: filter))
+    #expect(WorktreeFileEventMonitor.shouldDeliver(paths: ["/r/.git/index"], flags: [0], filter: filter))
   }
 
   @Test func fileEventRootsIsJustTheWorkingTreeForAnEmbeddedGitDir() throws {

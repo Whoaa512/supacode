@@ -38,9 +38,8 @@ final class WorktreeFileEventMonitor {
         .fromOpaque(callbackInfo)
         .takeUnretainedValue()
       let paths = Unmanaged<NSArray>.fromOpaque(eventPaths).takeUnretainedValue() as? [String] ?? []
-      guard count == 0 || paths.contains(where: WorktreeFileEventMonitor.isRelevant) else { return }
       let flags = Array(UnsafeBufferPointer(start: eventFlags, count: count))
-      if !monitor.eventFilter.shouldRefresh(paths: paths, flags: flags) {
+      guard WorktreeFileEventMonitor.shouldDeliver(paths: paths, flags: flags, filter: monitor.eventFilter) else {
         return
       }
       Task { @MainActor in
@@ -71,6 +70,23 @@ final class WorktreeFileEventMonitor {
       self.stream = nil
       return nil
     }
+  }
+
+  /// Recovery flags (scan-subdirs, dropped events, root changes) win over
+  /// every path exclusion: the path on such an event is only where the
+  /// stream lost track, not what changed, so it must still reach the filter.
+  nonisolated static func shouldDeliver(
+    paths: [String],
+    flags: [FSEventStreamEventFlags],
+    filter: WorktreeFileEventFilter
+  ) -> Bool {
+    if WorktreeFileEventFilter.containsRecoveryFlag(flags) {
+      return true
+    }
+    guard paths.contains(where: isRelevant) else {
+      return false
+    }
+    return filter.shouldRefresh(paths: paths, flags: flags)
   }
 
   /// Git's own bookkeeping must not re-trigger the diff that produced it: every

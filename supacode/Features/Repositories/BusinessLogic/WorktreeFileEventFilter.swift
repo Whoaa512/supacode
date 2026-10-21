@@ -16,19 +16,24 @@ nonisolated struct WorktreeFileEventFilter {
     gitDirectoryPrefix = path.hasSuffix("/") ? path : path + "/"
   }
 
+  static let recoveryFlags = FSEventStreamEventFlags(
+    kFSEventStreamEventFlagMustScanSubDirs
+      | kFSEventStreamEventFlagUserDropped
+      | kFSEventStreamEventFlagKernelDropped
+      | kFSEventStreamEventFlagEventIdsWrapped
+      | kFSEventStreamEventFlagRootChanged
+      | kFSEventStreamEventFlagMount
+      | kFSEventStreamEventFlagUnmount
+  )
+
+  static func containsRecoveryFlag(_ flags: [FSEventStreamEventFlags]) -> Bool {
+    flags.contains { $0 & recoveryFlags != 0 }
+  }
+
   func shouldRefresh(paths: [String], flags: [FSEventStreamEventFlags]) -> Bool {
     guard paths.count == flags.count else { return true }
-    let recoveryFlags = FSEventStreamEventFlags(
-      kFSEventStreamEventFlagMustScanSubDirs
-        | kFSEventStreamEventFlagUserDropped
-        | kFSEventStreamEventFlagKernelDropped
-        | kFSEventStreamEventFlagEventIdsWrapped
-        | kFSEventStreamEventFlagRootChanged
-        | kFSEventStreamEventFlagMount
-        | kFSEventStreamEventFlagUnmount
-    )
     return zip(paths, flags).contains { path, flags in
-      flags & recoveryFlags != 0 || isRelevantPath(path)
+      flags & Self.recoveryFlags != 0 || isRelevantPath(path)
     }
   }
 
