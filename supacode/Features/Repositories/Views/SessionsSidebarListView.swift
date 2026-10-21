@@ -86,7 +86,6 @@ struct SessionsSidebarListView: View {
       rows: structure.subRows,
       nextTab: AppShortcuts.selectNextTab.effective(from: overrides)?.display,
       previousTab: AppShortcuts.selectPreviousTab.effective(from: overrides)?.display,
-      hideChord: AppShortcuts.hideInactiveSessions.effective(from: overrides)?.display,
       mergeTargets: structure.mergeTargets,
       revealedTaskIDs: store.revealedHiddenTaskIDs,
       chevronTaskIDs: expandSelectedTask ? nil : store.expandedSessionTaskIDs,
@@ -175,16 +174,14 @@ struct SessionsSidebarListView: View {
     let rows: [SessionsSidebarStructure.SubRow]
     let nextTab: String?
     let previousTab: String?
-    let hideChord: String?
     let mergeTargets: [SessionsSidebarStructure.MergeTarget]
     let revealedTaskIDs: Set<LayoutID>
     /// The tasks opened by hand, while selecting a task does not open it. Nil when it does.
     let chevronTaskIDs: Set<LayoutID>?
     let selection: SessionRowID?
 
-    var hideHelp: String {
-      "Drop this ended session from the task's list; it stays in the task (\(hideChord ?? "none"))"
-    }
+    // No chord: a sub-row is not a selection, so the keyboard cannot name one.
+    static let hideHelp = "Drop this ended session from the task's list; it stays in the task"
 
     /// A chevron for a task the user opens by hand: nil when selection opens it.
     func chevron(for id: SessionRowID) -> (isExpanded: Bool, layoutID: LayoutID)? {
@@ -247,7 +244,7 @@ struct SessionsSidebarListView: View {
               } else {
                 Button("Hide from Task") { store.send(.hideSessionFromTask(layoutID, key)) }
                   .disabled(!row.isHideable)
-                  .help(row.hideRefusal?.reason ?? subRows.hideHelp)
+                  .help(row.hideRefusal?.reason ?? SubRows.hideHelp)
               }
             }
           }

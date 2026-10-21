@@ -91,7 +91,7 @@ struct TerminalCommands: Commands {
           + "(\(AppShortcuts.resumeMostRecentlySettledTask.effective(from: overrides)?.display ?? "none"))"
       )
 
-      Button("Hide Inactive Sessions") {
+      Button("Hide Ended Sessions in Task") {
         hideInactiveSessionsAction?()
       }
       .appKeyboardShortcut(AppShortcuts.hideInactiveSessions.effective(from: overrides))

@@ -252,7 +252,7 @@ public nonisolated enum AppShortcutID: Codable, Hashable, Sendable, CodingKeyRep
     case .unsettleSession: "Unsettle Session"
     case .nextSessionNeedsMe: "Next Session That Needs Me"
     case .resumeMostRecentlySettledTask: "Resume Most Recently Settled Task"
-    case .hideInactiveSessions: "Hide Inactive Sessions"
+    case .hideInactiveSessions: "Hide Ended Sessions in Task"
     case .closeTab: "Close Tab"
     case .splitRight: "Split Right"
     case .splitLeft: "Split Left"
