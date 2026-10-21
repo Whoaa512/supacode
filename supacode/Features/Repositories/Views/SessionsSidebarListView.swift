@@ -44,6 +44,7 @@ struct SessionsSidebarListView: View {
   let store: StoreOf<RepositoriesFeature>
   @Environment(CommandKeyObserver.self) private var commandKeyObserver
   @Shared(.settingsFile) private var settingsFile
+  @Shared(.sessionsExpandSelectedTask) private var expandSelectedTask: Bool
   @State private var isSettledExpanded = false
   @State private var settledLimit = SessionsSidebarStructure.settledPageSize
 
@@ -56,7 +57,8 @@ struct SessionsSidebarListView: View {
       rows: structure.subRows,
       nextTab: AppShortcuts.selectNextTab.effective(from: overrides)?.display,
       previousTab: AppShortcuts.selectPreviousTab.effective(from: overrides)?.display,
-      mergeTargets: structure.mergeTargets)
+      mergeTargets: structure.mergeTargets,
+      chevronTaskIDs: expandSelectedTask ? nil : store.expandedSessionTaskIDs)
     if commandKeyObserver.isPressed {
       shortcutHintByID = structure.liveIDs.enumerated().reduce(into: [:]) { dict, pair in
         let (index, rowID) = pair
@@ -105,6 +107,7 @@ struct SessionsSidebarListView: View {
     .onChange(of: isSettledExpanded) { _, expanded in
       if !expanded { settledLimit = SessionsSidebarStructure.settledPageSize }
     }
+    .onChange(of: expandSelectedTask) { _, _ in store.send(.sessionsExpandSelectedTaskChanged) }
     .onKeyPress(.upArrow) { moveSelection(by: -1) }
     .onKeyPress(.downArrow) { moveSelection(by: 1) }
     .onKeyPress(.return) {
@@ -122,6 +125,14 @@ struct SessionsSidebarListView: View {
     let nextTab: String?
     let previousTab: String?
     let mergeTargets: [SessionsSidebarStructure.MergeTarget]
+    /// The tasks opened by hand, while selecting a task does not open it. Nil when it does.
+    let chevronTaskIDs: Set<LayoutID>?
+
+    /// A chevron for a task the user opens by hand: nil when selection opens it.
+    func chevron(for id: SessionRowID) -> (isExpanded: Bool, layoutID: LayoutID)? {
+      guard let chevronTaskIDs, case .task(let layoutID) = id else { return nil }
+      return (chevronTaskIDs.contains(layoutID), layoutID)
+    }
   }
 
   private func rows(
@@ -132,26 +143,28 @@ struct SessionsSidebarListView: View {
         // Only a task row merges; an implicit row has no record to move.
         let mergeTargets: [SessionsSidebarStructure.MergeTarget] =
           if case .task(let layoutID) = id { subRows.mergeTargets.filter { $0.id != layoutID } } else { [] }
-        SessionSidebarRowView(store: rowStore, shortcutHint: shortcutHintByID[id])
-          .tag(id)
-          .contextMenu {
-            SessionContextMenu(
-              store: rowStore,
-              mergeTargets: mergeTargets,
-              onSettle: { key in
-                if case .task(let layoutID) = id {
-                  store.send(.settleTaskRequested(layoutID))
-                } else {
-                  store.send(.settleSessionRequested(key))
-                }
-              },
-              onUnsettle: { store.send(.unsettleSession($0)) },
-              onMerge: { target in
-                if case .task(let layoutID) = id { store.send(.mergeTaskRequested(layoutID, into: target)) }
-              },
-              onMarkUnread: { store.send(.markRowUnreadRequested(id, unread: $0)) }
-            )
-          }
+        SessionSidebarRowView(store: rowStore, shortcutHint: shortcutHintByID[id], chevron: subRows.chevron(for: id)) {
+          store.send(.toggleSessionTaskExpanded($0))
+        }
+        .tag(id)
+        .contextMenu {
+          SessionContextMenu(
+            store: rowStore,
+            mergeTargets: mergeTargets,
+            onSettle: { key in
+              if case .task(let layoutID) = id {
+                store.send(.settleTaskRequested(layoutID))
+              } else {
+                store.send(.settleSessionRequested(key))
+              }
+            },
+            onUnsettle: { store.send(.unsettleSession($0)) },
+            onMerge: { target in
+              if case .task(let layoutID) = id { store.send(.mergeTaskRequested(layoutID, into: target)) }
+            },
+            onMarkUnread: { store.send(.markRowUnreadRequested(id, unread: $0)) }
+          )
+        }
       }
       // Untagged: a sub-row is not a selection, so the highlight stays on its task.
       if case .task(let layoutID) = id, layoutID == subRows.taskID {
@@ -196,6 +209,8 @@ struct SessionsSidebarListView: View {
 private struct SessionSidebarRowView: View {
   let store: StoreOf<SessionSidebarItemFeature>
   let shortcutHint: String?
+  let chevron: (isExpanded: Bool, layoutID: LayoutID)?
+  let toggleExpanded: (LayoutID) -> Void
 
   var body: some View {
     Button {
@@ -225,6 +240,18 @@ private struct SessionSidebarRowView: View {
           Text(hint)
             .font(.caption)
             .foregroundStyle(.quaternary)
+        }
+        if let chevron, store.hasTangents {
+          Button {
+            toggleExpanded(chevron.layoutID)
+          } label: {
+            Image(systemName: chevron.isExpanded ? "chevron.down" : "chevron.right")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .accessibilityLabel(chevron.isExpanded ? "Hide sessions" : "Show sessions")
+          }
+          .buttonStyle(.plain)
+          .help(chevron.isExpanded ? "Hide this task's sessions" : "Show this task's sessions")
         }
       }
       .foregroundStyle(store.isLive ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))

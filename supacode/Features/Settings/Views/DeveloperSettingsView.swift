@@ -5,6 +5,7 @@ import SwiftUI
 
 struct DeveloperSettingsView: View {
   @Bindable var store: StoreOf<SettingsFeature>
+  @Shared(.sessionsExpandSelectedTask) private var expandSelectedTask: Bool
 
   var body: some View {
     Form {
@@ -45,6 +46,11 @@ struct DeveloperSettingsView: View {
           Text("Dormant sessions only. Zero disables automatic settling, including short sessions.")
         }
         .help("Set the idle-day threshold; 0 disables auto-settle. Default: 3 days.")
+        Toggle(isOn: Binding($expandSelectedTask)) {
+          Text("Expand selected task's sessions")
+          Text("List a task's sessions under its row when it is selected. Off, a chevron on the row opens them.")
+        }
+        .help("Show the selected task's sessions in the Sessions tab automatically. Default: on.")
       }
       AgentsSidebarRowsSection(store: store)
       Section("Advanced") {
