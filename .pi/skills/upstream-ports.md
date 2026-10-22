@@ -25,13 +25,16 @@ Hard rules:
 
 ```bash
 git status --short && git branch --show-current     # must be cj-main, clean
-git fetch upstream
-git log --oneline cj-main..upstream/main | cat        # candidates, newest first
-git log --oneline cj-main..upstream/main | wc -l
-cat plans/upstream-sync-*-ports.md | rg -n "^- \`" | tail -40   # already ported/skipped
+git fetch upstream --tags
+LAST=$(git tag -l 'upstream-reviewed/*' | sort | tail -1)
+git log --oneline --no-merges $LAST..upstream/main | cat   # candidates, newest first
+git log --oneline --no-merges $LAST..upstream/main | wc -l
 ```
 
-Anything listed in a previous ports note is already decided; do not re-classify.
+`upstream-reviewed/YYYY-MM-DD` tags mark the upstream commit the last review
+stopped at; everything before it is already decided (see the ports notes), do
+not re-classify. `cj-main..upstream/main` is useless here: the merge-base is
+frozen at the 2026-09 fork point and cherry-picks never move it.
 
 ## 2. Classify each commit: port / skip
 
@@ -99,7 +102,13 @@ fix-ups go into that commit, not a follow-up.
 `plans/upstream-sync-2026-10-20-ports.md`: upstream HEAD sha, gap size, a
 "Ported" list (sha, title, what conflicted and how it was resolved, tests run
 with counts), a "Skipped" list (sha, one line why), optionally "Re-implement
-later" for task-model ports. Commit it on its own.
+later" for task-model ports. Commit it on its own, then move the pointer:
+
+```bash
+git tag upstream-reviewed/YYYY-MM-DD upstream/main
+```
+
+(Tags push with `git push origin --tags` only when asked.)
 
 ## 6. Report
 
