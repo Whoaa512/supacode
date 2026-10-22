@@ -742,6 +742,35 @@ struct AgentPresenceFeatureTests {
     #expect(harness.state.records[key]?.isQuestion == false)
   }
 
+  @Test func aBusyWithChildrenUpdatesTheRecordsCountAndAnyOtherActivityClearsIt() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    let key = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surfaceID)
+    func busy(children: Int?) -> AgentHookEvent {
+      AgentHookEvent(
+        agent: "pi", event: "busy", surfaceID: surfaceID,
+        data: children.map { .object([AgentPresenceOSC.childrenField: .int($0)]) })
+    }
+
+    harness.send(.hookEventReceived(makeEvent(.sessionStart, agent: .pi, surfaceID: surfaceID, pid: getpid())))
+    harness.send(.hookEventReceived(busy(children: nil)))
+    #expect(harness.state.records[key]?.childCount == 0)
+
+    // Same activity, new count: the row still has to redraw.
+    harness.send(.hookEventReceived(busy(children: 3)))
+    #expect(harness.state.records[key]?.childCount == 3)
+    harness.send(.hookEventReceived(busy(children: 1)))
+    #expect(harness.state.records[key]?.childCount == 1)
+
+    harness.send(.hookEventReceived(makeEvent(.idle, agent: .pi, surfaceID: surfaceID)))
+    #expect(harness.state.records[key]?.activity == .idle)
+    #expect(harness.state.records[key]?.childCount == 0)
+
+    harness.send(.hookEventReceived(busy(children: 2)))
+    harness.send(.hookEventReceived(makeEvent(.awaitingInput, agent: .pi, surfaceID: surfaceID)))
+    #expect(harness.state.records[key]?.childCount == 0, "a count only rides busy")
+  }
+
   @Test func nextBusyOverwritesAwaitingInput() {
     // When the user resumes after a permission prompt, Claude's next
     // PreToolUse fires `busy`: atomic overwrite, awaiting flag clears.

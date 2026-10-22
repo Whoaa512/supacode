@@ -56,7 +56,16 @@ nonisolated enum AgentSignal {
       AgentHookEvent(
         agent: signal.agent, event: signal.eventRawValue, surfaceID: surfaceID, pid: signal.pid,
         sessionRef: signal.sessionRef, shutdownReason: signal.shutdownReason,
-        data: signal.prompt.map { .object([AgentPresenceOSC.promptField: .string($0)]) }))
+        data: Self.presenceData(prompt: signal.prompt, childCount: signal.childCount)))
+  }
+
+  /// The event-specific payload the OSC qualifiers map to; nil when the
+  /// signal carried none, matching the shape of a legacy emit.
+  static func presenceData(prompt: String?, childCount: Int?) -> JSONValue? {
+    var fields: [String: JSONValue] = [:]
+    if let prompt { fields[AgentPresenceOSC.promptField] = .string(prompt) }
+    if let childCount { fields[AgentPresenceOSC.childrenField] = .int(childCount) }
+    return fields.isEmpty ? nil : .object(fields)
   }
 
   /// Splits a raw OSC 3008 payload (`<action>=<id>[;<metadata>]`) into context id

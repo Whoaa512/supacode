@@ -72,6 +72,9 @@ struct AgentPresenceFeature {
     /// Set while `activity == .awaitingInput` came from a question tool; nil for
     /// a permission or plan prompt, and cleared with the next activity.
     var isQuestion = false
+    /// Sub-agent sessions running inside the agent's process while `busy`
+    /// (Pi's `workflow` tool). Cleared with the next activity that omits it.
+    var childCount = 0
     /// Set when a working turn ends on an unfocused surface; cleared by focus
     /// (`clearAttention`) or by the next turn (`busy` / `sessionStart`).
     var isDoneUnseen = false
@@ -512,8 +515,10 @@ struct AgentPresenceFeature {
     _ activity: Activity, event: AgentHookEvent, key: PresenceKey, into state: inout State
   ) -> Bool {
     let isQuestion = activity == .awaitingInput && event.prompt == AgentPresenceOSC.questionPrompt
+    let childCount = activity == .busy ? event.childCount : 0
     if var record = state.records[key] {
-      guard record.activity != activity || record.isQuestion != isQuestion else { return false }
+      guard record.activity != activity || record.isQuestion != isQuestion || record.childCount != childCount
+      else { return false }
       // A dead turn stays dead: only a new turn (`busy`) may overwrite `error`.
       // Claude's 60s-idle `Notification` fires `awaitingInput` on exactly the
       // session that just died, and would otherwise downgrade it to "waiting".
@@ -527,11 +532,12 @@ struct AgentPresenceFeature {
       }
       record.activity = activity
       record.isQuestion = isQuestion
+      record.childCount = childCount
       state.records[key] = record
       return true
     }
     guard event.pid == nil, activity != .idle else { return false }
-    state.records[key] = PresenceRecord(activity: activity, isQuestion: isQuestion, pids: [])
+    state.records[key] = PresenceRecord(activity: activity, isQuestion: isQuestion, childCount: childCount, pids: [])
     rebuildPresence(forSurface: event.surfaceID, in: &state)
     return true
   }

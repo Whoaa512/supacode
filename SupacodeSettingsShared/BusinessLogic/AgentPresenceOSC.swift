@@ -52,6 +52,19 @@ public nonisolated enum AgentPresenceOSC {
   public static func sanitizedPrompt(_ raw: String?) -> String? {
     raw == questionPrompt ? raw : nil
   }
+  /// How many sub-agent sessions a `busy` agent is running inside its own
+  /// process (Pi's `workflow` tool). Absent or `0` means none, which is also
+  /// what an old app reads from a signal that carries it.
+  public static let childrenField = "children"
+  /// Cap on the count the wire can claim; a forged field pins a badge, not a loop.
+  public static let childCountCeiling = 999
+
+  /// A positive count up to the ceiling; nil for anything else so a malformed
+  /// field degrades to "no children".
+  public static func sanitizedChildCount(_ raw: String?) -> Int? {
+    guard let raw, let value = Int(raw), value > 0, value <= childCountCeiling else { return nil }
+    return value
+  }
   static let titleField = "title"
   static let bodyField = "body"
   static let notifyKind = "notify"
@@ -83,6 +96,8 @@ public nonisolated enum AgentPresenceOSC {
     public let shutdownReason: String?
     /// `questionPrompt` when an `awaiting_input` came from a question tool.
     public var prompt: String?
+    /// Sub-agents running inside a `busy` agent; nil when none were reported.
+    public var childCount: Int?
   }
 
   /// Byte cap for a session ref on the wire. Every agent we resume uses a UUID
@@ -132,6 +147,7 @@ public nonisolated enum AgentPresenceOSC {
       sessionRef: sanitizedSessionRef(fields[Substring(sessionField)].map(String.init)),
       shutdownReason: sanitizedShutdownReason(fields["reason"].map(String.init)),
       prompt: sanitizedPrompt(fields[Substring(promptField)].map(String.init)),
+      childCount: sanitizedChildCount(fields[Substring(childrenField)].map(String.init)),
     )
   }
 

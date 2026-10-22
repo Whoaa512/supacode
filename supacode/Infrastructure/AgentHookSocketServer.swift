@@ -508,6 +508,12 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
     AgentPresenceOSC.sanitizedPrompt(data?.objectValue?[AgentPresenceOSC.promptField]?.stringValue)
   }
 
+  /// `data.children`, the sub-agent count a `busy` carries. 0 when absent.
+  var childCount: Int {
+    let raw = data?.objectValue?[AgentPresenceOSC.childrenField]?.intValue
+    return AgentPresenceOSC.sanitizedChildCount(raw.map(String.init)) ?? 0
+  }
+
   /// Decode the per-event `data` payload into a concrete type. Returns nil
   /// when `data` is missing. Returns nil and logs a warning when `data` is
   /// present but fails to decode against `T`; silent nil there would make a

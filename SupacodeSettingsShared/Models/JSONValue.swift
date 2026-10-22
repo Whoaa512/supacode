@@ -84,6 +84,11 @@ public nonisolated
     return value
   }
 
+  public var intValue: Int? {
+    guard case .int(let value) = self else { return nil }
+    return value
+  }
+
   // MARK: - Encodable bridging.
 
   public init<T: Encodable>(_ value: T) throws {

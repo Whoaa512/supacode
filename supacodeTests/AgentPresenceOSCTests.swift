@@ -20,6 +20,19 @@ struct AgentPresenceOSCTests {
     #expect(SkillAgent(rawValue: signal?.agent ?? "") == .antigravity)
   }
 
+  @Test func childrenQualifierRidesBusyAndRejectsAnythingButABoundedPositiveCount() {
+    let busy = AgentPresenceOSC.parse(id: "pi", metadata: "event=busy;children=3;sid=abc")
+    #expect(busy?.eventRawValue == "busy")
+    #expect(busy?.childCount == 3)
+    #expect(busy?.sessionRef == "abc")
+    #expect(AgentPresenceOSC.parse(id: "pi", metadata: "event=busy")?.childCount == nil)
+    #expect(AgentPresenceOSC.parse(id: "pi", metadata: "event=busy;pid=7")?.childCount == nil, "legacy shape")
+    for raw in ["0", "-1", "abc", "1000", ""] {
+      #expect(AgentPresenceOSC.parse(id: "pi", metadata: "event=busy;children=\(raw)")?.childCount == nil, "\(raw)")
+    }
+    #expect(AgentPresenceOSC.parse(id: "pi", metadata: "event=busy;children=999")?.childCount == 999)
+  }
+
   @Test func promptQualifierRidesAwaitingInputAndOnlyKnowsQuestion() {
     let question = AgentPresenceOSC.parse(id: "pi", metadata: "event=awaiting_input;prompt=question;pid=7")
     #expect(question?.eventRawValue == "awaiting_input")
