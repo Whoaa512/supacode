@@ -37,13 +37,15 @@ nonisolated struct KimiHookEntry: Equatable, Sendable {
 
 // Kimi stores hooks as `[[hooks]]` array-of-tables in `~/.kimi-code/config.toml`
 // with PascalCase event names matching Claude's set, so the busy/idle/
-// awaitingInput mapping mirrors `ClaudeHooksPayload`. The
-// `AskUserQuestion|ExitPlanMode` matcher is reused from Claude and assumed
-// inert on Kimi today, since it exposes no such tools. Revisit if Kimi adds
-// matching tool names.
+// awaitingInput mapping mirrors `ClaudeHooksPayload`, including the
+// question/approval split so only AskUserQuestion carries the question
+// qualifier. The matchers are reused from Claude and assumed inert on Kimi
+// today, since it exposes no such tools. Revisit if Kimi adds matching tool
+// names.
 private nonisolated struct KimiHooksPayload {
   private static let timeout = AgentHookSettingsCommand.timeoutSeconds
-  static let awaitingInputToolMatcher = "AskUserQuestion|ExitPlanMode"
+  static let questionToolMatcher = "AskUserQuestion"
+  static let approvalToolMatcher = "ExitPlanMode"
 
   private static let busy = AgentHookSettingsCommand.compositeCommand(
     events: [.busy], forwardStdinAsNotification: false, agent: .kimi, )
@@ -53,6 +55,9 @@ private nonisolated struct KimiHooksPayload {
     events: [.awaitingInput], forwardStdinAsNotification: true, agent: .kimi, )
   private static let awaitingInput = AgentHookSettingsCommand.compositeCommand(
     events: [.awaitingInput], forwardStdinAsNotification: false, agent: .kimi, )
+  private static let awaitingQuestion = AgentHookSettingsCommand.compositeCommand(
+    events: [.awaitingInput], forwardStdinAsNotification: false, agent: .kimi,
+    prompt: AgentPresenceOSC.questionPrompt)
   private static let idleAndNotify = AgentHookSettingsCommand.compositeCommand(
     events: [.idle], forwardStdinAsNotification: true, agent: .kimi, )
   private static let sessionStart = AgentHookSettingsCommand.compositeCommand(
@@ -66,7 +71,10 @@ private nonisolated struct KimiHooksPayload {
     KimiHookEntry(event: "PreToolUse", command: Self.busy, timeout: Self.timeout),
     KimiHookEntry(
       event: "PreToolUse", command: Self.awaitingInput,
-      matcher: Self.awaitingInputToolMatcher, timeout: Self.timeout, ),
+      matcher: Self.approvalToolMatcher, timeout: Self.timeout, ),
+    KimiHookEntry(
+      event: "PreToolUse", command: Self.awaitingQuestion,
+      matcher: Self.questionToolMatcher, timeout: Self.timeout, ),
     KimiHookEntry(event: "PostToolUse", command: Self.idle, timeout: Self.timeout),
     KimiHookEntry(event: "Notification", command: Self.awaitingInputAndNotify, timeout: Self.timeout),
     KimiHookEntry(event: "Stop", command: Self.idleAndNotify, timeout: Self.timeout),

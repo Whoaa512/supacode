@@ -19,10 +19,18 @@ struct KimiHookSettingsTests {
   @Test func canonicalEntriesCarryMatcherForAwaitingInputSlot() {
     let entries = KimiHookSettings.canonicalEntries()
     let preToolUse = entries.filter { $0.event == "PreToolUse" }
-    #expect(preToolUse.count == 2)
-    let matchers = preToolUse.map(\.matcher)
-    #expect(matchers.contains(""))
-    #expect(matchers.contains("AskUserQuestion|ExitPlanMode"))
+    #expect(preToolUse.count == 3)
+    #expect(preToolUse.first?.matcher == "")
+    let matchers = preToolUse.dropFirst().map(\.matcher)
+    #expect(matchers.sorted() == ["AskUserQuestion", "ExitPlanMode"])
+  }
+
+  @Test func onlyAskUserQuestionCarriesTheQuestionQualifier() {
+    let preToolUse = KimiHookSettings.canonicalEntries().filter { $0.event == "PreToolUse" }
+    for entry in preToolUse {
+      let expectsQuestion = entry.matcher == "AskUserQuestion"
+      #expect(entry.command.contains("event=awaiting_input;prompt=question") == expectsQuestion)
+    }
   }
 
   @Test func everyCommandCarriesOwnershipSentinel() {
