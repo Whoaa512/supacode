@@ -1492,7 +1492,7 @@ extension AppFeature {
         surfaceCwd: entry.cwd == entry.directoryPath ? nil : entry.cwd,
         location: SessionLocation(
           layoutID: entry.layoutID, directoryID: entry.directoryID, tabID: entry.tabID, surfaceID: key.surfaceID),
-        status: sessionStatus(for: record),
+        status: sessionStatus(for: record), childCount: record.childCount,
         allowsAttentionNavigation: record.activity == .awaitingInput || record.isDoneUnseen)
     }.sorted {
       if $0.location.surfaceID != $1.location.surfaceID {

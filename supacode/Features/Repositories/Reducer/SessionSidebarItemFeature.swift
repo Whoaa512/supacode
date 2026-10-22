@@ -39,6 +39,8 @@ nonisolated struct SessionLiveSnapshot: Equatable, Sendable {
   var surfaceCwd: String?
   var location: SessionLocation
   var status: SessionClassification.Status = .idle
+  /// Sub-agents running inside this agent while it works; 0 when none.
+  var childCount = 0
   var allowsAttentionNavigation = true
 
   var sessionKey: SessionKey? {
@@ -57,6 +59,7 @@ nonisolated struct SessionLiveSnapshot: Equatable, Sendable {
   var withoutStatus: Self {
     var copy = self
     copy.status = .idle
+    copy.childCount = 0
     copy.allowsAttentionNavigation = true
     return copy
   }
@@ -97,6 +100,8 @@ nonisolated struct SessionRowDraft: Equatable, Sendable {
   var lifecycle: SessionClassification.Lifecycle = .active
   var location: SessionLocation?
   var status: SessionClassification.Status?
+  /// Sub-agents the row's working agents run between them; 0 hides the badge.
+  var childCount = 0
   var allowsAttentionNavigation = true
   var branchAnnotation: String?
   var isSynthetic = false
@@ -119,6 +124,7 @@ struct SessionSidebarItemFeature {
     var lifecycle: SessionClassification.Lifecycle = .active
     var location: SessionLocation?
     var status: SessionClassification.Status?
+    var childCount = 0
     var allowsAttentionNavigation = true
     var branchAnnotation: String?
     var isSynthetic = false
@@ -146,7 +152,7 @@ struct SessionSidebarItemFeature {
     func matches(_ draft: SessionRowDraft) -> Bool {
       title == draft.title && cwd == draft.cwd && createdAt == draft.createdAt
         && lifecycle == draft.lifecycle && location == draft.location && status == draft.status
-        && allowsAttentionNavigation == draft.allowsAttentionNavigation
+        && childCount == draft.childCount && allowsAttentionNavigation == draft.allowsAttentionNavigation
         && branchAnnotation == draft.branchAnnotation && isSynthetic == draft.isSynthetic
         && primary == draft.primary && hasTangents == draft.hasTangents && hiddenCount == draft.hiddenCount
     }
@@ -158,6 +164,7 @@ struct SessionSidebarItemFeature {
       lifecycle = draft.lifecycle
       location = draft.location
       status = draft.status
+      childCount = draft.childCount
       allowsAttentionNavigation = draft.allowsAttentionNavigation
       branchAnnotation = draft.branchAnnotation
       isSynthetic = draft.isSynthetic
@@ -179,7 +186,7 @@ extension SessionSidebarItemFeature.State {
   init(_ draft: SessionRowDraft) {
     self.init(
       id: draft.id, title: draft.title, cwd: draft.cwd, createdAt: draft.createdAt,
-      lifecycle: draft.lifecycle, location: draft.location, status: draft.status,
+      lifecycle: draft.lifecycle, location: draft.location, status: draft.status, childCount: draft.childCount,
       allowsAttentionNavigation: draft.allowsAttentionNavigation,
       branchAnnotation: draft.branchAnnotation, isSynthetic: draft.isSynthetic, primary: draft.primary,
       hasTangents: draft.hasTangents, hiddenCount: draft.hiddenCount)

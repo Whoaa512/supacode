@@ -1931,6 +1931,24 @@ struct AppFeatureSessionsTests {
     await store.receive(\.repositories.delegate.focusSession)
   }
 
+  @Test(.dependencies) func aBusyRecordsSubAgentCountReachesItsRowAndClearsWithTheNextIdle() {
+    var initial = state()
+    let key = AgentPresenceFeature.PresenceKey(agent: .pi, surfaceID: surface)
+    initial.agentPresence.records[key] = AgentPresenceFeature.PresenceRecord(
+      activity: .busy, childCount: 2, pids: [], sessionRef: "real")
+    initial.repositories.sessionSnapshots = AppFeature.sessionSnapshots(state: initial)
+    initial.repositories.reconcileSessionItems(now: .distantPast)
+    initial.repositories.recomputeSessionsSidebarStructureIfChanged()
+    #expect(initial.repositories.sessionItems.first?.status == .working)
+    #expect(initial.repositories.sessionItems.first?.childCount == 2)
+
+    initial.agentPresence.records[key]?.activity = .idle
+    initial.agentPresence.records[key]?.childCount = 0
+    initial.repositories.sessionSnapshots = AppFeature.sessionSnapshots(state: initial)
+    initial.repositories.reconcileSessionItems(now: .distantPast)
+    #expect(initial.repositories.sessionItems.first?.childCount == 0)
+  }
+
   @Test(.dependencies, arguments: [(true, SessionClassification.Status.question), (false, .needsYou)])
   func aPromptWaitingOnTheUserClassifiesByWhatItAsks(isQuestion: Bool, expected: SessionClassification.Status) {
     var initial = state()

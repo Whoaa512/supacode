@@ -17,6 +17,8 @@ struct SessionsSidebarStructure: Equatable, Sendable {
     var id: TaskMember
     var title: String
     var status: SessionClassification.Status?
+    /// Sub-agents this member runs; 0 hides the badge.
+    var childCount = 0
     var location: SessionLocation?
     /// A running tangent: its tab can leave for a task of its own (D8, Q8).
     var isDetachable = false
@@ -389,7 +391,8 @@ extension RepositoriesFeature.State {
       let isHidden = refusal == nil && Self.isHidden(member, sidecar: sidecar)
       guard !isHidden || revealsHidden else { return nil }
       return SessionsSidebarStructure.SubRow(
-        id: member, title: title ?? "New session", status: agent?.status, location: agent?.location,
+        id: member, title: title ?? "New session", status: agent?.status, childCount: agent?.childCount ?? 0,
+        location: agent?.location,
         isDetachable: agent != nil && member != members.first, isHidden: isHidden, hideRefusal: refusal)
     }
     return rows.count > 1 ? (layoutID, rows) : (nil, [])
@@ -658,6 +661,7 @@ extension RepositoriesFeature.State {
         rows.drafts[index].branchAnnotation = branchAnnotation(for: key, cwd: snapshot.cwd, facts: &facts)
       }
       rows.drafts[index].status = snapshot.status
+      rows.drafts[index].childCount = snapshot.childCount
       rows.drafts[index].allowsAttentionNavigation = snapshot.allowsAttentionNavigation
       if rows.drafts[index].location == nil || snapshot.location == sessionItems[id: id]?.location {
         rows.drafts[index].location = snapshot.location
@@ -729,6 +733,7 @@ extension RepositoriesFeature.State {
       id: .task(layoutID), title: title ?? existing?.title ?? "New session",
       cwd: group.tabs?.cwd ?? group.agents.first?.cwd ?? indexedCwd ?? existing?.cwd ?? "",
       createdAt: createdAt, location: leading?.location ?? group.tabs?.location, status: leading?.status,
+      childCount: group.agents.reduce(0) { $0 + $1.childCount },
       allowsAttentionNavigation: leading?.allowsAttentionNavigation ?? true,
       isSynthetic: !members.isEmpty && group.indexed.isEmpty, primary: primary, hasTangents: shown.count > 1,
       hiddenCount: hiddenCount)

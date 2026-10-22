@@ -304,7 +304,8 @@ private struct SessionSidebarRowView: View {
       store.send(.activate)
     } label: {
       HStack {
-        SessionKindIcon(harness: store.harness, isDormant: !store.isLive, status: store.status)
+        SessionKindIcon(
+          harness: store.harness, isDormant: !store.isLive, status: store.status, childCount: store.childCount)
         VStack(alignment: .leading, spacing: 2) {
           Text(store.title)
             .font(.body)
@@ -389,7 +390,7 @@ private struct SessionSubRowView: View {
   var body: some View {
     Button(action: activate) {
       HStack {
-        SessionKindIcon(harness: row.harness, isDormant: row.isDormant, status: row.status)
+        SessionKindIcon(harness: row.harness, isDormant: row.isDormant, status: row.status, childCount: row.childCount)
         Text(row.title)
           .font(.callout)
           .lineLimit(1)
@@ -418,6 +419,7 @@ private struct SessionKindIcon: View {
   let harness: SkillAgent?
   let isDormant: Bool
   let status: SessionClassification.Status?
+  var childCount = 0
 
   var body: some View {
     if let harness {
@@ -437,7 +439,28 @@ private struct SessionKindIcon: View {
         .foregroundStyle(glyph.tint)
         .accessibilityLabel(glyph.label)
         .help(glyph.label)
+      if let badge = SubAgentBadge(status: status, childCount: childCount) {
+        Text(badge.text)
+          .font(.caption.monospacedDigit())
+          .foregroundStyle(.secondary)
+          .accessibilityLabel(badge.label)
+          .help(badge.label)
+      }
     }
+  }
+}
+
+/// The count beside the working gear: sub-agents (Pi `workflow` sessions)
+/// running inside the agent. Nil unless the agent is working and has some,
+/// so a stale count on a question or idle row never shows.
+struct SubAgentBadge: Equatable {
+  var text: String
+  var label: String
+
+  init?(status: SessionClassification.Status?, childCount: Int) {
+    guard status == .working, childCount > 0 else { return nil }
+    text = String(childCount)
+    label = childCount == 1 ? "1 sub-agent running" : "\(childCount) sub-agents running"
   }
 }
 

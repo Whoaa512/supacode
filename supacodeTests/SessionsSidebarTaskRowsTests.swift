@@ -38,11 +38,12 @@ struct SessionsSidebarTaskRowsTests {
   }
 
   private func agent(
-    _ ref: String?, in task: LayoutID, on number: Int, status: Status = .idle, attention: Bool = true
+    _ ref: String?, in task: LayoutID, on number: Int, status: Status = .idle, children: Int = 0,
+    attention: Bool = true
   ) -> SessionLiveSnapshot {
     SessionLiveSnapshot(
       harness: .pi, sessionRef: ref, cwd: "/repo/main", location: location(task, number), status: status,
-      allowsAttentionNavigation: attention)
+      childCount: children, allowsAttentionNavigation: attention)
   }
 
   private func tabs(_ task: LayoutID, on number: Int, created: TimeInterval? = nil) -> TaskLiveSnapshot {
@@ -373,6 +374,38 @@ struct SessionsSidebarTaskRowsTests {
     state = rebuilt(state)
 
     #expect(state.sessionItems[id: .task(taskA)]?.lifecycle == .active)
+  }
+
+  // MARK: - Sub-agent count
+
+  @Test(.dependencies) func aTaskRowCarriesItsAgentsSubAgentCountAndEachSubRowItsOwn() {
+    var state = state()
+    state.sessionSummaries = [summary("a", created: 10), summary("b", created: 20)]
+    state.taskSessions = [taskA: [key("a"), key("b")]]
+    state.taskSnapshots = [tabs(taskA, on: 1)]
+    state.sessionSnapshots = [
+      agent("a", in: taskA, on: 1, status: .working, children: 3), agent("b", in: taskA, on: 2, status: .working),
+    ]
+    state.sessionSelection = .task(taskA)
+    state = rebuilt(state)
+    #expect(state.sessionItems[id: .task(taskA)]?.childCount == 3)
+    #expect(state.sessionItems[id: .task(taskA)]?.status == .working, "the roll-up is the status alone")
+    #expect(state.sessionsSidebarStructure.subRows.map(\.childCount) == [3, 0])
+
+    state.sessionSnapshots = [agent("a", in: taskA, on: 1, status: .working), agent("b", in: taskA, on: 2)]
+    state = rebuilt(state)
+    #expect(state.sessionItems[id: .task(taskA)]?.childCount == 0)
+    #expect(state.sessionsSidebarStructure.subRows.map(\.childCount) == [0, 0])
+  }
+
+  @Test func theSubAgentBadgeShowsOnlyForAWorkingAgentWithChildren() {
+    #expect(SubAgentBadge(status: .working, childCount: 0) == nil)
+    #expect(SubAgentBadge(status: .working, childCount: 1)?.text == "1")
+    #expect(SubAgentBadge(status: .working, childCount: 1)?.label == "1 sub-agent running")
+    #expect(SubAgentBadge(status: .working, childCount: 4)?.label == "4 sub-agents running")
+    #expect(SubAgentBadge(status: .question, childCount: 4) == nil)
+    #expect(SubAgentBadge(status: .idle, childCount: 4) == nil)
+    #expect(SubAgentBadge(status: nil, childCount: 4) == nil)
   }
 
   // MARK: - Status rollup (A24)
