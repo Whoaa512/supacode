@@ -293,7 +293,7 @@ struct AgentSessionResumeTests {
 
   @Test func piExtensionEmitsTheSessionRefOnBusy() {
     #expect(PiExtensionContent.indexTs.contains("getSessionId"))
-    #expect(PiExtensionContent.indexTs.contains("emitPresence(\"busy\", sessionRef(ctx))"))
+    #expect(PiExtensionContent.indexTs.contains("emitOwnerPresence(\"busy\", sessionRef(ctx))"))
     #expect(PiExtensionContent.indexTs.contains("/^[A-Za-z0-9][A-Za-z0-9._-]*$/"))
   }
 
@@ -308,7 +308,7 @@ struct AgentSessionResumeTests {
 
   @Test func piExtensionEmitsIdleWithSidOnAgentEnd() {
     let content = PiExtensionContent.indexTs
-    #expect(content.contains(#"emitPresence("idle", sessionRef(ctx))"#))
+    #expect(content.contains(#"emitOwnerPresence("idle", sessionRef(ctx))"#))
   }
 
   // MARK: - Helpers.
