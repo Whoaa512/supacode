@@ -167,6 +167,67 @@ struct CommandPaletteFeatureTests {
         == [.mergeTask(dormant, into: first), .mergeTask(dormant, into: second)])
   }
 
+  /// The selected session row settles while active and unsettles once
+  /// settled, mirroring the sidebar context menu; a shell-only task has no
+  /// session to settle and offers neither. The rows carry no id.
+  @Test func commandPaletteItems_settleFollowsTheSelectedRow() {
+    let worktree = makeWorktree(id: "/tmp/repo", name: "repo", repoRoot: "/tmp/repo")
+    let repository = makeRepository(rootPath: "/tmp/repo", name: "Repo", worktrees: [worktree])
+    let (active, settled, shell) = (
+      LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000B1")!),
+      LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000B2")!),
+      LayoutID(task: UUID(uuidString: "00000000-0000-0000-0000-0000000000B3")!)
+    )
+    func key(_ id: String) -> SessionKey { SessionKey(harness: .pi, sessionID: id) }
+    func surface(_ number: Int) -> UUID {
+      UUID(uuidString: String(format: "00000000-0000-0000-0000-0000000000%02d", number))!
+    }
+    func tabs(_ task: LayoutID, on number: Int) -> TaskLiveSnapshot {
+      TaskLiveSnapshot(
+        title: "repo", cwd: "/tmp/repo", createdAt: nil,
+        location: SessionLocation(
+          layoutID: task, directoryID: worktree.id, tabID: TabID(rawValue: surface(number)),
+          surfaceID: surface(number)))
+    }
+    var state = RepositoriesFeature.State(reconciledRepositories: [repository])
+    state.$sessions = Shared(value: [:])
+    state.$persistedLayouts = SharedReader(value: TaskLayoutsFile())
+    state.sessionsStarted = true
+    state.selection = .worktree(worktree.id)
+    state.sessionSummaries = ["a", "b"].map {
+      SessionSummary(
+        harness: .pi, sessionID: $0, createdAt: Date(timeIntervalSince1970: 10), cwd: "/tmp/repo",
+        title: "Title \($0)", messageCount: 1, lastActivity: Date(timeIntervalSince1970: 10))
+    }
+    state.taskSessions = [active: [key("a")], settled: [key("b")], shell: []]
+    state.taskSnapshots = [tabs(active, on: 1), tabs(shell, on: 3)]
+    state.$sessions.withLock { sidecar in
+      sidecar[key("b")] = SessionSidecarEntry(settledAt: Date(timeIntervalSince1970: 15))
+    }
+    state.reconcileSessionItems(now: Date(timeIntervalSince1970: 20))
+    state.recomputeSessionsSidebarStructureIfChanged()
+
+    #expect(CommandPaletteFeature.settleItems(from: state).isEmpty, "no row selected")
+
+    state.sessionSelection = .task(active)
+    let settleItems = CommandPaletteFeature.settleItems(from: state)
+    #expect(settleItems.map(\.kind) == [.settleSelectedTask])
+    #expect(settleItems.first?.title == "Settle Task: Title a")
+    #expect(settleItems.first?.id == "task.settle-selected")
+    #expect(settleItems.first?.appShortcut?.id == AppShortcuts.settleSessionAndAdvance.id)
+    #expect(settleItems.allSatisfy { $0.isGlobal && !$0.isRootAction })
+    #expect(CommandPaletteFeature.commandPaletteItems(from: state).contains { $0.kind == .settleSelectedTask })
+
+    state.sessionSelection = .task(settled)
+    let unsettleItems = CommandPaletteFeature.settleItems(from: state)
+    #expect(unsettleItems.map(\.kind) == [.unsettleSelectedTask])
+    #expect(unsettleItems.first?.title == "Unsettle Task: Title b")
+    #expect(unsettleItems.first?.appShortcut?.id == AppShortcuts.unsettleSession.id)
+
+    state.sessionSelection = .task(shell)
+    #expect(CommandPaletteFeature.settleItems(from: state).isEmpty, "shell-only task has no session")
+  }
+
   /// Settled tasks are offered newest-settled first, cut to ten; a task with
   /// a tab open is active and never offered.
   @Test func commandPaletteItems_resumeTaskListsRecentlySettledTasksNewestFirst() {

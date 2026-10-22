@@ -102,6 +102,10 @@ struct CommandPaletteItem: Identifiable, Equatable {
     case stopScript(UUID, name: String)
     case mergeTask(LayoutID, into: LayoutID)
     case detachFocusedTab
+    /// Settles the selected task and advances; the target is re-read when the pick lands.
+    case settleSelectedTask
+    /// Unsettles the selected task; the target is re-read when the pick lands.
+    case unsettleSelectedTask
     /// Brings back whichever task settled last, read when the pick lands.
     case resumeMostRecentlySettledTask
     /// Brings a settled task back; the row id is all that is carried.
@@ -150,7 +154,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
       true
     case .runScript, .stopScript:
       true
-    case .resumeMostRecentlySettledTask:
+    case .resumeMostRecentlySettledTask, .settleSelectedTask, .unsettleSelectedTask:
       true
     case .mergeTask, .detachFocusedTab, .resumeTask, .selectTask:
       false
@@ -186,7 +190,7 @@ struct CommandPaletteItem: Identifiable, Equatable {
       .forkWorktree:
       false
     case .runScript, .stopScript, .mergeTask, .detachFocusedTab, .resumeMostRecentlySettledTask, .resumeTask,
-      .selectTask:
+      .selectTask, .settleSelectedTask, .unsettleSelectedTask:
       false
     #if DEBUG
       case .debugTestToast:
@@ -232,6 +236,10 @@ struct CommandPaletteItem: Identifiable, Equatable {
       nil
     case .resumeMostRecentlySettledTask:
       AppShortcuts.resumeMostRecentlySettledTask
+    case .settleSelectedTask:
+      AppShortcuts.settleSessionAndAdvance
+    case .unsettleSelectedTask:
+      AppShortcuts.unsettleSession
     case .runScript(let definition):
       definition.kind == .run ? AppShortcuts.runScript : nil
     #if DEBUG

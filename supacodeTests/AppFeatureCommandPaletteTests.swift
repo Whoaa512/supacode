@@ -626,6 +626,20 @@ struct AppFeatureCommandPaletteTests {
     await store.receive(\.detachFocusedTab)
   }
 
+  @Test(.dependencies) func settleAndUnsettleSelectedTaskDispatchTheAppActions() async {
+    let store = TestStore(initialState: AppFeature.State()) {
+      AppFeature()
+    } withDependencies: {
+      $0.continuousClock = TestClock()
+    }
+    store.exhaustivity = .off
+
+    await store.send(.commandPalette(.delegate(.settleSelectedTask)))
+    await store.receive(\.settleSessionAndAdvance)
+    await store.send(.commandPalette(.delegate(.unsettleSelectedTask)))
+    await store.receive(\.unsettleCurrentSession)
+  }
+
   @Test(.dependencies) func closePullRequestDispatchesAction() async {
     let store = TestStore(initialState: AppFeature.State()) {
       AppFeature()

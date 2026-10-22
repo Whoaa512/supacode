@@ -166,6 +166,8 @@ struct CommandPaletteFeature {
     case detachFocusedTab
     case activateTask(SessionRowID)
     case resumeMostRecentlySettledTask
+    case settleSelectedTask
+    case unsettleSelectedTask
     case stopScript(UUID, name: String)
     /// Palette closed without the user activating an item (Esc, outside
     /// tap, programmatic dismiss). AppFeature uses this to refocus the
@@ -750,6 +752,7 @@ struct CommandPaletteFeature {
     }
     items.append(contentsOf: customizeAppearanceItems(from: repositories))
     items.append(contentsOf: toggleCollapseRepositoryItems(from: repositories))
+    items.append(contentsOf: settleItems(from: repositories))
     items.append(contentsOf: taskTransferItems(from: repositories))
     items.append(contentsOf: resumeTaskItems(from: repositories, now: now))
     // Worktree navigation is the ⌘P switcher's job (see `worktreeSwitcherItems`);
@@ -771,6 +774,37 @@ struct CommandPaletteFeature {
       )
     }
     return items
+  }
+
+  /// Settle or unsettle the selected session row, mirroring the sidebar's
+  /// context menu: an active row settles (and advances), a settled one comes
+  /// back. The row names the task; the pick carries no id and the app re-reads
+  /// the selection when it lands. A shell-only task has no session to settle.
+  static func settleItems(from repositories: RepositoriesFeature.State) -> [CommandPaletteItem] {
+    guard let selection = repositories.sessionSelection,
+      let row = repositories.sessionItems[id: selection],
+      row.sessionKey != nil
+    else {
+      return []
+    }
+    if row.lifecycle == .active {
+      return [
+        CommandPaletteItem(
+          id: CommandPaletteItemID.settleSelectedTask,
+          title: "Settle Task: \(row.title)",
+          subtitle: row.isTask ? "Close its tabs and advance to the next task" : "Close its tab and advance",
+          kind: .settleSelectedTask
+        )
+      ]
+    }
+    return [
+      CommandPaletteItem(
+        id: CommandPaletteItemID.unsettleSelectedTask,
+        title: "Unsettle Task: \(row.title)",
+        subtitle: "Put it back among the active tasks",
+        kind: .unsettleSelectedTask
+      )
+    ]
   }
 
   /// Merge the selected task into any other task that holds a tab, and detach
@@ -1008,6 +1042,8 @@ struct CommandPaletteFeature {
   ) -> [CommandPaletteItem.ID] {
     var ids = CommandPaletteItemID.globalIDs
     ids.append(CommandPaletteItemID.toggleWindowMode)
+    ids.append(CommandPaletteItemID.settleSelectedTask)
+    ids.append(CommandPaletteItemID.unsettleSelectedTask)
     ids.append(contentsOf: LayoutPaletteCommand.allCases.map(CommandPaletteItemID.layoutCommand))
     for repository in repositories {
       ids.append(CommandPaletteItemID.toggleCollapseRepository(repository.id))
@@ -1426,6 +1462,10 @@ private enum CommandPaletteItemID {
 
   static let resumeMostRecentlySettledTask: CommandPaletteItem.ID = "task.resume-recent"
 
+  static let settleSelectedTask: CommandPaletteItem.ID = "task.settle-selected"
+
+  static let unsettleSelectedTask: CommandPaletteItem.ID = "task.unsettle-selected"
+
   static func resumeTask(_ rowID: SessionRowID) -> CommandPaletteItem.ID {
     "\(rowID.sortKey).resume"
   }
@@ -1562,7 +1602,8 @@ extension CommandPaletteFeature.Delegate {
       return pullRequestDelegateAction(for: kind)!
     case .runScript, .stopScript:
       return scriptDelegateAction(for: kind)!
-    case .mergeTask, .detachFocusedTab, .resumeMostRecentlySettledTask, .resumeTask, .selectTask:
+    case .mergeTask, .detachFocusedTab, .resumeMostRecentlySettledTask, .resumeTask, .selectTask, .settleSelectedTask,
+      .unsettleSelectedTask:
       return taskAction(for: kind)!
     #if DEBUG
       case .debugTestToast(let toast):
@@ -1606,6 +1647,10 @@ extension CommandPaletteFeature.Delegate {
       return .detachFocusedTab
     case .resumeMostRecentlySettledTask:
       return .resumeMostRecentlySettledTask
+    case .settleSelectedTask:
+      return .settleSelectedTask
+    case .unsettleSelectedTask:
+      return .unsettleSelectedTask
     case .resumeTask(let rowID), .selectTask(let rowID):
       return .activateTask(rowID)
     default:
@@ -1637,7 +1682,7 @@ private func selectedEntryDelegateAction(
     .openPullRequest, .markPullRequestReady, .mergePullRequest,
     .closePullRequest, .copyFailingJobURL, .copyCiFailureLogs, .rerunFailedJobs,
     .openFailingCheckDetails, .runScript, .stopScript, .mergeTask, .detachFocusedTab, .resumeMostRecentlySettledTask,
-    .resumeTask, .selectTask:
+    .resumeTask, .selectTask, .settleSelectedTask, .unsettleSelectedTask:
     return nil
   #if DEBUG
     case .debugTestToast:
@@ -1704,7 +1749,9 @@ private func pullRequestDelegateAction(
     .detachFocusedTab,
     .resumeMostRecentlySettledTask,
     .resumeTask,
-    .selectTask:
+    .selectTask,
+    .settleSelectedTask,
+    .unsettleSelectedTask:
     return nil
   #if DEBUG
     case .debugTestToast:

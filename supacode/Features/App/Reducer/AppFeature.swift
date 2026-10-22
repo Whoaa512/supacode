@@ -2142,6 +2142,12 @@ struct AppFeature {
       case .commandPalette(.delegate(.resumeMostRecentlySettledTask)):
         return .send(.resumeMostRecentlySettledTask)
 
+      case .commandPalette(.delegate(.settleSelectedTask)):
+        return .send(.settleSessionAndAdvance)
+
+      case .commandPalette(.delegate(.unsettleSelectedTask)):
+        return .send(.unsettleCurrentSession)
+
       case .commandPalette(.delegate(.detachFocusedTab)):
         return .send(.detachFocusedTab)
 
