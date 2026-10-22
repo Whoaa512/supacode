@@ -237,11 +237,16 @@ nonisolated enum PiExtensionContent {
       watch.timer = undefined;
     }
 
-    function resetChildWatch(): void {
+    /**
+     * Forgets the owner's turn, not its children: a reload swaps the owner's
+     * module while a background run keeps going, and each child removes
+     * itself when it ends. Clearing the set would lose them for good, since
+     * they never emit another agent_start.
+     */
+    function resetOwnerTurn(): void {
       const watch = childWatch();
       cancelChildEmit(watch);
       watch.ownerTurnLive = false;
-      watch.children.clear();
       watch.lastEmittedChildren = 0;
       watch.lastEmittedEvent = undefined;
     }
@@ -345,8 +350,9 @@ nonisolated enum PiExtensionContent {
       // first turn. Replaces the unconditional load-time emitPresence above.
       pi.on("session_start", (_event, ctx) => {
         if (!claimSurface(ctx)) return;
-        resetChildWatch();
+        resetOwnerTurn();
         emitPresence("session_start", sessionRef(ctx));
+        if (childWatch().children.size > 0) scheduleChildEmit();
       });
 
       pi.on("agent_start", (_event, ctx) => {
@@ -377,7 +383,7 @@ nonisolated enum PiExtensionContent {
 
       pi.on("session_shutdown", (event, ctx) => {
         if (!releaseSurface(ctx)) return childEnded(ctx);
-        resetChildWatch();
+        resetOwnerTurn();
         emitPresence("session_end", sessionRef(ctx), event.reason);
       });
     }

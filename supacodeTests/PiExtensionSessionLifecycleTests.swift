@@ -201,6 +201,28 @@ struct PiExtensionSessionLifecycleTests {
     #expect(events.allSatisfy { $0.sessionRef == "parent" })
   }
 
+  /// A reload swaps the owner's session while a background `workflow` run
+  /// keeps going. Its children never start again, so the reclaimed owner
+  /// must still report them, and read as plain idle once the last one ends.
+  @Test func aReloadedOwnerStillReportsTheChildrenThatOutlivedIt() throws {
+    let events = try presenceEvents(
+      fixture: """
+        handlers.get("session_start")({}, ctx("parent"));
+        handlers.get("agent_start")({}, ctx("parent"));
+        handlers.get("agent_start")({}, ctx("child-1"));
+        handlers.get("agent_start")({}, ctx("child-2"));
+        handlers.get("agent_end")({}, ctx("parent"));
+        handlers.get("session_shutdown")({ reason: "reload" }, ctx("parent"));
+        handlers.get("session_start")({}, ctx("parent-reloaded"));
+        setTimeout(() => handlers.get("agent_end")({}, ctx("child-1")), 300);
+        setTimeout(() => handlers.get("agent_end")({}, ctx("child-2")), 600);
+        """)
+    #expect(
+      events.map(\.event) == ["session_start", "busy", "busy", "session_end", "session_start", "busy", "busy", "idle"])
+    #expect(events.map(\.childCount) == [0, 0, 2, 0, 0, 2, 1, 0])
+    #expect(events.map(\.sessionRef).suffix(4).allSatisfy { $0 == "parent-reloaded" })
+  }
+
   /// Pi ends a session before it starts the next one in the same process, so
   /// the owner's shutdown hands the surface to whichever session starts next.
   @Test func theSessionAfterTheOwnersShutdownTakesOverTheSurface() throws {
