@@ -48,11 +48,13 @@ nonisolated enum GrokHookSettingsError: Error {
 
 // Grok loads `~/.grok/hooks/*.json` and accepts Claude-compatible PascalCase
 // event names, so the busy/idle/awaitingInput mapping mirrors
-// `ClaudeHooksPayload`. The `AskUserQuestion|ExitPlanMode` matcher is
-// reused from Claude and assumed inert on Grok today; revisit if Grok adds
-// matching tool names.
+// `ClaudeHooksPayload`, including the question/approval split so only
+// AskUserQuestion carries the question qualifier. The matchers are reused
+// from Claude and assumed inert on Grok today; revisit if Grok adds matching
+// tool names.
 private nonisolated struct GrokHooksPayload: Encodable {
-  static let awaitingInputToolMatcher = "AskUserQuestion|ExitPlanMode"
+  static let questionToolMatcher = "AskUserQuestion"
+  static let approvalToolMatcher = "ExitPlanMode"
   private static let hookEnv = AgentHookSettingsCommand.grokHookEnvPassthrough
   private static let timeout = AgentHookSettingsCommand.timeoutSeconds
 
@@ -64,6 +66,9 @@ private nonisolated struct GrokHooksPayload: Encodable {
     events: [.awaitingInput], forwardStdinAsNotification: true, agent: .grok, )
   private static let awaitingInput = AgentHookSettingsCommand.compositeCommand(
     events: [.awaitingInput], forwardStdinAsNotification: false, agent: .grok, )
+  private static let awaitingQuestion = AgentHookSettingsCommand.compositeCommand(
+    events: [.awaitingInput], forwardStdinAsNotification: false, agent: .grok,
+    prompt: AgentPresenceOSC.questionPrompt)
   private static let idleAndNotify = AgentHookSettingsCommand.compositeCommand(
     events: [.idle], forwardStdinAsNotification: true, agent: .grok, )
   private static let sessionStart = AgentHookSettingsCommand.compositeCommand(
@@ -82,8 +87,12 @@ private nonisolated struct GrokHooksPayload: Encodable {
       .init(matcher: "", hooks: [.init(command: Self.busy, timeout: Self.timeout, env: Self.hookEnv)]),
       // Array-order: matched-by-name fires AFTER matcher-"", so awaiting wins.
       .init(
-        matcher: Self.awaitingInputToolMatcher,
+        matcher: Self.approvalToolMatcher,
         hooks: [.init(command: Self.awaitingInput, timeout: Self.timeout, env: Self.hookEnv)]
+      ),
+      .init(
+        matcher: Self.questionToolMatcher,
+        hooks: [.init(command: Self.awaitingQuestion, timeout: Self.timeout, env: Self.hookEnv)]
       ),
     ],
     "PostToolUse": [

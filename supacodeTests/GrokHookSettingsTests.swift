@@ -17,9 +17,21 @@ struct GrokHookSettingsTests {
 
   @Test func preToolUseOrdersAwaitingAfterBusy() throws {
     let preToolUse = try #require(try GrokHookSettings.hooksByEvent()["PreToolUse"])
-    #expect(preToolUse.count == 2)
+    #expect(preToolUse.count == 3)
     #expect(preToolUse.first?.objectValue?["matcher"]?.stringValue == "")
-    #expect(preToolUse.last?.objectValue?["matcher"]?.stringValue == "AskUserQuestion|ExitPlanMode")
+    let matchers = preToolUse.dropFirst().compactMap { $0.objectValue?["matcher"]?.stringValue }
+    #expect(matchers.sorted() == ["AskUserQuestion", "ExitPlanMode"])
+  }
+
+  @Test func onlyAskUserQuestionCarriesTheQuestionQualifier() throws {
+    let preToolUse = try #require(try GrokHookSettings.hooksByEvent()["PreToolUse"])
+    for group in preToolUse {
+      let matcher = group.objectValue?["matcher"]?.stringValue
+      let commands = Self.commandStrings(in: [group])
+      #expect(!commands.isEmpty)
+      let expectsQuestion = matcher == "AskUserQuestion"
+      #expect(commands.allSatisfy { $0.contains("event=awaiting_input;prompt=question") == expectsQuestion })
+    }
   }
 
   @Test func everyCommandCarriesOwnershipSentinel() throws {
