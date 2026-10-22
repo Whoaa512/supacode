@@ -35,7 +35,8 @@ struct PiExtensionSessionLifecycleTests {
         return { sessionManager: managers.get(id) };
       };
       """
-    let epilogue = "process.stdout.write(JSON.stringify(signals));"
+    // Past the fixtures' own timers plus the child-count debounce, so a coalesced re-emit is on the record.
+    let epilogue = "setTimeout(() => process.stdout.write(JSON.stringify(signals)), 1000);"
     let runnable = source.replacing(
       "export default function (pi: ExtensionAPI)", with: "function extension(pi: ExtensionAPI)")
     try [runnable, prelude, fixture, epilogue].joined(separator: "\n")
@@ -133,6 +134,7 @@ struct PiExtensionSessionLifecycleTests {
         handlers.get("agent_start")({}, ctx("parent"));
         """)
     #expect(events.map(\.event) == ["session_start", "session_end", "session_start", "busy"])
+    #expect(events.map(\.childCount) == [0, 0, 0, 1], "the child that started under the new owner counts")
     #expect(events.allSatisfy { $0.sessionRef == "parent" })
   }
 
@@ -152,6 +154,50 @@ struct PiExtensionSessionLifecycleTests {
         handlers.get("agent_end")({}, ctx("parent"));
         """)
     #expect(events.map(\.event) == ["session_start", "busy", "idle"])
+    #expect(events.allSatisfy { $0.sessionRef == "parent" })
+  }
+
+  /// A `workflow` fan-out starts its children in one tick, so the owner
+  /// reports the count once, after the debounce, and again as it changes.
+  /// The owner's own busy carries the count it has at that moment.
+  @Test func theOwnerReportsItsRunningChildrenAsOneDebouncedCount() throws {
+    let events = try presenceEvents(
+      fixture: """
+        handlers.get("session_start")({}, ctx("parent"));
+        handlers.get("agent_start")({}, ctx("parent"));
+        handlers.get("agent_start")({}, ctx("child-1"));
+        handlers.get("agent_start")({}, ctx("child-2"));
+        handlers.get("agent_start")({}, ctx("child-3"));
+        handlers.get("agent_end")({}, ctx("child-3"));
+        setTimeout(() => {
+          handlers.get("agent_end")({}, ctx("child-1"));
+          handlers.get("tool_execution_start")({ toolName: "question" }, ctx("parent"));
+        }, 300);
+        """)
+    #expect(events.map(\.event) == ["session_start", "busy", "busy", "awaiting_input"])
+    #expect(events.map(\.childCount) == [0, 0, 2, 0])
+    #expect(events.allSatisfy { $0.sessionRef == "parent" })
+  }
+
+  /// The `workflow` tool returns a run id and the turn ends while the run
+  /// continues, so the owner's idle must read as busy with the count until
+  /// the last child ends, then as plain idle.
+  @Test func anOwnerWhoseTurnEndedStaysBusyWhileItsChildrenRun() throws {
+    let events = try presenceEvents(
+      fixture: """
+        handlers.get("session_start")({}, ctx("parent"));
+        handlers.get("agent_start")({}, ctx("parent"));
+        handlers.get("agent_start")({}, ctx("child-1"));
+        handlers.get("agent_start")({}, ctx("child-2"));
+        handlers.get("agent_end")({}, ctx("parent"));
+        setTimeout(() => handlers.get("agent_end")({}, ctx("child-1")), 300);
+        setTimeout(() => {
+          handlers.get("agent_end")({}, ctx("child-2"));
+          handlers.get("session_shutdown")({ reason: "quit" }, ctx("child-2"));
+        }, 600);
+        """)
+    #expect(events.map(\.event) == ["session_start", "busy", "busy", "busy", "idle"])
+    #expect(events.map(\.childCount) == [0, 0, 2, 1, 0])
     #expect(events.allSatisfy { $0.sessionRef == "parent" })
   }
 

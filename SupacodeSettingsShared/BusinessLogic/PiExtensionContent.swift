@@ -29,6 +29,8 @@ nonisolated enum PiExtensionContent {
      *   Pi session_start   -> session_start + sid=<session id>  (early link)
      *   Pi agent_start      -> busy + sid=<session id>  (resume ref)
      *   Pi agent_end        -> idle + sid=<session id>  (sticky ref)
+     *   agent_start / agent_end of a sub-agent session in this process
+     *                       -> busy;children=N on the owner (debounced)
      *   Pi tool_execution_start of a prompt tool -> awaiting_input;prompt=question
      *   Pi tool_execution_end of a prompt tool   -> busy (turn continues)
      *   Pi session_shutdown -> session_end + sid + reason
@@ -133,11 +135,18 @@ nonisolated enum PiExtensionContent {
       return `;reason=${reason}`;
     }
 
-    function emitPresence(event: string, sessionRef?: string, reason?: unknown, prompt?: string): void {
+    function emitPresence(
+      event: string,
+      sessionRef?: string,
+      reason?: unknown,
+      prompt?: string,
+      children = 0,
+    ): void {
       const action = event === "session_end" ? "end" : "start";
       const promptSuffix = prompt ? `;prompt=${prompt}` : "";
+      const childrenSuffix = event === "busy" && children > 0 ? `;\(AgentPresenceOSC.childrenField)=${children}` : "";
       const meta =
-        `event=${event}${promptSuffix}${localPidSuffix()}` +
+        `event=${event}${promptSuffix}${childrenSuffix}${localPidSuffix()}` +
         `${sessionRefSuffix(sessionRef)}${shutdownReasonSuffix(reason)}`;
       writeToTerminal(`\\x1b]3008;${action}=${AGENT};${meta}\\x1b\\\\`);
     }
@@ -186,6 +195,105 @@ nonisolated enum PiExtensionContent {
       if (!ownsSurface(ctx)) return false;
       owners[OWNER_KEY] = undefined;
       return true;
+    }
+
+    /**
+     * The owner's own turn state plus the sub-agent sessions running in this
+     * process. A `workflow` run outlives the owner's turn (the tool returns a
+     * run id and the turn ends), so the row must keep reading as working, with
+     * the count, until the last child ends. Children report nothing of their
+     * own; the owner re-emits `busy;children=N` on each change, debounced so a
+     * parallel fan-out of N starts lands as one signal. The watch lives on
+     * globalThis with the owner, since every session loads its own module.
+     */
+    const WATCH_KEY = Symbol.for("supacode.childWatch");
+    const CHILD_EMIT_DEBOUNCE_MS = 250;
+
+    interface ChildWatch {
+      ownerTurnLive: boolean;
+      children: Set<unknown>;
+      timer: ReturnType<typeof setTimeout> | undefined;
+      lastEmittedChildren: number;
+      lastEmittedEvent: string | undefined;
+    }
+
+    function childWatch(): ChildWatch {
+      const existing = owners[WATCH_KEY] as ChildWatch | undefined;
+      if (existing) return existing;
+      const fresh: ChildWatch = {
+        ownerTurnLive: false,
+        children: new Set(),
+        timer: undefined,
+        lastEmittedChildren: 0,
+        lastEmittedEvent: undefined,
+      };
+      owners[WATCH_KEY] = fresh;
+      return fresh;
+    }
+
+    function cancelChildEmit(watch: ChildWatch): void {
+      if (watch.timer === undefined) return;
+      clearTimeout(watch.timer);
+      watch.timer = undefined;
+    }
+
+    function resetChildWatch(): void {
+      const watch = childWatch();
+      cancelChildEmit(watch);
+      watch.ownerTurnLive = false;
+      watch.children.clear();
+      watch.lastEmittedChildren = 0;
+      watch.lastEmittedEvent = undefined;
+    }
+
+    /** Emits the owner's presence now, recording what went out so a debounced re-emit can skip a no-op. */
+    function emitOwnerPresence(event: string, sessionRef: string | undefined, prompt?: string): void {
+      const watch = childWatch();
+      cancelChildEmit(watch);
+      const children = watch.children.size;
+      const effective = event === "idle" && children > 0 ? "busy" : event;
+      watch.lastEmittedEvent = effective;
+      watch.lastEmittedChildren = effective === "busy" ? children : 0;
+      emitPresence(effective, sessionRef, undefined, prompt, children);
+    }
+
+    /** Owner sid for a debounced re-emit, read off the owning session manager. */
+    function ownerSessionRef(): string | undefined {
+      return sessionRef({ sessionManager: owners[OWNER_KEY] as { getSessionId?(): string | undefined } | undefined });
+    }
+
+    function scheduleChildEmit(): void {
+      const watch = childWatch();
+      if (watch.timer !== undefined) return;
+      const timer = setTimeout(() => {
+        watch.timer = undefined;
+        if (owners[OWNER_KEY] === undefined) return;
+        const children = watch.children.size;
+        // An owner mid-turn is already busy; only the count can change. A
+        // question blocks on the user whatever the children do.
+        const asking = watch.lastEmittedEvent === "awaiting_input";
+        const base = asking ? "awaiting_input" : watch.ownerTurnLive ? "busy" : "idle";
+        const effective = base === "idle" && children > 0 ? "busy" : base;
+        const emittedChildren = effective === "busy" ? children : 0;
+        if (effective === watch.lastEmittedEvent && emittedChildren === watch.lastEmittedChildren) return;
+        watch.lastEmittedEvent = effective;
+        watch.lastEmittedChildren = emittedChildren;
+        emitPresence(effective, ownerSessionRef(), undefined, undefined, children);
+      }, CHILD_EMIT_DEBOUNCE_MS);
+      timer.unref?.();
+      watch.timer = timer;
+    }
+
+    function childStarted(ctx: { sessionManager?: unknown }): void {
+      if (owners[OWNER_KEY] === undefined || ctx.sessionManager === undefined) return;
+      childWatch().children.add(ctx.sessionManager);
+      scheduleChildEmit();
+    }
+
+    function childEnded(ctx: { sessionManager?: unknown }): void {
+      const watch = childWatch();
+      if (!watch.children.delete(ctx.sessionManager)) return;
+      scheduleChildEmit();
     }
 
     // JSON-escape (minus the surrounding quotes) so the wire matches the shell
@@ -237,34 +345,39 @@ nonisolated enum PiExtensionContent {
       // first turn. Replaces the unconditional load-time emitPresence above.
       pi.on("session_start", (_event, ctx) => {
         if (!claimSurface(ctx)) return;
+        resetChildWatch();
         emitPresence("session_start", sessionRef(ctx));
       });
 
       pi.on("agent_start", (_event, ctx) => {
-        if (!ownsSurface(ctx)) return;
-        emitPresence("busy", sessionRef(ctx));
+        if (!ownsSurface(ctx)) return childStarted(ctx);
+        childWatch().ownerTurnLive = true;
+        emitOwnerPresence("busy", sessionRef(ctx));
       });
 
       pi.on("tool_execution_start", (event, ctx) => {
         if (!ownsSurface(ctx) || !PROMPT_TOOLS.has(event.toolName)) return;
-        emitPresence("awaiting_input", sessionRef(ctx), undefined, "question");
+        emitOwnerPresence("awaiting_input", sessionRef(ctx), "question");
       });
 
       pi.on("tool_execution_end", (event, ctx) => {
         if (!ownsSurface(ctx) || !PROMPT_TOOLS.has(event.toolName)) return;
-        emitPresence("busy", sessionRef(ctx));
+        emitOwnerPresence("busy", sessionRef(ctx));
       });
 
       pi.on("agent_end", (_event, ctx) => {
-        if (!ownsSurface(ctx)) return;
+        if (!ownsSurface(ctx)) return childEnded(ctx);
+        childWatch().ownerTurnLive = false;
         // Emit the sid on idle too so Supacode can associate the last-known
         // session id with the surface even when no busy turn occurred yet.
-        emitPresence("idle", sessionRef(ctx));
+        // Running children keep this a busy, with their count.
+        emitOwnerPresence("idle", sessionRef(ctx));
         emitNotification({ body: lastAssistantText(ctx) });
       });
 
       pi.on("session_shutdown", (event, ctx) => {
-        if (!releaseSurface(ctx)) return;
+        if (!releaseSurface(ctx)) return childEnded(ctx);
+        resetChildWatch();
         emitPresence("session_end", sessionRef(ctx), event.reason);
       });
     }
