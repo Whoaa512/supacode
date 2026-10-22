@@ -262,3 +262,13 @@ Claude's PreToolUse hook now emits `awaiting_input;prompt=question` for
 AskUserQuestion (a7e06330); Grok/Kimi hooks still report it as a plain
 permission prompt, so those sessions show the exclamation instead of the
 question bubble. Copy the split. Trivial; next factory run.
+
+## Running workflow/sub-agents have no sidebar indication (cj, live, 2026-10-20)
+
+Side effect of ba4dfb27/8026b3d3: child agents are silenced, so a pi session
+whose `workflow` is running looks like a plain working row. cj wants an
+indication on the parent row. Shape: the owning session's extension counts
+in-process child agent_start/agent_end and reports `busy;children=N` (wire
+backwards compatible); the row shows a small "N" badge beside the working
+gear with tooltip "N sub-agents running"; clears at 0. No child rows, no
+members. Factory run 4.
